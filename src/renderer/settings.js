@@ -726,6 +726,21 @@ export function initSettings(api) {
 
     const kind = entry.ui.input;
     let input = null;
+    if (kind === "action") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "settings-action";
+      btn.textContent = "Reset";
+      btn.addEventListener("click", () => {
+        try {
+          if (entry.key === "libraryResetCache") {
+            document.dispatchEvent(new CustomEvent("abcarus:reset-library-cache"));
+          }
+        } catch {}
+      });
+      row.appendChild(btn);
+      return row;
+    }
     if (kind === "checkbox") {
       input = document.createElement("input");
       input.type = "checkbox";

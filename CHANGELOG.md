@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library: group by `T` using a normalized TitleKey, plus TitleKey-aware quick search in Library Catalog.
+- Library Settings: configure TitleKey length, strict TitleKey mode, and optional library cache (default OFF) with a reset action.
+- Diagnostics: optional toggles for debug messages and auto-debug dumps (Help → Diagnostics).
+
+### Fixed
+- Playback selection: stabilize range playback and clean up stale playhead markers after playback ends.
 
 
 ## [0.24.4] - 2026-01-27

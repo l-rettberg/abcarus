@@ -297,14 +297,54 @@
     return { ok: false, error: (res && res.error) ? res.error : "Unable to open tune." };
   }
 
+    function normalizeTitleKey(raw) {
+      const input = String(raw || "");
+      if (!input.trim()) return "";
+      const strict = Boolean(window && window.__abcarusLibraryTitleKeyStrict);
+      const maxLenRaw = window && Number.isFinite(Number(window.__abcarusLibraryTitleKeyLength))
+        ? Math.round(Number(window.__abcarusLibraryTitleKeyLength))
+        : 25;
+      const maxLen = maxLenRaw > 0 ? maxLenRaw : 25;
+      if (strict) {
+        const cleaned = input.replace(/\s+/g, " ").trim();
+        if (maxLen > 0 && cleaned.length > maxLen) return cleaned.slice(0, maxLen);
+        return cleaned;
+      }
+      let normalized = "";
+      try {
+        normalized = input.normalize("NFKD");
+      } catch {
+        normalized = input;
+      }
+      try {
+        normalized = normalized.replace(/\p{M}+/gu, "");
+      } catch {
+        normalized = normalized.replace(/[\u0300-\u036f]+/g, "");
+      }
+      normalized = normalized.toLowerCase();
+      normalized = normalized
+        .replace(/[’‘ʻʼ´`]/g, "'")
+        .replace(/[‐-‒–—―]/g, "-")
+        .replace(/[。．｡․·•∙⋅]/g, ".")
+        .replace(/ı/g, "i");
+      try {
+        normalized = normalized.replace(/[^0-9a-z\u00c0-\u024f\u0370-\u03ff\u1f00-\u1fff\u0400-\u04ff\u0530-\u058f\u0590-\u05ff\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\u10a0-\u10ff\u2d00-\u2d2f\uFB50-\uFDFF\uFE70-\uFEFF]+/giu, " ");
+      } catch {
+        normalized = normalized.replace(/[^0-9a-z]+/gi, " ");
+      }
+      normalized = normalized.replace(/\s+/g, " ").trim();
+      if (!normalized) return "";
+      if (maxLen > 0 && normalized.length > maxLen) return normalized.slice(0, maxLen);
+      return normalized;
+    }
+
     function buildSearchString(r) {
-      return `${r && r.file != null ? r.file : ""} ${r && r.tuneNo != null ? r.tuneNo : ""} ${r && r.title != null ? r.title : ""} ${r && r.composer != null ? r.composer : ""} ${r && r.key != null ? r.key : ""} ${r && r.meter != null ? r.meter : ""} ${r && r.tempo != null ? r.tempo : ""} ${r && r.rhythm != null ? r.rhythm : ""} ${r && r.origin != null ? r.origin : ""} ${r && r.group != null ? r.group : ""} ${r && r.modified != null ? r.modified : ""}`.toLowerCase();
+      const title = r && r.title != null ? r.title : "";
+      const titleKey = normalizeTitleKey(title);
+      return `${r && r.file != null ? r.file : ""} ${r && r.tuneNo != null ? r.tuneNo : ""} ${title} ${titleKey} ${r && r.composer != null ? r.composer : ""} ${r && r.key != null ? r.key : ""} ${r && r.meter != null ? r.meter : ""} ${r && r.tempo != null ? r.tempo : ""} ${r && r.rhythm != null ? r.rhythm : ""} ${r && r.origin != null ? r.origin : ""} ${r && r.group != null ? r.group : ""} ${r && r.modified != null ? r.modified : ""}`.toLowerCase();
     }
 
     function getRowSearchText(rowData) {
-      try {
-        if (rowData && typeof rowData.searchText === "string") return rowData.searchText;
-      } catch {}
       return buildSearchString(rowData);
     }
 
@@ -565,6 +605,7 @@
 
   function applyQuickFilter(query) {
     const q = String(query || "").trim().toLowerCase();
+    const qKey = normalizeTitleKey(q);
     if (!libTable) return;
     resetStatus();
     setSelectedRowData(null);
@@ -575,7 +616,14 @@
     }
     libTable.setFilter((data) => {
       try {
-        return getRowSearchText(data).includes(q);
+        const hay = getRowSearchText(data);
+        if (hay.includes(q)) return true;
+        if (qKey && hay.includes(qKey)) return true;
+        if (qKey) {
+          const titleKey = normalizeTitleKey(data && data.title ? data.title : "");
+          if (titleKey && titleKey.includes(qKey)) return true;
+        }
+        return false;
       } catch (_e) {
         return false;
       }

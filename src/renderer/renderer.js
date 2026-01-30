@@ -3203,6 +3203,7 @@ window.libraryActions = libraryActions;
 const GROUP_LABELS = {
   file: "File",
   x: "X",
+  titlekey: "T",
   composer: "C",
   meter: "M",
   key: "K",
@@ -3213,6 +3214,45 @@ const GROUP_LABELS = {
   origin: "O",
   group: "G",
 };
+
+let libraryTitleKeyLength = 25;
+let libraryTitleKeyStrict = false;
+
+function normalizeTitleKey(raw, maxLen = libraryTitleKeyLength, strict = libraryTitleKeyStrict) {
+  const input = String(raw || "");
+  if (!input.trim()) return "";
+  if (strict) {
+    const cleaned = input.replace(/\s+/g, " ").trim();
+    if (maxLen > 0 && cleaned.length > maxLen) return cleaned.slice(0, maxLen);
+    return cleaned;
+  }
+  let normalized = "";
+  try {
+    normalized = input.normalize("NFKD");
+  } catch {
+    normalized = input;
+  }
+  try {
+    normalized = normalized.replace(/\p{M}+/gu, "");
+  } catch {
+    normalized = normalized.replace(/[\u0300-\u036f]+/g, "");
+  }
+  normalized = normalized.toLowerCase();
+  normalized = normalized
+    .replace(/[’‘ʻʼ´`]/g, "'")
+    .replace(/[‐-‒–—―]/g, "-")
+    .replace(/[。．｡․·•∙⋅]/g, ".")
+    .replace(/ı/g, "i");
+  try {
+    normalized = normalized.replace(/[^0-9a-z\u00c0-\u024f\u0370-\u03ff\u1f00-\u1fff\u0400-\u04ff\u0530-\u058f\u0590-\u05ff\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\u10a0-\u10ff\u2d00-\u2d2f\uFB50-\uFDFF\uFE70-\uFEFF]+/giu, " ");
+  } catch {
+    normalized = normalized.replace(/[^0-9a-z]+/gi, " ");
+  }
+  normalized = normalized.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (maxLen > 0 && normalized.length > maxLen) return normalized.slice(0, maxLen);
+  return normalized;
+}
 
 function formatPathTail(filePath, segments = 3) {
   const raw = String(filePath || "").trim();
@@ -3560,6 +3600,11 @@ function applyLibraryPrefsFromSettings(settings) {
     libraryGroupBy: String(settings.libraryGroupBy || "").trim() || null,
     librarySortBy: String(settings.librarySortBy || "").trim() || null,
     libraryFilterText: String(settings.libraryFilterText || ""),
+    libraryTitleKeyLength: Number.isFinite(Number(settings.libraryTitleKeyLength))
+      ? Math.round(Number(settings.libraryTitleKeyLength))
+      : null,
+    libraryTitleKeyStrict: Boolean(settings.libraryTitleKeyStrict),
+    libraryCacheEnabled: Boolean(settings.libraryCacheEnabled),
   };
   const sig = JSON.stringify(normalized);
   if (sig === lastAppliedLibraryPrefsSig) return;
@@ -3584,11 +3629,26 @@ function applyLibraryPrefsFromSettings(settings) {
     pendingLibrarySearch = "";
     applyLibrarySearch(nextFilter);
 
+    const keyLen = normalized.libraryTitleKeyLength;
+    libraryTitleKeyLength = Number.isFinite(keyLen) && keyLen > 0 ? keyLen : 25;
+    libraryTitleKeyStrict = Boolean(normalized.libraryTitleKeyStrict);
+    window.__abcarusLibraryTitleKeyLength = libraryTitleKeyLength;
+    window.__abcarusLibraryTitleKeyStrict = libraryTitleKeyStrict;
+    window.__abcarusLibraryCacheEnabled = Boolean(normalized.libraryCacheEnabled);
+
     const width = normalized.libraryPaneWidth;
     if (Number.isFinite(width) && width > 0) lastSidebarWidth = width;
 
     const visible = normalized.libraryPaneVisible;
     setLibraryVisible(visible);
+    scheduleRenderLibraryTree();
+    try {
+      libraryViewStore.invalidate();
+      if (document.body.classList.contains("library-list-open")) {
+        const rows = libraryViewStore.getModalRows();
+        document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
+      }
+    } catch {}
   } finally {
     suppressLibraryPrefsWrite = prevSuppress;
   }
@@ -6331,6 +6391,12 @@ function matchLibraryText(value, needle) {
 
 function tuneMatchesText(tune, needle) {
   if (!tune) return false;
+  const rawTitle = tune.title || tune.preview || "";
+  const needleKey = normalizeTitleKey(String(needle || ""), 0, libraryTitleKeyStrict);
+  if (needleKey) {
+    const titleKey = normalizeTitleKey(rawTitle, 0, libraryTitleKeyStrict);
+    if (titleKey && titleKey.includes(needleKey)) return true;
+  }
   if (matchLibraryText(tune.title, needle)) return true;
   if (matchLibraryText(tune.preview, needle)) return true;
   if (matchLibraryText(tune.composer, needle)) return true;
@@ -9118,6 +9184,7 @@ function toggleLibrary() {
 function getGroupValue(tune, mode) {
   if (!tune) return "";
   if (mode === "x") return tune.xNumber || "";
+  if (mode === "titlekey") return normalizeTitleKey(tune.title || tune.preview || "", 25);
   if (mode === "composer") return tune.composer || "";
   if (mode === "meter") return tune.meter || "";
   if (mode === "key") return tune.key || "";
@@ -18693,6 +18760,17 @@ if (window.api && typeof window.api.onAppRequestQuit === "function") {
     requestQuitApplication();
   });
 }
+
+document.addEventListener("abcarus:reset-library-cache", () => {
+  try {
+    libraryViewStore.invalidate();
+    scheduleRenderLibraryTree();
+    if (document.body.classList.contains("library-list-open")) {
+      const rows = libraryViewStore.getModalRows();
+      document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
+    }
+  } catch {}
+});
 
 settingsController = initSettings(window.api);
 logStartupPerf("initSettings() done");

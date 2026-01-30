@@ -111,6 +111,15 @@ const $btnPlay = document.getElementById("btnPlay");
 const $btnPause = document.getElementById("btnPause");
 const $btnStop = document.getElementById("btnStop");
 const $btnPlayPause = document.getElementById("btnPlayPause");
+const $btnPlayAB = document.getElementById("btnPlayAB");
+const $btnClearAB = document.getElementById("btnClearAB");
+const $abOptions = document.getElementById("abOptions");
+const $abOptionsToggle = document.getElementById("abOptionsToggle");
+const $abOptionsPopover = document.getElementById("abOptionsPopover");
+const $abOptSuppressRepeats = document.getElementById("abOptSuppressRepeats");
+const $abOptMuteGchords = document.getElementById("abOptMuteGchords");
+const $abOptVoicesWrap = document.getElementById("abOptVoicesWrap");
+const $abOptVoices = document.getElementById("abOptVoices");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
 const $practiceLoopWrap = document.getElementById("practiceLoopWrap");
@@ -690,6 +699,300 @@ function shouldUseZeroPageMarginsForSetList() {
   return hasLeft0 && hasRight0;
 }
 
+// ---------------- A–B playback helpers ----------------
+
+function abRevisionToken() {
+  return abRevision;
+}
+
+function isAbPlanValid() {
+  if (!abPlan) return false;
+  if (rawMode || payloadMode) return false;
+  if (abPlan.revisionToken !== abRevision) return false;
+  if (!Number.isFinite(abPlan.startOffset) || !Number.isFinite(abPlan.endOffset)) return false;
+  if (abPlan.endOffset - abPlan.startOffset < AB_MIN_LENGTH) return false;
+  return true;
+}
+
+function updateAbUi() {
+  const valid = isAbPlanValid();
+  if ($btnPlayAB) $btnPlayAB.disabled = !valid || isPlaybackBusy();
+  if ($btnClearAB) $btnClearAB.disabled = !abPlan;
+  if ($abOptions) $abOptions.hidden = rawMode || payloadMode;
+  if ($abOptionsToggle) $abOptionsToggle.disabled = !$abOptions || $abOptions.hidden;
+}
+
+function clearAbPlan({ toast } = {}) {
+  const had = abPlan;
+  abPlan = null;
+  abVoiceIds = [];
+  setAbMarkers(null);
+  toggleAbOptionsPopover(false);
+  updateAbUi();
+  if (had && toast) showToast("Markers cleared (score changed)", 2400);
+  if (isPlaying && activePlaybackRange && activePlaybackRange.origin === "ab") {
+    stopPlaybackTransport();
+  }
+}
+
+function setAbPlanRange(startOffset, endOffset) {
+  if (!editorView) return;
+  deriveAbVoices(getEditorValue());
+  const max = editorView.state.doc.length;
+  const s = Math.max(0, Math.min(max, Number(startOffset) || 0));
+  const e = Math.max(0, Math.min(max, Number(endOffset) || 0));
+  const start = Math.min(s, e);
+  const end = Math.max(s, e);
+  if (end - start < AB_MIN_LENGTH) {
+    showToast("Select a longer region for A–B.", 2200);
+    return;
+  }
+  const prevMuted = (abPlan && abPlan.mutedVoices) ? { ...abPlan.mutedVoices } : {};
+  abPlan = {
+    mode: "ab-loop",
+    startOffset: start,
+    endOffset: end,
+    mutedVoices: prevMuted,
+    suppressRepeats: abPlan ? Boolean(abPlan.suppressRepeats) : true,
+    muteGchords: abPlan ? Boolean(abPlan.muteGchords) : false,
+    revisionToken: abRevision,
+  };
+  setAbMarkers({ start, end });
+  updateAbUi();
+  refreshAbOptionsUi();
+}
+
+function setAbPlanOptions(opts = {}) {
+  if (!abPlan) return;
+  abPlan = {
+    ...abPlan,
+    suppressRepeats: opts.suppressRepeats != null ? !!opts.suppressRepeats : abPlan.suppressRepeats,
+    muteGchords: opts.muteGchords != null ? !!opts.muteGchords : abPlan.muteGchords,
+    mutedVoices: opts.mutedVoices || abPlan.mutedVoices || {},
+  };
+  updateAbUi();
+  refreshAbOptionsUi();
+}
+
+function toggleAbOptionsPopover(show) {
+  if (!$abOptionsPopover) return;
+  const next = show === undefined ? $abOptionsPopover.classList.contains("hidden") : !!show;
+  $abOptionsPopover.classList.toggle("hidden", !next);
+}
+
+function refreshAbOptionsUi() {
+  if (!$abOptionsPopover) return;
+  deriveAbVoices(getEditorValue());
+  if ($abOptSuppressRepeats && abPlan) $abOptSuppressRepeats.checked = !!abPlan.suppressRepeats;
+  if ($abOptMuteGchords && abPlan) $abOptMuteGchords.checked = !!abPlan.muteGchords;
+  if ($abOptVoices && $abOptVoicesWrap) {
+    $abOptVoices.textContent = "";
+    if (Array.isArray(abVoiceIds) && abVoiceIds.length > 1) {
+      $abOptVoicesWrap.hidden = false;
+      for (const id of abVoiceIds) {
+        const row = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !(abPlan && abPlan.mutedVoices && abPlan.mutedVoices[id]);
+        cb.addEventListener("change", () => {
+          if (!abPlan) return;
+          const muted = { ...(abPlan.mutedVoices || {}) };
+          if (!cb.checked) muted[id] = true;
+          else delete muted[id];
+          setAbPlanOptions({ mutedVoices: muted });
+        });
+        row.appendChild(cb);
+        row.append(` ${id}`);
+        $abOptVoices.appendChild(row);
+      }
+    } else {
+      $abOptVoicesWrap.hidden = true;
+    }
+  }
+}
+
+function deriveAbVoices(tuneText) {
+  const out = new Set();
+  const text = String(tuneText || "");
+  text.split(/\r\n|\n|\r/).forEach((line) => {
+    const m = line.match(/^\s*V\s*:\s*([^\s]+)/i);
+    if (m && m[1]) out.add(m[1].trim());
+  });
+  const inline = text.match(/\[V\s*:\s*([^\]\s]+)/gi) || [];
+  for (const token of inline) {
+    const m = token.match(/\[V\s*:\s*([^\]\s]+)/i);
+    if (m && m[1]) out.add(m[1].trim());
+  }
+  abVoiceIds = Array.from(out);
+}
+
+function hasRepeatTokensInSlice(text, start, end) {
+  const src = String(text || "");
+  const a = Math.max(0, Math.min(src.length, Number(start) || 0));
+  const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
+  const slice = src.slice(a, b);
+  return /(\|\:|:\||\[\d|\[1|\[2|repeat)/i.test(slice);
+}
+
+function getSelectionPlaybackRange() {
+  if (!editorView) return null;
+  if (rawMode || payloadMode) return null;
+  const sel = editorView.state.selection.main;
+  const start = Math.min(sel.anchor, sel.head);
+  const end = Math.max(sel.anchor, sel.head);
+  if (end <= start) return null;
+  return { startOffset: start, endOffset: end };
+}
+
+// Strip repeat/volta markers inside the given text slice for linear selection playback.
+function stripRepeatsForSelection(text) {
+  const src = String(text || "");
+  const lines = src.split(/\r\n|\n|\r/);
+  const out = [];
+  let inTextBlock = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
+    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
+    if (inTextBlock) {
+      out.push(rawLine);
+      continue;
+    }
+    let line = rawLine;
+    // Replace repeat starts/ends and voltas with same-length neutral bars/spaces.
+    line = line.replace(/\|\s*:\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    line = line.replace(/:\s*\|\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    line = line.replace(/:\s*\|:\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    line = line.replace(/\[\s*\d+/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    line = line.replace(/:{2,}/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    // Only treat D.C./D.S. as playback directives when explicitly marked as decorations (e.g. !D.C.!).
+    // Bare "DC" can be a real note sequence and must be preserved.
+    line = line.replace(/!D\.?C\.?!/gi, (m) => " ".repeat(String(m || "").length));
+    line = line.replace(/!D\.?S\.?!/gi, (m) => " ".repeat(String(m || "").length));
+    line = line.replace(/\bCoda\b/gi, (m) => " ".repeat(String(m || "").length));
+    line = line.replace(/\bFine\b/gi, (m) => " ".repeat(String(m || "").length));
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+function stripRepeatsLengthSafe(text) {
+  return stripRepeatsForSelection(text);
+}
+
+function stripGchordDirectives(text) {
+  return String(text || "").replace(/^\s*%%\s*MIDI\s+gchord[^\r\n]*$/gim, "");
+}
+
+function withTempPlaybackFlags(flags, fn) {
+  const prevStrip = window.__abcarusPlaybackStripChordSymbols;
+  const prevExpand = window.__abcarusPlaybackExpandRepeats;
+  const prevSkipDrums = playbackSkipDrumsOnce;
+  if (flags && flags.stripChords !== undefined) window.__abcarusPlaybackStripChordSymbols = !!flags.stripChords;
+  if (flags && flags.expandRepeats !== undefined) window.__abcarusPlaybackExpandRepeats = !!flags.expandRepeats;
+  if (flags && flags.skipDrums !== undefined) playbackSkipDrumsOnce = !!flags.skipDrums;
+  const restore = () => {
+    window.__abcarusPlaybackStripChordSymbols = prevStrip;
+    window.__abcarusPlaybackExpandRepeats = prevExpand;
+    playbackSkipDrumsOnce = prevSkipDrums;
+  };
+  const result = fn();
+  if (result && typeof result.then === "function") return result.finally(restore);
+  restore();
+  return result;
+}
+
+function setAbPoint(which) {
+  if (!editorView) return;
+  const pos = editorView.state.selection.main.head;
+  if (!abPlan) {
+    abPlan = {
+      mode: "ab-loop",
+      startOffset: pos,
+      endOffset: pos,
+      mutedVoices: {},
+      suppressRepeats: true,
+      muteGchords: false,
+      revisionToken: abRevision,
+    };
+  } else {
+    if (which === "a") abPlan.startOffset = pos;
+    else abPlan.endOffset = pos;
+    abPlan.revisionToken = abRevision;
+  }
+  setAbMarkers({ start: abPlan.startOffset, end: abPlan.endOffset });
+  if (Number.isFinite(abPlan.startOffset) && Number.isFinite(abPlan.endOffset) && abPlan.endOffset !== abPlan.startOffset) {
+    setAbPlanRange(abPlan.startOffset, abPlan.endOffset);
+  } else {
+    updateAbUi();
+  }
+}
+
+function setAbFromSelection() {
+  if (!editorView) return;
+  const sel = editorView.state.selection.main;
+  const start = Math.min(sel.anchor, sel.head);
+  const end = Math.max(sel.anchor, sel.head);
+  setAbPlanRange(start, end);
+}
+
+async function playAbLoop() {
+  if (abPlan && abPlan.revisionToken !== abRevision) {
+    clearAbPlan({ toast: true });
+    return;
+  }
+  if (!isAbPlanValid()) {
+    showToast("Set A and B first.", 2200);
+    return;
+  }
+  if (rawMode || payloadMode) {
+    showToast("Switch to tune mode to play A–B.", 2400);
+    return;
+  }
+  if (abPlan.mutedVoices && Object.values(abPlan.mutedVoices).some(Boolean)) {
+    showToast("Voice muting not supported in A–B playback (yet).", 3200);
+    return;
+  }
+  const text = getEditorValue();
+  deriveAbVoices(text);
+  const hasRepeats = hasRepeatTokensInSlice(text, abPlan.startOffset, abPlan.endOffset);
+  if (!abPlan.suppressRepeats && hasRepeats) {
+    showToast("Range crosses repeat; suppress repeats or adjust B.", 3600);
+    return;
+  }
+
+  const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
+  if (abPlan.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
+  try {
+    setPlaybackRange({
+      startOffset: abPlan.startOffset,
+      endOffset: abPlan.endOffset,
+      origin: "ab",
+      loop: true,
+    });
+    await startPlaybackFromRange({ startOffset: abPlan.startOffset, endOffset: abPlan.endOffset, origin: "ab", loop: true });
+  } finally {
+    window.__abcarusPlaybackStripChordSymbols = prevStripChord;
+  }
+}
+
+async function playSelectionOnce() {
+  const range = getSelectionPlaybackRange();
+  if (!range) return false;
+  if (rawMode || payloadMode) return false;
+  const max = editorView ? editorView.state.doc.length : 0;
+  const start = Math.max(0, Math.min(max, range.startOffset));
+  const end = Math.max(start + 1, Math.min(max, range.endOffset));
+  const sel = editorView.state.selection.main;
+  selectionPlaybackCursor = Math.min(sel.anchor, sel.head);
+  selectionPlaybackSelection = { anchor: sel.anchor, head: sel.head };
+  selectionPlaybackActive = true;
+  const text = getEditorValue();
+  setPlaybackRange({ startOffset: start, endOffset: end, origin: "selection", loop: false });
+  await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: false });
+  return true;
+}
+
 // PlaybackRange must be initialized before initEditor() runs (selection listeners fire early).
 let playbackRange = {
   startOffset: 0,
@@ -711,14 +1014,19 @@ let lastTraceTimestamp = null;
 let playbackTraceSeq = 0;
 
 	let practiceTempoMultiplier = 1;
-	let playbackLoopEnabled = false;
-	let playbackLoopFromMeasure = 0;
-	let playbackLoopToMeasure = 0;
-	let playbackLoopTuneId = null;
-	const FOCUS_LOOP_DEFAULT_FROM = 1;
-	const FOCUS_LOOP_DEFAULT_TO = 4;
-	let currentPlaybackPlan = null;
-	let pendingPlaybackPlan = null;
+let playbackLoopEnabled = false;
+let playbackLoopFromMeasure = 0;
+let playbackLoopToMeasure = 0;
+let playbackLoopTuneId = null;
+const FOCUS_LOOP_DEFAULT_FROM = 1;
+const FOCUS_LOOP_DEFAULT_TO = 4;
+let currentPlaybackPlan = null;
+let pendingPlaybackPlan = null;
+let selectionPlaybackCursor = null;
+let selectionPlaybackSelection = null; // {anchor, head}
+let selectionPlaybackActive = false;
+let playbackSkipGchordsOnce = false;
+let playbackIgnoreRepeatsOnce = false;
 let transportPlayheadOffset = 0; // editor offset used for next transport start
 let transportJumpHighlightActive = false;
 let suppressTransportJumpClearOnce = false;
@@ -740,6 +1048,10 @@ let lastSvgPlayheadXCenter = null;
 let activeErrorHighlight = null; // {id, from, to, tuneId, filePath, message, messageKey, lastSvgRenderIdx}
 let activeErrorNavIndex = -1;
 let lastNoErrorsToastAtMs = 0;
+let abDecorations = Decoration.none;
+let abMarkers = null; // {start,end}
+let playbackSkipDrumsOnce = false;
+let playbackSelectionMode = false;
 
 function normalizeErrorMessageForMatch(message) {
   const msg = String(message || "").trim();
@@ -1151,6 +1463,14 @@ function clearSvgPlayhead() {
   if (lastSvgPlayheadEl) {
     try { lastSvgPlayheadEl.remove(); } catch {}
   }
+  if ($out) {
+    try {
+      const leftovers = $out.querySelectorAll(".svg-playhead-line");
+      leftovers.forEach((el) => {
+        try { el.remove(); } catch {}
+      });
+    } catch {}
+  }
   lastSvgPlayheadEl = null;
   lastSvgPlayheadSvg = null;
   lastSvgPlayheadXCenter = null;
@@ -1375,6 +1695,10 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
 
 	  if (lastSvgPlayheadSvg && lastSvgPlayheadSvg !== svg) {
 	    clearSvgPlayhead();
+	  }
+	  if (lastSvgPlayheadEl && lastSvgPlayheadEl.parentNode && lastSvgPlayheadEl.parentNode !== hostParent) {
+	    try { lastSvgPlayheadEl.remove(); } catch {}
+	    lastSvgPlayheadEl = null;
 	  }
 	  if (!lastSvgPlayheadEl || lastSvgPlayheadSvg !== svg || (lastSvgPlayheadEl && lastSvgPlayheadEl.parentNode !== hostParent)) {
 	    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1624,12 +1948,41 @@ const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "")
 const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") === "1";
 let autoDumpLastAtMs = 0;
 let autoDumpSeq = 0;
+let autoWcDumpLastAtMs = 0;
+let autoWcDumpSeq = 0;
+try {
+  const savedSeq = Number(localStorage.getItem("abcarusWcDumpSeq") || 0);
+  if (Number.isFinite(savedSeq) && savedSeq > 0) autoWcDumpSeq = savedSeq;
+} catch {}
+
+// ---------------------------------------------------------------------------
+// A–B playback (Issue #21, MVP)
+// ---------------------------------------------------------------------------
+
+const AB_MIN_LENGTH = 2; // chars
+let abPlan = null; // {mode, startOffset, endOffset, mutedVoices, suppressRepeats, muteGchords, revisionToken}
+let abRevision = 0;
+let abDecorationsVersion = 0;
+let abVoiceIds = [];
 
 function shouldAutoDump() {
   // Runtime override via DevTools (no reload): window.__abcarusAutoDumpOnError = true/false
   if (window.__abcarusAutoDumpOnError === true) return true;
   if (window.__abcarusAutoDumpOnError === false) return false;
   return AUTO_DUMP_DEFAULT_ENABLED;
+}
+
+function shouldAutoWcDump() {
+  if (window.__abcarusAutoWcDump === true) return true;
+  if (window.__abcarusAutoWcDump === false) return false;
+  return Boolean(latestSettingsSnapshot && latestSettingsSnapshot.autoWcDumpsEnabled);
+}
+
+function getAutoWcDumpLimit() {
+  const raw = latestSettingsSnapshot && Number.isFinite(Number(latestSettingsSnapshot.autoWcDumpsLimit))
+    ? Number(latestSettingsSnapshot.autoWcDumpsLimit)
+    : 12;
+  return clampInt(raw, 3, 50, 12);
 }
 
 function shouldUseNativeMidiDrums() {
@@ -1694,6 +2047,26 @@ function scheduleAutoDump(reason, extra) {
   const target = window.api.pathJoin(dir, fileName);
   window.api.mkdirp(dir).then(() => {
     writeDebugDumpSnapshotToPath(target, { silent: true, reason: `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}` }).catch(() => {});
+  }).catch(() => {});
+}
+
+function scheduleAutoWcDump(reason, extra) {
+  if (!shouldAutoWcDump()) return;
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (now - autoWcDumpLastAtMs < 1500) return;
+  autoWcDumpLastAtMs = now;
+  const seq = (autoWcDumpSeq += 1);
+  try { localStorage.setItem("abcarusWcDumpSeq", String(autoWcDumpSeq)); } catch {}
+  const limit = getAutoWcDumpLimit();
+  const idx = ((seq - 1) % limit) + 1;
+  const slug = sanitizeDumpSlug(reason);
+  const fileName = `abcarus-wc-${idx}.json`;
+  const dir = computeSuggestedDebugDumpDir();
+  if (!dir || !window.api || typeof window.api.mkdirp !== "function" || typeof window.api.pathJoin !== "function") return;
+  const target = window.api.pathJoin(dir, fileName);
+  const reasonText = `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}`;
+  window.api.mkdirp(dir).then(() => {
+    writeDebugDumpSnapshotToPath(target, { silent: true, reason: `auto-wc ${reasonText}` }).catch(() => {});
   }).catch(() => {});
 }
 
@@ -3755,6 +4128,75 @@ function setMeasureErrorRanges(ranges) {
     selection: editorView.state.selection,
     scrollIntoView: false,
   });
+}
+
+function buildAbDecorations(state, markers) {
+  if (!state || !state.doc || !markers || !Number.isFinite(markers.start) || !Number.isFinite(markers.end)) {
+    return Decoration.none;
+  }
+  const builder = new RangeSetBuilder();
+  const max = state.doc.length;
+  const start = Math.max(0, Math.min(max, Math.floor(markers.start)));
+  const end = Math.max(start, Math.min(max, Math.floor(markers.end)));
+  const rangeTo = Math.max(start + 1, end);
+  builder.add(start, rangeTo, Decoration.mark({ class: "cm-ab-range" }));
+  builder.add(start, start + 1, Decoration.widget({
+    side: -1,
+    widget: new class extends WidgetType {
+      toDOM() {
+        const el = document.createElement("span");
+        el.className = "cm-ab-marker cm-ab-marker-a";
+        el.textContent = "A";
+        return el;
+      }
+    }(),
+  }));
+  builder.add(Math.max(start, end - 1), Math.max(start, end - 1) + 1, Decoration.widget({
+    side: 1,
+    widget: new class extends WidgetType {
+      toDOM() {
+        const el = document.createElement("span");
+        el.className = "cm-ab-marker cm-ab-marker-b";
+        el.textContent = "B";
+        return el;
+      }
+    }(),
+  }));
+  return builder.finish();
+}
+
+const abPlugin = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.version = abDecorationsVersion;
+    this.decorations = buildAbDecorations(view.state, abMarkers);
+  }
+  update(update) {
+    if (update.docChanged || update.selectionSet || this.version !== abDecorationsVersion) {
+      this.version = abDecorationsVersion;
+      this.decorations = buildAbDecorations(update.state, abMarkers);
+    } else if (update.docChanged && abMarkers) {
+      // map markers to new positions
+      try {
+        const max = update.state.doc.length;
+        const start = update.changes.mapPos(Number(abMarkers.start), 1);
+        const end = update.changes.mapPos(Number(abMarkers.end), -1);
+        abMarkers = {
+          start: Math.max(0, Math.min(max, start)),
+          end: Math.max(0, Math.min(max, end)),
+        };
+      } catch {}
+    }
+  }
+}, {
+  decorations: (v) => v.decorations,
+});
+
+function setAbMarkers(markers) {
+  abMarkers = markers;
+  abDecorationsVersion += 1;
+  if (editorView) {
+    editorView.dispatch({ selection: editorView.state.selection, scrollIntoView: false });
+  }
 }
 
 function buildBarMismatchDecorations(state, markers) {
@@ -8252,6 +8694,8 @@ function initEditor() {
 	  ]);
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
+      abRevision += 1;
+      if (abPlan) clearAbPlan({ toast: true });
       if (!suppressDirty && currentDoc && !payloadMode) {
         currentDoc.content = update.state.doc.toString();
         currentDoc.dirty = true;
@@ -8312,6 +8756,7 @@ function initEditor() {
         errorActivationHighlightPlugin,
         practiceBarHighlightPlugin,
         intonationHighlightPlugin,
+        abPlugin,
         payloadLayerPlugin,
       ]),
       abcCompletionCompartment.of([
@@ -8331,6 +8776,7 @@ function initEditor() {
     state,
     parent: $editorHost,
   });
+  updateAbUi();
 
   // Completion acceptance should be reliable even when other keymaps also bind Enter/Tab.
   // Use a capturing document handler so it works consistently and for whichever editor is focused.
@@ -9130,7 +9576,18 @@ async function selectTune(tuneId, options = {}) {
     startOffset: sliceStart,
     endOffset: sliceEnd,
   }, { suppressRecent: options.suppressRecent || false });
+  // Reset playback/selection state on tune switch to avoid leaking selection-mode playback flags.
+  selectionPlaybackCursor = null;
+  selectionPlaybackSelection = null;
+  selectionPlaybackActive = false;
+  resetPlaybackState();
+  setPlaybackRange({ startOffset: 0, endOffset: null, origin: "cursor", loop: false });
+  if (editorView) {
+    try { editorView.dispatch({ selection: { anchor: 0, head: 0 }, scrollIntoView: false }); } catch {}
+  }
   setDirtyIndicator(false);
+  clearAbPlan();
+  scheduleAutoWcDump("switch", selected && selected.xNumber ? `X:${String(selected.xNumber)}` : "");
   if (perfOn) {
     logStartupPerf("selectTune() done", {
       ms: Math.round(perfNowMs() - t0),
@@ -9547,12 +10004,12 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.defaultPrevented) return;
   if (e.key !== "Escape") return;
-  if (!(isPlaying || isPaused || waitingForFirstNote)) return;
   // Avoid surprising behavior when typing in inputs (Escape is often used to clear/close UI).
   const el = e.target;
   const tag = el && el.tagName ? String(el.tagName).toLowerCase() : "";
   if (tag === "input" || tag === "textarea" || (el && el.isContentEditable)) return;
   e.preventDefault();
+  // Always route Esc to transport stop/reset so users can “double‑Esc” out of selection play.
   stopPlaybackTransport();
 });
 
@@ -15625,6 +16082,7 @@ async function finalizeWorkingCopySave(filePath) {
   try { await refreshLibraryFile(normalized, { force: true }); } catch {}
   updateLibraryStatus();
   scheduleRenderLibraryTree();
+  scheduleAutoWcDump("save", normalized ? safeBasename(normalized) : "");
   return true;
 }
 
@@ -17787,7 +18245,19 @@ function wireMenuActions() {
       const busy = isPlaybackBusy();
       if (busy) {
         // During Play/Pause, ignore menu actions (except Play/Pause itself, Reset Layout, and Quit).
-        const allowed = new Set(["playToggle", "stopPlayback", "resetLayout", "quit", "openPayloadMode", "playGotoMeasure", "toggleFocusMode", "setSplitOrientation", "toggleSplitOrientation"]);
+        const allowed = new Set([
+          "playToggle",
+          "stopPlayback",
+          "resetLayout",
+          "quit",
+          "openPayloadMode",
+          "playGotoMeasure",
+          "toggleFocusMode",
+          "setSplitOrientation",
+          "toggleSplitOrientation",
+          "toggleDebugMessages",
+          "toggleAutoDump",
+        ]);
         if (!allowed.has(actionType)) return;
       }
       if (payloadMode) {
@@ -17806,6 +18276,8 @@ function wireMenuActions() {
           "resetLayout",
           "setSplitOrientation",
           "toggleSplitOrientation",
+          "toggleDebugMessages",
+          "toggleAutoDump",
           "openKeyboardHelp",
           "openSettings",
           "openSettingsFolder",
@@ -17922,6 +18394,15 @@ function wireMenuActions() {
         ensurePayloadModeUiWired();
         if (payloadMode) await exitPayloadMode();
         else await enterPayloadMode();
+      }
+      else if (actionType === "toggleDebugMessages") {
+        const enabled = Boolean(action && action.value);
+        window.__abcarusDebugPlayback = enabled;
+        window.__abcarusDebugDrums = enabled;
+      }
+      else if (actionType === "toggleAutoDump") {
+        const enabled = Boolean(action && action.value);
+        window.__abcarusAutoDumpOnError = enabled;
       }
       else if (actionType === "printPreview") await runPrintAction("preview");
       else if (actionType === "print") await runPrintAction("print");
@@ -19928,6 +20409,7 @@ function stopPlaybackFromGuard(message) {
   playbackGuardError(message);
   try { scheduleAutoDump("playback-guard", lastPlaybackGuardMessage); } catch {}
   playbackStartToken += 1;
+  const wasSelectionOrigin = activePlaybackRange && activePlaybackRange.origin === "selection";
   if (player && (isPlaying || isPaused) && typeof player.stop === "function") {
     suppressOnEnd = true;
     try { player.stop(); } catch {}
@@ -19947,6 +20429,15 @@ function stopPlaybackFromGuard(message) {
   updatePlayButton();
   clearNoteSelection();
   resetPlaybackUiState();
+  if (wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
+    const len = editorView.state.doc.length;
+    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
+    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
+    editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+  }
+  selectionPlaybackCursor = null;
+  selectionPlaybackSelection = null;
+  selectionPlaybackActive = false;
 }
 
 function clonePlaybackRange(r) {
@@ -20067,6 +20558,7 @@ function updatePlayButton() {
   }
   updatePlaybackInteractionLock();
   updatePracticeUi();
+  updateAbUi();
 }
 
 function isPlaybackBusy() {
@@ -20085,6 +20577,8 @@ function updatePlaybackInteractionLock() {
   disable($btnPause, true);
   disable($btnPlayPause, true);
   disable($btnStop, true);
+  disable($btnPlayAB, true);
+  disable($btnClearAB, true);
   disable($btnResetLayout, true);
   disable($btnFocusMode, true);
 
@@ -20121,6 +20615,8 @@ function updatePlaybackInteractionLock() {
   disable($xIssuesJump);
   disable($xIssuesCopy);
   disable($xIssuesClose, true);
+
+  updateAbUi();
 }
 
 function buildTransportPlaybackPlan() {
@@ -20165,6 +20661,12 @@ async function togglePlayPauseEffective() {
       loop: plan.loopEnabled,
     });
     return;
+  }
+
+  // Selection-first quick play (no extra UI)
+  if (!focusModeEnabled && !rawMode && !payloadMode) {
+    const played = await playSelectionOnce();
+    if (played) return;
   }
 
   const plan = pendingPlaybackPlan || buildTransportPlaybackPlan();
@@ -20260,6 +20762,15 @@ function resetPlaybackState() {
   pendingPlaybackPlan = null;
   clearNoteSelection();
   resetPlaybackUiState();
+  if (selectionPlaybackActive && editorView) {
+    const len = editorView.state.doc.length;
+    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
+    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
+    if (anchor != null) editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+  }
+  selectionPlaybackCursor = null;
+  selectionPlaybackSelection = null;
+  selectionPlaybackActive = false;
   updatePlayButton();
   setSoundfontCaption();
 }
@@ -20563,8 +21074,9 @@ function ensurePlayer() {
         isPreviewing = false;
         return;
       }
-	      const shouldLoop = Boolean(activePlaybackRange && activePlaybackRange.loop);
-	      const loopRange = shouldLoop ? (activeLoopRange || activePlaybackRange) : null;
+      const wasSelectionOrigin = activePlaybackRange && activePlaybackRange.origin === "selection";
+      const shouldLoop = Boolean(activePlaybackRange && activePlaybackRange.loop);
+      const loopRange = shouldLoop ? (activeLoopRange || activePlaybackRange) : null;
       isPlaying = false;
       isPaused = false;
       waitingForFirstNote = false;
@@ -20572,16 +21084,20 @@ function ensurePlayer() {
       updatePlayButton();
       clearNoteSelection();
       clearPlaybackNoteOnEls();
-		      if (!shouldLoop) {
-		        resumeStartIdx = null;
-		        activePlaybackRange = null;
-		        activePlaybackEndAbcOffset = null;
-		        activePlaybackEndSymbol = null;
-		        activeLoopRange = null;
-		        playbackStartArmed = false;
-		        currentPlaybackPlan = null;
-		        // Transport: end-of-tune behaves like Stop (playhead=0).
-		      }
+      clearSvgPlayhead();
+      clearSvgFollowBarHighlight();
+      clearSvgFollowMeasureHighlight();
+      if (!shouldLoop) {
+        resumeStartIdx = null;
+        activePlaybackRange = null;
+        activePlaybackEndAbcOffset = null;
+        activePlaybackEndSymbol = null;
+        activeLoopRange = null;
+        playbackStartArmed = false;
+        currentPlaybackPlan = null;
+        // Transport: end-of-tune behaves like Stop (playhead=0).
+      }
+      if (!shouldLoop) resetPlaybackUiState();
       if (shouldLoop && followPlayback && lastRenderIdx != null && editorView) {
         // When looping, keep the visual follow-cursor without mutating PlaybackRange (loop invariance).
         suppressPlaybackRangeSelectionSync = true;
@@ -20591,11 +21107,11 @@ function ensurePlayer() {
           suppressPlaybackRangeSelectionSync = false;
         }
       }
-	      if (shouldLoop) {
-	        queueMicrotask(() => {
-	          if (!loopRange || !activePlaybackRange || !activePlaybackRange.loop) return;
-	          if (pendingPlaybackPlan) {
-	            const plan = pendingPlaybackPlan;
+      if (shouldLoop) {
+        queueMicrotask(() => {
+          if (!loopRange || !activePlaybackRange || !activePlaybackRange.loop) return;
+          if (pendingPlaybackPlan) {
+            const plan = pendingPlaybackPlan;
 	            pendingPlaybackPlan = null;
 	            currentPlaybackPlan = plan;
 	            applyPlaybackPlanSpeed(plan);
@@ -20607,10 +21123,19 @@ function ensurePlayer() {
 	            }).catch(() => {});
 	            updatePracticeUi();
 	            return;
-	          }
-	          startPlaybackFromRange(loopRange).catch(() => {});
-	        });
-	      }
+          }
+          startPlaybackFromRange(loopRange).catch(() => {});
+        });
+      }
+      if (!shouldLoop && wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
+        const len = editorView.state.doc.length;
+        const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
+        const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
+        editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+        selectionPlaybackCursor = null;
+        selectionPlaybackSelection = null;
+        selectionPlaybackActive = false;
+      }
     },
     onnote: (i, on) => {
       lastPlaybackIdx = i;
@@ -21006,6 +21531,19 @@ function stopPlaybackForRestart() {
 
 function stopPlaybackTransport() {
   playbackStartToken += 1;
+
+  // If already idle and a selection is active, treat Stop as "clear selection / ready from start".
+  if (!isPlaying && !isPaused && !waitingForFirstNote && editorView) {
+    const sel = editorView.state.selection.main;
+    if (sel && sel.anchor !== sel.head) {
+      const len = editorView.state.doc.length;
+      const pos = Math.max(0, Math.min(len, Math.min(sel.anchor, sel.head)));
+      editorView.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: false });
+      clearNoteSelection();
+    }
+  }
+
+  const wasSelectionOrigin = activePlaybackRange && activePlaybackRange.origin === "selection";
   if (player && (isPlaying || isPaused || waitingForFirstNote) && typeof player.stop === "function") {
     suppressOnEnd = true;
     try { player.stop(); } catch {}
@@ -21033,6 +21571,15 @@ function stopPlaybackTransport() {
   setSoundfontCaption();
 
   // Transport: explicit Stop resets internal playhead to 0.
+  if (wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
+    const len = editorView.state.doc.length;
+    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
+    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
+    editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
+  }
+  selectionPlaybackCursor = null;
+  selectionPlaybackSelection = null;
+  selectionPlaybackActive = false;
 }
 
 function toDerivedOffset(editorOffset) {
@@ -23294,6 +23841,9 @@ function diffSignatures(expected, actual) {
 
 function getPlaybackPayload() {
   const tuneText = getEditorValue();
+  const skipDrums = playbackSkipDrumsOnce === true;
+  const skipGchords = playbackSkipGchordsOnce === true;
+  const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
   if (payloadMode) {
     if (payloadModeView === "playback") {
       // In payload mode the editor already contains the full payload text,
@@ -23318,7 +23868,9 @@ function getPlaybackPayload() {
     let payload = { text: String(tuneText || ""), offset };
     payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
     payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
-    const sanitized = sanitizeAbcForPlayback(payload.text);
+    let workingText = payload.text;
+    if (ignoreRepeats) workingText = stripRepeatsLengthSafe(workingText);
+    const sanitized = sanitizeAbcForPlayback(workingText);
     playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
     payload = { text: sanitized.text, offset: payload.offset };
     if (expandRepeats) {
@@ -23336,20 +23888,31 @@ function getPlaybackPayload() {
     assertCleanAbcText(payload.text, "playback payload");
     return payload;
   }
+  if (playbackSelectionMode) {
+    const entry = getActiveFileEntry();
+    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
+    const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
+    lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
+    lastPreparedPlaybackKey = null;
+    return { text, offset: prefixPayload.offset || 0 };
+  }
   const entry = getActiveFileEntry();
   const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  const gchordPreview = injectGchordOn(baseText, prefixPayload.offset || 0);
+  const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
   const nativeDrums = shouldUseNativeMidiDrums();
-  const drumPreview = nativeDrums ? { text: gchordPreviewText, changed: false } : injectDrumPlayback(gchordPreviewText);
+  const drumPreview = (nativeDrums || skipDrums) ? { text: gchordPreviewText, changed: false } : injectDrumPlayback(gchordPreviewText);
   const previewText = normalizeBlankLinesForPlayback(
     normalizeDollarLineBreaksForPlayback(drumPreview && drumPreview.changed ? drumPreview.text : gchordPreviewText)
   );
   const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
   const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
   const drumsFlag = nativeDrums ? "drums:native" : "drums:inject";
-  const sourceKey = `${previewText}|||${prefixPayload.offset || 0}|||${repeatsFlag}|||${drumsFlag}`;
+  const skipDrumsFlag = skipDrums ? "skipdrums:on" : "skipdrums:off";
+  const gchordFlag = skipGchords ? "gchords:off" : "gchords:on";
+  const ignoreFlag = ignoreRepeats ? "ignore:on" : "ignore:off";
+  const sourceKey = `${previewText}|||${prefixPayload.offset || 0}|||${repeatsFlag}|||${drumsFlag}|||${skipDrumsFlag}|||${gchordFlag}|||${ignoreFlag}`;
   if (lastPlaybackPayloadCache && lastPlaybackPayloadCache.key === sourceKey) {
     lastPlaybackMeta = lastPlaybackPayloadCache.meta
       || { drumInsertAtLine: null, drumLineCount: 0 };
@@ -23407,7 +23970,9 @@ function getPlaybackPayload() {
     }
   }
 
-  const drumInjected = nativeDrums ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 } : injectDrumPlayback(payload.text);
+  const drumInjected = (nativeDrums || skipDrums)
+    ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 }
+    : injectDrumPlayback(payload.text);
   if (drumInjected && drumInjected.signatureDiff) {
     lastDrumSignatureDiff = drumInjected.signatureDiff;
     playbackSanitizeWarnings.push({ kind: "drum-signature-mismatch", detail: drumInjected.signatureDiff });
@@ -23415,9 +23980,16 @@ function getPlaybackPayload() {
     lastDrumSignatureDiff = null;
   }
   if (drumInjected && drumInjected.changed) payload = { text: drumInjected.text, offset: payload.offset };
+  if (skipGchords) payload = { text: stripGchordDirectives(payload.text), offset: payload.offset };
   lastPlaybackMeta = drumInjected.changed
     ? { drumInsertAtLine: drumInjected.insertAtLine, drumLineCount: drumInjected.lineCount }
     : { drumInsertAtLine: null, drumLineCount: 0 };
+  if (skipDrums) {
+    payload = { text: neutralizeMidiDrumDirectivesForPlayback(payload.text), offset: payload.offset };
+  }
+  if (ignoreRepeats) {
+    payload = { text: stripRepeatsLengthSafe(payload.text), offset: payload.offset };
+  }
   if (expandRepeats) {
     payload = {
       text: expandRepeatsForPlayback(payload.text),
@@ -23500,8 +24072,10 @@ async function preparePlayback() {
     if (playbackParseErrors.length > 200) playbackParseErrors = playbackParseErrors.slice(-200);
     if (!playbackParseErrorToastShown) {
       playbackParseErrorToastShown = true;
-      showToast("Playback parse error (see debug dump).", 3200);
       scheduleAutoDump("playback-parse-error", entry && entry.message ? entry.message : String(message || ""));
+      if (window.__abcarusDebugPlayback || window.__abcarusDebugDrums) {
+        showToast("Playback parse error (see debug dump).", 3200);
+      }
     }
     if (/Not enough measure bars for lyric line/i.test(entry.message)) {
       // We'll attempt a playback-only fallback that ignores lyrics, so don't spam errors.
@@ -23522,6 +24096,7 @@ async function preparePlayback() {
   };
   const abc = new AbcCtor(user);
   const playbackPayload = getPlaybackPayload();
+  const selectionMode = playbackSelectionMode === true;
   const nativeMidiDrums = shouldUseNativeMidiDrums();
   lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayload.text || ""}`) || /\[\s*P\s*:/i.test(playbackPayload.text || "");
   if (Array.isArray(playbackSanitizeWarnings) && playbackSanitizeWarnings.length) {
@@ -23565,12 +24140,17 @@ async function preparePlayback() {
     );
   }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayload.text);
+  if (selectionMode) {
+    playbackText = stripChordSymbolsForPlayback(playbackText);
+    playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
+    playbackText = stripRepeatsLengthSafe(playbackText);
+  }
   if (/[\\^_]3\/4/.test(playbackText)) {
     playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
-  if (nativeMidiDrums) {
+  if (nativeMidiDrums && !selectionMode && window.__abcarusPlaybackRelocateMidiDrums === true) {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
@@ -23588,7 +24168,7 @@ async function preparePlayback() {
     playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackParseErrors = [];
-    if (nativeMidiDrums) {
+    if (nativeMidiDrums && !selectionMode) {
       // Experimental native path failed; fall back to our V:DRUM injection so drums still play after neutralization.
       const injected = injectDrumPlayback(playbackText);
       if (injected && injected.changed) {
@@ -23618,7 +24198,7 @@ async function preparePlayback() {
 
   // Tolerant playback mode: many real-world ABC files contain lyric/barline mismatches that stricter engines reject.
   // We keep the file unchanged; this only affects playback.
-  if (Array.isArray(playbackParseErrors) && playbackParseErrors.some((e) => /lyric line/i.test(e.message || ""))) {
+  if (!selectionMode && Array.isArray(playbackParseErrors) && playbackParseErrors.some((e) => /lyric line/i.test(e.message || ""))) {
     playbackSanitizeWarnings.push({ kind: "playback-lyrics-dropped" });
     const abc2 = new AbcCtor(user);
     const stripped = stripLyricsForPlayback(playbackText);
@@ -23654,7 +24234,65 @@ async function preparePlayback() {
     }
   }
 
-  const tunes = abc.tunes || [];
+  let tunes = abc.tunes || [];
+  if (!tunes.length && (playbackIgnoreRepeatsOnce || playbackSkipDrumsOnce || playbackSkipGchordsOnce)) {
+    const attemptFallbackParse = (label, override) => {
+      const prevIgnore = playbackIgnoreRepeatsOnce;
+      const prevSkipDrums = playbackSkipDrumsOnce;
+      const prevSkipGchords = playbackSkipGchordsOnce;
+      try {
+        if (override && Object.prototype.hasOwnProperty.call(override, "ignoreRepeats")) {
+          playbackIgnoreRepeatsOnce = !!override.ignoreRepeats;
+        }
+        if (override && Object.prototype.hasOwnProperty.call(override, "skipDrums")) {
+          playbackSkipDrumsOnce = !!override.skipDrums;
+        }
+        if (override && Object.prototype.hasOwnProperty.call(override, "skipGchords")) {
+          playbackSkipGchordsOnce = !!override.skipGchords;
+        }
+        const retryPayload = getPlaybackPayload();
+        playbackIndexOffset = retryPayload.offset || 0;
+        setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackIndexOffset));
+        let retryText = normalizeHeaderNoneSpacing(retryPayload.text);
+        if (/[\\^_]3\/4/.test(retryText)) {
+          playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
+          retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
+        }
+        if (nativeMidiDrums) {
+          const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
+          if (relocated && relocated.moved > 0) retryText = relocated.text;
+        }
+        const abcRetry = new AbcCtor(user);
+        playbackParseErrors = [];
+        abcRetry.tosvg("play", retryText);
+        if (abcRetry.tunes && abcRetry.tunes.length) {
+          abc.tunes = abcRetry.tunes;
+          tunes = abcRetry.tunes;
+          playbackSanitizeWarnings.push({ kind: "playback-selection-fallback", detail: label });
+          showToast(label, 2600);
+          return true;
+        }
+      } finally {
+        playbackIgnoreRepeatsOnce = prevIgnore;
+        playbackSkipDrumsOnce = prevSkipDrums;
+        playbackSkipGchordsOnce = prevSkipGchords;
+      }
+      return false;
+    };
+
+    // First: allow repeats if the ignore-repeats pass produced no tunes.
+    if (playbackIgnoreRepeatsOnce) {
+      if (attemptFallbackParse("Selection playback: repeats enabled (fallback).", { ignoreRepeats: false })) {
+        // ok
+      }
+    }
+    // Second: allow drums/gchords if still no tunes.
+    if (!tunes.length && (playbackSkipDrumsOnce || playbackSkipGchordsOnce)) {
+      attemptFallbackParse("Selection playback: drums/gchords enabled (fallback).", { skipDrums: false, skipGchords: false });
+    }
+  }
+
+  tunes = abc.tunes || [];
   if (!tunes.length) throw new Error("No tunes parsed; cannot play.");
 
   try {
@@ -23936,12 +24574,15 @@ async function startPlaybackFromRange(rangeOverride) {
   }
 
   clearNoteSelection();
-  const sourceKey = getPlaybackSourceKey();
+  const selectionMode = range && (range.origin === "selection" || range.origin === "ab");
+  const sourceKey = selectionMode ? null : getPlaybackSourceKey();
   const canReuse = (
-    !playbackNeedsReprepare
+    !selectionMode
+    && !playbackNeedsReprepare
     && !lastPlaybackHasParts
     && playbackState
     && lastPreparedPlaybackKey
+    && sourceKey
     && lastPreparedPlaybackKey === sourceKey
     && player
   );
@@ -23952,6 +24593,7 @@ async function startPlaybackFromRange(rangeOverride) {
 		      const desired = soundfontName || "TimGM6mb.sf2";
 	      setSoundfontCaption("Loading...");
 	      updateSoundfontLoadingStatus(desired);
+		      playbackSelectionMode = Boolean(selectionMode);
 		      await preparePlayback();
 		    } else {
 		      await ensureSoundfontReady();
@@ -23965,8 +24607,14 @@ async function startPlaybackFromRange(rangeOverride) {
 		    };
 		    try { scheduleAutoDump("playback-start-failed", (e && e.message) ? e.message : String(e)); } catch {}
 		    stopPlaybackFromGuard(`Playback start failed: ${(e && e.message) ? e.message : String(e)}`);
-		    showToast("Playback failed to start. Try again.", 3200);
+		    if (selectionMode) {
+		      showToast("Selected range cannot be played safely.", 3200);
+		    } else {
+		      showToast("Playback failed to start. Try again.", 3200);
+		    }
 		    return;
+		  } finally {
+		    playbackSelectionMode = false;
 		  }
   if (startToken !== playbackStartToken) return;
 
@@ -24173,6 +24821,45 @@ if ($btnPlayPause) {
       logErr((e && e.stack) ? e.stack : String(e));
       setStatus("Error");
     }
+  });
+}
+
+if ($btnPlayAB) {
+  $btnPlayAB.addEventListener("click", async () => {
+    try {
+      await playAbLoop();
+    } catch (e) {
+      logErr((e && e.stack) ? e.stack : String(e));
+    }
+  });
+}
+
+if ($btnClearAB) {
+  $btnClearAB.addEventListener("click", () => clearAbPlan());
+}
+
+if ($abOptionsToggle && $abOptionsPopover) {
+  $abOptionsToggle.addEventListener("click", () => {
+    toggleAbOptionsPopover();
+    refreshAbOptionsUi();
+  });
+  document.addEventListener("click", (e) => {
+    if (!$abOptionsPopover) return;
+    const inside = $abOptionsPopover.contains(e.target) || ($abOptionsToggle && $abOptionsToggle.contains(e.target));
+    if (!inside) toggleAbOptionsPopover(false);
+  });
+}
+
+if ($abOptSuppressRepeats) {
+  $abOptSuppressRepeats.addEventListener("change", () => {
+    if (!abPlan) return;
+    setAbPlanOptions({ suppressRepeats: !!$abOptSuppressRepeats.checked });
+  });
+}
+if ($abOptMuteGchords) {
+  $abOptMuteGchords.addEventListener("change", () => {
+    if (!abPlan) return;
+    setAbPlanOptions({ muteGchords: !!$abOptMuteGchords.checked });
   });
 }
 

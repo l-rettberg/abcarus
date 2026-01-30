@@ -34,6 +34,10 @@ const appState = {
     path: null,
     lastKnownMtimeMs: 0,
   },
+  debugFlags: {
+    showMessages: false,
+    autoDump: false,
+  },
 };
 
 // Optional Linux portal file chooser, controlled via:

@@ -10,8 +10,30 @@ function formatRecentLabel(entry) {
 
 function buildDiagnosticsSubmenu(appState, sendMenuAction) {
   const payloadEnabled = Boolean(appState && appState.settings && appState.settings.payloadModeEnabled);
+  const debugFlags = (appState && appState.debugFlags) ? appState.debugFlags : {};
+  const debugMessagesEnabled = Boolean(debugFlags.showMessages);
+  const autoDumpEnabled = Boolean(debugFlags.autoDump);
   return [
     { label: "Save Debug Dump…", accelerator: "CmdOrCtrl+Shift+D", click: () => sendMenuAction("dumpDebug") },
+    { type: "separator" },
+    {
+      label: "Show Debug Messages",
+      type: "checkbox",
+      checked: debugMessagesEnabled,
+      click: (item) => {
+        if (appState && appState.debugFlags) appState.debugFlags.showMessages = Boolean(item.checked);
+        sendMenuAction({ type: "toggleDebugMessages", value: Boolean(item.checked) });
+      },
+    },
+    {
+      label: "Auto Debug Dumps",
+      type: "checkbox",
+      checked: autoDumpEnabled,
+      click: (item) => {
+        if (appState && appState.debugFlags) appState.debugFlags.autoDump = Boolean(item.checked);
+        sendMenuAction({ type: "toggleAutoDump", value: Boolean(item.checked) });
+      },
+    },
     ...(payloadEnabled ? [{ type: "separator" }, { label: "Payload Mode (Current Tune)…", click: () => sendMenuAction("openPayloadMode") }] : []),
   ];
 }

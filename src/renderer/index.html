@@ -53,20 +53,20 @@
         </div>
         <div class="center-controls controls">
 	        <div class="segmented" aria-label="Transport">
-	          <button id="btnPlayPause" type="button" title="Play / Pause (F5)">
-              <svg class="btn-icon icon-play" aria-hidden="true"><use href="#ui-play"></use></svg>
-              <svg class="btn-icon icon-pause" aria-hidden="true"><use href="#ui-pause"></use></svg>
-              <span class="btn-text">Play</span>
-            </button>
-	          <button id="btnStop" type="button" title="Stop (Esc)">
-              <svg class="btn-icon icon-stop" aria-hidden="true"><use href="#ui-stop"></use></svg>
-              <span class="btn-text">Stop</span>
-            </button>
-	        </div>
-		        <div class="practice-controls" aria-label="Playback controls">
-		          <label id="practiceTempoWrap" class="practice-tempo" hidden>
-		            <span>Speed</span>
-		            <select id="practiceTempo" aria-label="Playback speed">
+          <button id="btnPlayPause" type="button" title="Play / Pause (F5)">
+            <svg class="btn-icon icon-play" aria-hidden="true"><use href="#ui-play"></use></svg>
+            <svg class="btn-icon icon-pause" aria-hidden="true"><use href="#ui-pause"></use></svg>
+            <span class="btn-text">Play</span>
+          </button>
+          <button id="btnStop" type="button" title="Stop (Esc)">
+            <svg class="btn-icon icon-stop" aria-hidden="true"><use href="#ui-stop"></use></svg>
+            <span class="btn-text">Stop</span>
+          </button>
+        </div>
+        <div class="practice-controls" aria-label="Playback controls">
+          <label id="practiceTempoWrap" class="practice-tempo" hidden>
+            <span>Speed</span>
+            <select id="practiceTempo" aria-label="Playback speed">
 		              <option value="0.5">50%</option>
 	              <option value="0.6">60%</option>
 	              <option value="0.7">70%</option>
@@ -77,15 +77,15 @@
 		              <option value="1.2">120%</option>
 		            </select>
 		          </label>
-		          <label id="practiceLoopWrap" class="practice-loop" hidden>
-		            <input id="practiceLoopEnabled" type="checkbox" />
-		            <span>Loop</span>
-		            <input id="practiceLoopFrom" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="from" title="Loop from measure (0 = first bar)" />
-		            <span class="practice-loop-arrow">→</span>
-		            <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
-		          </label>
-		        </div>
-		      </div>
+          <label id="practiceLoopWrap" class="practice-loop" hidden>
+            <input id="practiceLoopEnabled" type="checkbox" />
+            <span>Loop</span>
+            <input id="practiceLoopFrom" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="from" title="Loop from measure (0 = first bar)" />
+            <span class="practice-loop-arrow">→</span>
+            <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
+          </label>
+        </div>
+      </div>
 		      <div class="right-controls">
 		        <div class="segmented" aria-label="Preferences">
 		          <button id="btnFonts" type="button" title="Fonts and soundfonts">

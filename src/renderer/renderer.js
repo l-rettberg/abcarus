@@ -3900,14 +3900,15 @@ function updateHeaderStateUI({ announce = false } = {}) {
 
   setDirtyIndicator(Boolean(currentDoc && currentDoc.dirty));
 
-  if (announce) {
-    if (!activeFilePath) return;
-    if (lastHeaderToastFilePath === activeFilePath) return;
-    lastHeaderToastFilePath = activeFilePath;
-    if (presence === "present") showToast("File header detected (affects rendering & playback).", 2600);
-    else showToast("No file header in this file.", 2600);
-  }
-}
+	  if (announce) {
+	    if (!isDebugMessagesEnabled()) return;
+	    if (!activeFilePath) return;
+	    if (lastHeaderToastFilePath === activeFilePath) return;
+	    lastHeaderToastFilePath = activeFilePath;
+	    if (presence === "present") showToast("File header detected (affects rendering & playback).", 2600);
+	    else showToast("No file header in this file.", 2600);
+	  }
+	}
 
 function updateLibraryDirtyState(isDirty) {
   if (!activeFilePath || !$libraryTree) return;
@@ -15890,11 +15891,11 @@ function scaleLengthString(lenStr, factorNum, factorDen) {
   return formatLengthString(num, den);
 }
 
-function scaleLengthsInLine(line, factorNum, factorDen) {
-  if (!line) return line;
-  if (/^\s*%/.test(line)) return line;
-  if (/^\s*[wW]:/.test(line)) return line;
-  if (/^\s*[A-Za-z]:/.test(line)) return line;
+	function scaleLengthsInLine(line, factorNum, factorDen) {
+	  if (!line) return line;
+	  if (/^\s*%/.test(line)) return line;
+	  if (/^\s*[wW]:/.test(line)) return line;
+	  if (/^\s*[A-Za-z]:/.test(line)) return line;
 
   let inQuote = false;
   let inGrace = false;
@@ -15906,13 +15907,31 @@ function scaleLengthsInLine(line, factorNum, factorDen) {
     i += 1;
   };
 
-  while (i < line.length) {
-    const ch = line[i];
-    if (ch === "\"") {
-      inQuote = !inQuote;
-      pushChar();
-      continue;
-    }
+	  while (i < line.length) {
+	    const ch = line[i];
+	    // Skip decorations like !fermata! and +trill+ (and anything inside them).
+	    if (!inQuote && !inGrace && (ch === "!" || ch === "+")) {
+	      const next = line.indexOf(ch, i + 1);
+	      if (next >= 0) {
+	        out += line.slice(i, next + 1);
+	        i = next + 1;
+	        continue;
+	      }
+	    }
+	    // Skip inline fields like [K:D] or [M:9/8] (but not chord brackets like [CEG]).
+	    if (!inQuote && !inGrace && ch === "[" && /[A-Za-z]:/.test(line.slice(i + 1, i + 3))) {
+	      const next = line.indexOf("]", i + 1);
+	      if (next >= 0) {
+	        out += line.slice(i, next + 1);
+	        i = next + 1;
+	        continue;
+	      }
+	    }
+	    if (ch === "\"") {
+	      inQuote = !inQuote;
+	      pushChar();
+	      continue;
+	    }
     if (!inQuote && ch === "{") {
       inGrace = true;
       pushChar();

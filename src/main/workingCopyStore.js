@@ -101,6 +101,35 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   throw lastErr || new Error("Unable to write file.");
 }
 
+function buffersEqual(a, b) {
+  if (!a || !b) return false;
+  try {
+    const ba = Buffer.isBuffer(a) ? a : Buffer.from(a);
+    const bb = Buffer.isBuffer(b) ? b : Buffer.from(b);
+    return ba.length === bb.length && ba.equals(bb);
+  } catch {
+    return false;
+  }
+}
+
+async function verifyFileOnDiskMatchesBuffer(filePath, expectedBuffer) {
+  const p = String(filePath || "");
+  if (!p) throw new Error("Missing file path.");
+  const expected = Buffer.isBuffer(expectedBuffer) ? expectedBuffer : Buffer.from(expectedBuffer || "");
+  let actual;
+  try {
+    actual = await fs.promises.readFile(p);
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    throw new Error(`Save verification failed: unable to read file back (${msg}).`);
+  }
+  if (!buffersEqual(actual, expected)) {
+    throw new Error(
+      `Save verification failed: on-disk content does not match what was written (expected ${expected.length} bytes, got ${actual.length} bytes).`
+    );
+  }
+}
+
 function notifyChanged() {
   try {
     emitter.emit("changed", getWorkingCopyMetaSnapshot());
@@ -225,11 +254,14 @@ async function commitWorkingCopyToDisk({ force = false } = {}) {
     const encoded = encodeAbcTextToBuffer(text);
     state.encoding = encoded.encoding || state.encoding || "utf8";
     await atomicWriteFileWithRetry(p, encoded.buffer);
+    await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
   } catch (err) {
+    // Treat any write/verify failure as "not saved". Keep the session authoritative copy dirty.
+    try { state.dirty = true; } catch {}
     if (isMissingFileError(err) && !force) {
       return { ok: false, missingOnDisk: true, diskFingerprintOnOpen: fpOnOpen };
     }
-    throw err;
+    return { ok: false, error: err && err.message ? err.message : String(err) };
   }
   const fpAfter = await statFingerprint(p);
   state.diskFingerprintOnOpen = fpAfter;
@@ -246,7 +278,9 @@ async function writeWorkingCopyToPath(targetPath) {
   const p = String(targetPath || "");
   if (!p) throw new Error("Missing file path.");
   const text = String(state.text || "");
-  await atomicWriteFileWithRetry(p, text);
+  const encoded = encodeAbcTextToBuffer(text);
+  await atomicWriteFileWithRetry(p, encoded.buffer);
+  await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
   return true;
 }
 
@@ -255,7 +289,10 @@ async function writeWorkingCopyToPathAndSwitch(targetPath) {
   const p = String(targetPath || "");
   if (!p) throw new Error("Missing file path.");
   const text = String(state.text || "");
-  await atomicWriteFileWithRetry(p, text);
+  const encoded = encodeAbcTextToBuffer(text);
+  state.encoding = encoded.encoding || state.encoding || "utf8";
+  await atomicWriteFileWithRetry(p, encoded.buffer);
+  await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
   const fp = await statFingerprint(p);
   state.path = p;
   state.diskFingerprintOnOpen = fp;

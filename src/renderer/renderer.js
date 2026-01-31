@@ -21719,6 +21719,17 @@ function stopPlaybackTransport() {
   selectionPlaybackCursor = null;
   selectionPlaybackSelection = null;
   selectionPlaybackActive = false;
+
+  // When stopping normal playback, collapse any transient 1-char selection created by Follow.
+  // Otherwise the next "Play" can be misinterpreted as "play selection once".
+  if (!wasSelectionOrigin && editorView) {
+    const sel = editorView.state.selection.main;
+    if (sel && sel.anchor !== sel.head) {
+      const len = editorView.state.doc.length;
+      const pos = Math.max(0, Math.min(len, Math.min(sel.anchor, sel.head)));
+      editorView.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: false });
+    }
+  }
 }
 
 function toDerivedOffset(editorOffset) {

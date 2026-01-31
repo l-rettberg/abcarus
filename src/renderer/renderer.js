@@ -16170,16 +16170,19 @@ async function ensureSafeToAbandonCurrentDoc(actionLabel) {
   return confirmAbandonIfDirty(actionLabel);
 }
 
-async function finalizeWorkingCopySave(filePath) {
-  const normalized = String(filePath || "");
-  if (!normalized) return false;
+	async function finalizeWorkingCopySave(filePath) {
+	  const normalized = String(filePath || "");
+	  if (!normalized) return false;
 
-  markDiskConflictPath(normalized, false);
-  if (currentDoc) {
-    currentDoc.dirty = false;
-    updateUIFromDocument(currentDoc);
-  }
-  setDirtyIndicator(false);
+	  markDiskConflictPath(normalized, false);
+	  if (currentDoc) {
+	    currentDoc.dirty = false;
+	    // Do not rewrite the editor buffer on Save.
+	    // Replacing the entire doc (even with identical text) resets the selection/cursor to the start,
+	    // which is disruptive while typing (Ctrl+S). The working copy snapshot/renderer already uses
+	    // the live editor buffer; Save should only clear the dirty state.
+	  }
+	  setDirtyIndicator(false);
 
   try {
     const snapshot = await refreshWorkingCopySnapshot();

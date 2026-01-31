@@ -3900,15 +3900,10 @@ function updateHeaderStateUI({ announce = false } = {}) {
 
   setDirtyIndicator(Boolean(currentDoc && currentDoc.dirty));
 
-	  if (announce) {
-	    if (!isDebugMessagesEnabled()) return;
-	    if (!activeFilePath) return;
-	    if (lastHeaderToastFilePath === activeFilePath) return;
-	    lastHeaderToastFilePath = activeFilePath;
-	    if (presence === "present") showToast("File header detected (affects rendering & playback).", 2600);
-	    else showToast("No file header in this file.", 2600);
-	  }
-	}
+  // Intentionally no toast: header presence is visible via the chip title/state.
+  // (Previously this was gated behind debug messages, but it was still noisy.)
+  void announce;
+}
 
 function updateLibraryDirtyState(isDirty) {
   if (!activeFilePath || !$libraryTree) return;

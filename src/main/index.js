@@ -2013,6 +2013,14 @@ function createWindow() {
     }
     win.webContents.once("did-finish-load", () => {
       logStartupPerf("renderer did-finish-load");
+      // Ensure renderer-side debug toggles are in sync with the menu checkboxes on startup.
+      // The renderer gates non-critical toasts and extra diagnostics behind these flags.
+      try {
+        win.webContents.send("menu:action", { type: "toggleDebugMessages", value: Boolean(appState.debugFlags && appState.debugFlags.showMessages) });
+      } catch {}
+      try {
+        win.webContents.send("menu:action", { type: "toggleAutoDump", value: Boolean(appState.debugFlags && appState.debugFlags.autoDump) });
+      } catch {}
     });
   } catch {}
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));

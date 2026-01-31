@@ -411,3 +411,23 @@ Notes
 
 **Expected**
 - Save As produces a complete `.abc` file (header + all tunes) from the working copy, atomically.
+
+---
+
+## WC-15 — Save verification (Critical)
+
+**Preconditions**
+- Open an existing `.abc` file from Library (working copy exists).
+
+**Steps**
+1. Make a small edit in the tune and press Save.
+2. Confirm the file stays editable and the dirty indicators clear (normal behavior).
+
+**Fault injection (optional, for troubleshooting)**
+1. Put the file on a flaky / remote filesystem, or intentionally make the file unreadable immediately after save (permissions/ACL), then press Save again.
+
+**Expected**
+- On normal filesystems: Save succeeds silently (no extra prompts/toasts).
+- If the app cannot read back the file or the on-disk bytes don’t match what was written:
+  - Save is treated as failed (document remains dirty),
+  - a clear error is shown (critical).

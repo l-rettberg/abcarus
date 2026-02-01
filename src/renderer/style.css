@@ -965,9 +965,14 @@ body.resizing * {
   height: 16px;
 }
 
-.templates-card {
-  width: min(1100px, calc(100vw - 80px));
-  max-height: min(720px, calc(100vh - 80px));
+.modal-card.templates-card {
+  /* Override generic `.modal-card` sizing (defined later in this file). */
+  width: min(1100px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 80px));
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 80px);
+  min-width: 780px;
+  min-height: 420px;
   display: flex;
   flex-direction: column;
 }

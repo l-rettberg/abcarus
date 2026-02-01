@@ -12246,6 +12246,35 @@ function initContextMenu() {
       document.execCommand("paste");
       hideContextMenu();
     }
+    if (action === "templatesCopy" && menuTarget && menuTarget.type === "templatesPreview") {
+      const text = (menuTarget.selectionText && String(menuTarget.selectionText))
+        ? String(menuTarget.selectionText)
+        : String(menuTarget.fullText || "");
+      try {
+        if (text) await navigator.clipboard.writeText(text);
+        setStatus(text ? "Copied." : "Nothing to copy.");
+      } catch (e) {
+        logErr(e && e.message ? e.message : String(e));
+        setStatus("Copy failed.");
+      }
+      hideContextMenu();
+      return;
+    }
+    if (action === "templatesSelectAll" && menuTarget && menuTarget.type === "templatesPreview") {
+      try {
+        if ($templatesPreviewText) {
+          const sel = window.getSelection ? window.getSelection() : null;
+          const range = document.createRange();
+          range.selectNodeContents($templatesPreviewText);
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      } catch {}
+      hideContextMenu();
+      return;
+    }
   });
 
   document.addEventListener("click", (e) => {
@@ -12407,6 +12436,15 @@ function showContextMenuAt(x, y, target) {
       { label: "Cut", action: "editorCut" },
       { label: "Copy", action: "editorCopy" },
       { label: "Paste", action: "editorPaste" },
+    ]);
+  } else if (target.type === "templatesPreview") {
+    const hasText = Boolean(target && typeof target.fullText === "string" && target.fullText.length);
+    const hasSelection = Boolean(target && typeof target.selectionText === "string" && target.selectionText.length);
+    buildContextMenuItems([
+      { label: "Copy", action: "templatesCopy", disabled: !hasText },
+      { label: "Select All", action: "templatesSelectAll", disabled: !hasText },
+      { separator: true },
+      { label: hasSelection ? "Selection will be copied" : "No selection (copies all)", action: "noop", disabled: true },
     ]);
   }
   contextMenu.style.left = `${x}px`;
@@ -19158,6 +19196,23 @@ function renderTemplatesList() {
   }
 }
 
+function getSelectionTextWithinElement(el) {
+  const root = el && el.nodeType ? el : null;
+  if (!root) return "";
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (!sel || sel.rangeCount < 1) return "";
+  try {
+    const range = sel.getRangeAt(0);
+    const container = range && range.commonAncestorContainer ? range.commonAncestorContainer : null;
+    if (!container) return "";
+    if (root !== container && !root.contains(container)) return "";
+    const text = sel.toString ? sel.toString() : "";
+    return String(text || "");
+  } catch {
+    return "";
+  }
+}
+
 async function getTemplatesFileText(filePath) {
   const p = String(filePath || "");
   if (!p) return "";
@@ -19576,6 +19631,18 @@ if ($templatesModal) {
     }
   });
   enableDraggableModal($templatesModal);
+}
+
+if ($templatesPreviewText) {
+  $templatesPreviewText.addEventListener("contextmenu", (ev) => {
+    try {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const fullText = String($templatesPreviewText.textContent || "");
+      const selectionText = getSelectionTextWithinElement($templatesPreviewText);
+      showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
+    } catch {}
+  });
 }
 
 if ($makamDnaClose) {

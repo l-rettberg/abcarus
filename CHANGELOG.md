@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Save: verify on-disk content matches the working copy (post-write read-back); failed verification is treated as a failed Save.
+- Templates: widen the modal by default and add a preview right-click menu (Copy / Select All).
 
 ## [0.25.1] - 2026-01-30
 ### Fixed

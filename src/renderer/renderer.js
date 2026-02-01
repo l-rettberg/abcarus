@@ -13776,56 +13776,74 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
   try {
     ensureAbc2svgLoader();
     const normalized = normalizeHeaderNoneSpacing(abcText);
-    const sepStrip = stripSepForRender(normalized);
-    const renderText = sepStrip.text;
-    const noteSepFallback = sepStrip.replaced;
-    const ready = await ensureAbc2svgModulesReady(renderText);
-    if (!ready) return { ok: false, error: "ABC modules failed to load." };
-	    const svgParts = [];
-	    const context = options && options.errorContext ? options.errorContext : null;
-	    const stopOnFirstError = Boolean(options && options.stopOnFirstError);
-	    const noSvg = Boolean(options && options.noSvg);
-	    if (errorsEnabled && tuneErrorScanInFlight) {
-	      const keyWarn = detectKeyFieldNotLastBeforeBody(renderText);
-	      if (keyWarn && keyWarn.detail) {
-	        const msg = `Warning: ${keyWarn.detail}`;
-	        errors.push({ message: msg, loc: keyWarn.loc || null });
-	        if (!options || !options.suppressGlobalErrors) {
-	          logErr(msg, keyWarn.loc || null, { ...(context || {}), skipMeasureRange: true });
-	        }
-	      }
-	    }
-	    const user = {
-	      img_out: (s) => {
-	        if (!noSvg) svgParts.push(s);
-	      },
-      err: (msg) => {
-        const entry = { message: String(msg) };
-        errors.push(entry);
-        if (!options || !options.suppressGlobalErrors) logErr(msg, null, context);
-        if (stopOnFirstError) throw new Error(entry.message);
-      },
-      errmsg: (msg, line, col) => {
-        const loc = Number.isFinite(line) && Number.isFinite(col)
-          ? { line: line + 1, col: col + 1 }
-          : null;
-        const entry = { message: String(msg), loc };
-        errors.push(entry);
-        if (!options || !options.suppressGlobalErrors) logErr(msg, loc, context);
-        if (stopOnFirstError) throw new Error(entry.message);
-      },
-    };
-    const AbcCtor = getAbcCtor();
-    if (!AbcCtor) return { ok: false, error: "abc2svg constructor not found." };
-    const abc = new AbcCtor(user);
-    abc.tosvg("out", renderText);
-    if (window.abc2svg && typeof window.abc2svg.abc_end === "function") {
-      window.abc2svg.abc_end();
+    const baseText = normalized;
+    const context = options && options.errorContext ? options.errorContext : null;
+    const stopOnFirstError = Boolean(options && options.stopOnFirstError);
+    const noSvg = Boolean(options && options.noSvg);
+
+    let renderText = baseText;
+    let sepFallbackUsed = false;
+    let attempts = 0;
+    while (attempts < 2) {
+      attempts += 1;
+      try {
+        const ready = await ensureAbc2svgModulesReady(renderText);
+        if (!ready) return { ok: false, error: "ABC modules failed to load." };
+        const svgParts = [];
+        if (errorsEnabled && tuneErrorScanInFlight) {
+          const keyWarn = detectKeyFieldNotLastBeforeBody(renderText);
+          if (keyWarn && keyWarn.detail) {
+            const msg = `Warning: ${keyWarn.detail}`;
+            errors.push({ message: msg, loc: keyWarn.loc || null });
+            if (!options || !options.suppressGlobalErrors) {
+              logErr(msg, keyWarn.loc || null, { ...(context || {}), skipMeasureRange: true });
+            }
+          }
+        }
+        const user = {
+          img_out: (s) => {
+            if (!noSvg) svgParts.push(s);
+          },
+          err: (msg) => {
+            const entry = { message: String(msg) };
+            errors.push(entry);
+            if (!options || !options.suppressGlobalErrors) logErr(msg, null, context);
+            if (stopOnFirstError) throw new Error(entry.message);
+          },
+          errmsg: (msg, line, col) => {
+            const loc = Number.isFinite(line) && Number.isFinite(col)
+              ? { line: line + 1, col: col + 1 }
+              : null;
+            const entry = { message: String(msg), loc };
+            errors.push(entry);
+            if (!options || !options.suppressGlobalErrors) logErr(msg, loc, context);
+            if (stopOnFirstError) throw new Error(entry.message);
+          },
+        };
+        const AbcCtor = getAbcCtor();
+        if (!AbcCtor) return { ok: false, error: "abc2svg constructor not found." };
+        const abc = new AbcCtor(user);
+        abc.tosvg("out", renderText);
+        if (window.abc2svg && typeof window.abc2svg.abc_end === "function") {
+          window.abc2svg.abc_end();
+        }
+        const svg = svgParts.join("");
+        if (noSvg) return { ok: true, svg: "", errors };
+        if (!svg.trim()) return { ok: false, error: "No SVG output produced.", svg, errors };
+        return { ok: true, svg, errors, sepFallbackUsed };
+      } catch (e) {
+        if (!sepFallbackUsed) {
+          const sepStrip = stripSepForRender(baseText);
+          if (sepStrip.replaced) {
+            renderText = sepStrip.text;
+            sepFallbackUsed = true;
+            continue;
+          }
+        }
+        throw e;
+      }
     }
-    const svg = svgParts.join("");
-    if (noSvg) return { ok: true, svg: "", errors };
-    if (!svg.trim()) return { ok: false, error: "No SVG output produced.", svg, errors };
-    return { ok: true, svg, errors };
+    return { ok: false, error: "No SVG output produced.", errors, sepFallbackUsed };
   } catch (e) {
     const message = (e && e.message) ? e.message : String(e);
     if (stopOnFirstError) return { ok: false, error: message, errors };
@@ -14715,10 +14733,9 @@ function renderNow() {
     updateLibraryErrorIndexFromCurrentErrors();
     return;
   }
-  let renderText = normalizeHeaderNoneSpacing(renderPayload.text);
-  const sepStrip = stripSepForRender(renderText);
-  renderText = sepStrip.text;
-  const sepFallbackUsed = sepStrip.replaced;
+  const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
+  let renderText = renderTextBase;
+  let sepFallbackUsed = false;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
@@ -14737,6 +14754,7 @@ function renderNow() {
 
     let attempts = 0;
     while (attempts < 2) {
+      attempts += 1;
       try {
         const svgParts = [];
         let abcInstance = null;
@@ -14790,13 +14808,13 @@ function renderNow() {
           if (errorActivationHighlightRange && Number.isFinite(errorActivationHighlightRange.from)) {
             highlightSvgAtEditorOffset(errorActivationHighlightRange.from);
           }
-          if (!isPlaybackBusy() && transportJumpHighlightActive && Number.isFinite(anchor)) {
-            try {
-              highlightSvgPracticeBarAtEditorOffset(anchor);
-            } catch {}
-          }
+        if (!isPlaybackBusy() && transportJumpHighlightActive && Number.isFinite(anchor)) {
+          try {
+            highlightSvgPracticeBarAtEditorOffset(anchor);
+          } catch {}
         }
-        if (sepFallbackUsed) {
+      }
+        if (sepFallbackUsed && isDebugMessagesEnabled()) {
           setBufferStatus("Note: %%sep ignored for rendering.");
         }
         setStatus("OK");
@@ -14805,6 +14823,15 @@ function renderNow() {
         reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
         break;
       } catch (e) {
+        if (!sepFallbackUsed) {
+          const sepStrip = stripSepForRender(renderTextBase);
+          if (sepStrip.replaced) {
+            sepFallbackUsed = true;
+            renderText = sepStrip.text;
+            lastRenderPayload = { text: renderText, offset: renderPayload.offset || 0 };
+            continue;
+          }
+        }
         throw e;
       }
     }

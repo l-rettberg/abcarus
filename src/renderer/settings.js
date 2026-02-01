@@ -27,7 +27,7 @@ Target layout (DOM changes in `index.html`):
    - Keep `#settingsNoResults` and `#settingsPanels`.
 4) Footer:
    - Left: `#settingsResetSection` (“Reset Section…”).
-   - Right: `#settingsCancel`, `#settingsApply`, `#settingsOk`.
+   - Right: `#settingsCancel`, `#settingsOk`.
    - Remove/stop using old ids `#settingsReset` / `#settingsClose` (updated in JS in later prompts).
 
 Desktop styling changes in `style.css`:
@@ -208,7 +208,6 @@ export function initSettings(api) {
   const $settingsImport = document.getElementById("settingsImport");
   const $settingsResetSection = document.getElementById("settingsResetSection");
   const $settingsCancel = document.getElementById("settingsCancel");
-  const $settingsApply = document.getElementById("settingsApply");
   const $settingsOk = document.getElementById("settingsOk");
 
   // Legacy controls kept in HTML for compatibility.
@@ -400,7 +399,6 @@ export function initSettings(api) {
 
   function setDraftPatch(next) {
     draftPatch = next && typeof next === "object" ? next : {};
-    if ($settingsApply) $settingsApply.disabled = Object.keys(draftPatch).length === 0;
   }
 
   function discardDraftPatch() {
@@ -1569,13 +1567,6 @@ export function initSettings(api) {
   if ($settingsModeBasic) $settingsModeBasic.addEventListener("click", () => setSettingsMode("basic"));
   if ($settingsModeAdvanced) $settingsModeAdvanced.addEventListener("click", () => setSettingsMode("advanced"));
   if ($settingsCancel) $settingsCancel.addEventListener("click", () => closeSettings({ discardDraft: true }));
-  if ($settingsApply) {
-    $settingsApply.disabled = true;
-    $settingsApply.addEventListener("click", async () => {
-      await applyDraftPatch().catch(() => {});
-      if (applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
-    });
-  }
   if ($settingsOk) {
     $settingsOk.addEventListener("click", async () => {
       await applyDraftPatch().catch(() => {});

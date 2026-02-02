@@ -366,6 +366,7 @@
 		      <div id="status" class="status-loading">Loading…</div>
 		      <div id="hoverStatus" class="hover-status" aria-live="polite"></div>
 		      <div id="toolStatus" class="tool-status" aria-live="polite"></div>
+		      <button id="midiInputStatus" class="midi-status hidden" type="button" aria-label="MIDI input status">MIDI: off</button>
 		    </div>
 		    <div id="cursorStatus" class="cursor-status"></div>
 		    <div id="bufferStatus" class="buffer-status" aria-live="polite"></div>
@@ -378,6 +379,39 @@
 			    </div>
 			    <div id="errorsList" class="errors-list"></div>
 			  </div>
+
+      <div id="midiInputPopover" class="midi-popover hidden" role="dialog" aria-label="MIDI input">
+        <div class="midi-popover-header">
+          <span>MIDI input</span>
+          <button id="midiInputPopoverClose" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="midi-popover-body">
+          <label><input type="checkbox" id="midiInputEnabledCtl"> Enable input</label>
+          <label><input type="checkbox" id="midiInputMutedCtl"> Muted</label>
+          <label><input type="checkbox" id="midiInputKeyAwareCtl"> Key-aware spelling</label>
+          <label class="midi-popover-row">
+            <span>Grid</span>
+            <select id="midiInputGridCtl" aria-label="MIDI grid">
+              <option value="1/8">1/8</option>
+              <option value="1/16">1/16</option>
+              <option value="1/32">1/32</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="midiInputMacroCtl"> Enable text macros</label>
+          <div id="midiInputMacroNote" class="midi-popover-note">
+            Macros: C1=space, D1=|, D#1=/, E1=2, F1=3, F#1=4, G1=(3, G#1=|:, A1=:|, A#1=||, B1=|]
+          </div>
+          <label><input type="checkbox" id="midiInputBeepCtl"> Beep on input</label>
+          <label class="midi-popover-row">
+            <span>Beep volume</span>
+            <input type="range" id="midiInputBeepVolumeCtl" min="0" max="100" step="5" value="20" aria-label="Beep volume">
+          </label>
+          <label class="midi-popover-row">
+            <span>Beep ms</span>
+            <input type="range" id="midiInputBeepDurationCtl" min="40" max="400" step="10" value="140" aria-label="Beep duration">
+          </label>
+        </div>
+      </div>
 
   <div class="modal" id="templatesModal" aria-hidden="true">
     <div class="modal-card templates-card" role="dialog" aria-label="Templates">

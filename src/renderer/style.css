@@ -1572,6 +1572,106 @@ svg {
   opacity: 0.65;
 }
 
+.midi-status{
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.midi-status.hidden{
+  display: none;
+}
+
+.midi-status.midi-on{
+  border-color: #cfe7d3;
+  background: #f3fbf5;
+  color: #245f31;
+}
+
+.midi-status.midi-muted{
+  border-color: #e6d1a2;
+  background: #fff8e6;
+  color: #6a4b00;
+}
+
+.midi-status.midi-off{
+  border-color: #e0e0e0;
+  background: #f7f7f7;
+  color: #666;
+}
+
+.midi-popover{
+  position: fixed;
+  z-index: 9999;
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 24px));
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.18);
+  padding: 0;
+}
+
+.midi-popover.hidden{
+  display: none;
+}
+
+.midi-popover-header{
+  padding: 8px 10px;
+  border-bottom: 1px solid #eee;
+  font-weight: 600;
+  font-size: 12px;
+  color: #222;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.midi-popover-header button{
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.midi-popover-body{
+  padding: 8px 10px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.midi-popover-body label{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.midi-popover-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.midi-popover-row select{
+  flex: 0 0 auto;
+}
+
+.midi-popover-note{
+  color: #666;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: -6px 0 6px;
+}
+
 .errors-focus-message{
   font-size: 11px;
   padding: 2px 10px;

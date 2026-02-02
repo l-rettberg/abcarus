@@ -55,6 +55,18 @@ const $cursorStatus = document.getElementById("cursorStatus");
 const $bufferStatus = document.getElementById("bufferStatus");
 const $toolStatus = document.getElementById("toolStatus");
 const $hoverStatus = document.getElementById("hoverStatus");
+const $midiInputStatus = document.getElementById("midiInputStatus");
+const $midiInputPopover = document.getElementById("midiInputPopover");
+const $midiInputPopoverClose = document.getElementById("midiInputPopoverClose");
+const $midiInputEnabledCtl = document.getElementById("midiInputEnabledCtl");
+const $midiInputMutedCtl = document.getElementById("midiInputMutedCtl");
+const $midiInputKeyAwareCtl = document.getElementById("midiInputKeyAwareCtl");
+const $midiInputGridCtl = document.getElementById("midiInputGridCtl");
+const $midiInputMacroCtl = document.getElementById("midiInputMacroCtl");
+const $midiInputMacroNote = document.getElementById("midiInputMacroNote");
+const $midiInputBeepCtl = document.getElementById("midiInputBeepCtl");
+const $midiInputBeepVolumeCtl = document.getElementById("midiInputBeepVolumeCtl");
+const $midiInputBeepDurationCtl = document.getElementById("midiInputBeepDurationCtl");
 const $main = document.querySelector("main");
 const $divider = document.getElementById("paneDivider");
 const $editorPane = document.querySelector(".editor-pane");
@@ -7573,6 +7585,572 @@ function getFocusedEditorView() {
   return editorView || headerEditorView || null;
 }
 
+// --- MIDI input (minimal MVP, dev-toggle via window.__abcarusMidiInput) ---
+let midiInputEnabled = false;
+let midiInputMuted = false;
+let midiAccess = null;
+let midiInitPromise = null;
+let midiDeviceCount = 0;
+let midiWarnedUnsupported = false;
+let midiInputKeyAware = false;
+let midiInputGrid = "1/16";
+let midiInputMacroEnabled = true;
+let midiInputBeepEnabled = false;
+let midiInputBeepVolume = 0.2;
+let midiInputBeepDurationMs = 140;
+let midiAudioCtx = null;
+let midiAudioUnlocked = false;
+let midiAudioUnlockPromise = null;
+
+const MIDI_MACRO_MAP = new Map([
+  [24, " "],   // space
+  [26, "|"],   // barline
+  [27, "/"],   // slash
+  [28, "2"],   // digit 2
+  [29, "3"],   // digit 3
+  [30, "4"],   // digit 4
+  [31, "(3"],  // triplet
+  [32, "|:"],  // repeat start
+  [33, ":|"],  // repeat end
+  [34, "||"],  // double bar
+  [35, "|]"],  // final bar
+]);
+
+function supportsMidiInput() {
+  return typeof navigator !== "undefined" && typeof navigator.requestMIDIAccess === "function";
+}
+
+function formatMidiStatusLabel() {
+  if (!midiInputEnabled) return "";
+  if (!supportsMidiInput()) return "MIDI: unsupported";
+  if (midiInputMuted) return "MIDI: muted";
+  if (midiDeviceCount <= 0) return "MIDI: no device";
+  return "MIDI: on";
+}
+
+function formatMidiButtonLabel() {
+  if (!supportsMidiInput()) return "MIDI: unsupported";
+  if (!midiInputEnabled) return "MIDI: off";
+  if (midiInputMuted) return "MIDI: muted";
+  if (midiDeviceCount <= 0) return "MIDI: no device";
+  return "MIDI: on";
+}
+
+function updateMidiInputUi() {
+  if (!$midiInputStatus) return;
+  const label = formatMidiButtonLabel();
+  $midiInputStatus.textContent = label;
+  $midiInputStatus.title = "MIDI input controls";
+  $midiInputStatus.classList.remove("midi-on", "midi-muted", "midi-off");
+  if (!midiInputEnabled) $midiInputStatus.classList.add("midi-off");
+  else if (midiInputMuted) $midiInputStatus.classList.add("midi-muted");
+  else $midiInputStatus.classList.add("midi-on");
+  if (midiInputEnabled) {
+    $midiInputStatus.classList.remove("hidden");
+    $midiInputStatus.style.display = "";
+  } else {
+    $midiInputStatus.classList.add("hidden");
+    $midiInputStatus.style.display = "none";
+  }
+
+  if ($midiInputEnabledCtl) $midiInputEnabledCtl.checked = midiInputEnabled;
+  if ($midiInputMutedCtl) $midiInputMutedCtl.checked = midiInputMuted;
+  if ($midiInputKeyAwareCtl) $midiInputKeyAwareCtl.checked = midiInputKeyAware;
+  if ($midiInputGridCtl) $midiInputGridCtl.value = midiInputGrid;
+  if ($midiInputMacroCtl) $midiInputMacroCtl.checked = midiInputMacroEnabled;
+  if ($midiInputMacroNote) {
+    $midiInputMacroNote.style.display = midiInputMacroEnabled ? "" : "none";
+  }
+  if ($midiInputBeepCtl) $midiInputBeepCtl.checked = midiInputBeepEnabled;
+  if ($midiInputBeepVolumeCtl) $midiInputBeepVolumeCtl.value = String(Math.round(midiInputBeepVolume * 100));
+  if ($midiInputBeepDurationCtl) $midiInputBeepDurationCtl.value = String(Math.round(midiInputBeepDurationMs));
+}
+
+function positionMidiInputPopover() {
+  if (!$midiInputPopover || !$midiInputStatus) return;
+  const rect = $midiInputStatus.getBoundingClientRect();
+  const pop = $midiInputPopover;
+  pop.style.left = "0px";
+  pop.style.top = "0px";
+  pop.classList.remove("hidden");
+  const popRect = pop.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.top - popRect.height - 8;
+  if (top < 8) top = rect.bottom + 8;
+  if (left + popRect.width > window.innerWidth - 8) {
+    left = Math.max(8, window.innerWidth - popRect.width - 8);
+  }
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+}
+
+let midiPopoverOpen = false;
+
+function openMidiInputPopover() {
+  if (!$midiInputPopover) return;
+  midiPopoverOpen = true;
+  updateMidiInputUi();
+  positionMidiInputPopover();
+}
+
+function closeMidiInputPopover() {
+  if (!$midiInputPopover) return;
+  midiPopoverOpen = false;
+  $midiInputPopover.classList.add("hidden");
+}
+
+function toggleMidiInputPopover() {
+  if (midiPopoverOpen) closeMidiInputPopover();
+  else openMidiInputPopover();
+}
+
+function getMidiInputStatus() {
+  return {
+    enabled: midiInputEnabled,
+    muted: midiInputMuted,
+    ready: Boolean(midiAccess),
+    devices: midiDeviceCount,
+    supported: supportsMidiInput(),
+    keyAware: midiInputKeyAware,
+    grid: midiInputGrid,
+    macro: midiInputMacroEnabled,
+  };
+}
+
+function getActiveEditorViewForMidi() {
+  const activeEl = document.activeElement;
+  if (headerEditorView && headerEditorView.dom && activeEl && headerEditorView.dom.contains(activeEl)) return headerEditorView;
+  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
+  return null;
+}
+
+function insertEditorTextAtCursor(text, userEvent = "input") {
+  const view = getActiveEditorViewForMidi();
+  if (!view || !text) return false;
+  const sel = view.state.selection.main;
+  const from = sel.from;
+  const to = sel.to;
+  const insert = String(text);
+  const cursorPos = from + insert.length;
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: EditorSelection.cursor(cursorPos),
+    userEvent,
+  });
+  return true;
+}
+
+function deleteEditorCharBeforeCursor() {
+  const view = getActiveEditorViewForMidi();
+  if (!view) return false;
+  const sel = view.state.selection.main;
+  if (!sel.empty) {
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: "" },
+      selection: EditorSelection.cursor(sel.from),
+      userEvent: "delete",
+    });
+    return true;
+  }
+  if (sel.from <= 0) return false;
+  const from = sel.from - 1;
+  view.dispatch({
+    changes: { from, to: sel.from, insert: "" },
+    selection: EditorSelection.cursor(from),
+    userEvent: "delete",
+  });
+  return true;
+}
+
+function getMidiBeepFrequency(noteNumber) {
+  const note = Number(noteNumber);
+  if (!Number.isFinite(note)) return 440;
+  return 440 * Math.pow(2, (note - 69) / 12);
+}
+
+async function ensureMidiAudioContext() {
+  if (midiAudioCtx && midiAudioCtx.state !== "closed") return midiAudioCtx;
+  try {
+    midiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    midiAudioUnlocked = midiAudioCtx.state === "running";
+    return midiAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+async function unlockMidiAudioContext() {
+  if (midiAudioUnlocked) return true;
+  if (midiAudioUnlockPromise) return midiAudioUnlockPromise;
+  midiAudioUnlockPromise = (async () => {
+    const ctx = await ensureMidiAudioContext();
+    if (!ctx) return false;
+    if (ctx.state === "suspended") {
+      try { await ctx.resume(); } catch {}
+    }
+    midiAudioUnlocked = ctx.state === "running";
+    return midiAudioUnlocked;
+  })();
+  return midiAudioUnlockPromise;
+}
+
+function playMidiBeep(noteNumber) {
+  if (!midiInputBeepEnabled) return;
+  const freq = getMidiBeepFrequency(noteNumber);
+  ensureMidiAudioContext().then((ctx) => {
+    if (!ctx) return;
+    if (ctx.state !== "running") {
+      unlockMidiAudioContext();
+      if (ctx.state !== "running") return;
+    }
+    const now = ctx.currentTime;
+    const duration = Math.max(0.04, Math.min(0.4, midiInputBeepDurationMs / 1000));
+    const attack = Math.min(0.01, duration * 0.2);
+    const releaseStart = now + Math.max(attack, duration * 0.75);
+    const end = now + duration;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, now);
+    const peak = Math.max(0, Math.min(1, midiInputBeepVolume));
+    gain.gain.linearRampToValueAtTime(peak, now + attack);
+    gain.gain.linearRampToValueAtTime(0, releaseStart);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(end);
+    osc.onended = () => {
+      try { osc.disconnect(); } catch {}
+      try { gain.disconnect(); } catch {}
+    };
+  });
+}
+
+function approxFraction(value, maxDen = 64) {
+  if (!Number.isFinite(value) || value <= 0) return { num: 1, den: 1 };
+  let best = { num: 1, den: 1, err: Math.abs(value - 1) };
+  for (let den = 1; den <= maxDen; den += 1) {
+    const num = Math.round(value * den);
+    const err = Math.abs(value - (num / den));
+    if (err < best.err) best = { num, den, err };
+    if (err === 0) break;
+  }
+  const div = gcdInt(best.num, best.den);
+  return { num: best.num / div, den: best.den / div };
+}
+
+function getGridLengthValue(grid) {
+  const value = String(grid || "").trim();
+  if (value === "1/8") return 1 / 8;
+  if (value === "1/16") return 1 / 16;
+  if (value === "1/32") return 1 / 32;
+  return 0;
+}
+
+function getNoteLengthSuffixForGrid(view) {
+  const gridLen = getGridLengthValue(midiInputGrid);
+  if (!gridLen) return "";
+  const text = view && view.state && view.state.doc ? view.state.doc.toString() : "";
+  const defaultLen = getDefaultLen(text);
+  if (!Number.isFinite(defaultLen) || defaultLen <= 0) return "";
+  const ratio = gridLen / defaultLen;
+  if (!Number.isFinite(ratio) || ratio <= 0) return "";
+  const { num, den } = approxFraction(ratio, 64);
+  if (num === den) return "";
+  if (den === 1) return String(num);
+  if (num === 1) {
+    if ((den & (den - 1)) === 0) {
+      const slashes = Math.round(Math.log2(den));
+      return "/".repeat(Math.max(1, slashes));
+    }
+    return `/${den}`;
+  }
+  return `${num}/${den}`;
+}
+
+function parseKeySignature(text) {
+  const match = String(text || "").match(/(?:^|\\n)K:\\s*([^\\r\\n]+)/i);
+  if (!match) return { sharps: [], flats: [], preferSharps: true };
+  const raw = String(match[1] || "").trim();
+  const token = raw.split(/\\s+/)[0] || raw;
+  const m = token.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if (!m) return { sharps: [], flats: [], preferSharps: true };
+  const letter = m[1].toUpperCase();
+  const acc = m[2] || "";
+  const tail = (m[3] || "").toLowerCase();
+  const isMinor = tail.startsWith("m") && !tail.startsWith("maj");
+  const key = `${letter}${acc}${isMinor ? "m" : ""}`;
+  const majorSharps = ["C", "G", "D", "A", "E", "B", "F#", "C#"];
+  const majorFlats = ["C", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"];
+  const minorSharps = ["Am", "Em", "Bm", "F#m", "C#m", "G#m", "D#m", "A#m"];
+  const minorFlats = ["Am", "Dm", "Gm", "Cm", "Fm", "Bbm", "Ebm", "Abm"];
+  const sharpOrder = ["F", "C", "G", "D", "A", "E", "B"];
+  const flatOrder = ["B", "E", "A", "D", "G", "C", "F"];
+  let sharps = [];
+  let flats = [];
+  if (isMinor) {
+    const idxSharp = minorSharps.indexOf(key);
+    const idxFlat = minorFlats.indexOf(key);
+    if (idxSharp > 0) sharps = sharpOrder.slice(0, idxSharp);
+    if (idxFlat > 0) flats = flatOrder.slice(0, idxFlat);
+  } else {
+    const idxSharp = majorSharps.indexOf(key);
+    const idxFlat = majorFlats.indexOf(key);
+    if (idxSharp > 0) sharps = sharpOrder.slice(0, idxSharp);
+    if (idxFlat > 0) flats = flatOrder.slice(0, idxFlat);
+  }
+  if (sharps.length && flats.length) {
+    // Prefer the larger set (unlikely but defensive).
+    if (sharps.length >= flats.length) flats = [];
+    else sharps = [];
+  }
+  const preferSharps = sharps.length > 0 || flats.length === 0;
+  return { sharps, flats, preferSharps };
+}
+
+function midiNoteToAbc(noteNumber, { preferSharps = true } = {}) {
+  const note = Number(noteNumber);
+  if (!Number.isFinite(note)) return "";
+  const pc = ((note % 12) + 12) % 12;
+  const octave = Math.floor(note / 12) - 1; // MIDI: C4=60 -> octave 4
+  const sharpNames = ["C", "^C", "D", "^D", "E", "F", "^F", "G", "^G", "A", "^A", "B"];
+  const flatNames = ["C", "_D", "D", "_E", "E", "F", "_G", "G", "_A", "A", "_B", "B"];
+  const name = (preferSharps ? sharpNames : flatNames)[pc];
+  const accidental = name.length > 1 ? name[0] : "";
+  const letter = name.length > 1 ? name.slice(1) : name;
+  const base = octave >= 5 ? letter.toLowerCase() : letter.toUpperCase();
+  const suffix = octave >= 5 ? "'".repeat(octave - 5) : ",".repeat(Math.max(0, 4 - octave));
+  return `${accidental}${base}${suffix}`;
+}
+
+function midiNoteToAbcKeyAware(noteNumber, view) {
+  const note = Number(noteNumber);
+  if (!Number.isFinite(note)) return "";
+  const text = view && view.state && view.state.doc ? view.state.doc.toString() : "";
+  const sig = parseKeySignature(text);
+  const preferSharps = sig.preferSharps;
+  const noteText = midiNoteToAbc(note, { preferSharps });
+  if (!noteText) return "";
+  const acc = noteText[0] === "^" || noteText[0] === "_" || noteText[0] === "=" ? noteText[0] : "";
+  const core = acc ? noteText.slice(1) : noteText;
+  const letter = core[0] ? core[0].toUpperCase() : "";
+  if (!letter) return noteText;
+  if (!acc) {
+    if (sig.sharps.includes(letter) || sig.flats.includes(letter)) return `=${core}`;
+    return noteText;
+  }
+  if (acc === "^" && sig.sharps.includes(letter)) return core;
+  if (acc === "_" && sig.flats.includes(letter)) return core;
+  return noteText;
+}
+
+function handleMidiMacro(noteNumber) {
+  if (!midiInputMacroEnabled) return false;
+  if (noteNumber === 25) {
+    return deleteEditorCharBeforeCursor();
+  }
+  const macro = MIDI_MACRO_MAP.get(noteNumber);
+  if (!macro) return false;
+  if (midiInputBeepEnabled) playMidiBeep(noteNumber);
+  return insertEditorTextAtCursor(macro);
+}
+
+function handleMidiMessage(event) {
+  try {
+    if (!midiInputEnabled || midiInputMuted) return;
+    if (!event || !event.data || event.data.length < 3) return;
+    const status = event.data[0] & 0xf0;
+    if (status !== 0x90) return; // NOTE_ON only
+    const note = event.data[1];
+    const velocity = event.data[2];
+    if (!velocity) return; // ignore NOTE_ON with velocity 0
+    if (handleMidiMacro(note)) return;
+    if (note < 36 || note > 96) return;
+    const view = getActiveEditorViewForMidi();
+    if (!view) return;
+    const abc = midiInputKeyAware ? midiNoteToAbcKeyAware(note, view) : midiNoteToAbc(note);
+    if (!abc) return;
+    const lengthSuffix = getNoteLengthSuffixForGrid(view);
+    if (midiInputBeepEnabled) playMidiBeep(note);
+    insertEditorTextAtCursor(`${abc}${lengthSuffix}`);
+  } catch (e) {
+    // Keep MIDI failures silent; users can disable via dev toggle.
+  }
+}
+
+function refreshMidiInputs() {
+  if (!midiAccess) return;
+  let count = 0;
+  try {
+    for (const input of midiAccess.inputs.values()) {
+      count += 1;
+      input.onmidimessage = handleMidiMessage;
+    }
+  } catch {}
+  midiDeviceCount = count;
+  updateMidiInputUi();
+  if (lastCursorStatus) refreshCursorStatus();
+}
+
+function setMidiInputEnabled(next, { notify = true } = {}) {
+  const desired = Boolean(next);
+  if (midiInputEnabled === desired) return;
+  midiInputEnabled = desired;
+  if (midiInputEnabled) initMidiInput();
+  if (notify) {
+    try { showToast(midiInputEnabled ? "MIDI input enabled." : "MIDI input disabled.", 2000); } catch {}
+  }
+  if (!midiInputEnabled) closeMidiInputPopover();
+  updateMidiInputUi();
+  if (lastCursorStatus) refreshCursorStatus();
+}
+
+function setMidiInputMuted(next, { notify = true } = {}) {
+  const desired = Boolean(next);
+  if (midiInputMuted === desired) return;
+  midiInputMuted = desired;
+  if (notify) {
+    try { showToast(midiInputMuted ? "MIDI input muted." : "MIDI input unmuted.", 2000); } catch {}
+  }
+  updateMidiInputUi();
+  if (lastCursorStatus) refreshCursorStatus();
+}
+
+function setMidiInputGrid(next) {
+  const value = String(next || "").trim();
+  if (value === "1/8" || value === "1/16" || value === "1/32") {
+    midiInputGrid = value;
+  } else {
+    midiInputGrid = "1/16";
+  }
+}
+
+function applyMidiSettingsPatch(patch, { notify = false } = {}) {
+  if (!patch || typeof patch !== "object") return;
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputEnabled")) {
+    setMidiInputEnabled(Boolean(patch.midiInputEnabled), { notify });
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputMuted")) {
+    setMidiInputMuted(Boolean(patch.midiInputMuted), { notify });
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputKeyAware")) {
+    midiInputKeyAware = Boolean(patch.midiInputKeyAware);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputGrid")) {
+    setMidiInputGrid(patch.midiInputGrid);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputMacroEnabled")) {
+    midiInputMacroEnabled = Boolean(patch.midiInputMacroEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepEnabled")) {
+    midiInputBeepEnabled = Boolean(patch.midiInputBeepEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")) {
+    const raw = Number(patch.midiInputBeepVolume);
+    if (Number.isFinite(raw)) midiInputBeepVolume = Math.max(0, Math.min(1, raw));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepDuration")) {
+    const raw = Number(patch.midiInputBeepDuration);
+    if (Number.isFinite(raw)) midiInputBeepDurationMs = Math.max(40, Math.min(400, raw));
+  }
+  updateMidiInputUi();
+  if (window.api && typeof window.api.updateSettings === "function") {
+    window.api.updateSettings(patch).catch(() => {});
+  }
+}
+
+function toggleMidiInputSetting() {
+  const next = !midiInputEnabled;
+  setMidiInputEnabled(next, { notify: true });
+  if (window.api && typeof window.api.updateSettings === "function") {
+    window.api.updateSettings({ midiInputEnabled: next }).catch(() => {});
+  }
+  if (next) openMidiInputPopover();
+  if (midiInputBeepEnabled) unlockMidiAudioContext();
+}
+
+function toggleMidiMuteSetting() {
+  const next = !midiInputMuted;
+  setMidiInputMuted(next, { notify: true });
+  if (window.api && typeof window.api.updateSettings === "function") {
+    window.api.updateSettings({ midiInputMuted: next }).catch(() => {});
+  }
+  openMidiInputPopover();
+}
+
+async function initMidiInput() {
+  if (midiAccess || midiInitPromise) return midiInitPromise;
+  if (!supportsMidiInput()) {
+    if (!midiWarnedUnsupported) {
+      midiWarnedUnsupported = true;
+      try { showToast("MIDI input not supported in this environment.", 2400); } catch {}
+    }
+    return null;
+  }
+  midiInitPromise = navigator.requestMIDIAccess({ sysex: false })
+    .then((access) => {
+      midiAccess = access;
+      midiInitPromise = null;
+      refreshMidiInputs();
+      try {
+        midiAccess.onstatechange = () => refreshMidiInputs();
+      } catch {}
+      if (lastCursorStatus) refreshCursorStatus();
+      return midiAccess;
+    })
+    .catch((err) => {
+      midiInitPromise = null;
+      try { showToast("MIDI input failed to initialize.", 2400); } catch {}
+      return null;
+    });
+  return midiInitPromise;
+}
+
+if (!window.__abcarusMidiInput) {
+  window.__abcarusMidiInput = {
+    enable: async () => {
+      setMidiInputEnabled(true, { notify: false });
+      await initMidiInput();
+      return getMidiInputStatus();
+    },
+    disable: () => {
+      setMidiInputEnabled(false, { notify: false });
+      return getMidiInputStatus();
+    },
+    toggle: async () => {
+      setMidiInputEnabled(!midiInputEnabled, { notify: false });
+      if (midiInputEnabled) await initMidiInput();
+      return getMidiInputStatus();
+    },
+    mute: () => {
+      setMidiInputMuted(true, { notify: false });
+      return getMidiInputStatus();
+    },
+    unmute: () => {
+      setMidiInputMuted(false, { notify: false });
+      return getMidiInputStatus();
+    },
+    toggleMute: () => {
+      setMidiInputMuted(!midiInputMuted, { notify: false });
+      return getMidiInputStatus();
+    },
+    setKeyAware: (value) => {
+      midiInputKeyAware = Boolean(value);
+      return getMidiInputStatus();
+    },
+    setGrid: (value) => {
+      setMidiInputGrid(value);
+      return getMidiInputStatus();
+    },
+    setMacros: (value) => {
+      midiInputMacroEnabled = Boolean(value);
+      return getMidiInputStatus();
+    },
+    status: () => getMidiInputStatus(),
+  };
+}
+
 function initEditor() {
   if (editorView || !$editorHost) return;
   const completionTooltipOpen = (view) => {
@@ -7587,6 +8165,10 @@ function initEditor() {
     { key: "Mod-f", run: openFindPanel },
     { key: "Ctrl-h", run: openReplacePanel },
     { key: "Mod-h", run: openReplacePanel },
+    { key: "Ctrl-Alt-i", run: () => { toggleMidiInputSetting(); return true; } },
+    { key: "Mod-Alt-i", run: () => { toggleMidiInputSetting(); return true; } },
+    { key: "Ctrl-Alt-m", run: () => { toggleMidiMuteSetting(); return true; } },
+    { key: "Mod-Alt-m", run: () => { toggleMidiMuteSetting(); return true; } },
     { key: "Ctrl-Alt-g", run: gotoLine },
     { key: "Mod-Alt-g", run: gotoLine },
     { key: "Ctrl-g", run: () => { goToMeasureFromMenu().catch(() => {}); return true; } },
@@ -11300,6 +11882,75 @@ if ($errorsIndicator) {
   });
 }
 
+if ($midiInputStatus) {
+  $midiInputStatus.addEventListener("click", (e) => {
+    if (e) e.preventDefault();
+    toggleMidiInputPopover();
+  });
+}
+
+if ($midiInputPopoverClose) {
+  $midiInputPopoverClose.addEventListener("click", () => {
+    closeMidiInputPopover();
+  });
+}
+
+if ($midiInputEnabledCtl) {
+  $midiInputEnabledCtl.addEventListener("change", () => {
+    applyMidiSettingsPatch({ midiInputEnabled: Boolean($midiInputEnabledCtl.checked) });
+  });
+}
+
+if ($midiInputMutedCtl) {
+  $midiInputMutedCtl.addEventListener("change", () => {
+    applyMidiSettingsPatch({ midiInputMuted: Boolean($midiInputMutedCtl.checked) });
+  });
+}
+
+if ($midiInputKeyAwareCtl) {
+  $midiInputKeyAwareCtl.addEventListener("change", () => {
+    applyMidiSettingsPatch({ midiInputKeyAware: Boolean($midiInputKeyAwareCtl.checked) });
+  });
+}
+
+if ($midiInputGridCtl) {
+  $midiInputGridCtl.addEventListener("change", () => {
+    applyMidiSettingsPatch({ midiInputGrid: String($midiInputGridCtl.value || "1/16") });
+  });
+}
+
+if ($midiInputMacroCtl) {
+  $midiInputMacroCtl.addEventListener("change", () => {
+    applyMidiSettingsPatch({ midiInputMacroEnabled: Boolean($midiInputMacroCtl.checked) });
+  });
+}
+
+if ($midiInputBeepCtl) {
+  $midiInputBeepCtl.addEventListener("change", async () => {
+    const enabled = Boolean($midiInputBeepCtl.checked);
+    applyMidiSettingsPatch({ midiInputBeepEnabled: enabled });
+    if (enabled) {
+      await unlockMidiAudioContext();
+    }
+  });
+}
+
+if ($midiInputBeepVolumeCtl) {
+  $midiInputBeepVolumeCtl.addEventListener("input", () => {
+    const raw = Number($midiInputBeepVolumeCtl.value);
+    if (!Number.isFinite(raw)) return;
+    applyMidiSettingsPatch({ midiInputBeepVolume: raw / 100 });
+  });
+}
+
+if ($midiInputBeepDurationCtl) {
+  $midiInputBeepDurationCtl.addEventListener("input", () => {
+    const raw = Number($midiInputBeepDurationCtl.value);
+    if (!Number.isFinite(raw)) return;
+    applyMidiSettingsPatch({ midiInputBeepDuration: raw });
+  });
+}
+
 document.addEventListener("click", (e) => {
   if (!errorsPopoverOpen) return;
   const target = e.target;
@@ -11308,12 +11959,28 @@ document.addEventListener("click", (e) => {
   toggleErrorsPopover(false);
 }, true);
 
+document.addEventListener("click", (e) => {
+  if (!midiPopoverOpen) return;
+  const target = e.target;
+  if ($midiInputPopover && $midiInputPopover.contains(target)) return;
+  if ($midiInputStatus && $midiInputStatus.contains(target)) return;
+  closeMidiInputPopover();
+}, true);
+
 document.addEventListener("keydown", (e) => {
   if (!errorsPopoverOpen) return;
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
   toggleErrorsPopover(false);
+}, true);
+
+document.addEventListener("keydown", (e) => {
+  if (!midiPopoverOpen) return;
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeMidiInputPopover();
 }, true);
 
 // Global Stop shortcut (Esc): stop playback if it is active.
@@ -12384,11 +13051,22 @@ async function updateSoundfontLoadingStatus(name) {
   setSoundfontCaption("Loading...");
 }
 
+let lastCursorStatus = null;
+
 function setCursorStatus(line, col, offset, totalLines, totalChars) {
   if (!$cursorStatus) return;
-  const text = `Ln ${line}/${totalLines}, Col ${col}  •  Ch ${offset}/${totalChars}`;
+  lastCursorStatus = { line, col, offset, totalLines, totalChars };
+  const midiLabel = formatMidiStatusLabel();
+  const base = `Ln ${line}/${totalLines}, Col ${col}  •  Ch ${offset}/${totalChars}`;
+  const text = midiLabel ? `${base}  •  ${midiLabel}` : base;
   $cursorStatus.textContent = text;
   $cursorStatus.title = text;
+}
+
+function refreshCursorStatus() {
+  if (!lastCursorStatus) return;
+  const { line, col, offset, totalLines, totalChars } = lastCursorStatus;
+  setCursorStatus(line, col, offset, totalLines, totalChars);
 }
 
 function applyTransformedText(text) {
@@ -20167,6 +20845,7 @@ if (window.api && typeof window.api.getSettings === "function") {
 			      setAbc2svgFontsFromSettings(settings);
 			      setSoundfontFromSettings(settings);
 			      setDrumVelocityFromSettings(settings);
+	        setMidiInputFromSettings(settings);
 	        setLayoutFromSettings(settings);
 		      setFollowFromSettings(settings);
 		      setLoopFromSettings(settings);
@@ -20210,6 +20889,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	    setAbc2svgFontsFromSettings(settings);
 		    setSoundfontFromSettings(settings);
 		    setDrumVelocityFromSettings(settings);
+      setMidiInputFromSettings(settings);
       setLayoutFromSettings(settings);
 	    setFollowFromSettings(settings);
 	    setLoopFromSettings(settings);
@@ -23509,6 +24189,23 @@ function setDrumVelocityFromSettings(settings) {
     }
   }
   drumVelocityMap = base;
+}
+
+function setMidiInputFromSettings(settings) {
+  if (!settings || typeof settings !== "object") return;
+  midiInputKeyAware = Boolean(settings.midiInputKeyAware);
+  midiInputMacroEnabled = settings.midiInputMacroEnabled !== false;
+  midiInputBeepEnabled = Boolean(settings.midiInputBeepEnabled);
+  midiInputBeepVolume = Number.isFinite(Number(settings.midiInputBeepVolume))
+    ? Math.max(0, Math.min(1, Number(settings.midiInputBeepVolume)))
+    : midiInputBeepVolume;
+  midiInputBeepDurationMs = Number.isFinite(Number(settings.midiInputBeepDuration))
+    ? Math.max(40, Math.min(400, Number(settings.midiInputBeepDuration)))
+    : midiInputBeepDurationMs;
+  setMidiInputGrid(settings.midiInputGrid);
+  setMidiInputEnabled(Boolean(settings.midiInputEnabled), { notify: false });
+  setMidiInputMuted(Boolean(settings.midiInputMuted), { notify: false });
+  updateMidiInputUi();
 }
 
 function resetSoundfontCache() {

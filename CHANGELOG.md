@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.26.0] - 2026-02-02
 ### Added
 - ABC Helpers (Ctrl+F2): GM program picker for `%%MIDI program/chordprog/bassprog` with search + auto-comment insertion.
 - ABC Helpers (Ctrl+F2): `%%MIDI drum` mini-editor with pattern fields, bar grouping, hit list, and GM drum picker.
@@ -13,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Playback Follow: keep highlighting stable for multi-line `%%MIDI drum +:` directives (avoid length-shifting sanitization).
-
 
 ## [0.25.2] - 2026-02-01
 ### Fixed

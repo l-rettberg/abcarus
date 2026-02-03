@@ -16450,11 +16450,12 @@ function normalizeHeaderNoneSpacing(text) {
 }
 
 function injectPlaybackMidiFxControls(text, offset) {
-  const reverbRaw = latestSettingsSnapshot && latestSettingsSnapshot.playbackMidiReverb != null
-    ? Number(latestSettingsSnapshot.playbackMidiReverb)
+  const fxSettings = resolvePlaybackFxSettings(latestSettingsSnapshot || {});
+  const reverbRaw = fxSettings && fxSettings.playbackMidiReverb != null
+    ? Number(fxSettings.playbackMidiReverb)
     : NaN;
-  const chorusRaw = latestSettingsSnapshot && latestSettingsSnapshot.playbackMidiChorus != null
-    ? Number(latestSettingsSnapshot.playbackMidiChorus)
+  const chorusRaw = fxSettings && fxSettings.playbackMidiChorus != null
+    ? Number(fxSettings.playbackMidiChorus)
     : NaN;
   const toLevel = (value) => {
     if (!Number.isFinite(value) || value <= 0) return null;
@@ -21101,7 +21102,9 @@ if (window.api && typeof window.api.getSettings === "function") {
   window.api.getSettings().then((settings) => {
 		      logStartupPerf("getSettings() done", { hasSettings: Boolean(settings) });
 			      if (settings) {
+			      const prevSettings = latestSettingsSnapshot;
 			      latestSettingsSnapshot = settings;
+			      syncPlaybackFxPreset(settings, prevSettings);
 			      logStartupPerf("apply settings: begin");
 			      setUiFontsFromSettings(settings);
 			      setEditorHelpFromSettings(settings);
@@ -21145,7 +21148,9 @@ if (window.api && typeof window.api.getFontDirs === "function") {
 }
 if (window.api && typeof window.api.onSettingsChanged === "function") {
   window.api.onSettingsChanged((settings) => {
+    const prevSettings = latestSettingsSnapshot;
     latestSettingsSnapshot = settings || null;
+    syncPlaybackFxPreset(settings, prevSettings);
 	    const prevHeader = `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`;
 	    const prevSoundfont = soundfontName;
 	    setUiFontsFromSettings(settings);
@@ -21154,6 +21159,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	    setAbc2svgFontsFromSettings(settings);
 		    setSoundfontFromSettings(settings);
 		    setDrumVelocityFromSettings(settings);
+      setPlaybackFxFromSettings(settings);
       setMidiInputFromSettings(settings);
       setLayoutFromSettings(settings);
 	    setFollowFromSettings(settings);
@@ -22324,9 +22330,63 @@ let focusModeEnabled = false;
 let focusPrevRenderZoom = null;
 let focusPrevLibraryVisible = null;
 
+const PLAYBACK_FX_PRESETS = Object.freeze({
+  Off: { reverb: 0, chorus: 0 },
+  Room: { reverb: 28, chorus: 12 },
+  Hall: { reverb: 48, chorus: 18 },
+});
+
+function normalizePlaybackFxPreset(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Custom";
+  if (raw === "Custom" || raw === "Off" || raw === "Room" || raw === "Hall") return raw;
+  return "Custom";
+}
+
+function clampPlaybackFxValue(value, fallback) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(0, Math.min(127, Math.round(v)));
+}
+
+function resolvePlaybackFxSettings(settings) {
+  if (!settings || typeof settings !== "object") return settings;
+  const preset = normalizePlaybackFxPreset(settings.playbackMidiFxPreset);
+  const presetValues = PLAYBACK_FX_PRESETS[preset];
+  if (!presetValues) return settings;
+  return {
+    playbackMidiReverb: clampPlaybackFxValue(presetValues.reverb, 0),
+    playbackMidiChorus: clampPlaybackFxValue(presetValues.chorus, 0),
+  };
+}
+
+function syncPlaybackFxPreset(settings, prevSettings) {
+  if (!settings || typeof settings !== "object") return;
+  const preset = normalizePlaybackFxPreset(settings.playbackMidiFxPreset);
+  const presetValues = PLAYBACK_FX_PRESETS[preset];
+  if (!presetValues) return;
+
+  const reverb = clampPlaybackFxValue(settings.playbackMidiReverb, presetValues.reverb);
+  const chorus = clampPlaybackFxValue(settings.playbackMidiChorus, presetValues.chorus);
+  if (reverb === presetValues.reverb && chorus === presetValues.chorus) return;
+
+  const prevPreset = prevSettings ? normalizePlaybackFxPreset(prevSettings.playbackMidiFxPreset) : preset;
+  const presetChanged = preset !== prevPreset;
+  if (presetChanged) {
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackMidiReverb: presetValues.reverb, playbackMidiChorus: presetValues.chorus }).catch(() => {});
+    }
+    return;
+  }
+
+  if (window.api && typeof window.api.updateSettings === "function") {
+    window.api.updateSettings({ playbackMidiFxPreset: "Custom" }).catch(() => {});
+  }
+}
+
 function applyPlaybackFxToConfig(conf, settings) {
   if (!conf) return;
-  const src = settings || latestSettingsSnapshot || {};
+  const src = resolvePlaybackFxSettings(settings || latestSettingsSnapshot || {});
   const toLevel = (value) => {
     const v = Number(value);
     if (!Number.isFinite(v) || v <= 0) return 0;

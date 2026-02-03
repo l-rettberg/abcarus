@@ -139,8 +139,28 @@ const FALLBACK_SCHEMA = [
   { key: "followPlayheadShift", type: "number", default: 0, section: "Playback", label: "Playhead horizontal shift (px)", ui: { input: "number", min: -20, max: 20, step: 1 }, advanced: true },
   { key: "followPlayheadFirstBias", type: "number", default: 6, section: "Playback", label: "First-note bias (px)", ui: { input: "number", min: 0, max: 20, step: 1 }, advanced: true },
   { key: "playbackNativeMidiDrums", type: "boolean", default: false, section: "Playback", label: "Use native abc2svg %%MIDI drum* (experimental)", ui: { input: "checkbox" }, advanced: true },
-  { key: "playbackMidiReverb", type: "number", default: 0, section: "Playback", label: "MIDI reverb (CC91)", ui: { input: "number", min: 0, max: 127, step: 1 } },
-  { key: "playbackMidiChorus", type: "number", default: 0, section: "Playback", label: "MIDI chorus (CC93)", ui: { input: "number", min: 0, max: 127, step: 1 } },
+  {
+    key: "playbackMidiFxPreset",
+    type: "string",
+    default: "Custom",
+    section: "Playback",
+    group: "Audio",
+    groupOrder: 35,
+    order: 0,
+    label: "MIDI FX preset",
+    help: "Applies a preset reverb/chorus balance for playback. Choose Custom to edit the Reverb/Chorus levels below.",
+    ui: {
+      input: "select",
+      options: [
+        { value: "Custom", label: "Custom (manual)" },
+        { value: "Off", label: "Off" },
+        { value: "Room", label: "Room" },
+        { value: "Hall", label: "Hall" },
+      ],
+    },
+  },
+  { key: "playbackMidiReverb", type: "number", default: 0, section: "Playback", group: "Audio", groupOrder: 35, label: "MIDI reverb (CC91)", help: "Reverb level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.", ui: { input: "number", min: 0, max: 127, step: 1 } },
+  { key: "playbackMidiChorus", type: "number", default: 0, section: "Playback", group: "Audio", groupOrder: 35, label: "MIDI chorus (CC93)", help: "Chorus level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.", ui: { input: "number", min: 0, max: 127, step: 1 } },
 		  {
 		    key: "playbackAutoScrollMode",
 		    type: "string",
@@ -183,6 +203,15 @@ function groupSchemaForModal(schema) {
   }
   for (const entries of bySection.values()) {
     entries.sort((a, b) => {
+      const ao = Number(a && a.order);
+      const bo = Number(b && b.order);
+      const hasAo = Number.isFinite(ao);
+      const hasBo = Number.isFinite(bo);
+      if (hasAo || hasBo) {
+        const av = hasAo ? ao : 999;
+        const bv = hasBo ? bo : 999;
+        if (av !== bv) return av - bv;
+      }
       const sectionName = String((a && a.section) || (b && b.section) || "");
       if (sectionName === "Fonts") {
         const order = new Map([
@@ -531,6 +560,8 @@ export function initSettings(api) {
       }
     }
 
+    updatePlaybackFxUi(effectiveSettings);
+
     if (globalHeaderView) {
       const nextText = String(effectiveSettings.globalHeaderText || "");
       const doc = globalHeaderView.state.doc.toString();
@@ -543,6 +574,36 @@ export function initSettings(api) {
       }
     }
 
+  }
+
+  function updatePlaybackFxUi(effectiveSettings) {
+    if (!effectiveSettings) return;
+    const preset = String(effectiveSettings.playbackMidiFxPreset || "Custom");
+    const isCustom = preset === "Custom";
+    const reverbMeta = controlByKey.get("playbackMidiReverb");
+    const chorusMeta = controlByKey.get("playbackMidiChorus");
+    if (reverbMeta && reverbMeta.el) reverbMeta.el.disabled = !isCustom;
+    if (chorusMeta && chorusMeta.el) chorusMeta.el.disabled = !isCustom;
+
+    if (!$settingsPanelsHost) return;
+    const presetHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiFxPreset\"] .settings-help");
+    if (presetHelp) {
+      presetHelp.textContent = isCustom
+        ? "Custom uses the Reverb/Chorus levels below."
+        : "Preset controls the Reverb/Chorus levels below (locked).";
+    }
+    const reverbHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiReverb\"] .settings-help");
+    if (reverbHelp) {
+      reverbHelp.textContent = isCustom
+        ? "Reverb level during playback (0 = leave unchanged, 1–127 set level)."
+        : `Locked by preset (${preset}). Switch to Custom to edit.`;
+    }
+    const chorusHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiChorus\"] .settings-help");
+    if (chorusHelp) {
+      chorusHelp.textContent = isCustom
+        ? "Chorus level during playback (0 = leave unchanged, 1–127 set level)."
+        : `Locked by preset (${preset}). Switch to Custom to edit.`;
+    }
   }
 
   function openSettings() {
@@ -1246,6 +1307,7 @@ export function initSettings(api) {
             const block = document.createElement("div");
             block.className = "settings-entry";
             block.dataset.settingsSearch = `${entry.key} ${entry.label || ""} ${entry.help || ""} ${sectionName} ${g.title}`.toLowerCase();
+            block.dataset.settingsKey = String(entry.key || "");
             block.appendChild(row);
             if (entry.help && sectionName !== "Fonts") {
               const help = document.createElement("div");

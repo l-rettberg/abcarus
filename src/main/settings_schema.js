@@ -184,6 +184,26 @@ function getSettingsSchema() {
       advanced: true,
     },
     {
+      key: "playbackMidiFxPreset",
+      type: "string",
+      default: "Custom",
+      section: "Playback",
+      group: "Audio",
+      groupOrder: 35,
+      order: 0,
+      label: "MIDI FX preset",
+      help: "Applies a preset reverb/chorus balance for playback. Choose Custom to edit the Reverb/Chorus levels below.",
+      ui: {
+        input: "select",
+        options: [
+          { value: "Custom", label: "Custom (manual)" },
+          { value: "Off", label: "Off" },
+          { value: "Room", label: "Room" },
+          { value: "Hall", label: "Hall" },
+        ],
+      },
+    },
+    {
       key: "playbackMidiReverb",
       type: "number",
       default: 0,
@@ -191,7 +211,7 @@ function getSettingsSchema() {
       group: "Audio",
       groupOrder: 35,
       label: "MIDI reverb (CC91)",
-      help: "Send MIDI reverb level during playback (0 = leave unchanged, 1–127 set level).",
+      help: "Reverb level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.",
       ui: { input: "number", min: 0, max: 127, step: 1 },
     },
     {
@@ -202,7 +222,7 @@ function getSettingsSchema() {
       group: "Audio",
       groupOrder: 35,
       label: "MIDI chorus (CC93)",
-      help: "Send MIDI chorus level during playback (0 = leave unchanged, 1–127 set level).",
+      help: "Chorus level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.",
       ui: { input: "number", min: 0, max: 127, step: 1 },
     },
     {

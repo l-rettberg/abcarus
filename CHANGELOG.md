@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Export: MIDI file export (abc2svg midigen).
 - Playback: configurable reverb/chorus levels (CC91/CC93) with built-in audio FX.
+- Playback: FX presets for reverb/chorus (including Custom/manual mode).
 - Errors: show drum skeleton mismatch warnings in the Errors list.
 
 ### Changed

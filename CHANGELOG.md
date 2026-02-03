@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Export: MIDI file export (abc2svg midigen).
+- Playback: configurable reverb/chorus levels (CC91/CC93) with built-in audio FX.
+- Errors: show drum skeleton mismatch warnings in the Errors list.
+
+### Changed
+- Updated bundled abc2svg core and playback engine.
+
 
 
 ## [0.27.0] - 2026-02-02

@@ -139,6 +139,8 @@ const FALLBACK_SCHEMA = [
   { key: "followPlayheadShift", type: "number", default: 0, section: "Playback", label: "Playhead horizontal shift (px)", ui: { input: "number", min: -20, max: 20, step: 1 }, advanced: true },
   { key: "followPlayheadFirstBias", type: "number", default: 6, section: "Playback", label: "First-note bias (px)", ui: { input: "number", min: 0, max: 20, step: 1 }, advanced: true },
   { key: "playbackNativeMidiDrums", type: "boolean", default: false, section: "Playback", label: "Use native abc2svg %%MIDI drum* (experimental)", ui: { input: "checkbox" }, advanced: true },
+  { key: "playbackMidiReverb", type: "number", default: 0, section: "Playback", label: "MIDI reverb (CC91)", ui: { input: "number", min: 0, max: 127, step: 1 } },
+  { key: "playbackMidiChorus", type: "number", default: 0, section: "Playback", label: "MIDI chorus (CC93)", ui: { input: "number", min: 0, max: 127, step: 1 } },
 		  {
 		    key: "playbackAutoScrollMode",
 		    type: "string",

@@ -678,6 +678,45 @@ function registerIpcHandlers(ctx) {
       };
     }
   });
+  ipcMain.handle("export:midi", async (event, midiBytes, suggestedName) => {
+    const toBuffer = (value) => {
+      if (!value) return null;
+      if (Buffer.isBuffer(value)) return value;
+      if (value instanceof Uint8Array) return Buffer.from(value);
+      if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+      if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value));
+      if (typeof value === "string") return Buffer.from(value, "base64");
+      return null;
+    };
+    const buf = toBuffer(midiBytes);
+    if (!buf || !buf.length) {
+      return { ok: false, error: "No MIDI data to export." };
+    }
+    const safeName = suggestedName && String(suggestedName).trim()
+      ? String(suggestedName).trim()
+      : "tune";
+    const parent = getParentForDialog(event, "export:midi");
+    const filePath = dialog.showSaveDialogSync(parent || undefined, {
+      title: "Export MIDI",
+      defaultPath: `${safeName}.mid`,
+      filters: [
+        { name: "MIDI", extensions: ["mid", "midi"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (!filePath) return { ok: false, canceled: true };
+    try {
+      await atomicWriteFileWithRetry(fs, path, filePath, buf);
+      return { ok: true };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e && e.message ? e.message : String(e),
+        detail: e && e.detail ? e.detail : "",
+        code: e && e.code ? e.code : "",
+      };
+    }
+  });
   ipcMain.handle("tools:check", async () => {
     try {
       const tools = await checkConversionTools();

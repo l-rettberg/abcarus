@@ -121,6 +121,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
           { label: "PDF (All Tunes)…", click: () => sendMenuAction("exportPdfAll") },
           { type: "separator" },
           { label: "MusicXML…", accelerator: "CmdOrCtrl+Shift+E", click: () => sendMenuAction("exportMusicXml") },
+          { label: "MIDI…", click: () => sendMenuAction("exportMidi") },
         ],
       },
       { type: "separator" },

@@ -438,7 +438,7 @@ play_cont(po)}
 if(typeof module=='object'&&typeof exports=='object')
 exports.ToAudio=ToAudio
 var abcsf2=[]
-function Audio5(i_conf){var po,conf=i_conf,empty=function(){},errmsg,ac,gain,model,parser,presets,instr=[],params=[],rates=[],w_instr=0
+function Audio5(i_conf){var po,conf=i_conf,empty=function(){},errmsg,ac,gain,model,parser,presets,instr=[],params=[],rates=[],w_instr=0,fx_out,fx_rev,fx_rev_gain,fx_cho,fx_cho_gain,fx_init=false
 var b64d=[]
 function init_b64d(){var b64l='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',l=b64l.length
 for(var i=0;i<l;i++)
@@ -466,6 +466,49 @@ a[j++]=(t>>16)&0xff
 if(j<dl)
 a[j++]=(t>>8)&0xff}
 return a}
+function fx_level(v){if(v==undefined)
+return 0
+v=Number(v)
+if(isNaN(v)||v<=0)
+return 0
+if(v>127)
+v=127
+return v/127}
+function fx_impulse(){var rate=ac.sampleRate,len=Math.max(1,rate*1.4|0),buf=ac.createBuffer(2,len,rate),ch=0
+for(ch=0;ch<2;ch++){var data=buf.getChannelData(ch)
+for(var i=0;i<len;i++){var n=(Math.random()*2-1)
+data[i]=n*Math.pow(1-i/len,2.2)}}return buf}
+function fx_setup(){if(fx_init)
+return
+fx_init=true
+fx_out=ac.createGain()
+fx_out.gain.value=1
+var dry=ac.createGain()
+dry.gain.value=1
+gain.connect(dry)
+dry.connect(fx_out)
+fx_rev=ac.createConvolver()
+fx_rev.buffer=fx_impulse()
+fx_rev_gain=ac.createGain()
+fx_rev_gain.gain.value=0
+gain.connect(fx_rev)
+fx_rev.connect(fx_rev_gain)
+fx_rev_gain.connect(fx_out)
+fx_cho=ac.createDelay()
+fx_cho.delayTime.value=0.025
+fx_cho_gain=ac.createGain()
+fx_cho_gain.gain.value=0
+gain.connect(fx_cho)
+fx_cho.connect(fx_cho_gain)
+fx_cho_gain.connect(fx_out)}
+function fx_apply(){if(!gain)
+return
+fx_setup()
+var rv=fx_level(conf.reverb),ch=fx_level(conf.chorus)
+if(fx_rev_gain)
+fx_rev_gain.gain.value=rv*0.6
+if(fx_cho_gain)
+fx_cho_gain.gain.value=ch*0.4}
 function sample_cp(b,s){var i,n,a=b.getChannelData(0)
 for(i=0;i<s.length;i++)
 a[i]=s[i]/196608}
@@ -645,6 +688,8 @@ o.start(t)
 o.stop(t+d)}
 function play_start(){if(po.stop){po.onend(repv)
 return}
+if(fx_out){fx_out.connect(ac.destination)}
+else
 gain.connect(ac.destination)
 abc2svg.play_next(po)}
 init_b64d()
@@ -666,6 +711,7 @@ ac.resume()
 play_unlock()}
 gain=ac.createGain()
 gain.gain.value=conf.gain}
+fx_apply()
 while(i_start.noplay)
 i_start=i_start.ts_next
 po={conf:conf,onend:conf.onend||empty,onnote:conf.onnote||empty,s_end:i_end,s_cur:i_start,repv:i_lvl||0,tgen:2,get_time:get_time,midi_ctrl:midi_ctrl,midi_prog:midi_prog,note_run:note_run,timouts:[],v_c:[],c_i:[],v_b:[],ac:ac,gain:gain,rates:rates}
@@ -676,7 +722,13 @@ play_start()},stop:function(){po.stop=true
 po.timouts.forEach(function(id){clearTimeout(id)})
 abc2svg.play_next(po)
 if(gain){gain.disconnect()
-gain=null}},set_vol:function(v){if(gain)
+gain=null
+fx_out=null
+fx_rev=null
+fx_rev_gain=null
+fx_cho=null
+fx_cho_gain=null
+fx_init=false}},set_vol:function(v){if(gain)
 gain.gain.value=v}}}
 (function(root,factory){if(typeof exports==="object"){root.sf2=exports;factory(exports)}else if(typeof define==="function"&&define.amd){define(["exports"],function(exports){root.sf2=exports;return(root.sf2,factory(exports))})}else{root.sf2={};factory(root.sf2)}}(this,function(sf2){"use strict";sf2.Parser=function(input,options){options=options||{};this.input=input;this.parserOptions=options.parserOptions};sf2.Parser.prototype.parse=function(){var parser=new sf2.Riff.Parser(this.input,this.parserOptions),chunk;parser.parse();if(parser.chunkList.length!==1)
 throw new Error('wrong chunk length');chunk=parser.getChunk(0);if(chunk===null)
@@ -805,8 +857,8 @@ if(i>0)
 for(j=0;j<r.length;j++)
 r[j]=ch[(j+i)%r.length]
 else
-r.unshift(b)}
-r[0]-=12
+r.unshift(b)
+r[0]-=12}
 return r}
 function meterhy(s){if(!s.a_meter[0])
 return'+'
@@ -889,7 +941,7 @@ if(i>=5)
 s.notes[0].midi+=12
 s.nhd=0
 break
-case'f':s.notes[0]={midi:s_ch.notes[0].midi}
+case'f':s.notes[0]={midi:s_ch.notes[0].midi-12}
 s.nhd=0
 break
 case'b':s.nhd=s_ch.nhd

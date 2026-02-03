@@ -1501,8 +1501,8 @@ x+=3.5}}
 set_color();anno_a.push(s)}
 function draw_mrest(s){if(s.second)
 return
-var x1,x2,s2,p_st=staff_tb[s.st],y=p_st.y+(p_st.topbar+p_st.botbar)/2,p=s.nmes.toString()
-function omrest(){var x=s.x,y=p_st.y+12,n=s.nmes,k=n>>2
+var x1,x2,s2,p_st=staff_tb[s.st],y=p_st.y+(p_st.topbar+p_st.botbar)/2,p=s.nmeas.toString()
+function omrest(){var x=s.x,y=p_st.y+12,n=s.nmeas,k=n>>2
 if(n&3){k++
 if(n&3==3)
 k++}
@@ -1527,7 +1527,7 @@ s2=s.ts_next
 for(s2=s.ts_next;s2&&!s2.seqst;s2=s2.ts_next);x2=s2?s2.x-20:s.x+20
 s.x=(x1+x2)/2
 anno_start(s)
-if(!cfmt.oldmrest||s.nmes>cfmt.oldmrest){out_XYAB('<path d="mX Y',x1+.6,y-2.7)
+if(!cfmt.oldmrest||s.nmeas>cfmt.oldmrest){out_XYAB('<path d="mX Y',x1+.6,y-2.7)
 output+='v2.7h-1.4v-10.8h1.4v2.7h'
 +((x2-x1-2.8)/stv_g.scale).toFixed(1)
 +'v-2.7h1.4v10.8h-1.4v-2.7z"/>\n'}else{omrest()}
@@ -3248,6 +3248,8 @@ a=p.match(/\s+([0-9.]+|\*)$/)
 if(a){if(a[1]!="*")
 font.size=+a[1]
 p=p.replace(a[0],"")}
+if(p.indexOf("Figur")>=0)
+font.figb=1
 if((p[0]=='u'&&p.slice(0,4)=="url(")||(p[0]=='l'&&p.slice(0,6)=="local(")){n=p.indexOf(')',1)
 if(n<0){syntax(1,"No end of url in font family")
 return}
@@ -3271,9 +3273,7 @@ p=p.replace(a[0],'')}
 if(!font.src){p=p.trim()
 if(p=='*')
 p=''
-p=p.replace(/Times-Roman|Times/,"serif").replace("Helvetica","sans-serif").replace("Courier","monospace").replace("music",cfmt.musicfont.name)
-if(p.indexOf("Fig")>0)
-font.figb=true}
+p=p.replace(/Times-Roman|Times/,"serif").replace("Helvetica","sans-serif").replace("Courier","monospace").replace("music",cfmt.musicfont.name)}
 if(p&&!font.name)
 font.name=p
 if(font.size)
@@ -3409,7 +3409,7 @@ break}
 cfmt[cmd]=f;img.chg=true
 break
 case"concert-score":if(cfmt.sound!="play")
-cfmt.sound="concert"
+cfmt.sound=get_bool(param)?"concert":null
 break
 case"writefields":set_writefields(param)
 break
@@ -3480,7 +3480,7 @@ cmd[1]="dyn"
 set_pos(cmd[1],cmd[2])
 break
 case"sounding-score":if(cfmt.sound!="play")
-cfmt.sound="sounding"
+cfmt.sound=get_bool(param)?"sounding":null
 break
 case"staffwidth":v=get_unit(param)
 if(isNaN(v)){syntax(1,errs.bad_val,'%%'+cmd)
@@ -5124,7 +5124,7 @@ if(o[0]){staff_d[st]=-o[0]*7}else{staff_d[st]=0}}
 if(staff_d[st])
 sym_ott(s,staff_d[st])}}
 function mrest_expand(){var s,s2
-function mexp(s){var bar,s3,s4,tim,nbar,nb=s.nmes,dur=s.dur/nb,s2=s.next
+function mexp(s){var bar,s3,s4,tim,nbar,nb=s.nmeas,dur=s.dur/nb,s2=s.next
 while(s2&&!s2.bar_type)
 s2=s2.next
 if(!s2)
@@ -5132,7 +5132,7 @@ return error(1,s,"Lack of bar after multi-measure rest")
 bar=s2
 while(!s2.bar_num)
 s2=s2.ts_prev
-nbar=s2.bar_num-s.nmes
+nbar=s2.bar_num-s.nmeas
 s.type=C.REST
 s.notes[0].dur=s.dur=s.dur_orig=dur
 s.nflags=-2
@@ -5197,7 +5197,7 @@ s=s3=s4}}
 for(s=tsfirst;s;s=s.ts_next){if(s.type!=C.MREST)
 continue
 if(!s.seqst&&w_tb[s.ts_prev.type]){s2=s}else{s2=s.ts_next
-while(!s2.seqst){if(s2.type!=C.MREST||s2.nmes!=s.nmes)
+while(!s2.seqst){if(s2.type!=C.MREST||s2.nmeas!=s.nmeas)
 break
 s2=s2.ts_next}}
 if(!s2.seqst){while(s.type==C.MREST){mexp(s)
@@ -5488,7 +5488,7 @@ else if(s.next&&s.next.type==C.NOTE)
 d=s.next.y
 else if(s.prev&&s.prev.type==C.REST)
 d=s.prev.y
-if(s.multi>0){if(d>=12)
+if(s.stem>0||s.multi>0){if(d>=12)
 v_s.d=d-s.y}else{if(d<=12)
 v_s.d=d-s.y}
 v_s.s=s
@@ -6400,7 +6400,8 @@ if(realwidth){if(img.wx<realwidth)
 img.wx=realwidth
 if(indent){img.wx+=indent
 posx+=indent}
-draw_sym_near();line_height=set_staff();if(line_height){draw_systems(indent);draw_all_sym();delayed_update();vskip(line_height)}
+draw_sym_near();line_height=set_staff();if(line_height){glovar.music_h=line_height+posy
+draw_systems(indent);draw_all_sym();delayed_update();vskip(line_height)}
 if(indent)
 posx-=indent}
 blk_flush()
@@ -6595,23 +6596,9 @@ break
 case"cue=":if(a.shift()=='on')
 curvoice.scale=.7
 break
-case"instrument=":item=a.shift()
-val=item.indexOf('/')
-if(val<0){val=get_interval('c'+item)
-if(val==undefined)
-break
-curvoice.sound=val
-tr_p|=2
-val=0}else{val=get_interval('c'+item.slice(val+1))
-if(val==undefined)
-break
-curvoice.sound=val
-tr_p|=2
-val=get_interval(item.replace('/',''))
-if(val==undefined)
-break}
-curvoice.score=cfmt.sound?curvoice.sound:val
-tr_p|=1
+case"instrument=":val=a.shift().split('/')
+if(val.length==1){self.set_vp(["sound=",'c'+val[0]])}else{self.set_vp(["sound=",'c'+val[1]])
+self.set_vp(["score=",val.join('')])}
 break
 case"map=":curvoice.map=a.shift()
 break
@@ -6642,10 +6629,14 @@ break
 case"score=":if(cfmt.nedo){syntax(1,errs.notransp)
 break}
 item=a.shift()
-if(cfmt.sound)
+if(cfmt.sound&&curvoice.time)
 break
 val=get_interval(item,true)
-if(val!=undefined){curvoice.score=val
+if(val!=undefined){if(!curvoice.time)
+curvoice.tr_ins=-val
+if(cfmt.sound)
+break
+curvoice.score=val
 tr_p|=1}
 break
 case"shift=":if(cfmt.nedo){syntax(1,errs.notransp)
@@ -6661,8 +6652,10 @@ if(val==undefined)
 break
 curvoice.sound=val
 if(cfmt.sound)
-curvoice.score=val
+curvoice.score=(curvoice.score||0)+val
 tr_p|=2
+if(!curvoice.time)
+curvoice.tr_ins=val
 break
 case"subname=":case"sname=":case"snm=":curvoice.snm=a.shift()
 if(curvoice.snm[0]=='"')
@@ -7355,10 +7348,10 @@ if(parse.repeat_n){s.repeat_n=parse.repeat_n;s.repeat_k=parse.repeat_k;parse.rep
 c=line.char()
 switch(c){case'X':s.invis=true
 case'Z':s.type=C.MREST;c=line.next_char()
-s.nmes=(c>'0'&&c<='9')?line.get_int():1;if(curvoice.wmeasure==1){error(1,s,"multi-measure rest, but no measure!")
+s.nmeas=(c>'0'&&c<='9')?line.get_int():1;if(curvoice.wmeasure==1){error(1,s,"multi-measure rest, but no measure!")
 return}
-s.dur=curvoice.wmeasure*s.nmes
-if(s.nmes==1){s.type=C.REST;s.dur_orig=s.dur;s.fmr=1
+s.dur=curvoice.wmeasure*s.nmeas
+if(s.nmeas==1){s.type=C.REST;s.dur_orig=s.dur;s.fmr=1
 s.notes=[{pit:18,dur:s.dur}]}else{glovar.mrest_p=true
 if(par_sy.voices.length==1){s.tacet=curvoice.tacet
 delete s.invis}}
@@ -10224,7 +10217,7 @@ var Abc=abc2svg.Abc
 if(typeof module=='object'&&typeof exports=='object'){exports.abc2svg=abc2svg;exports.Abc=Abc}
 if(!abc2svg.loadjs){abc2svg.loadjs=function(fn,onsuccess,onerror){if(onerror)
 onerror(fn)}}
-abc2svg.modules={ambitus:{},begingrid:{fn:'grid3'},beginps:{fn:'psvg'},break:{},capo:{},chordnames:{},clip:{},clairnote:{fn:'clair'},voicecombine:{fn:'combine'},diagram:{fn:'diag'},equalbars:{},fit2box:{},gamelan:{},grid:{},grid2:{},jazzchord:{},jianpu:{},mdnn:{},MIDI:{},nns:{},pageheight:{fn:'page'},pedline:{},percmap:{fn:'perc'},playswing:{fn:'swing'},roman:{},soloffs:{},sth:{},strtab:{},temperament:{fn:'temper'},temponame:{fn:'tempo'},tropt:{},titleformat:{fn:'tunhd'},nreq:0,load:function(file,relay,errmsg){function get_errmsg(){if(typeof user=='object'&&user.errmsg)
+abc2svg.modules={ambitus:{},begingrid:{fn:'grid3'},beginps:{fn:'psvg'},break:{},capo:{},chordnames:{},clip:{},clairnote:{fn:'clair'},cpp:{},voicecombine:{fn:'combine'},diagram:{fn:'diag'},equalbars:{},fit2box:{},gamelan:{},grid:{},grid2:{},jazzchord:{},jianpu:{},mdnn:{},MIDI:{},nns:{},pageheight:{fn:'page'},pedline:{},percmap:{fn:'perc'},playswing:{fn:'swing'},roman:{},soloffs:{},sth:{},strtab:{},tablature:{fn:'tblt'},temperament:{fn:'temper'},temponame:{fn:'tempo'},tropt:{},titleformat:{fn:'tunhd'},nreq:0,load:function(file,relay,errmsg){function get_errmsg(){if(typeof user=='object'&&user.errmsg)
 return user.errmsg
 if(typeof abc2svg.printErr=='function')
 return abc2svg.printErr
@@ -10251,4 +10244,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.22.35";abc2svg.vdate="2026-01-05"
+abc2svg.version="v1.22.36";abc2svg.vdate="2026-02-02"

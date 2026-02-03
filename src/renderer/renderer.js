@@ -1484,6 +1484,7 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
     } else {
       scheduleRenderNow();
     }
+    ensureDrumMismatchErrorVisible();
   }
   updateErrorsFeatureUI();
 }
@@ -13916,6 +13917,8 @@ function clearErrors() {
   if (!errorsEnabled) {
     errorEntries.length = 0;
     errorEntryMap.clear();
+    lastDrumMismatchErrorKey = null;
+    lastDrumMismatchTuneId = null;
     if ($errorList) $errorList.textContent = "";
     showErrorsVisible(false);
     measureErrorRenderRanges = [];
@@ -13925,6 +13928,8 @@ function clearErrors() {
   }
   errorEntries.length = 0;
   errorEntryMap.clear();
+  lastDrumMismatchErrorKey = null;
+  lastDrumMismatchTuneId = null;
   if ($errorList) $errorList.textContent = "";
   showErrorsVisible(false);
   measureErrorRenderRanges = [];
@@ -15146,6 +15151,13 @@ function getErrorGroupLabel(entry) {
   return "General";
 }
 
+function buildErrorEntryKey(entry) {
+  if (!entry) return "";
+  const line = entry.loc ? entry.loc.line : "";
+  const col = entry.loc ? entry.loc.col : "";
+  return `${getErrorGroupKey(entry)}|${entry.message}|${line}|${col}`;
+}
+
 function renderErrorList() {
   if (!$errorList) return;
   $errorList.textContent = "";
@@ -15209,6 +15221,7 @@ function addError(message, locOverride, contextOverride) {
   const contextEnd = context && Number.isFinite(context.errorEndOffset) ? Number(context.errorEndOffset) : null;
   const contextBarNumber = context && Number.isFinite(context.barNumber) ? Number(context.barNumber) : null;
   const skipLineOffset = Boolean(context && context.skipLineOffset);
+  const noRepeatCount = Boolean(context && context.noRepeatCount);
   const entry = {
     message: String(message),
     loc: renderLoc ? { line: renderLoc.line, col: renderLoc.col } : null,
@@ -15266,26 +15279,125 @@ function addError(message, locOverride, contextOverride) {
     }
   }
 
-  const key = `${getErrorGroupKey(entry)}|${entry.message}|${entry.loc ? entry.loc.line : ""}|${entry.loc ? entry.loc.col : ""}`;
+  const key = buildErrorEntryKey(entry);
   const existing = errorEntryMap.get(key);
   if (existing) {
-    existing.count += 1;
+    if (!noRepeatCount) existing.count += 1;
     renderErrorList();
     showErrorsVisible(true);
     setScanErrors(errorEntries);
-    return;
+    return existing;
   }
+  entry.errorKey = key;
   entry.index = errorEntries.length;
   errorEntries.push(entry);
   errorEntryMap.set(key, entry);
   renderErrorList();
   showErrorsVisible(true);
   setScanErrors(errorEntries);
+  return entry;
 }
 
 function logErr(m, loc, context) {
   if (!errorsEnabled) return;
   addError(m, loc, context);
+}
+
+function clearDrumMismatchError() {
+  if (!lastDrumMismatchErrorKey) return;
+  const entry = errorEntryMap.get(lastDrumMismatchErrorKey);
+  if (entry) {
+    errorEntryMap.delete(lastDrumMismatchErrorKey);
+    const idx = errorEntries.indexOf(entry);
+    if (idx !== -1) {
+      errorEntries.splice(idx, 1);
+      for (let i = 0; i < errorEntries.length; i += 1) {
+        errorEntries[i].index = i;
+      }
+    }
+    renderErrorList();
+    showErrorsVisible(true);
+    setScanErrors(errorEntries);
+  }
+  lastDrumMismatchErrorKey = null;
+  lastDrumMismatchTuneId = null;
+  lastDrumMismatchInfo = null;
+}
+
+function computeDrumMismatchInfoFromEditor() {
+  try {
+    const tuneText = getEditorValue();
+    if (!tuneText || !String(tuneText).trim()) return null;
+    const entry = getActiveFileEntry();
+    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
+    let text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
+    const gchordPreview = injectGchordOn(text, prefixPayload.offset || 0);
+    if (gchordPreview && gchordPreview.changed) text = gchordPreview.text;
+    let nativeDrums = shouldUseNativeMidiDrums();
+    if (nativeDrums && hasMultiLineMidiDrumDirectives(text)) nativeDrums = false;
+    if (nativeDrums) return { ok: true };
+    const normalized = normalizeLeadingInlineDirectivesForPlayback(text);
+    if (!/(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(normalized || "")) return null;
+    const sanitized = sanitizeAbcForPlayback(normalized);
+    const scanText = sanitized && sanitized.text ? sanitized.text : normalized;
+    const info = extractDrumPlaybackBars(scanText);
+    const expectedSig = computeExpectedBarSignatureFromInfo(info);
+    const drumVoice = buildDrumVoiceText(info);
+    if (!drumVoice) return { ok: true };
+    const actualSig = extractBarSignatureFromText(drumVoice);
+    const sigDiff = diffSignatures(expectedSig, actualSig);
+    if (sigDiff.ok) return { ok: true };
+    const mismatchBar = Number.isFinite(sigDiff.index) ? sigDiff.index + 1 : null;
+    const barInfo = (Number.isFinite(sigDiff.index) && info && Array.isArray(info.bars))
+      ? info.bars[sigDiff.index] : null;
+    const lineIdx = barInfo && Number.isFinite(barInfo.srcLineIndex) ? barInfo.srcLineIndex : null;
+    return {
+      ok: false,
+      sigDiff,
+      mismatchBar,
+      lineIndex: Number.isFinite(lineIdx) ? lineIdx : null,
+      expectedToken: sigDiff.expectedToken || null,
+      actualToken: sigDiff.actualToken || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function ensureDrumMismatchErrorVisible() {
+  if (!errorsEnabled) return;
+  if (!lastDrumMismatchInfo || !lastDrumSignatureDiff || lastDrumSignatureDiff.ok) {
+    const recomputed = computeDrumMismatchInfoFromEditor();
+    if (!recomputed || recomputed.ok) {
+      clearDrumMismatchError();
+      return;
+    }
+    lastDrumSignatureDiff = recomputed.sigDiff || lastDrumSignatureDiff;
+    lastDrumMismatchInfo = {
+      mismatchBar: recomputed.mismatchBar,
+      lineIndex: recomputed.lineIndex,
+      expectedToken: recomputed.expectedToken,
+      actualToken: recomputed.actualToken,
+    };
+  }
+  if (lastDrumMismatchErrorKey && errorEntryMap.has(lastDrumMismatchErrorKey)) return;
+  const mismatchBar = Number.isFinite(lastDrumMismatchInfo.mismatchBar) ? lastDrumMismatchInfo.mismatchBar : null;
+  const lineIdx = Number.isFinite(lastDrumMismatchInfo.lineIndex) ? lastDrumMismatchInfo.lineIndex : null;
+  const loc = Number.isFinite(lineIdx) ? { line: lineIdx + 1, col: 1 } : null;
+  const expectedToken = lastDrumMismatchInfo.expectedToken || "barline";
+  const actualToken = lastDrumMismatchInfo.actualToken ? `, got ${lastDrumMismatchInfo.actualToken}` : ", got end";
+  const msg = mismatchBar != null
+    ? `Drum disabled: mismatch at bar ${mismatchBar} (expected ${expectedToken}${actualToken}).`
+    : "Drum disabled: barline mismatch in drum pattern.";
+  const entry = addError(msg, loc, {
+    source: "drum",
+    barNumber: mismatchBar != null ? mismatchBar : null,
+    noRepeatCount: true,
+    skipMeasureRange: true,
+  });
+  if (entry && entry.errorKey) {
+    lastDrumMismatchErrorKey = entry.errorKey;
+  }
 }
 
 function clearNoteSelection() {
@@ -16288,6 +16400,38 @@ function ensureAbc2svgModules(content) {
   return window.abc2svg.modules.load(content, () => scheduleRenderNow(), logErr);
 }
 
+function ensureAbc2svgModulesAsync(content) {
+  if (!window.abc2svg || !window.abc2svg.modules || typeof window.abc2svg.modules.load !== "function") {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const ok = window.abc2svg.modules.load(
+      content,
+      () => resolve(true),
+      () => resolve(false)
+    );
+    if (ok) resolve(true);
+  });
+}
+
+let midiGenLoadPromise = null;
+function ensureMidiGenLoaded() {
+  if (typeof window.midigen === "function") return Promise.resolve();
+  if (midiGenLoadPromise) return midiGenLoadPromise;
+  ensureAbc2svgLoader();
+  midiGenLoadPromise = new Promise((resolve, reject) => {
+    if (!window.abc2svg || typeof window.abc2svg.loadjs !== "function") {
+      reject(new Error("abc2svg loader not available."));
+      return;
+    }
+    window.abc2svg.loadjs("midigen.js", () => {
+      if (typeof window.midigen === "function") resolve();
+      else reject(new Error("midigen.js loaded but midigen() not found."));
+    }, (fn) => reject(new Error(`Failed to load ${fn}`)));
+  });
+  return midiGenLoadPromise;
+}
+
 function normalizeHeaderNoneSpacing(text) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   const out = [];
@@ -16303,6 +16447,33 @@ function normalizeHeaderNoneSpacing(text) {
     }
   }
   return out.join("\n");
+}
+
+function injectPlaybackMidiFxControls(text, offset) {
+  const reverbRaw = latestSettingsSnapshot && latestSettingsSnapshot.playbackMidiReverb != null
+    ? Number(latestSettingsSnapshot.playbackMidiReverb)
+    : NaN;
+  const chorusRaw = latestSettingsSnapshot && latestSettingsSnapshot.playbackMidiChorus != null
+    ? Number(latestSettingsSnapshot.playbackMidiChorus)
+    : NaN;
+  const toLevel = (value) => {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return Math.max(1, Math.min(127, Math.round(value)));
+  };
+  const reverb = toLevel(reverbRaw);
+  const chorus = toLevel(chorusRaw);
+  if (!reverb && !chorus) {
+    return { text, offset: Number(offset) || 0 };
+  }
+
+  const lines = [];
+  if (reverb) lines.push(`%%MIDI control 91 ${reverb}`);
+  if (chorus) lines.push(`%%MIDI control 93 ${chorus}`);
+  const insert = `${lines.join("\n")}\n`;
+  const base = String(text || "");
+  const idx = Math.max(0, Math.min(base.length, Number(offset) || 0));
+  const next = `${base.slice(0, idx)}${insert}${base.slice(idx)}`;
+  return { text: next, offset: idx + insert.length };
 }
 
 function normalizeAccThreeQuarterToneForAbc2svg(text) {
@@ -16751,6 +16922,7 @@ function renderNow() {
         }
         setStatus("OK");
         setRenderBusy(false);
+        ensureDrumMismatchErrorVisible();
         updateLibraryErrorIndexFromCurrentErrors();
         reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
         break;
@@ -20117,6 +20289,96 @@ async function exportMusicXml() {
   setStatus("OK");
 }
 
+async function buildMidiBytesFromAbc(abcText) {
+  ensureAbc2svgLoader();
+  const AbcCtor = getAbcCtor();
+  if (!AbcCtor) throw new Error("abc2svg not available.");
+  const payload = getPlaybackPayload();
+  let text = normalizeHeaderNoneSpacing(payload.text || "");
+  if (/[\\^_]3\/4/.test(text)) {
+    text = normalizeAccThreeQuarterToneForAbc2svg(text);
+  }
+  const modulesOk = await ensureAbc2svgModulesAsync(text);
+  if (!modulesOk) throw new Error("Failed to load abc2svg modules.");
+  await ensureMidiGenLoaded();
+
+  const errors = [];
+  const user = {
+    errtxt: "",
+    img_out: () => {},
+    err: (m) => {
+      const msg = String(m || "").trim();
+      if (msg) errors.push(msg);
+    },
+    errmsg: (m, line, col) => {
+      const msg = String(m || "").trim();
+      if (!msg) return;
+      if (Number.isFinite(line) && Number.isFinite(col)) {
+        errors.push(`Line ${line + 1}, Col ${col + 1}: ${msg}`);
+      } else {
+        errors.push(msg);
+      }
+      user.errtxt += `${msg}\n`;
+    },
+  };
+
+  const prevAbc = window.abc;
+  const prevUser = window.user;
+  let abc = null;
+  try {
+    abc = new AbcCtor(user);
+    window.abc = abc;
+    window.user = user;
+    abc.tosvg("midi_export", text);
+    if (typeof window.midigen !== "function") throw new Error("midigen() not loaded.");
+    window.midigen();
+  } finally {
+    if (prevAbc === undefined) delete window.abc;
+    else window.abc = prevAbc;
+    if (prevUser === undefined) delete window.user;
+    else window.user = prevUser;
+  }
+
+  const tunes = abc && Array.isArray(abc.tunes) ? abc.tunes : [];
+  const midi = tunes.length ? tunes[0][4] : null;
+  if (!midi || !midi.length) {
+    const detail = errors.length ? errors[0] : "No MIDI output produced.";
+    throw new Error(detail);
+  }
+  return midi;
+}
+
+async function exportMidi() {
+  if (!window.api || typeof window.api.exportMidi !== "function") return;
+  const abcText = getEditorValue();
+  if (!abcText.trim()) {
+    setStatus("No notation to export.");
+    return;
+  }
+  setStatus("Exporting…");
+  try {
+    const midiBytes = await buildMidiBytesFromAbc(abcText);
+    const res = await window.api.exportMidi(midiBytes, getSuggestedBaseName());
+    if (!res || res.canceled) {
+      setStatus("Ready");
+      return;
+    }
+    if (!res.ok) {
+      const msg = formatConversionError(res);
+      logErr(msg);
+      setStatus("Error");
+      await showSaveError(msg);
+      return;
+    }
+    setStatus("OK");
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    logErr(msg);
+    setStatus("Error");
+    await showSaveError(msg);
+  }
+}
+
 function renumberXInTextKeepingFirst(abcText) {
   const lines = String(abcText || "").split(/\r\n|\n|\r/);
   const xStartRe = /^(\s*X:\s*)(.*)$/;
@@ -20429,6 +20691,7 @@ function wireMenuActions() {
           "exportPdf",
           "exportPdfAll",
           "exportMusicXml",
+          "exportMidi",
           "importMusicXml",
           "templatesModal",
           "abcHelpers",
@@ -20533,6 +20796,7 @@ function wireMenuActions() {
       else if (actionType === "print") await runPrintAction("print");
       else if (actionType === "printAll") await runPrintAllAction("print");
       else if (actionType === "exportMusicXml") await exportMusicXml();
+      else if (actionType === "exportMidi") await exportMidi();
       else if (actionType === "exportPdf") await runPrintAction("pdf");
       else if (actionType === "exportPdfAll") await runPrintAllAction("pdf");
       else if (actionType === "close") await requestCloseDocument();
@@ -20843,9 +21107,10 @@ if (window.api && typeof window.api.getSettings === "function") {
 			      setEditorHelpFromSettings(settings);
 			      setGlobalHeaderFromSettings(settings);
 			      setAbc2svgFontsFromSettings(settings);
-			      setSoundfontFromSettings(settings);
-			      setDrumVelocityFromSettings(settings);
-	        setMidiInputFromSettings(settings);
+	    setSoundfontFromSettings(settings);
+	    setDrumVelocityFromSettings(settings);
+      setPlaybackFxFromSettings(settings);
+      setMidiInputFromSettings(settings);
 	        setLayoutFromSettings(settings);
 		      setFollowFromSettings(settings);
 		      setLoopFromSettings(settings);
@@ -21983,6 +22248,7 @@ if ($fileHeaderToggle) {
 // ---------- AUDIO ----------
 
 let player = null;
+let playerConfig = null;
 var isPlaying = false;
 let isPaused = false;
 let suppressOnEnd = false;
@@ -22038,6 +22304,9 @@ let lastPlaybackUiRenderIdx = null;
 let lastPlaybackUiEditorIdx = null;
 let lastPlaybackUiScrollAt = 0;
 let lastDrumSignatureDiff = null;
+let lastDrumMismatchErrorKey = null;
+let lastDrumMismatchTuneId = null;
+let lastDrumMismatchInfo = null;
 let lastPlaybackChordOnBarError = false;
 let lastMeterMismatchToastKey = null;
 let lastPlaybackMeterMismatchWarning = null;
@@ -22054,6 +22323,23 @@ let playbackNeedsReprepare = false;
 let focusModeEnabled = false;
 let focusPrevRenderZoom = null;
 let focusPrevLibraryVisible = null;
+
+function applyPlaybackFxToConfig(conf, settings) {
+  if (!conf) return;
+  const src = settings || latestSettingsSnapshot || {};
+  const toLevel = (value) => {
+    const v = Number(value);
+    if (!Number.isFinite(v) || v <= 0) return 0;
+    return Math.max(1, Math.min(127, Math.round(v)));
+  };
+  conf.reverb = toLevel(src.playbackMidiReverb);
+  conf.chorus = toLevel(src.playbackMidiChorus);
+}
+
+function setPlaybackFxFromSettings(settings) {
+  if (!playerConfig) return;
+  applyPlaybackFxToConfig(playerConfig, settings);
+}
 
 function setRenderZoomCss(zoom) {
   const v = Number(zoom);
@@ -23234,7 +23520,7 @@ function ensurePlayer() {
     throw new Error("AbcPlay not found (snd-1.js not loaded?)");
   }
 
-  player = AbcPlay({
+  const conf = {
     onend: () => {
       if (suppressOnEnd) return;
       if (isPreviewing) {
@@ -23404,7 +23690,10 @@ function ensurePlayer() {
       logErr(m, loc);
     },
     err: (m) => logErr(m),
-  });
+  };
+  applyPlaybackFxToConfig(conf, latestSettingsSnapshot);
+  playerConfig = conf;
+  player = AbcPlay(conf);
 
   // Expose for debugging in the console:
   window.p = player;
@@ -25281,14 +25570,22 @@ function injectDrumPlayback(text) {
   }
   lastDrumPlaybackActive = false;
   lastDrumSignatureDiff = null;
+  const activeTuneId = activeTuneMeta && activeTuneMeta.id ? String(activeTuneMeta.id) : null;
+  if (lastDrumMismatchTuneId && lastDrumMismatchTuneId !== activeTuneId) {
+    clearDrumMismatchError();
+  }
   const normalizedText = normalizeLeadingInlineDirectivesForPlayback(text);
   if (window.__abcarusDisableDrumInjection === true) {
+    lastDrumMismatchInfo = null;
+    clearDrumMismatchError();
     const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
     lastDrumInjectInput = text;
     lastDrumInjectResult = res;
     return res;
   }
   if (/^\s*V:\s*DRUM\b/im.test(normalizedText || "")) {
+    lastDrumMismatchInfo = null;
+    clearDrumMismatchError();
     const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
     lastDrumInjectInput = text;
     lastDrumInjectResult = res;
@@ -25298,6 +25595,8 @@ function injectDrumPlayback(text) {
   const expectedSig = computeExpectedBarSignatureFromInfo(info);
   const drumVoice = buildDrumVoiceText(info);
   if (!drumVoice) {
+    lastDrumMismatchInfo = null;
+    clearDrumMismatchError();
     const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
     lastDrumInjectInput = text;
     lastDrumInjectResult = res;
@@ -25309,11 +25608,25 @@ function injectDrumPlayback(text) {
     // Safety guard: if our generated drums don't match the barline skeleton, do not inject drums.
     lastDrumPlaybackActive = false;
     lastDrumSignatureDiff = sigDiff;
+    const mismatchBar = Number.isFinite(sigDiff.index) ? sigDiff.index + 1 : null;
+    const barInfo = (Number.isFinite(sigDiff.index) && info && Array.isArray(info.bars))
+      ? info.bars[sigDiff.index] : null;
+    const lineIdx = barInfo && Number.isFinite(barInfo.srcLineIndex) ? barInfo.srcLineIndex : null;
+    lastDrumMismatchInfo = {
+      mismatchBar,
+      lineIndex: Number.isFinite(lineIdx) ? lineIdx : null,
+      expectedToken: sigDiff.expectedToken || null,
+      actualToken: sigDiff.actualToken || null,
+    };
+    lastDrumMismatchTuneId = activeTuneId;
+    ensureDrumMismatchErrorVisible();
     const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0, signatureDiff: sigDiff };
     lastDrumInjectInput = text;
     lastDrumInjectResult = res;
     return res;
   }
+  lastDrumMismatchInfo = null;
+  clearDrumMismatchError();
   lastDrumPlaybackActive = true;
   if (window.__abcarusDebugDrums) {
     console.log("[abcarus] drum voice:\n" + drumVoice);
@@ -26333,28 +26646,31 @@ async function preparePlayback() {
   };
   const abc = new AbcCtor(user);
   const playbackPayload = getPlaybackPayload();
+  const fxInjected = injectPlaybackMidiFxControls(playbackPayload.text, playbackPayload.offset || 0);
+  const playbackPayloadText = fxInjected.text;
+  const playbackPayloadOffset = fxInjected.offset;
   const selectionMode = playbackSelectionMode === true;
   const nativeMidiDrums = shouldUseNativeMidiDrums();
-  lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayload.text || ""}`) || /\[\s*P\s*:/i.test(playbackPayload.text || "");
+  lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayloadText || ""}`) || /\[\s*P\s*:/i.test(playbackPayloadText || "");
   if (Array.isArray(playbackSanitizeWarnings) && playbackSanitizeWarnings.length) {
     showToast("Playback may vary (ABC sanitized for stability).", 3600);
   }
-  if (!assertCleanAbcText(playbackPayload.text, "preparePlayback")) {
+  if (!assertCleanAbcText(playbackPayloadText, "preparePlayback")) {
     throw new Error("ABC text corruption detected (playback).");
   }
   if (window.__abcarusDebugDrums) {
-    const lines = String(playbackPayload.text || "").split(/\r\n|\n|\r/);
+    const lines = String(playbackPayloadText || "").split(/\r\n|\n|\r/);
     const drumLines = lines.filter((line) => /DRUM|drum|drummap|MIDI channel/i.test(line));
     const tail = lines.slice(-60);
     console.log("[abcarus] playback payload (drum lines):\n" + drumLines.join("\n"));
     console.log("[abcarus] playback payload (tail):\n" + tail.join("\n"));
   }
   if (window.__abcarusDebugPlayback) {
-    const lines = String(playbackPayload.text || "").split(/\r\n|\n|\r/);
+    const lines = String(playbackPayloadText || "").split(/\r\n|\n|\r/);
     console.log("[abcarus] playback payload (head):\n" + lines.slice(0, 40).join("\n"));
   }
-  playbackIndexOffset = playbackPayload.offset || 0;
-  setErrorLineOffsetFromHeader(playbackPayload.text.slice(0, playbackIndexOffset));
+  playbackIndexOffset = playbackPayloadOffset || 0;
+  setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackIndexOffset));
   if (lastPlaybackMeterMismatchWarning && lastPlaybackMeterMismatchWarning.detail) {
     addError(
       `Warning: Meter mismatch: ${lastPlaybackMeterMismatchWarning.detail}`,
@@ -26376,7 +26692,7 @@ async function preparePlayback() {
       { skipMeasureRange: true }
     );
   }
-  let playbackText = normalizeHeaderNoneSpacing(playbackPayload.text);
+  let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
   if (selectionMode) {
     playbackText = stripChordSymbolsForPlayback(playbackText);
     playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);

@@ -72,6 +72,7 @@ Packaging scripts are available:
 - `docs/abc2svg-upgrade-playbook.md`: Repeatable pipeline for upgrading `third_party/abc2svg/`.
 - `docs/abc-syntax-policy.md`: ABCarus rules for ABC syntax, linting, and safe transforms.
 - `docs/abc-standards.md`: ABC 2.1/2.2 references used for lint/transforms.
+- `docs/abc-tag-conventions.md`: Draft metadata conventions for `R:`/`G:` (usul/makam/grouping namespaces).
 - `docs/soundfonts.md`: Soundfont selection and local setup.
 - `docs/notation-fonts.md`: Notation font (SMuFL / `%%musicfont`) notes and how to add more.
 - `docs/adr/`: Architecture decision records (ADRs).

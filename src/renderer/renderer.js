@@ -2799,7 +2799,7 @@ function isChordProText(text) {
 
 function isChordProFilePath(filePath) {
   const p = String(filePath || "").toLowerCase();
-  return p.endsWith(".cho") || p.endsWith(".chordpro") || p.endsWith(".crd") || p.endsWith(".pro");
+  return p.endsWith(".cho") || p.endsWith(".chordpro") || p.endsWith(".chopro") || p.endsWith(".crd") || p.endsWith(".pro");
 }
 
 function extractChordProLabel(rawArgs) {
@@ -13600,11 +13600,21 @@ function refreshCursorStatus() {
 
 function applyTransformedText(text) {
   if (!currentDoc) currentDoc = createBlankDocument();
+  const nextText = text || "";
   suppressDirty = true;
-  setEditorValue(text);
+  setEditorValue(nextText);
   suppressDirty = false;
-  currentDoc.content = text || "";
+  currentDoc.content = nextText;
   currentDoc.dirty = true;
+  if (chordproMode) {
+    if (chordproFullView) {
+      chordproFullText = nextText;
+    } else {
+      applyChordProActiveBlockEdit(nextText);
+    }
+    scheduleChordProParse();
+    scheduleWorkingCopyFullSync();
+  }
   scheduleRenderNow({ clearOutput: true });
 }
 

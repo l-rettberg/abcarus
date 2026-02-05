@@ -5,7 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Experimental: ChordPro mode with selectable ABC fragments and full-file view (Raw) support.
+- ChordPro: PDF preview/export via ChordPro CLI (unsaved edits supported for preview).
+- ChordPro: refuse to open if ChordPro CLI is unavailable; extended file extensions (including `.chopro`).
 
+### Fixed
+- ChordPro: keep working-copy sync consistent after transforms (e.g., Align Bars) so Save/Raw reflect changes.
 
 
 ## [0.28.0] - 2026-02-03

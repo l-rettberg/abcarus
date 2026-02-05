@@ -125,17 +125,8 @@ const $btnPlay = document.getElementById("btnPlay");
 const $btnPause = document.getElementById("btnPause");
 const $btnStop = document.getElementById("btnStop");
 const $btnPlayPause = document.getElementById("btnPlayPause");
-const $btnPlayAB = document.getElementById("btnPlayAB");
-const $btnClearAB = document.getElementById("btnClearAB");
-const $btnAbSetA = document.getElementById("btnAbSetA");
-const $btnAbSetB = document.getElementById("btnAbSetB");
-const $abOptions = document.getElementById("abOptions");
-const $abOptionsToggle = document.getElementById("abOptionsToggle");
-const $abOptionsPopover = document.getElementById("abOptionsPopover");
-const $abOptSuppressRepeats = document.getElementById("abOptSuppressRepeats");
-const $abOptMuteGchords = document.getElementById("abOptMuteGchords");
-const $abOptVoicesWrap = document.getElementById("abOptVoicesWrap");
-const $abOptVoices = document.getElementById("abOptVoices");
+const $selectionLoopWrap = document.getElementById("selectionLoopWrap");
+const $selectionLoopEnabled = document.getElementById("selectionLoopEnabled");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
 const $practiceLoopWrap = document.getElementById("practiceLoopWrap");
@@ -872,13 +863,7 @@ function isAbPlanValid() {
   return true;
 }
 
-function updateAbUi() {
-  const valid = isAbPlanValid();
-  if ($btnPlayAB) $btnPlayAB.disabled = !valid || isPlaybackBusy();
-  if ($btnClearAB) $btnClearAB.disabled = !abPlan;
-  if ($abOptions) $abOptions.hidden = rawMode || payloadMode;
-  if ($abOptionsToggle) $abOptionsToggle.disabled = !$abOptions || $abOptions.hidden;
-}
+function updateAbUi() {}
 
 function clearAbPlan({ toast } = {}) {
   const had = abPlan;
@@ -932,42 +917,8 @@ function setAbPlanOptions(opts = {}) {
   refreshAbOptionsUi();
 }
 
-function toggleAbOptionsPopover(show) {
-  if (!$abOptionsPopover) return;
-  const next = show === undefined ? $abOptionsPopover.classList.contains("hidden") : !!show;
-  $abOptionsPopover.classList.toggle("hidden", !next);
-}
-
-function refreshAbOptionsUi() {
-  if (!$abOptionsPopover) return;
-  deriveAbVoices(getEditorValue());
-  if ($abOptSuppressRepeats && abPlan) $abOptSuppressRepeats.checked = !!abPlan.suppressRepeats;
-  if ($abOptMuteGchords && abPlan) $abOptMuteGchords.checked = !!abPlan.muteGchords;
-  if ($abOptVoices && $abOptVoicesWrap) {
-    $abOptVoices.textContent = "";
-    if (Array.isArray(abVoiceIds) && abVoiceIds.length > 1) {
-      $abOptVoicesWrap.hidden = false;
-      for (const id of abVoiceIds) {
-        const row = document.createElement("label");
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = !(abPlan && abPlan.mutedVoices && abPlan.mutedVoices[id]);
-        cb.addEventListener("change", () => {
-          if (!abPlan) return;
-          const muted = { ...(abPlan.mutedVoices || {}) };
-          if (!cb.checked) muted[id] = true;
-          else delete muted[id];
-          setAbPlanOptions({ mutedVoices: muted });
-        });
-        row.appendChild(cb);
-        row.append(` ${id}`);
-        $abOptVoices.appendChild(row);
-      }
-    } else {
-      $abOptVoicesWrap.hidden = true;
-    }
-  }
-}
+function toggleAbOptionsPopover() {}
+function refreshAbOptionsUi() {}
 
 function deriveAbVoices(tuneText) {
   const out = new Set();
@@ -1022,6 +973,22 @@ function stripMutedVoicesForPlayback(text, mutedVoices) {
     out.push(line);
   }
   return out.join("\n");
+}
+
+function parseMutedVoiceSetting(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  return raw.split(/[,\s]+/).map((v) => v.trim()).filter(Boolean);
+}
+
+function getSelectionPlaybackSettings() {
+  const settings = latestSettingsSnapshot || {};
+  return {
+    loop: Boolean(settings.playbackSelectionLoopEnabled),
+    suppressRepeats: settings.playbackSelectionSuppressRepeats !== false,
+    muteGchords: Boolean(settings.playbackSelectionMuteGchords),
+    mutedVoices: parseMutedVoiceSetting(settings.playbackSelectionMutedVoices),
+  };
 }
 
 function hasRepeatTokensInSlice(text, start, end) {
@@ -1180,6 +1147,7 @@ async function playSelectionOnce() {
   const range = getSelectionPlaybackRange();
   if (!range) return false;
   if (rawMode || payloadMode) return false;
+  const selectionSettings = getSelectionPlaybackSettings();
   const max = editorView ? editorView.state.doc.length : 0;
   const start = Math.max(0, Math.min(max, range.startOffset));
   const end = Math.max(start + 1, Math.min(max, range.endOffset));
@@ -1188,8 +1156,26 @@ async function playSelectionOnce() {
   selectionPlaybackSelection = { anchor: sel.anchor, head: sel.head };
   selectionPlaybackActive = true;
   const text = getEditorValue();
-  setPlaybackRange({ startOffset: start, endOffset: end, origin: "selection", loop: false });
-  await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: false });
+  if (selectionSettings.mutedVoices && selectionSettings.mutedVoices.length) {
+    playbackAbMutedVoices = selectionSettings.mutedVoices.reduce((acc, id) => {
+      acc[id] = true;
+      return acc;
+    }, {});
+  } else {
+    playbackAbMutedVoices = null;
+  }
+  if (!selectionSettings.suppressRepeats && hasRepeatTokensInSlice(text, start, end)) {
+    showToast("Range crosses repeat; consider enabling Suppress repeats.", 3600);
+  }
+  const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
+  if (selectionSettings.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
+  try {
+    setPlaybackRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
+    await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
+  } finally {
+    window.__abcarusPlaybackStripChordSymbols = prevStripChord;
+    playbackAbMutedVoices = null;
+  }
   return true;
 }
 
@@ -23939,8 +23925,6 @@ function updatePlaybackInteractionLock() {
   disable($btnPause, true);
   disable($btnPlayPause, true);
   disable($btnStop, true);
-  disable($btnPlayAB, true);
-  disable($btnClearAB, true);
   disable($btnResetLayout, true);
   disable($btnFocusMode, true);
 
@@ -23985,8 +23969,6 @@ function updatePlaybackInteractionLock() {
     if ($btnPause) $btnPause.disabled = true;
     if ($btnPlayPause) $btnPlayPause.disabled = true;
     if ($btnStop) $btnStop.disabled = true;
-    if ($btnPlayAB) $btnPlayAB.disabled = true;
-    if ($btnClearAB) $btnClearAB.disabled = true;
     if ($btnToggleFollow) $btnToggleFollow.disabled = true;
     if ($btnToggleErrors) $btnToggleErrors.disabled = true;
   }
@@ -25265,6 +25247,11 @@ function updatePracticeUi() {
   }
   if ($practiceLoopTo && document.activeElement !== $practiceLoopTo) {
     $practiceLoopTo.value = String(clampInt(playbackLoopToMeasure, 0, 100000, 0) || 0);
+  }
+
+  if ($selectionLoopEnabled && document.activeElement !== $selectionLoopEnabled) {
+    const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionLoopEnabled);
+    $selectionLoopEnabled.checked = enabled;
   }
 
   // Keep the pending plan in sync when Focus is on and playback is idle.
@@ -27648,9 +27635,10 @@ async function preparePlayback() {
   }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
   if (selectionMode) {
-    playbackText = stripChordSymbolsForPlayback(playbackText);
     playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
-    playbackText = stripRepeatsLengthSafe(playbackText);
+    const selectionSettings = getSelectionPlaybackSettings();
+    if (selectionSettings.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
+    if (selectionSettings.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
     if (playbackAbMutedVoices && Object.values(playbackAbMutedVoices).some(Boolean)) {
       playbackText = stripMutedVoicesForPlayback(playbackText, playbackAbMutedVoices);
     }
@@ -28338,50 +28326,12 @@ if ($btnPlayPause) {
   });
 }
 
-if ($btnPlayAB) {
-  $btnPlayAB.addEventListener("click", async () => {
-    try {
-      await playAbLoop();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
+if ($selectionLoopEnabled) {
+  $selectionLoopEnabled.addEventListener("change", () => {
+    const next = Boolean($selectionLoopEnabled.checked);
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackSelectionLoopEnabled: next }).catch(() => {});
     }
-  });
-}
-
-if ($btnClearAB) {
-  $btnClearAB.addEventListener("click", () => clearAbPlan());
-}
-
-if ($btnAbSetA) {
-  $btnAbSetA.addEventListener("click", () => setAbPoint("a"));
-}
-
-if ($btnAbSetB) {
-  $btnAbSetB.addEventListener("click", () => setAbPoint("b"));
-}
-
-if ($abOptionsToggle && $abOptionsPopover) {
-  $abOptionsToggle.addEventListener("click", () => {
-    toggleAbOptionsPopover();
-    refreshAbOptionsUi();
-  });
-  document.addEventListener("click", (e) => {
-    if (!$abOptionsPopover) return;
-    const inside = $abOptionsPopover.contains(e.target) || ($abOptionsToggle && $abOptionsToggle.contains(e.target));
-    if (!inside) toggleAbOptionsPopover(false);
-  });
-}
-
-if ($abOptSuppressRepeats) {
-  $abOptSuppressRepeats.addEventListener("change", () => {
-    if (!abPlan) return;
-    setAbPlanOptions({ suppressRepeats: !!$abOptSuppressRepeats.checked });
-  });
-}
-if ($abOptMuteGchords) {
-  $abOptMuteGchords.addEventListener("change", () => {
-    if (!abPlan) return;
-    setAbPlanOptions({ muteGchords: !!$abOptMuteGchords.checked });
   });
 }
 

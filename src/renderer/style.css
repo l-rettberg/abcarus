@@ -185,6 +185,19 @@ header {
   height: 16px;
 }
 
+.practice-selection-loop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--muted-text);
+}
+
+.practice-selection-loop input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 .practice-loop-num {
   min-height: var(--button-height);
   width: 72px;
@@ -914,76 +927,6 @@ body.chordpro-mode #btnToggleGlobals {
   color: var(--button-text);
 }
 
-.ab-options {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ab-options-popover {
-  position: absolute;
-  right: 12px;
-  top: 64px;
-  z-index: 40;
-  min-width: 220px;
-  padding: 10px 12px;
-  background: #fff;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-}
-
-.ab-options-popover .ab-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0;
-  font-size: var(--font-size-sm);
-}
-
-.ab-option-voices {
-  margin-top: 6px;
-  font-size: var(--font-size-sm);
-}
-
-.ab-option-label {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.ab-option-voice-list label {
-  display: block;
-  margin: 2px 0;
-}
-
-.ab-option-note {
-  margin-top: 6px;
-  font-size: var(--font-size-xs);
-  color: #666;
-}
-
-.cm-ab-range {
-  background: rgba(255, 231, 122, 0.35);
-  border-radius: 3px;
-}
-
-.cm-ab-marker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-left: 4px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-  background: #d97706;
-}
-
-.cm-ab-marker-b {
-  background: #0f766e;
-}
 
 .file-header-title.has-header {
   font-weight: 700;

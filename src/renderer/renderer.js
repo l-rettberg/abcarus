@@ -696,6 +696,8 @@ let chordproActiveIndex = 0;
 let chordproParseTimer = null;
 let chordproPrevLibraryVisible = null;
 let chordproPrevHeaderCollapsed = null;
+let chordproAvailabilityCache = null;
+let chordproAvailabilityInFlight = null;
 
 let payloadMode = false;
 let payloadModeSource = null;
@@ -2895,6 +2897,31 @@ function countTextLinesExact(text) {
   const src = String(text || "");
   if (!src) return 0;
   return src.split(/\r\n|\n|\r/).length;
+}
+
+async function getChordProAvailability({ force = false } = {}) {
+  if (!window.api || typeof window.api.checkChordPro !== "function") {
+    return { ok: false, error: "ChordPro check unavailable." };
+  }
+  if (!force && chordproAvailabilityCache && chordproAvailabilityCache.ok) return chordproAvailabilityCache;
+  if (chordproAvailabilityInFlight) return chordproAvailabilityInFlight;
+  chordproAvailabilityInFlight = (async () => {
+    const res = await window.api.checkChordPro();
+    chordproAvailabilityCache = res || { ok: false, error: "ChordPro check failed." };
+    chordproAvailabilityInFlight = null;
+    return chordproAvailabilityCache;
+  })();
+  return chordproAvailabilityInFlight;
+}
+
+async function ensureChordProAvailable({ context = "using ChordPro", dialog = "open" } = {}) {
+  const res = await getChordProAvailability();
+  if (res && res.ok) return true;
+  const msg = res && res.error ? res.error : "ChordPro is not available.";
+  if (dialog === "open") await showOpenError(msg);
+  else await showSaveError(msg);
+  logErr(`${context} failed: ${msg}`);
+  return false;
 }
 
 function getChordProActiveBlock() {
@@ -20502,6 +20529,11 @@ async function openChordProFile(filePath, content, { suppressRecent = false } = 
     text = readRes.data || "";
   }
 
+  const canUseChordPro = await ensureChordProAvailable({ context: "Opening a ChordPro file", dialog: "open" });
+  if (!canUseChordPro) {
+    return { ok: false, error: "ChordPro CLI not available." };
+  }
+
   setChordProMode(true);
   setRawModeUI(false);
   chordproFullView = false;
@@ -21109,29 +21141,25 @@ async function exportMidi() {
 
 async function exportChordProPdf() {
   if (!chordproMode) return;
-  if (!window.api || typeof window.api.exportChordProPdf !== "function") return;
+  if (!window.api || typeof window.api.previewChordProPdf !== "function") return;
+  const canUseChordPro = await ensureChordProAvailable({ context: "Previewing a ChordPro PDF", dialog: "save" });
+  if (!canUseChordPro) return;
   const filePath = activeFilePath || (currentDoc && currentDoc.path) || "";
-  if (!filePath) {
-    showToast("Save the ChordPro file first.", 2400);
+  const content = String(chordproFullView ? getEditorValue() : chordproFullText || "");
+  if (!content.trim()) {
+    setStatus("Nothing to preview.");
     return;
   }
-  if (!(await requireCleanForFileOp(filePath, "exporting a ChordPro PDF"))) return;
 
-  const base = stripFileExtension(safeBasename(filePath) || "song");
-  const suggestedName = `${base}.pdf`;
-  const suggestedDir = safeDirname(filePath);
-  const outputPath = await showSaveDialog(suggestedName, suggestedDir);
-  if (!outputPath) return;
-
-  setStatus("Exporting ChordPro PDF…");
-  const res = await window.api.exportChordProPdf(filePath, outputPath);
+  setStatus("Previewing ChordPro PDF…");
+  const res = await window.api.previewChordProPdf({ text: content, sourcePath: filePath });
   if (!res || !res.ok) {
     setStatus("Error");
-    await showSaveError((res && res.error) ? res.error : "Unable to export ChordPro PDF.");
+    await showSaveError((res && res.error) ? res.error : "Unable to preview ChordPro PDF.");
     return;
   }
   setStatus("OK");
-  showToast(`Exported PDF: ${res.path || outputPath}`, 2400);
+  showToast("ChordPro PDF preview opened.", 2000);
 }
 
 function renumberXInTextKeepingFirst(abcText) {

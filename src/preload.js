@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("export:midi", midiBytes, suggestedName),
   exportChordProPdf: async (inputPath, outputPath) =>
     ipcRenderer.invoke("chordpro:pdf", inputPath, outputPath),
+  previewChordProPdf: async (payload) =>
+    ipcRenderer.invoke("chordpro:preview", payload || {}),
+  checkChordPro: async () => ipcRenderer.invoke("chordpro:check"),
   checkConversionTools: async () => ipcRenderer.invoke("tools:check"),
   readFile: async (filePath) => ipcRenderer.invoke("file:read", filePath),
   writeFile: async (filePath, data) => ipcRenderer.invoke("file:write", filePath, data),

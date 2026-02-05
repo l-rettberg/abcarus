@@ -114,6 +114,39 @@ async function runChordProPdf({ app, fs, path, inputPath, outputPath }) {
   });
 }
 
+async function checkChordProAvailable({ app, fs, path }) {
+  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path });
+  const runCheck = (args) => new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 8000 }, (err, stdout, stderr) => {
+      if (err) {
+        const code = err && err.code ? String(err.code) : "";
+        if (code === "ENOENT") {
+          return resolve({
+            ok: false,
+            code,
+            error: "ChordPro CLI not found. Install chordpro or set CHORDPRO_BIN/CHORDPRO_REPO.",
+          });
+        }
+        const detail = String(stderr || err.message || "").trim();
+        return resolve({
+          ok: false,
+          code,
+          error: detail || "ChordPro check failed.",
+        });
+      }
+      const text = String(stdout || stderr || "").trim();
+      return resolve({ ok: true, version: text });
+    });
+  });
+
+  const first = await runCheck([...(argsPrefix || []), "--version"]);
+  if (first.ok) return first;
+  if (first.code === "ENOENT") return first;
+  const fallback = await runCheck([...(argsPrefix || []), "--help"]);
+  if (fallback.ok) return fallback;
+  return first;
+}
+
 async function atomicWriteFileWithRetry(fs, path, filePath, data, { attempts = 5 } = {}) {
   const absPath = String(filePath || "");
   if (!absPath) throw new Error("Missing file path.");
@@ -771,6 +804,39 @@ function registerIpcHandlers(ctx) {
       await runChordProPdf({ app, fs, path, inputPath, outputPath });
       await shell.openPath(String(outputPath || ""));
       return { ok: true, path: String(outputPath || "") };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? String(e.message) : String(e) };
+    }
+  });
+  ipcMain.handle("chordpro:preview", async (_event, payload) => {
+    try {
+      const data = payload && typeof payload === "object" ? payload : { inputPath: payload };
+      const inPathRaw = data && data.inputPath ? String(data.inputPath || "") : "";
+      const text = data && data.text != null ? String(data.text) : null;
+      const baseFromSource = data && data.sourcePath ? path.basename(String(data.sourcePath || ""), path.extname(String(data.sourcePath || ""))) : "";
+      const baseName = baseFromSource || (inPathRaw ? path.basename(inPathRaw, path.extname(inPathRaw)) : "") || "chordpro";
+      let inPath = inPathRaw;
+      if (text != null) {
+        const tokenInput = Math.random().toString(16).slice(2);
+        const inputName = `${baseName}-${Date.now()}-${tokenInput}.cho`;
+        inPath = path.join(os.tmpdir(), inputName);
+        await atomicWriteFileWithRetry(fs, path, inPath, text);
+      }
+      if (!inPath) return { ok: false, error: "Missing input path." };
+      const base = path.basename(inPath, path.extname(inPath)) || "chordpro";
+      const token = Math.random().toString(16).slice(2);
+      const fileName = `${base}-${Date.now()}-${token}.pdf`;
+      const outputPath = path.join(os.tmpdir(), fileName);
+      await runChordProPdf({ app, fs, path, inputPath: inPath, outputPath });
+      await shell.openPath(String(outputPath || ""));
+      return { ok: true, path: String(outputPath || "") };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? String(e.message) : String(e) };
+    }
+  });
+  ipcMain.handle("chordpro:check", async () => {
+    try {
+      return await checkChordProAvailable({ app, fs, path });
     } catch (e) {
       return { ok: false, error: e && e.message ? String(e.message) : String(e) };
     }

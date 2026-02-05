@@ -59,6 +59,9 @@ ABCarus ships several SMuFL-compatible fonts under SIL Open Font License 1.1 (OF
 - Leland / LelandText
 - MuseJazz / MuseJazzText
 
+Note: only SMuFL-compatible notation fonts work as `%%musicfont`. Text fonts (even if they include accidentals)
+will render incorrect glyphs when used as a notation font.
+
 See `assets/fonts/notation/OFL.txt` and `NOTICE.md`.
 
 ## UI support (Settings)

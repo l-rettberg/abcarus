@@ -116,6 +116,18 @@ function getSettingsSchema() {
       advanced: true,
     },
     {
+      key: "playbackSelectionAllowMidiDrums",
+      type: "boolean",
+      default: false,
+      section: "Playback",
+      group: "Selection",
+      groupOrder: 35,
+      label: "Selection: allow MIDI drums",
+      help: "Best-effort. When enabled, selection playback keeps %%MIDI drum* directives. This may be unstable with short ranges or repeats.",
+      ui: { input: "checkbox" },
+      advanced: true,
+    },
+    {
       key: "playbackSelectionMutedVoices",
       type: "string",
       default: "",

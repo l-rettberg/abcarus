@@ -987,6 +987,7 @@ function getSelectionPlaybackSettings() {
     loop: Boolean(settings.playbackSelectionLoopEnabled),
     suppressRepeats: settings.playbackSelectionSuppressRepeats !== false,
     muteGchords: Boolean(settings.playbackSelectionMuteGchords),
+    allowMidiDrums: Boolean(settings.playbackSelectionAllowMidiDrums),
     mutedVoices: parseMutedVoiceSetting(settings.playbackSelectionMutedVoices),
   };
 }
@@ -27635,8 +27636,10 @@ async function preparePlayback() {
   }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
   if (selectionMode) {
-    playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
     const selectionSettings = getSelectionPlaybackSettings();
+    if (!selectionSettings.allowMidiDrums) {
+      playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
+    }
     if (selectionSettings.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
     if (selectionSettings.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
     if (playbackAbMutedVoices && Object.values(playbackAbMutedVoices).some(Boolean)) {

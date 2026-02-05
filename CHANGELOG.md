@@ -6,12 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.29.1] - 2026-02-05
 ### Changed
 - Playback: selection playback now supports looping and options via Settings (repeats/chords/voice mute); A–B toolbar controls removed.
 - Playback: selection mode can optionally allow MIDI drums (best-effort).
 ### Added
 - Notation fonts: bundle Golden Age and Ekmelos (SMuFL).
-
 
 ## [0.29.0] - 2026-02-05
 ### Added

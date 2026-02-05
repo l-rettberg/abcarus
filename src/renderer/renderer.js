@@ -3036,7 +3036,12 @@ function applyChordProActiveBlockEdit(blockText) {
   const block = getChordProActiveBlock();
   if (!block) return;
   const prevText = String(block.text != null ? block.text : chordproFullText.slice(block.startOffset, block.endOffset));
-  const nextText = String(blockText || "");
+  let nextText = String(blockText || "");
+  // Ensure a blank line before the end marker when writing back.
+  if (!nextText.endsWith("\n\n")) {
+    nextText = nextText.replace(/\r?\n?$/, "") + "\n\n";
+  }
+  if (prevText === nextText) return;
   const prevLen = prevText.length;
   const nextLen = nextText.length;
   const delta = nextLen - prevLen;
@@ -13600,7 +13605,12 @@ function refreshCursorStatus() {
 
 function applyTransformedText(text) {
   if (!currentDoc) currentDoc = createBlankDocument();
-  const nextText = text || "";
+  let nextText = text || "";
+  if (chordproMode && chordproFullView) {
+    if (!nextText.endsWith("\n\n")) {
+      nextText = nextText.replace(/\r?\n?$/, "") + "\n\n";
+    }
+  }
   suppressDirty = true;
   setEditorValue(nextText);
   suppressDirty = false;

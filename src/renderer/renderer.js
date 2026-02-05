@@ -127,6 +127,8 @@ const $btnStop = document.getElementById("btnStop");
 const $btnPlayPause = document.getElementById("btnPlayPause");
 const $btnPlayAB = document.getElementById("btnPlayAB");
 const $btnClearAB = document.getElementById("btnClearAB");
+const $btnAbSetA = document.getElementById("btnAbSetA");
+const $btnAbSetB = document.getElementById("btnAbSetB");
 const $abOptions = document.getElementById("abOptions");
 const $abOptionsToggle = document.getElementById("abOptionsToggle");
 const $abOptionsPopover = document.getElementById("abOptionsPopover");
@@ -982,6 +984,46 @@ function deriveAbVoices(tuneText) {
   abVoiceIds = Array.from(out);
 }
 
+function stripMutedVoicesForPlayback(text, mutedVoices) {
+  const muted = mutedVoices && typeof mutedVoices === "object"
+    ? Object.entries(mutedVoices).filter(([, v]) => Boolean(v)).map(([k]) => String(k))
+    : [];
+  if (!muted.length) return text;
+  if (/\[V\s*:/i.test(text)) {
+    showToast("Voice muting not supported for inline [V:] switches.", 3600);
+    return text;
+  }
+  const mutedSet = new Set(muted);
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  let inBody = false;
+  let currentVoice = null;
+  const out = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inBody && /^K:/.test(trimmed)) {
+      inBody = true;
+      out.push(line);
+      continue;
+    }
+    if (!inBody) {
+      out.push(line);
+      continue;
+    }
+    const match = line.match(/^\s*V\s*:\s*([^\s]+)/i);
+    if (match && match[1]) {
+      currentVoice = String(match[1]).trim();
+      if (mutedSet.has(currentVoice)) continue;
+      out.push(line);
+      continue;
+    }
+    if (currentVoice && mutedSet.has(currentVoice)) {
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
 function hasRepeatTokensInSlice(text, start, end) {
   const src = String(text || "");
   const a = Math.max(0, Math.min(src.length, Number(start) || 0));
@@ -1106,8 +1148,9 @@ async function playAbLoop() {
     return;
   }
   if (abPlan.mutedVoices && Object.values(abPlan.mutedVoices).some(Boolean)) {
-    showToast("Voice muting not supported in A–B playback (yet).", 3200);
-    return;
+    playbackAbMutedVoices = { ...abPlan.mutedVoices };
+  } else {
+    playbackAbMutedVoices = null;
   }
   const text = getEditorValue();
   deriveAbVoices(text);
@@ -1129,6 +1172,7 @@ async function playAbLoop() {
     await startPlaybackFromRange({ startOffset: abPlan.startOffset, endOffset: abPlan.endOffset, origin: "ab", loop: true });
   } finally {
     window.__abcarusPlaybackStripChordSymbols = prevStripChord;
+    playbackAbMutedVoices = null;
   }
 }
 
@@ -2121,6 +2165,7 @@ let abPlan = null; // {mode, startOffset, endOffset, mutedVoices, suppressRepeat
 let abRevision = 0;
 let abDecorationsVersion = 0;
 let abVoiceIds = [];
+let playbackAbMutedVoices = null;
 
 function shouldAutoDump() {
   // Runtime override via DevTools (no reload): window.__abcarusAutoDumpOnError = true/false
@@ -27606,6 +27651,9 @@ async function preparePlayback() {
     playbackText = stripChordSymbolsForPlayback(playbackText);
     playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
     playbackText = stripRepeatsLengthSafe(playbackText);
+    if (playbackAbMutedVoices && Object.values(playbackAbMutedVoices).some(Boolean)) {
+      playbackText = stripMutedVoicesForPlayback(playbackText, playbackAbMutedVoices);
+    }
   }
   if (/[\\^_]3\/4/.test(playbackText)) {
     playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
@@ -28302,6 +28350,14 @@ if ($btnPlayAB) {
 
 if ($btnClearAB) {
   $btnClearAB.addEventListener("click", () => clearAbPlan());
+}
+
+if ($btnAbSetA) {
+  $btnAbSetA.addEventListener("click", () => setAbPoint("a"));
+}
+
+if ($btnAbSetB) {
+  $btnAbSetB.addEventListener("click", () => setAbPoint("b"));
 }
 
 if ($abOptionsToggle && $abOptionsPopover) {

@@ -84,6 +84,30 @@
             <span class="practice-loop-arrow">→</span>
             <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
           </label>
+          <div id="abOptions" class="ab-options">
+            <div class="segmented" aria-label="A–B controls">
+              <button id="btnAbSetA" type="button" title="Set A marker at cursor">A</button>
+              <button id="btnAbSetB" type="button" title="Set B marker at cursor">B</button>
+              <button id="btnPlayAB" type="button" title="Play A–B loop">A–B</button>
+              <button id="btnClearAB" type="button" title="Clear A–B markers">Clear</button>
+            </div>
+            <button id="abOptionsToggle" type="button" title="A–B options">Options</button>
+            <div id="abOptionsPopover" class="ab-options-popover hidden" role="dialog" aria-label="A–B options">
+              <label class="ab-option">
+                <input id="abOptSuppressRepeats" type="checkbox" />
+                <span>Suppress repeats</span>
+              </label>
+              <label class="ab-option">
+                <input id="abOptMuteGchords" type="checkbox" />
+                <span>Mute chord symbols</span>
+              </label>
+              <div id="abOptVoicesWrap" class="ab-option-voices" hidden>
+                <div class="ab-option-label">Muted voices</div>
+                <div id="abOptVoices" class="ab-option-voice-list"></div>
+              </div>
+              <div class="ab-option-note">Voice muting is best-effort; inline [V:...] switches are not supported.</div>
+            </div>
+          </div>
         </div>
       </div>
 		      <div class="right-controls">

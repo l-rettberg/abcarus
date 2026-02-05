@@ -58,6 +58,7 @@ ABCarus ships several SMuFL-compatible fonts under SIL Open Font License 1.1 (OF
 - Petaluma / PetalumaText / PetalumaScript
 - Leland / LelandText
 - MuseJazz / MuseJazzText
+- Plainsound Sans / Plainsound Serif (HEJI accidentals; regular weights only)
 
 See `assets/fonts/notation/OFL.txt` and `NOTICE.md`.
 

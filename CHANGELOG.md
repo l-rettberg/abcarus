@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Notation fonts: bundle Plainsound Sans/Serif (HEJI accidentals) under OFL.
 
 
 ## [0.29.0] - 2026-02-05

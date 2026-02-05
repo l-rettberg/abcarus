@@ -83,6 +83,7 @@ const $fileHeaderToggle = document.getElementById("fileHeaderToggle");
 const $fileHeaderEditor = document.getElementById("fileHeaderEditor");
 const $fileHeaderSave = document.getElementById("fileHeaderSave");
 const $fileHeaderReload = document.getElementById("fileHeaderReload");
+const $btnChordproPdf = document.getElementById("btnChordproPdf");
 const $templatesModal = document.getElementById("templatesModal");
 const $templatesClose = document.getElementById("templatesClose");
 const $templatesSearch = document.getElementById("templatesSearch");
@@ -685,6 +686,16 @@ let rawMode = false;
 let rawModeFilePath = null;
 let rawModeHeaderEndOffset = 0;
 let rawModeOriginalTuneId = null;
+
+let chordproMode = false;
+let chordproFullView = false;
+let chordproFullText = "";
+let chordproBlocks = [];
+let chordproWarnings = [];
+let chordproActiveIndex = 0;
+let chordproParseTimer = null;
+let chordproPrevLibraryVisible = null;
+let chordproPrevHeaderCollapsed = null;
 
 let payloadMode = false;
 let payloadModeSource = null;
@@ -2776,6 +2787,340 @@ function setFileContentInCache(filePath, content) {
   lruSet(fileContentCache, filePath, content, MAX_FILE_CONTENT_CACHE_ENTRIES);
 }
 
+const CHORDPRO_ABC_START_RE = /\{start_of_abc\b/i;
+const CHORDPRO_ABC_END_RE = /\{end_of_abc\b/i;
+
+function isChordProText(text) {
+  const src = String(text || "");
+  return CHORDPRO_ABC_START_RE.test(src) || CHORDPRO_ABC_END_RE.test(src);
+}
+
+function isChordProFilePath(filePath) {
+  const p = String(filePath || "").toLowerCase();
+  return p.endsWith(".cho") || p.endsWith(".chordpro") || p.endsWith(".crd") || p.endsWith(".pro");
+}
+
+function extractChordProLabel(rawArgs) {
+  const args = String(rawArgs || "").trim();
+  if (!args) return "";
+  const kvMatch = args.match(/\b(label|title)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s}]+))/i);
+  if (kvMatch) return (kvMatch[2] || kvMatch[3] || kvMatch[4] || "").trim();
+  const colonMatch = args.match(/^\s*:\s*(.+)$/);
+  if (colonMatch) return String(colonMatch[1] || "").trim();
+  return args.trim();
+}
+
+function parseChordProBlocks(text) {
+  const src = String(text || "");
+  const blocks = [];
+  const warnings = [];
+  let open = null;
+  let lineStart = 0;
+  let lineNo = 1;
+
+  while (lineStart <= src.length) {
+    let lineEnd = lineStart;
+    while (lineEnd < src.length && src[lineEnd] !== "\n" && src[lineEnd] !== "\r") lineEnd += 1;
+    const line = src.slice(lineStart, lineEnd);
+    let breakLen = 0;
+    if (lineEnd < src.length) {
+      if (src[lineEnd] === "\r" && src[lineEnd + 1] === "\n") breakLen = 2;
+      else breakLen = 1;
+    }
+
+    const trimmed = line.trim();
+    const startMatch = trimmed.match(/^\{start_of_abc\b([^}]*)\}$/i);
+    const endMatch = trimmed.match(/^\{end_of_abc\b[^}]*\}$/i);
+    if (startMatch) {
+      if (open) {
+        warnings.push({ kind: "abc-start-nested", line: lineNo });
+        const endOffset = lineStart;
+        const endLine = Math.max(open.startLine, lineNo - 1);
+        blocks.push({
+          ...open,
+          endOffset,
+          endLine,
+          text: src.slice(open.startOffset, endOffset),
+        });
+      }
+      const args = startMatch[1] ? startMatch[1].trim() : "";
+      open = {
+        startOffset: lineEnd + breakLen,
+        startLine: lineNo + 1,
+        label: extractChordProLabel(args),
+        directiveLine: lineNo,
+      };
+    } else if (endMatch) {
+      if (!open) {
+        warnings.push({ kind: "abc-end-without-start", line: lineNo });
+      } else {
+        const endOffset = lineStart;
+        const endLine = Math.max(open.startLine, lineNo - 1);
+        blocks.push({
+          ...open,
+          endOffset,
+          endLine,
+          text: src.slice(open.startOffset, endOffset),
+        });
+        open = null;
+      }
+    }
+
+    if (lineEnd >= src.length) break;
+    lineStart = lineEnd + breakLen;
+    lineNo += 1;
+  }
+
+  if (open) {
+    warnings.push({ kind: "abc-start-without-end", line: open.directiveLine || open.startLine });
+    blocks.push({
+      ...open,
+      endOffset: src.length,
+      endLine: lineNo,
+      text: src.slice(open.startOffset),
+    });
+  }
+
+  return { blocks, warnings };
+}
+
+function countLinesForPrefix(text) {
+  const src = String(text || "");
+  if (!src.trim()) return 0;
+  const trimmed = src.replace(/[\r\n]+$/, "");
+  return trimmed ? trimmed.split(/\r\n|\n|\r/).length : 0;
+}
+
+function countTextLinesExact(text) {
+  const src = String(text || "");
+  if (!src) return 0;
+  return src.split(/\r\n|\n|\r/).length;
+}
+
+function getChordProActiveBlock() {
+  if (!chordproMode || !Array.isArray(chordproBlocks) || !chordproBlocks.length) return null;
+  const idx = Math.max(0, Math.min(chordproBlocks.length - 1, Number(chordproActiveIndex) || 0));
+  return chordproBlocks[idx] || null;
+}
+
+function updateChordProBadge() {
+  if (!chordproMode) return;
+  if (!chordproBlocks.length) {
+    setTuneMetaText("ChordPro · no ABC blocks");
+    return;
+  }
+  const active = getChordProActiveBlock();
+  const label = active && active.label ? ` · ${active.label}` : "";
+  const prefix = chordproFullView ? "ChordPro · full view" : "ChordPro · ABC";
+  const count = chordproFullView ? ` (${Number(chordproActiveIndex) + 1}/${chordproBlocks.length})` : ` ${Number(chordproActiveIndex) + 1}/${chordproBlocks.length}`;
+  setTuneMetaText(`${prefix}${count}${label}`);
+}
+
+function updateChordProSelectOptions() {
+  if (!$fileTuneSelect) return;
+  $fileTuneSelect.textContent = "";
+  if (!chordproBlocks.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "(No ABC blocks)";
+    option.disabled = true;
+    option.selected = true;
+    $fileTuneSelect.appendChild(option);
+    $fileTuneSelect.disabled = true;
+    return;
+  }
+  for (let i = 0; i < chordproBlocks.length; i += 1) {
+    const block = chordproBlocks[i];
+    const option = document.createElement("option");
+    option.value = String(i);
+    const label = block && block.label ? `: ${block.label}` : "";
+    option.textContent = `ABC ${i + 1}${label}`;
+    $fileTuneSelect.appendChild(option);
+  }
+  $fileTuneSelect.disabled = false;
+  const next = String(Math.max(0, Math.min(chordproBlocks.length - 1, Number(chordproActiveIndex) || 0)));
+  $fileTuneSelect.value = next;
+}
+
+function setActiveChordProBlock(index, { scroll = false } = {}) {
+  if (!chordproMode) return;
+  const total = chordproBlocks.length;
+  if (!total) return;
+  const next = Math.max(0, Math.min(total - 1, Number(index) || 0));
+  if (next === chordproActiveIndex && !scroll) return;
+  chordproActiveIndex = next;
+  updateChordProSelectOptions();
+  updateChordProBadge();
+  const block = getChordProActiveBlock();
+  if (block && !chordproFullView) {
+    suppressDirty = true;
+    setEditorValue(String(block.text || ""));
+    suppressDirty = false;
+    if (currentDoc) currentDoc.content = String(block.text || "");
+  } else if (scroll && block) {
+    scrollToPosInEditor(block.startOffset, { y: "start" });
+  }
+  scheduleRenderNow({ clearOutput: true });
+}
+
+function findChordProBlockIndexAtOffset(offset) {
+  if (!Array.isArray(chordproBlocks) || !chordproBlocks.length) return -1;
+  const pos = Number(offset) || 0;
+  for (let i = 0; i < chordproBlocks.length; i += 1) {
+    const block = chordproBlocks[i];
+    if (!block) continue;
+    if (pos >= block.startOffset && pos <= block.endOffset) return i;
+  }
+  return -1;
+}
+
+function updateChordProStateFromFullText(text, { allowScroll = false } = {}) {
+  const parsed = parseChordProBlocks(text);
+  chordproBlocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+  chordproWarnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+  if (editorView && chordproBlocks.length && chordproFullView) {
+    const cursor = editorView.state.selection.main.head;
+    const idx = findChordProBlockIndexAtOffset(cursor);
+    if (idx >= 0) chordproActiveIndex = idx;
+  }
+  if (chordproActiveIndex >= chordproBlocks.length) {
+    chordproActiveIndex = Math.max(0, chordproBlocks.length - 1);
+  }
+  updateChordProSelectOptions();
+  updateChordProBadge();
+  if (allowScroll && chordproBlocks.length) {
+    const block = getChordProActiveBlock();
+    if (block) scrollToPosInEditor(block.startOffset, { y: "start" });
+  }
+}
+
+function scheduleChordProParse() {
+  if (!chordproMode) return;
+  if (chordproParseTimer) clearTimeout(chordproParseTimer);
+  chordproParseTimer = setTimeout(() => {
+    chordproParseTimer = null;
+    const nextText = chordproFullView ? getEditorValue() : chordproFullText;
+    chordproFullText = String(nextText || "");
+    updateChordProStateFromFullText(chordproFullText);
+  }, 150);
+}
+
+function applyChordProActiveBlockEdit(blockText) {
+  const block = getChordProActiveBlock();
+  if (!block) return;
+  const prevText = String(block.text != null ? block.text : chordproFullText.slice(block.startOffset, block.endOffset));
+  const nextText = String(blockText || "");
+  const prevLen = prevText.length;
+  const nextLen = nextText.length;
+  const delta = nextLen - prevLen;
+  const prevLines = countTextLinesExact(prevText);
+  const nextLines = countTextLinesExact(nextText);
+  const deltaLines = nextLines - prevLines;
+  chordproFullText = `${chordproFullText.slice(0, block.startOffset)}${nextText}${chordproFullText.slice(block.endOffset)}`;
+  block.text = nextText;
+  block.endOffset = block.startOffset + nextLen;
+  block.endLine = block.startLine + Math.max(0, nextLines - 1);
+  if (delta || deltaLines) {
+    for (let i = chordproActiveIndex + 1; i < chordproBlocks.length; i += 1) {
+      const b = chordproBlocks[i];
+      if (!b) continue;
+      b.startOffset += delta;
+      b.endOffset += delta;
+      b.startLine += deltaLines;
+      b.endLine += deltaLines;
+    }
+  }
+}
+
+function setLibraryControlsDisabled(disabled) {
+  const shouldDisable = Boolean(disabled || payloadMode);
+  const disableIf = (el, value) => { if (el) el.disabled = value; };
+  disableIf($btnToggleLibrary, shouldDisable);
+  disableIf($btnLibraryRefresh, shouldDisable);
+  disableIf($btnLibraryClearFilter, shouldDisable);
+  disableIf($groupBy, shouldDisable);
+  disableIf($sortBy, shouldDisable);
+  disableIf($librarySearch, shouldDisable);
+  if ($libraryTree) $libraryTree.classList.toggle("disabled", shouldDisable);
+}
+
+function setChordProMode(enabled) {
+  const next = Boolean(enabled);
+  if (chordproMode === next) return;
+  chordproMode = next;
+  document.body.classList.toggle("chordpro-mode", chordproMode);
+  if (chordproMode) {
+    chordproPrevLibraryVisible = isLibraryVisible;
+    setLibraryVisible(false, { persist: false });
+    setLibraryControlsDisabled(true);
+    if ($btnToggleRaw) $btnToggleRaw.classList.remove("toggle-active");
+    if (chordproPrevHeaderCollapsed == null) chordproPrevHeaderCollapsed = headerCollapsed;
+    setHeaderCollapsed(true);
+    if ($btnNewTune) $btnNewTune.disabled = true;
+    if ($btnTemplates) $btnTemplates.disabled = true;
+    if ($fileHeaderToggle) $fileHeaderToggle.disabled = true;
+    if ($fileHeaderSave) $fileHeaderSave.disabled = true;
+    if ($fileHeaderReload) $fileHeaderReload.disabled = true;
+  } else {
+    chordproFullView = false;
+    chordproFullText = "";
+    chordproBlocks = [];
+    chordproWarnings = [];
+    chordproActiveIndex = 0;
+    setLibraryControlsDisabled(false);
+    if (chordproPrevLibraryVisible != null) {
+      setLibraryVisible(Boolean(chordproPrevLibraryVisible), { persist: false });
+    }
+    chordproPrevLibraryVisible = null;
+    if ($btnToggleRaw) $btnToggleRaw.classList.remove("toggle-active");
+    if (chordproPrevHeaderCollapsed != null) {
+      setHeaderCollapsed(Boolean(chordproPrevHeaderCollapsed));
+      chordproPrevHeaderCollapsed = null;
+    }
+    if ($btnNewTune) $btnNewTune.disabled = false;
+    if ($btnTemplates) $btnTemplates.disabled = false;
+    if ($fileHeaderToggle) $fileHeaderToggle.disabled = false;
+    if ($fileHeaderSave) $fileHeaderSave.disabled = false;
+    if ($fileHeaderReload) $fileHeaderReload.disabled = false;
+  }
+  updateFileContext();
+}
+
+function setChordProFullView(enabled) {
+  if (!chordproMode) return;
+  const next = Boolean(enabled);
+  if (chordproFullView === next) return;
+  const wasFull = chordproFullView;
+  if (!next && wasFull) {
+    // Leaving full view: capture edits to the full text and re-parse blocks before switching.
+    const fullText = getEditorValue();
+    chordproFullText = String(fullText || "");
+    updateChordProStateFromFullText(chordproFullText, { allowScroll: false });
+  }
+  chordproFullView = next;
+  if ($btnToggleRaw) $btnToggleRaw.classList.toggle("toggle-active", chordproFullView);
+  if (chordproFullView) {
+    // Switch editor to full file view.
+    chordproFullText = String(chordproFullText || "");
+    suppressDirty = true;
+    setEditorValue(chordproFullText);
+    suppressDirty = false;
+    if (currentDoc) currentDoc.content = chordproFullText;
+  } else {
+    // Return to active block view.
+    const active = getChordProActiveBlock();
+    const blockText = active ? active.text : "";
+    suppressDirty = true;
+    setEditorValue(String(blockText || ""));
+    suppressDirty = false;
+    if (currentDoc) currentDoc.content = String(blockText || "");
+  }
+  updateChordProBadge();
+  updatePlaybackInteractionLock();
+  updatePlayButton();
+  scheduleRenderNow({ clearOutput: true });
+}
+
 let workingCopySnapshot = null;
 const diskConflictPaths = new Set();
 
@@ -2997,9 +3342,16 @@ let workingCopyTuneSyncQueued = false;
 let workingCopyTuneSyncEpoch = 0;
 const WORKING_COPY_TUNE_SYNC_DEBOUNCE_MS = 450;
 
+let workingCopyFullSyncTimer = null;
+let workingCopyFullSyncInFlight = false;
+let workingCopyFullSyncQueued = false;
+let workingCopyFullSyncEpoch = 0;
+const WORKING_COPY_FULL_SYNC_DEBOUNCE_MS = 450;
+
 function scheduleWorkingCopyTuneSync() {
   if (rawMode) return;
   if (payloadMode) return;
+  if (chordproMode) return;
   if (!activeTuneUid) return;
   if (!activeTuneMeta || !activeTuneMeta.path) return;
   if (!window.api || typeof window.api.applyWorkingCopyTuneText !== "function") return;
@@ -3008,6 +3360,20 @@ function scheduleWorkingCopyTuneSync() {
     workingCopyTuneSyncTimer = null;
     flushWorkingCopyTuneSync().catch(() => {});
   }, WORKING_COPY_TUNE_SYNC_DEBOUNCE_MS);
+}
+
+function scheduleWorkingCopyFullSync() {
+  if (rawMode) return;
+  if (payloadMode) return;
+  if (!chordproMode) return;
+  if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
+  const filePath = String(activeFilePath || (currentDoc && currentDoc.path) || "");
+  if (!filePath) return;
+  if (workingCopyFullSyncTimer) clearTimeout(workingCopyFullSyncTimer);
+  workingCopyFullSyncTimer = setTimeout(() => {
+    workingCopyFullSyncTimer = null;
+    flushWorkingCopyFullSync().catch(() => {});
+  }, WORKING_COPY_FULL_SYNC_DEBOUNCE_MS);
 }
 
 function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
@@ -3042,6 +3408,7 @@ async function flushWorkingCopyTuneSync() {
   }
   if (rawMode) return;
   if (payloadMode) return;
+  if (chordproMode) return;
   if (!activeTuneUid) {
     // Some open paths (e.g., recents / stale library metadata) may not have a tuneUid yet.
     // Try to self-heal from the current working copy snapshot; otherwise refuse to sync.
@@ -3090,6 +3457,41 @@ async function flushWorkingCopyTuneSync() {
   }
 }
 
+async function flushWorkingCopyFullSync() {
+  const epoch = workingCopyFullSyncEpoch;
+  if (workingCopyFullSyncInFlight) {
+    workingCopyFullSyncQueued = true;
+    return;
+  }
+  if (rawMode) return;
+  if (payloadMode) return;
+  if (!chordproMode) return;
+  if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
+
+  const filePath = String(activeFilePath || (currentDoc && currentDoc.path) || "");
+  if (!filePath) return;
+  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) return;
+
+  workingCopyFullSyncInFlight = true;
+  try {
+    const nextText = chordproFullView ? getEditorValue() : chordproFullText;
+    const res = await window.api.applyWorkingCopyFullText(String(nextText || ""));
+    if (epoch !== workingCopyFullSyncEpoch) return;
+    if (!res || !res.ok) return;
+    const snapshot = await refreshWorkingCopySnapshot();
+    if (epoch !== workingCopyFullSyncEpoch) return;
+    if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
+      setFileContentInCache(filePath, snapshot.text);
+    }
+  } finally {
+    workingCopyFullSyncInFlight = false;
+    if (epoch === workingCopyFullSyncEpoch && workingCopyFullSyncQueued) {
+      workingCopyFullSyncQueued = false;
+      await flushWorkingCopyFullSync();
+    }
+  }
+}
+
 async function discardWorkingCopyChangesForActiveFile() {
   workingCopyTuneSyncEpoch += 1;
   if (workingCopyTuneSyncTimer) {
@@ -3097,8 +3499,15 @@ async function discardWorkingCopyChangesForActiveFile() {
     workingCopyTuneSyncTimer = null;
   }
   workingCopyTuneSyncQueued = false;
+  workingCopyFullSyncEpoch += 1;
+  if (workingCopyFullSyncTimer) {
+    clearTimeout(workingCopyFullSyncTimer);
+    workingCopyFullSyncTimer = null;
+  }
+  workingCopyFullSyncQueued = false;
 
   if (rawMode) return false;
+  if (chordproMode) return false;
   if (!activeTuneMeta || !activeTuneMeta.path) return false;
   if (!window.api || typeof window.api.reloadWorkingCopyFromDisk !== "function") return false;
 
@@ -4116,6 +4525,12 @@ function buildTuneSelectOptions(fileEntry) {
 }
 
 function updateFileContext() {
+  if (chordproMode) {
+    updateChordProSelectOptions();
+    setScanErrorButtonVisibility(null);
+    setScanErrorButtonActive(false);
+    return;
+  }
   const entry = getActiveFileEntry();
   if (!entry) {
     if ($fileTuneSelect) {
@@ -4144,6 +4559,10 @@ function getNavigableTuneIdsFromFileSelect() {
 }
 
 async function navigateTuneByDelta(delta) {
+  if (chordproMode) {
+    setActiveChordProBlock(chordproActiveIndex + delta, { scroll: true });
+    return;
+  }
   // Prefer file order navigation based on the active tune metadata.
   // This stays stable even if the tune `<select>` temporarily drifts (filters, rebuilds, etc).
   const filePath = (activeTuneMeta && activeTuneMeta.path)
@@ -6450,6 +6869,7 @@ function clearLibraryFilter() {
 }
 
 function getActiveFileEntry() {
+  if (chordproMode) return null;
   if (!libraryIndex || !libraryIndex.files || !activeFilePath) return null;
   return libraryIndex.files.find((file) => pathsEqual(file.path, activeFilePath)) || null;
 }
@@ -6459,6 +6879,19 @@ function updateFileHeaderPanel() {
   // Ensure the CodeMirror instance exists before we attempt to sync text into it.
   // Otherwise, `setHeaderEditorValue()` is a no-op and we can end up with a blank header until Reload.
   initHeaderEditor();
+  if (chordproMode) {
+    $fileHeaderPanel.classList.add("active");
+    suppressHeaderDirty = true;
+    setHeaderEditorValue("");
+    suppressHeaderDirty = false;
+    headerDirty = false;
+    headerEditorFilePath = null;
+    updateHeaderStateUI();
+    if ($fileHeaderToggle) {
+      $fileHeaderToggle.title = "ChordPro file (no ABC file header).";
+    }
+    return;
+  }
   const entry = getActiveFileEntry();
   if (!entry) {
     $fileHeaderPanel.classList.remove("active");
@@ -6885,6 +7318,7 @@ function updatePayloadModeInteractionLock() {
   disable($btnFileSave);
   disable($btnFileClose);
   disable($btnToggleRaw);
+  disable($btnChordproPdf);
 
   disable($btnToggleErrors);
   disable($btnToggleFollow);
@@ -10600,16 +11034,30 @@ function initEditor() {
         currentDoc.dirty = true;
         setDirtyIndicator(true);
       }
-      if (!suppressDirty && currentDoc && activeTuneUid && !payloadMode) {
-        scheduleWorkingCopyTuneSync();
+      if (!suppressDirty && currentDoc && !payloadMode) {
+        if (chordproMode) {
+          if (chordproFullView) {
+            chordproFullText = update.state.doc.toString();
+          } else {
+            applyChordProActiveBlockEdit(update.state.doc.toString());
+          }
+          scheduleChordProParse();
+          scheduleWorkingCopyFullSync();
+        } else if (activeTuneUid) scheduleWorkingCopyTuneSync();
       }
-      if (!rawMode) {
+      if (!rawMode && !chordproFullView) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
       }
     }
 	    if (!rawMode && update.selectionSet && !isPlaying) {
 	      const idx = update.state.selection.main.anchor;
+        if (chordproMode && chordproFullView) {
+          const blockIdx = findChordProBlockIndexAtOffset(idx);
+          if (blockIdx >= 0 && blockIdx !== chordproActiveIndex) {
+            setActiveChordProBlock(blockIdx, { scroll: false });
+          }
+        }
 	      if (followPlayback) {
 	        scheduleCursorNoteHighlight(idx);
 	      } else {
@@ -10906,6 +11354,7 @@ function initHeaderEditor() {
 }
 
 function setActiveTuneText(text, metadata, options = {}) {
+  if (chordproMode) setChordProMode(false);
   if (activeErrorHighlight) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
   resetPlaybackState();
@@ -10993,6 +11442,7 @@ function insertTextAtEditorSelection(text) {
 }
 
 function setLibraryVisible(visible, { persist = true } = {}) {
+  if (chordproMode && visible) return;
   isLibraryVisible = visible;
   document.body.classList.toggle("library-hidden", !visible);
   renderBufferStatus();
@@ -11007,6 +11457,10 @@ function setLibraryVisible(visible, { persist = true } = {}) {
 }
 
 function toggleLibrary() {
+  if (chordproMode) {
+    showToast("Library is disabled while editing ChordPro.", 2400);
+    return;
+  }
   setLibraryVisible(!isLibraryVisible);
   // Toggling the library pane changes available width; reset the editor/render split so the UI looks tidy.
   requestAnimationFrame(() => {
@@ -11597,6 +12051,7 @@ async function openRecentTune(entry) {
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent tune");
   if (!ok) return;
 
+  setChordProMode(false);
   const dir = safeDirname(entry.path);
   await loadLibraryFromFolder(dir);
   if (libraryIndex && libraryIndex.files) {
@@ -11635,17 +12090,30 @@ async function openRecentFile(entry) {
   if (!entry || !entry.path) return;
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent file");
   if (!ok) return;
+  const readRes = await readFile(entry.path);
+  if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(entry.path))) {
+    await openChordProFile(entry.path, readRes.data, { suppressRecent: true });
+    return;
+  }
   await loadLibraryFileIntoEditor(entry.path);
 }
 
 async function openRecentFolder(entry) {
   if (!entry || !entry.path) return;
+  if (chordproMode) {
+    showToast("Library is disabled while editing ChordPro.", 2400);
+    return;
+  }
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent folder");
   if (!ok) return;
   await loadLibraryFromFolder(entry.path);
 }
 
 async function scanAndLoadLibrary() {
+  if (chordproMode) {
+    showToast("Library is disabled while editing ChordPro.", 2400);
+    return;
+  }
   if (!window.api) return;
   const ok = await ensureSafeToAbandonCurrentDoc("opening a folder");
   if (!ok) return;
@@ -11659,6 +12127,10 @@ async function scanAndLoadLibrary() {
 }
 
 async function refreshLibraryIndex() {
+  if (chordproMode) {
+    showToast("Library is disabled while editing ChordPro.", 2400);
+    return;
+  }
   if (!window.api || typeof window.api.scanLibrary !== "function") return;
   if (!libraryIndex || !libraryIndex.root) {
     setStatus("Load a library folder first.");
@@ -11798,6 +12270,7 @@ async function loadLibraryFromFolder(folder) {
 
 async function loadLibraryFileIntoEditor(filePath) {
   if (!filePath) return { ok: false, error: "Missing file path." };
+  let chordproText = null;
   try {
     if (window.api && typeof window.api.openWorkingCopy === "function") {
       await window.api.openWorkingCopy(filePath);
@@ -11805,9 +12278,23 @@ async function loadLibraryFileIntoEditor(filePath) {
       if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
         attachTuneUidsToLibraryFile(filePath, snapshot);
         scheduleRenderLibraryTree();
+        if (snapshot.text) chordproText = String(snapshot.text || "");
       }
     }
   } catch {}
+  if (!chordproText) {
+    const cached = getFileContentFromCache(filePath);
+    if (cached != null) chordproText = String(cached || "");
+  }
+  if (!chordproText && isChordProFilePath(filePath)) {
+    const readRes = await readFile(filePath);
+    if (readRes && readRes.ok) chordproText = String(readRes.data || "");
+  }
+  if (chordproText && (isChordProText(chordproText) || isChordProFilePath(filePath))) {
+    await openChordProFile(filePath, chordproText, { suppressRecent: true });
+    return { ok: true, chordpro: true };
+  }
+  setChordProMode(false);
   activeFilePath = filePath;
   recordNavFilePath(filePath);
   const resolveFromIndex = async () => {
@@ -12175,6 +12662,11 @@ if ($btnTemplates) {
     } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
   });
 }
+if ($btnChordproPdf) {
+  $btnChordproPdf.addEventListener("click", () => {
+    exportChordProPdf().catch((e) => logErr((e && e.message) ? e.message : String(e)));
+  });
+}
 if ($btnFileOpen) {
   $btnFileOpen.addEventListener("click", async () => {
     try {
@@ -12207,6 +12699,10 @@ if ($btnToggleRaw) {
   $btnToggleRaw.addEventListener("click", async () => {
     try {
       if (payloadMode) { showToast("Exit Payload Mode to switch Raw mode.", 2400); return; }
+      if (chordproMode) {
+        setChordProFullView(!chordproFullView);
+        return;
+      }
       if (rawMode) await exitRawMode();
       else await enterRawMode();
     } catch (e) {
@@ -12222,6 +12718,11 @@ if ($fileTuneSelect) {
     if (tuneId === "__new__") return;
     if (isNewTuneDraft) isNewTuneDraft = false;
     if (!tuneId) return;
+    if (chordproMode) {
+      const idx = Number(tuneId);
+      if (Number.isFinite(idx)) setActiveChordProBlock(idx, { scroll: true });
+      return;
+    }
     if (payloadMode) {
       showToast("Exit Payload Mode to change tunes.", 2400);
       try { if (activeTuneUid || activeTuneId) $fileTuneSelect.value = rawMode ? activeTuneId : (activeTuneUid || activeTuneId); } catch {}
@@ -16345,6 +16846,14 @@ function updateUIFromDocument(doc) {
 
 function showEmptyState() {
   setRawModeUI(false);
+  setChordProMode(false);
+  chordproBlocks = [];
+  chordproWarnings = [];
+  chordproActiveIndex = 0;
+  if (chordproParseTimer) {
+    clearTimeout(chordproParseTimer);
+    chordproParseTimer = null;
+  }
   rawModeFilePath = null;
   rawModeHeaderEndOffset = 0;
   rawModeOriginalTuneId = null;
@@ -16720,7 +17229,7 @@ function setRenderBusy(next) {
 }
 
 function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
-  if (rawMode) return;
+  if (rawMode || chordproFullView) return;
   renderRequestToken += 1;
   const token = renderRequestToken;
   if (pendingRenderTimer) {
@@ -16761,13 +17270,24 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
   });
 }
 
-function refreshBarMismatchMarkersForTune(tuneText) {
+function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0 } = {}) {
   if (!editorView || rawMode || payloadMode || !errorsEnabled) {
     setBarMismatchMarkers([]);
     return;
   }
   try {
-    const markers = analyzeBarMismatchesForGutter(tuneText);
+    let markers = analyzeBarMismatchesForGutter(tuneText);
+    const lineDelta = Number(lineOffset) || 0;
+    const offsetDelta = Number(startOffset) || 0;
+    if ((lineDelta || offsetDelta) && Array.isArray(markers)) {
+      markers = markers.map((marker) => {
+        if (!marker) return marker;
+        const next = { ...marker };
+        if (Number.isFinite(next.offset)) next.offset = Number(next.offset) + offsetDelta;
+        if (Number.isFinite(next.line)) next.line = Number(next.line) + lineDelta;
+        return next;
+      });
+    }
     setBarMismatchMarkers(markers);
     if (window.__abcarusDebugBarMismatch === true) {
       console.info("[bar-mismatch]", {
@@ -16820,6 +17340,23 @@ function renderNow() {
   clearErrors();
   setRenderBusy(true);
   const currentText = getEditorValue();
+  if (chordproMode && chordproFullView) {
+    setBarMismatchMarkers([]);
+    setStatus("ChordPro full view.");
+    if ($out) $out.innerHTML = "";
+    setRenderBusy(false);
+    updateLibraryErrorIndexFromCurrentErrors();
+    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+    return;
+  }
+  if (chordproMode && !chordproBlocks.length) {
+    setBarMismatchMarkers([]);
+    setStatus("No ABC blocks.");
+    setRenderBusy(false);
+    updateLibraryErrorIndexFromCurrentErrors();
+    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+    return;
+  }
   if (!currentText.trim()) {
     setBarMismatchMarkers([]);
     setStatus("Ready");
@@ -16843,8 +17380,13 @@ function renderNow() {
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
+    lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
   };
-  setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
+  if (Number.isFinite(renderPayload.lineOffset)) {
+    errorLineOffset = renderPayload.lineOffset;
+  } else {
+    setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
+  }
   addBarMismatchErrorsFromMarkers(barMismatchMarkers);
   setStatus("Rendering…");
 
@@ -17567,6 +18109,10 @@ document.addEventListener("set-list:add", (ev) => {
 });
 
 function openLibraryListFromCurrentLibraryIndex() {
+  if (chordproMode) {
+    showToast("Library is disabled while editing ChordPro.", 2400);
+    return false;
+  }
   if (!libraryIndex || !libraryIndex.root || !Array.isArray(libraryIndex.files) || !libraryIndex.files.length) {
     setStatus("Load a library folder first.");
     return false;
@@ -18449,6 +18995,59 @@ async function performSaveFlow() {
     }
   }
 
+  if (chordproMode) {
+    const filePath = activeFilePath || (currentDoc && currentDoc.path) || "";
+    if (!filePath) return performSaveAsFlow();
+    const wcOk = await ensureWorkingCopyOpenForPath(filePath);
+    if (!wcOk) {
+      await showSaveError("Unable to save file: no working copy open.");
+      return false;
+    }
+    await refreshWorkingCopySnapshot();
+    try {
+      await flushWorkingCopyFullSync();
+    } catch {}
+    if (window.api && typeof window.api.commitWorkingCopyToDisk === "function") {
+      const res = await window.api.commitWorkingCopyToDisk({ force: false });
+      if (res && res.missingOnDisk) {
+        const handled = await handleMissingWorkingCopySave(filePath);
+        return Boolean(handled && handled.ok);
+      }
+      if (res && res.ok) {
+        markDiskConflictPath(filePath, false);
+        const snap = await refreshWorkingCopySnapshot();
+        if (snap && snap.path && pathsEqual(snap.path, filePath)) {
+          setFileContentInCache(filePath, snap.text);
+        }
+        if (currentDoc) currentDoc.dirty = false;
+        setDirtyIndicator(false);
+        updateWindowTitle();
+        return true;
+      }
+      if (res && res.conflict) {
+        const forced = await window.api.commitWorkingCopyToDisk({ force: true });
+        if (forced && forced.ok) {
+          markDiskConflictPath(filePath, false);
+          const snap = await refreshWorkingCopySnapshot();
+          if (snap && snap.path && pathsEqual(snap.path, filePath)) {
+            setFileContentInCache(filePath, snap.text);
+          }
+          if (currentDoc) currentDoc.dirty = false;
+          setDirtyIndicator(false);
+          updateWindowTitle();
+          return true;
+        }
+        markDiskConflictPath(filePath, true);
+        await showSaveError((forced && forced.error) ? forced.error : "Unable to save file.");
+        return false;
+      }
+      await showSaveError((res && res.error) ? res.error : "Unable to save file.");
+      return false;
+    }
+    await showSaveError("Internal error: working copy save is unavailable.");
+    return false;
+  }
+
   if (isNewTuneDraft && activeFilePath) {
     const ok = await performAppendFlow();
     return Boolean(ok);
@@ -18532,6 +19131,62 @@ async function performSaveFlow() {
 
 async function performSaveAsFlow() {
   if (!currentDoc) return false;
+
+  if (chordproMode) {
+    try {
+      await flushWorkingCopyFullSync();
+    } catch {}
+
+    const currentPath = activeFilePath || (currentDoc && currentDoc.path) || "";
+    const base = currentPath ? safeBasename(currentPath) : "";
+    const extMatch = base.match(/(\.[^.]+)$/);
+    const suffix = extMatch ? extMatch[1] : ".cho";
+    const suggestedName = `${stripFileExtension(base || "untitled")}${suffix}`;
+    const suggestedDir = getDefaultSaveDir();
+    const filePath = await showSaveDialog(suggestedName, suggestedDir);
+    if (!filePath) return false;
+
+    const hasWorkingCopy = Boolean(
+      currentPath
+      && isWorkingCopyOpenForFile(currentPath)
+      && window.api
+      && typeof window.api.writeWorkingCopyToPathAndSwitch === "function"
+    );
+    if (!hasWorkingCopy) {
+      const content = String((chordproFullView ? getEditorValue() : chordproFullText) || "");
+      const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
+      if (!saved) return false;
+      currentDoc.path = filePath;
+      currentDoc.dirty = false;
+      activeFilePath = filePath;
+      recordNavFilePath(filePath);
+      setFileNameMeta(stripFileExtension(safeBasename(filePath)));
+      updateWindowTitle();
+      return true;
+    }
+
+    if (await fileExists(filePath)) {
+      const ok = await confirmOverwrite(filePath);
+      if (!ok) return false;
+    }
+    const out = await window.api.writeWorkingCopyToPathAndSwitch(filePath);
+    if (!out || !out.ok) {
+      await showSaveError((out && out.error) ? out.error : "Unable to save file.");
+      return false;
+    }
+    const snap = await refreshWorkingCopySnapshot();
+    if (snap && snap.path && pathsEqual(snap.path, filePath)) {
+      setFileContentInCache(filePath, snap.text);
+    }
+    currentDoc.path = filePath;
+    currentDoc.dirty = false;
+    activeFilePath = filePath;
+    recordNavFilePath(filePath);
+    setDirtyIndicator(false);
+    setFileNameMeta(stripFileExtension(safeBasename(filePath)));
+    updateWindowTitle();
+    return true;
+  }
 
   try {
     await flushWorkingCopyTuneSync();
@@ -19837,6 +20492,72 @@ async function fileNewTuneAndAppendNow() {
   await appendTuneTextToFileNow(filePath, template, { toastOk: "New tune added." });
 }
 
+async function openChordProFile(filePath, content, { suppressRecent = false } = {}) {
+  const p = String(filePath || "");
+  if (!p) return { ok: false, error: "Missing file path." };
+  let text = content;
+  if (text == null) {
+    const readRes = await readFile(p);
+    if (!readRes || !readRes.ok) return { ok: false, error: (readRes && readRes.error) ? readRes.error : "Unable to read file." };
+    text = readRes.data || "";
+  }
+
+  setChordProMode(true);
+  setRawModeUI(false);
+  chordproFullView = false;
+  if ($btnToggleRaw) $btnToggleRaw.classList.remove("toggle-active");
+  rawModeFilePath = null;
+  rawModeHeaderEndOffset = 0;
+  rawModeOriginalTuneId = null;
+  isNewTuneDraft = false;
+  resetPlaybackState();
+  clearErrors();
+
+  activeTuneMeta = null;
+  activeTuneId = null;
+  activeTuneUid = null;
+  activeTuneIndex = null;
+  activeFilePath = p;
+  recordNavFilePath(p);
+
+  chordproActiveIndex = 0;
+  chordproFullText = String(text || "");
+  updateChordProStateFromFullText(chordproFullText);
+  const activeBlock = getChordProActiveBlock();
+  const blockText = activeBlock ? activeBlock.text : "";
+  suppressDirty = true;
+  setEditorValue(String(blockText || ""));
+  suppressDirty = false;
+
+  if (currentDoc) {
+    currentDoc.path = p;
+    currentDoc.content = String(blockText || "");
+    currentDoc.dirty = false;
+  } else {
+    currentDoc = { path: p, content: String(blockText || ""), dirty: false };
+  }
+  setDirtyIndicator(false);
+  setFileContentInCache(p, String(text || ""));
+
+  setFileNameMeta(stripFileExtension(safeBasename(p)));
+  updateChordProBadge();
+  updateChordProSelectOptions();
+  updateFileHeaderPanel();
+  updateHeaderStateUI();
+  scheduleRenderNow({ clearOutput: true });
+
+  if (!suppressRecent && !suppressRecentEntries && window.api && typeof window.api.addRecentFile === "function") {
+    window.api.addRecentFile({ path: p, basename: safeBasename(p) });
+  }
+
+  try {
+    await ensureWorkingCopyOpenForPath(p);
+    await refreshWorkingCopySnapshot();
+  } catch {}
+
+  return { ok: true };
+}
+
 async function fileOpen() {
   const ok = await ensureSafeToAbandonCurrentDoc("opening a file");
   if (!ok) return;
@@ -19844,6 +20565,12 @@ async function fileOpen() {
   const filePath = await showOpenDialog();
   if (!filePath) return;
 
+  const readRes = await readFile(filePath);
+  if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(filePath))) {
+    await openChordProFile(filePath, readRes.data);
+    return;
+  }
+  setChordProMode(false);
   await loadLibraryFromFolder(safeDirname(filePath));
   if (libraryIndex && libraryIndex.files) {
     const fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, filePath));
@@ -20378,6 +21105,33 @@ async function exportMidi() {
     setStatus("Error");
     await showSaveError(msg);
   }
+}
+
+async function exportChordProPdf() {
+  if (!chordproMode) return;
+  if (!window.api || typeof window.api.exportChordProPdf !== "function") return;
+  const filePath = activeFilePath || (currentDoc && currentDoc.path) || "";
+  if (!filePath) {
+    showToast("Save the ChordPro file first.", 2400);
+    return;
+  }
+  if (!(await requireCleanForFileOp(filePath, "exporting a ChordPro PDF"))) return;
+
+  const base = stripFileExtension(safeBasename(filePath) || "song");
+  const suggestedName = `${base}.pdf`;
+  const suggestedDir = safeDirname(filePath);
+  const outputPath = await showSaveDialog(suggestedName, suggestedDir);
+  if (!outputPath) return;
+
+  setStatus("Exporting ChordPro PDF…");
+  const res = await window.api.exportChordProPdf(filePath, outputPath);
+  if (!res || !res.ok) {
+    setStatus("Error");
+    await showSaveError((res && res.error) ? res.error : "Unable to export ChordPro PDF.");
+    return;
+  }
+  setStatus("OK");
+  showToast(`Exported PDF: ${res.path || outputPath}`, 2400);
 }
 
 function renumberXInTextKeepingFirst(abcText) {
@@ -23014,6 +23768,8 @@ function appendPlaybackTrace(evt) {
 }
 
 function getPlaybackSourceKey() {
+  if (chordproMode && chordproFullView) return "chordpro-full";
+  if (chordproMode && !chordproBlocks.length) return "chordpro-empty";
   const tuneText = getEditorValue();
   if (payloadMode) {
     if (payloadModeView === "playback") {
@@ -23033,7 +23789,7 @@ function getPlaybackSourceKey() {
     // Key includes the sanitized payload text and offset. No header merge or injected directives in payload mode.
     return `payload|||${sanitized.text}|||${offset}|||${repeatsFlag}`;
   }
-  const entry = getActiveFileEntry();
+  const entry = chordproMode ? null : getActiveFileEntry();
   const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const injected = injectGchordOn(baseText, prefixPayload.offset || 0);
@@ -23130,6 +23886,17 @@ function updatePlaybackInteractionLock() {
   disable($xIssuesClose, true);
 
   updateAbUi();
+
+  if (chordproMode && chordproFullView) {
+    if ($btnPlay) $btnPlay.disabled = true;
+    if ($btnPause) $btnPause.disabled = true;
+    if ($btnPlayPause) $btnPlayPause.disabled = true;
+    if ($btnStop) $btnStop.disabled = true;
+    if ($btnPlayAB) $btnPlayAB.disabled = true;
+    if ($btnClearAB) $btnClearAB.disabled = true;
+    if ($btnToggleFollow) $btnToggleFollow.disabled = true;
+    if ($btnToggleErrors) $btnToggleErrors.disabled = true;
+  }
 }
 
 function buildTransportPlaybackPlan() {
@@ -26447,7 +27214,14 @@ function diffSignatures(expected, actual) {
 }
 
 function getPlaybackPayload() {
+  if (chordproMode && chordproFullView) {
+    return { text: "", offset: 0, lineOffset: 0, empty: true };
+  }
+  if (chordproMode && !chordproBlocks.length) {
+    return { text: "", offset: 0, lineOffset: 0, empty: true };
+  }
   const tuneText = getEditorValue();
+  const lineOffsetBase = chordproMode ? 0 : null;
   const skipDrums = playbackSkipDrumsOnce === true;
   const skipGchords = playbackSkipGchordsOnce === true;
   const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
@@ -26496,14 +27270,15 @@ function getPlaybackPayload() {
     return payload;
   }
   if (playbackSelectionMode) {
-    const entry = getActiveFileEntry();
+    const entry = chordproMode ? null : getActiveFileEntry();
     const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
     const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
+    const lineOffset = chordproMode ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
     lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
     lastPreparedPlaybackKey = null;
-    return { text, offset: prefixPayload.offset || 0 };
+    return { text, offset: (prefixPayload.offset || 0), lineOffset };
   }
-  const entry = getActiveFileEntry();
+  const entry = chordproMode ? null : getActiveFileEntry();
   const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
@@ -26526,13 +27301,15 @@ function getPlaybackPayload() {
   if (lastPlaybackPayloadCache && lastPlaybackPayloadCache.key === sourceKey) {
     lastPlaybackMeta = lastPlaybackPayloadCache.meta
       || { drumInsertAtLine: null, drumLineCount: 0 };
+    const lineOffset = chordproMode ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
     return {
       text: lastPlaybackPayloadCache.text,
       offset: lastPlaybackPayloadCache.offset,
+      lineOffset,
     };
   }
   let payload = prefixPayload.text
-    ? { text: `${prefixPayload.text}${tuneText}`, offset: prefixPayload.offset }
+    ? { text: `${prefixPayload.text}${tuneText}`, offset: (prefixPayload.offset || 0) }
     : { text: tuneText, offset: prefixPayload.offset || 0 };
   const gchordInjected = injectGchordOn(payload.text, prefixPayload.offset || 0);
   if (gchordInjected.changed) {
@@ -26614,7 +27391,8 @@ function getPlaybackPayload() {
   };
   lastPreparedPlaybackKey = sourceKey;
   assertCleanAbcText(payload.text, "playback payload");
-  return payload;
+  const lineOffset = chordproMode ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
+  return { ...payload, lineOffset };
 }
 
 function getRenderPayload() {
@@ -26622,6 +27400,16 @@ function getRenderPayload() {
     const text = getEditorValue();
     const offset = computePayloadTuneOffset(text);
     const out = { text, offset };
+    assertCleanAbcText(out.text, "render payload");
+    return out;
+  }
+  if (chordproMode) {
+    if (chordproFullView) return { text: "", offset: 0, lineOffset: 0, empty: true };
+    const tuneText = getEditorValue();
+    const prefixPayload = buildHeaderPrefix("", true, tuneText);
+    const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
+    const lineOffset = countLinesForPrefix(prefixPayload.text);
+    const out = { text, offset: prefixPayload.offset || 0, lineOffset };
     assertCleanAbcText(out.text, "render payload");
     return out;
   }
@@ -26638,6 +27426,10 @@ function getRenderPayload() {
 
 async function preparePlayback() {
   clearErrors();
+  if (chordproMode && chordproFullView) {
+    showToast("Exit Raw to play ChordPro ABC.", 2400);
+    return;
+  }
   await ensureSoundfontReady();
   const p = ensurePlayer();
   if (player && typeof player.stop === "function") {
@@ -26706,6 +27498,11 @@ async function preparePlayback() {
   };
   const abc = new AbcCtor(user);
   const playbackPayload = getPlaybackPayload();
+  if (!playbackPayload || playbackPayload.empty || !String(playbackPayload.text || "").trim()) {
+    setStatus("Ready");
+    showToast("No ABC block to play.", 2200);
+    return;
+  }
   const fxInjected = injectPlaybackMidiFxControls(playbackPayload.text, playbackPayload.offset || 0);
   const playbackPayloadText = fxInjected.text;
   const playbackPayloadOffset = fxInjected.offset;
@@ -26730,7 +27527,11 @@ async function preparePlayback() {
     console.log("[abcarus] playback payload (head):\n" + lines.slice(0, 40).join("\n"));
   }
   playbackIndexOffset = playbackPayloadOffset || 0;
-  setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackIndexOffset));
+  if (Number.isFinite(playbackPayload.lineOffset)) {
+    errorLineOffset = playbackPayload.lineOffset;
+  } else {
+    setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackIndexOffset));
+  }
   if (lastPlaybackMeterMismatchWarning && lastPlaybackMeterMismatchWarning.detail) {
     addError(
       `Warning: Meter mismatch: ${lastPlaybackMeterMismatchWarning.detail}`,
@@ -26865,7 +27666,11 @@ async function preparePlayback() {
         }
         const retryPayload = getPlaybackPayload();
         playbackIndexOffset = retryPayload.offset || 0;
-        setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackIndexOffset));
+        if (Number.isFinite(retryPayload.lineOffset)) {
+          errorLineOffset = retryPayload.lineOffset;
+        } else {
+          setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackIndexOffset));
+        }
         let retryText = normalizeHeaderNoneSpacing(retryPayload.text);
         if (/[\\^_]3\/4/.test(retryText)) {
           playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });

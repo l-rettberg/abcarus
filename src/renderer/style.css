@@ -868,6 +868,22 @@ body.resizing * {
   display: grid;
 }
 
+#btnChordproPdf {
+  display: none;
+}
+
+body.chordpro-mode #btnChordproPdf {
+  display: inline-flex;
+}
+
+body.chordpro-mode #fileHeaderToggle,
+body.chordpro-mode #btnNewTune,
+body.chordpro-mode #btnTemplates,
+body.chordpro-mode #btnToggleErrors,
+body.chordpro-mode #btnToggleGlobals {
+  display: none;
+}
+
 .file-header-panel.collapsed .file-header-editor,
 .file-header-panel.collapsed .file-header-actions {
   display: none;

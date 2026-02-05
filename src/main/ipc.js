@@ -65,6 +65,55 @@ function execVersion(cmd, args) {
   });
 }
 
+async function resolveChordProCommand({ app, fs, path } = {}) {
+  const envBin = process.env.CHORDPRO_BIN ? String(process.env.CHORDPRO_BIN) : "";
+  if (envBin) return { cmd: envBin, argsPrefix: [] };
+
+  const repoEnv = process.env.CHORDPRO_REPO ? String(process.env.CHORDPRO_REPO) : "";
+  const candidates = [];
+  if (repoEnv) candidates.push(repoEnv);
+  if (app && typeof app.getAppPath === "function") {
+    candidates.push(path.resolve(app.getAppPath(), "..", "chordpro"));
+  }
+  if (app && typeof app.getPath === "function") {
+    candidates.push(path.join(app.getPath("home"), "Projects", "GitHub", "chordpro"));
+  }
+  for (const base of candidates) {
+    if (!base) continue;
+    const scriptPath = path.join(base, "script", "chordpro.pl");
+    const libPath = path.join(base, "lib");
+    try {
+      await fs.promises.access(scriptPath, fs.constants.F_OK);
+      return { cmd: "perl", argsPrefix: ["-I", libPath, scriptPath] };
+    } catch {}
+  }
+
+  return { cmd: "chordpro", argsPrefix: [] };
+}
+
+async function runChordProPdf({ app, fs, path, inputPath, outputPath }) {
+  const inPath = String(inputPath || "");
+  const outPath = String(outputPath || "");
+  if (!inPath || !outPath) throw new Error("Missing input or output path.");
+  const outDir = path.dirname(outPath);
+  await fs.promises.mkdir(outDir, { recursive: true });
+  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path });
+  const args = [...(argsPrefix || []), "--output", outPath, inPath];
+  await new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) {
+        const code = err && err.code ? String(err.code) : "";
+        if (code === "ENOENT") {
+          return reject(new Error("ChordPro CLI not found. Install chordpro or set CHORDPRO_BIN/CHORDPRO_REPO."));
+        }
+        const detail = String(stderr || err.message || "").trim();
+        return reject(new Error(detail || "ChordPro export failed."));
+      }
+      return resolve();
+    });
+  });
+}
+
 async function atomicWriteFileWithRetry(fs, path, filePath, data, { attempts = 5 } = {}) {
   const absPath = String(filePath || "");
   if (!absPath) throw new Error("Missing file path.");
@@ -715,6 +764,15 @@ function registerIpcHandlers(ctx) {
         detail: e && e.detail ? e.detail : "",
         code: e && e.code ? e.code : "",
       };
+    }
+  });
+  ipcMain.handle("chordpro:pdf", async (_event, inputPath, outputPath) => {
+    try {
+      await runChordProPdf({ app, fs, path, inputPath, outputPath });
+      await shell.openPath(String(outputPath || ""));
+      return { ok: true, path: String(outputPath || "") };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? String(e.message) : String(e) };
     }
   });
   ipcMain.handle("tools:check", async () => {

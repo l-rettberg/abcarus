@@ -81,12 +81,10 @@ Included fonts (SIL Open Font License 1.1 / OFL):
 - Petaluma / PetalumaText / PetalumaScript — Steinberg
 - Leland / LelandText — MuseScore
 - MuseJazz / MuseJazzText — MuseScore
-- Plainsound Sans / Plainsound Serif — Thomas Nicholson (Plainsound)
 
 License:
 - SIL Open Font License 1.1
 - License text: `assets/fonts/notation/OFL.txt`
-  - Plainsound license text: `assets/fonts/notation/LICENSE-PLAINSOUND.txt` (Reserved Font Names apply)
 
 These fonts are bundled for rendering only; they are not sold separately.
 

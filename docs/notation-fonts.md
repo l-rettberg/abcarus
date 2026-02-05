@@ -58,6 +58,8 @@ ABCarus ships several SMuFL-compatible fonts under SIL Open Font License 1.1 (OF
 - Petaluma / PetalumaText / PetalumaScript
 - Leland / LelandText
 - MuseJazz / MuseJazzText
+- Golden Age (handwritten style)
+- Ekmelos / Ekmelos12edo / Ekmelos24edo / Ekmelos72edo (microtonal accidentals)
 
 Note: only SMuFL-compatible notation fonts work as `%%musicfont`. Text fonts (even if they include accidentals)
 will render incorrect glyphs when used as a notation font.

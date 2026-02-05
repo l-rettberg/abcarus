@@ -81,10 +81,14 @@ Included fonts (SIL Open Font License 1.1 / OFL):
 - Petaluma / PetalumaText / PetalumaScript — Steinberg
 - Leland / LelandText — MuseScore
 - MuseJazz / MuseJazzText — MuseScore
+- Golden Age — Don Rice (curated by Ben Byram-Wigfield)
+- Ekmelos — Thomas Richter
 
 License:
 - SIL Open Font License 1.1
 - License text: `assets/fonts/notation/OFL.txt`
+  - Golden Age license text: `assets/fonts/notation/LICENSE-GOLDEN-AGE.txt` (Reserved Font Name applies)
+  - Ekmelos license text: `assets/fonts/notation/LICENSE-EKMELOS.txt` (Reserved Font Name applies)
 
 These fonts are bundled for rendering only; they are not sold separately.
 

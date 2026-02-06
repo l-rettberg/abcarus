@@ -137,7 +137,7 @@ Important notes:
 - The last Set List is restored when you restart ABCarus (stored locally on this machine). Use `Clear` to remove it.
 - `Header…` lets you define Set List–specific abc2svg directives (for example `%%stretchlast 1`) that are added to exported Set List files and used for Set List print/PDF.
 
-## 7) Playback (audio)
+## 8) Playback (audio)
 
 - Menu: `Play → Play / Pause` (`F5`)
 - Menu: `Play → Start Over` (`F4`)
@@ -145,10 +145,21 @@ Important notes:
 
 During playback, ABCarus highlights notes in both the editor and the preview.
 
+### Selection playback
+- Playback is selection-first.
+- If text is selected in the editor, Play runs that selected range.
+- If nothing is selected, Play runs from normal transport context.
+- Loop/repeat/mute behavior for selection playback is configured in Settings:
+  - `Playback -> Selection -> Loop selection`
+  - `Playback -> Selection -> Selection: suppress repeats`
+  - `Playback -> Selection -> Selection: mute chord symbols`
+  - `Playback -> Selection -> Selection: allow MIDI drums` (best-effort)
+  - `Playback -> Selection -> Selection: muted voices` (comma-separated IDs; best-effort, inline `[V:...]` switches are not supported)
+
 Soundfonts:
 - Playback uses an SF2 soundfont. You can select a soundfont in Settings (see below).
 
-## 8) Print and export
+## 9) Print and export
 
 PDF / print:
 - `File → Print…`
@@ -175,7 +186,7 @@ Note: MusicXML import requires an active target `.abc` file. If no file is open/
 ### Exporting “All Tunes”
 When exporting/printing all tunes, ABCarus processes each tune and includes error summaries for tunes that fail to render. This is useful for bulk checks on large files.
 
-## 9) Tools: transformations
+## 10) Tools: transformations
 
 Transform tools edit the ABC text in-place (conservatively):
 
@@ -185,11 +196,12 @@ Transform tools edit the ABC text in-place (conservatively):
 - `Tools → Renumber X (Active File)…`
 - `Tools → Align Bars`
 
-## 10) Settings and fonts
+## 11) Settings and fonts
 
 ### Settings
 - Menu: `Settings…` (macOS: in the app menu; Windows/Linux: `Edit → Settings…`)
 - Settings include editor and render zoom, editor font size, converter arguments, and more.
+- Playback selection options are in `Settings -> Playback -> Selection`.
 
 ### Fonts
 - Menu: `Fonts…` (`F9`)
@@ -198,14 +210,14 @@ Transform tools edit the ABC text in-place (conservatively):
 
 Soundfonts are managed separately (SF2), and can also be installed locally.
 
-## 11) Help and diagnostics
+## 12) Help and diagnostics
 
 - `Help → ABCarus User Guide` opens this guide.
 - `Help → ABC Guide (F1)` opens a general ABC notation guide.
 - `Help → Diagnostics → Save Debug Dump…` saves a JSON dump useful for bug reports.
 - `Help → Open Settings Folder` opens the folder that stores app settings and user-installed assets.
 
-## 12) Troubleshooting (common)
+## 13) Troubleshooting (common)
 
 ### “My changes don’t show up in preview”
 - Ensure you are editing valid ABC (missing `K:` is a common cause of “nothing renders”).
@@ -219,7 +231,7 @@ Soundfonts are managed separately (SF2), and can also be installed locally.
 - Release builds include a bundled Python runtime; in development you may need to install it.
 - If system Python fallback is required, it is opt-in via `ABCARUS_ALLOW_SYSTEM_PYTHON=1`.
 
-## 12) Quick shortcuts (common)
+## 14) Quick shortcuts (common)
 
 These are the default menu shortcuts:
 

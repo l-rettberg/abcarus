@@ -31,6 +31,31 @@ function main() {
     assert(Object.prototype.hasOwnProperty.call(defaults, entry.key), `default missing for key: ${entry.key}`);
   }
 
+  // Guard new selection-playback controls to prevent silent schema drift.
+  const requiredDefaults = {
+    playbackSelectionLoopEnabled: false,
+    playbackSelectionSuppressRepeats: true,
+    playbackSelectionMuteGchords: false,
+    playbackSelectionAllowMidiDrums: false,
+    playbackSelectionMutedVoices: "",
+    playbackNativeMidiDrums: false,
+    playbackMidiFxPreset: "Custom",
+    playbackMidiReverb: 0,
+    playbackMidiChorus: 0,
+  };
+  for (const [key, expected] of Object.entries(requiredDefaults)) {
+    assert(seen.has(key), `missing schema key: ${key}`);
+    assert(
+      Object.prototype.hasOwnProperty.call(defaults, key),
+      `missing default for key: ${key}`
+    );
+    const actual = defaults[key];
+    assert(
+      actual === expected,
+      `unexpected default for ${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+    );
+  }
+
   console.log("% PASS settings schema sanity");
 }
 
@@ -41,4 +66,3 @@ try {
   console.log("% " + String(e && e.message ? e.message : e));
   process.exitCode = 1;
 }
-

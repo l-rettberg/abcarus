@@ -47,7 +47,17 @@ The library tree supports per-tune file operations:
 - Player state tracks current position and supports:
   - Start over (F4) and play/pause (F5) (`src/main/menu.js`, `src/renderer/renderer.js`).
   - Previous/next measure via the Play menu (`src/main/menu.js`).
+- Selection-first playback:
+  - If a non-empty editor selection exists, playback runs that selection range.
+  - If no selection exists, playback runs from the current playhead/cursor context.
+  - Selection loop behavior is controlled by Settings (`playbackSelectionLoopEnabled`).
 - Playback highlights notes in both the rendered SVG and editor.
+- Selection playback controls live in Settings (Playback -> Selection):
+  - `playbackSelectionLoopEnabled` (`Loop selection`)
+  - `playbackSelectionSuppressRepeats` (`Selection: suppress repeats`)
+  - `playbackSelectionMuteGchords` (`Selection: mute chord symbols`)
+  - `playbackSelectionAllowMidiDrums` (`Selection: allow MIDI drums`, best-effort)
+  - `playbackSelectionMutedVoices` (`Selection: muted voices`, best-effort; inline `[V:...]` switches are not supported)
 - MIDI drums are supported via abc2svg (`%%MIDI drum`, `%%MIDI drumon`, `%%MIDI drumbars`).
 
 ## Transformations
@@ -72,6 +82,7 @@ Editable settings include:
 - Editor font family and size.
 - Bold styling for notes and inline lyrics.
 - CLI args for `abc2xml` and `xml2abc` converters.
+- Playback selection behavior (loop, repeat flattening, gchord mute, voice mute list, MIDI drums best-effort).
 
 ## Error handling and feedback
 - The status bar shows high-level status (Ready, Rendering, Importing, etc.).

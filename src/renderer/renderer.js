@@ -3485,7 +3485,13 @@ async function flushWorkingCopyTuneSync() {
   if (!filePath) return;
   if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) return;
 
-  const tuneText = getEditorValue();
+  const tuneTextRaw = getEditorValue();
+  const targetX = (activeTuneMeta && activeTuneMeta.xNumber != null)
+    ? String(activeTuneMeta.xNumber || "").trim()
+    : "";
+  const tuneText = targetX
+    ? ensureXNumberInAbc(tuneTextRaw, targetX)
+    : ensureXNumberInAbc(tuneTextRaw, "");
   workingCopyTuneSyncInFlight = true;
   try {
     const res = await window.api.applyWorkingCopyTuneText({
@@ -3773,6 +3779,18 @@ let activeTuneUid = null;
 let activeTuneIndex = null;
 let activeTuneMeta = null;
 let activeFilePath = null;
+const SAVE_INTENT = Object.freeze({
+  NONE: "none",
+  REPLACE_TUNE: "replace_tune",
+  APPEND_TO_FILE: "append_to_file",
+  FULL_FILE: "full_file",
+});
+let saveSession = {
+  intent: SAVE_INTENT.NONE,
+  targetPath: "",
+  targetTuneUid: "",
+  source: "",
+};
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
@@ -3899,6 +3917,59 @@ function getCurrentNavFilePath() {
     if (currentDoc && currentDoc.path) return String(currentDoc.path);
   } catch {}
   return "";
+}
+
+function clearSaveSession() {
+  saveSession = {
+    intent: SAVE_INTENT.NONE,
+    targetPath: "",
+    targetTuneUid: "",
+    source: "",
+  };
+}
+
+function setSaveSession(next) {
+  const n = next || {};
+  const intent = String(n.intent || SAVE_INTENT.NONE);
+  saveSession = {
+    intent: Object.values(SAVE_INTENT).includes(intent) ? intent : SAVE_INTENT.NONE,
+    targetPath: String(n.targetPath || ""),
+    targetTuneUid: String(n.targetTuneUid || ""),
+    source: String(n.source || ""),
+  };
+}
+
+function resolveSaveSession() {
+  if (chordproMode) {
+    const path = String(activeFilePath || (currentDoc && currentDoc.path) || getCurrentNavFilePath() || "");
+    if (path) return { intent: SAVE_INTENT.FULL_FILE, targetPath: path, targetTuneUid: "", source: "chordpro" };
+  }
+  if (rawMode) {
+    const path = String(rawModeFilePath || activeFilePath || (currentDoc && currentDoc.path) || getCurrentNavFilePath() || "");
+    if (path) return { intent: SAVE_INTENT.FULL_FILE, targetPath: path, targetTuneUid: "", source: "raw" };
+  }
+  if (isNewTuneDraft) {
+    const path = String(activeFilePath || getCurrentNavFilePath() || "");
+    if (path) return { intent: SAVE_INTENT.APPEND_TO_FILE, targetPath: path, targetTuneUid: "", source: "draft" };
+  }
+  if (activeTuneMeta && activeTuneMeta.path) {
+    const path = String(activeTuneMeta.path || "");
+    if (path) {
+      return {
+        intent: SAVE_INTENT.REPLACE_TUNE,
+        targetPath: path,
+        targetTuneUid: String(activeTuneUid || ""),
+        source: "active_tune",
+      };
+    }
+  }
+  if (currentDoc && currentDoc.path) {
+    return { intent: SAVE_INTENT.FULL_FILE, targetPath: String(currentDoc.path), targetTuneUid: "", source: "doc_path" };
+  }
+  if (saveSession && saveSession.intent && saveSession.intent !== SAVE_INTENT.NONE) {
+    return { ...saveSession };
+  }
+  return { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "none" };
 }
 
 function getLibraryRootKey() {
@@ -7698,6 +7769,12 @@ async function enterRawMode() {
   }
 
   activeFilePath = filePath;
+  setSaveSession({
+    intent: SAVE_INTENT.FULL_FILE,
+    targetPath: String(filePath || ""),
+    targetTuneUid: "",
+    source: "raw_mode",
+  });
   setFileContentInCache(filePath, readRes.data || "");
   const updatedFile = await refreshLibraryFile(filePath, { force: true });
   const entry = updatedFile || getActiveFileEntry();
@@ -11459,6 +11536,12 @@ function setActiveTuneText(text, metadata, options = {}) {
     }
     updateFileContext();
     setDirtyIndicator(false);
+    setSaveSession({
+      intent: SAVE_INTENT.REPLACE_TUNE,
+      targetPath: String(metadata.path || ""),
+      targetTuneUid: String(metadata.tuneUid || activeTuneUid || ""),
+      source: "setActiveTuneText.metadata",
+    });
   } else {
     const markDirty = Boolean(options && options.markDirty);
     activeTuneMeta = null;
@@ -11481,6 +11564,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     setDirtyIndicator(markDirty);
     headerDirty = false;
     updateHeaderStateUI();
+    clearSaveSession();
   }
   updateFileHeaderPanel();
   if (metadata && metadata.id) {
@@ -16944,6 +17028,7 @@ function showEmptyState() {
   activeTuneMeta = null;
   activeTuneId = null;
   activeFilePath = null;
+  clearSaveSession();
   headerDirty = false;
   setTuneMetaText("Untitled");
   setFileNameMeta("Untitled");
@@ -19035,6 +19120,7 @@ async function handleMissingWorkingCopySave(filePath) {
 
 async function performSaveFlow() {
   if (!currentDoc) return false;
+  const session = resolveSaveSession();
 
   recordRecentAction("save.start", {
     currentDocPath: currentDoc && currentDoc.path ? String(currentDoc.path) : null,
@@ -19046,11 +19132,20 @@ async function performSaveFlow() {
     payloadMode: Boolean(payloadMode),
     rawMode: Boolean(rawMode),
     focusMode: Boolean(focusModeEnabled),
+    saveIntent: session.intent,
+    saveTargetPath: session.targetPath || null,
+    saveSource: session.source || null,
   });
 
-  if (headerDirty && activeFilePath) {
+  const headerTargetPath = String(
+    session.targetPath
+    || activeFilePath
+    || (activeTuneMeta && activeTuneMeta.path)
+    || ""
+  );
+  if (headerDirty && headerTargetPath) {
     try {
-      const headerRes = await saveFileHeaderText(activeFilePath, getHeaderEditorValue());
+      const headerRes = await saveFileHeaderText(headerTargetPath, getHeaderEditorValue());
       if (headerRes && headerRes.ok) {
         headerDirty = false;
         updateHeaderStateUI();
@@ -19127,12 +19222,13 @@ async function performSaveFlow() {
     return false;
   }
 
-  if (isNewTuneDraft && activeFilePath) {
+  if (session.intent === SAVE_INTENT.APPEND_TO_FILE && session.targetPath) {
+    activeFilePath = String(session.targetPath);
     const ok = await performAppendFlow();
     return Boolean(ok);
   }
 
-  if (activeTuneMeta && activeTuneMeta.path) {
+  if (session.intent === SAVE_INTENT.REPLACE_TUNE && activeTuneMeta && activeTuneMeta.path) {
     const wcOk = await ensureWorkingCopyOpenForPath(activeTuneMeta.path);
     if (!wcOk) {
       recordRecentAction("save.wc.missing", { path: String(activeTuneMeta.path) });
@@ -19183,7 +19279,7 @@ async function performSaveFlow() {
     return false;
   }
 
-  if (currentDoc.path) {
+  if (session.intent === SAVE_INTENT.FULL_FILE && currentDoc.path) {
     const filePath = currentDoc.path;
     if (isWorkingCopyOpenForFile(filePath)) {
       await showSaveError("Internal error: the file is open in the editor. Save via the working copy.");
@@ -19203,6 +19299,15 @@ async function performSaveFlow() {
       await showSaveError(res.error || "Unable to save file.");
       return false;
     });
+  }
+
+  if (session.intent === SAVE_INTENT.REPLACE_TUNE && (!activeTuneMeta || !activeTuneMeta.path)) {
+    await showSaveError("Unable to save: tune context is missing. Re-open the tune and try again.");
+    return false;
+  }
+  if (session.intent === SAVE_INTENT.APPEND_TO_FILE && !session.targetPath) {
+    await showSaveError("Unable to save: append target is missing. Select/open the target file and try again.");
+    return false;
   }
 
   return performSaveAsFlow();
@@ -19416,8 +19521,10 @@ function ensureXNumberInAbc(abcText, xNumber) {
   if (idx >= 0) {
     const rawLine = String(lines[idx] || "");
     const prefix = rawLine.match(/^(\s*)X:/) ? RegExp.$1 : "";
-    lines[idx] = `${prefix}${line}`;
-    return lines.join("\n");
+    const normalizedX = `${prefix}${line}`;
+    // Normalize appended tunes to X-first form. Any preamble lines before X
+    // are preserved after X so tune segmentation stays deterministic.
+    return [normalizedX, ...lines.slice(0, idx), ...lines.slice(idx + 1)].join("\n");
   }
   lines.unshift(line);
   return lines.join("\n");
@@ -20241,7 +20348,13 @@ async function deleteTuneById(tuneId) {
 }
 
 async function performAppendFlow() {
-  const filePath = activeFilePath;
+  const session = resolveSaveSession();
+  const filePath = String(
+    session.targetPath
+    || activeFilePath
+    || getCurrentNavFilePath()
+    || ""
+  );
   if (!filePath) {
     await showSaveError("Select a target file in the Library panel first.");
     return false;
@@ -20330,6 +20443,12 @@ async function performAppendFlow() {
     }
 
     isNewTuneDraft = false;
+    setSaveSession({
+      intent: SAVE_INTENT.REPLACE_TUNE,
+      targetPath: filePath,
+      targetTuneUid: "",
+      source: "append_saved",
+    });
     if (currentDoc) {
       currentDoc.path = filePath;
       currentDoc.dirty = false;
@@ -20451,6 +20570,12 @@ function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {})
   activeTuneMeta = null;
   activeTuneId = null;
   activeFilePath = filePath;
+  setSaveSession({
+    intent: SAVE_INTENT.APPEND_TO_FILE,
+    targetPath: String(filePath || ""),
+    targetTuneUid: "",
+    source: "new_tune_draft",
+  });
 
   refreshHeaderLayers().catch(() => {});
   const label = xNumber ? `New tune (X:${xNumber})` : "New tune";
@@ -20557,12 +20682,18 @@ async function appendTuneTextToFileNow(filePath, tuneText, { toastOk = "" } = {}
 
 async function fileNewTuneAndAppendNow() {
   const entry = getActiveFileEntry();
-  if (!entry || !entry.path) {
+  const filePath = String(
+    (entry && entry.path)
+    || (activeTuneMeta && activeTuneMeta.path)
+    || activeFilePath
+    || getCurrentNavFilePath()
+    || (currentDoc && currentDoc.path)
+    || ""
+  );
+  if (!filePath) {
     showToast("Open/select a file first.", 2400);
     return;
   }
-  const filePath = String(entry.path || "");
-  if (!filePath) return;
 
   const ok = await ensureSafeToAbandonCurrentDoc("creating a new tune");
   if (!ok) return;
@@ -20602,6 +20733,12 @@ async function openChordProFile(filePath, content, { suppressRecent = false } = 
   activeTuneUid = null;
   activeTuneIndex = null;
   activeFilePath = p;
+  setSaveSession({
+    intent: SAVE_INTENT.FULL_FILE,
+    targetPath: p,
+    targetTuneUid: "",
+    source: "chordpro_open",
+  });
   recordNavFilePath(p);
 
   chordproActiveIndex = 0;

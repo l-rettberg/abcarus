@@ -1010,6 +1010,31 @@ function getSelectionPlaybackRange() {
   return { startOffset: start, endOffset: end };
 }
 
+function hasIntentionalSelectionPlaybackSpan(text, start, end) {
+  const src = String(text || "");
+  const a = Math.max(0, Math.min(src.length, Number(start) || 0));
+  const b = Math.max(a, Math.min(src.length, Number(end) || 0));
+  if (b <= a) return false;
+  const slice = src.slice(a, b);
+  // Require at least one playable token and at least one barline marker.
+  // This avoids accidental tiny selections while still accepting pickups/incomplete bars.
+  const hasPlayable = /[A-Ga-gxzZ]/.test(slice);
+  const hasBarSpan = /\|/.test(slice);
+  return hasPlayable && hasBarSpan;
+}
+
+function buildSelectionPlaybackToast(settings) {
+  const s = settings || {};
+  const voices = Array.isArray(s.mutedVoices) && s.mutedVoices.length
+    ? s.mutedVoices.join(",")
+    : "none";
+  const loop = s.loop ? "on" : "off";
+  const repeats = s.suppressRepeats ? "suppressed" : "as-written";
+  const chords = s.muteGchords ? "muted" : "on";
+  const drums = s.allowMidiDrums ? "on" : "off";
+  return `Selection: loop ${loop} | repeats ${repeats} | chords ${chords} | voices ${voices} | drums ${drums}`;
+}
+
 // Strip repeat/volta markers inside the given text slice for linear selection playback.
 function stripRepeatsForSelection(text) {
   const src = String(text || "");
@@ -1153,10 +1178,11 @@ async function playSelectionOnce() {
   const start = Math.max(0, Math.min(max, range.startOffset));
   const end = Math.max(start + 1, Math.min(max, range.endOffset));
   const sel = editorView.state.selection.main;
+  const text = getEditorValue();
+  if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;
   selectionPlaybackCursor = Math.min(sel.anchor, sel.head);
   selectionPlaybackSelection = { anchor: sel.anchor, head: sel.head };
   selectionPlaybackActive = true;
-  const text = getEditorValue();
   if (selectionSettings.mutedVoices && selectionSettings.mutedVoices.length) {
     playbackAbMutedVoices = selectionSettings.mutedVoices.reduce((acc, id) => {
       acc[id] = true;
@@ -1171,6 +1197,7 @@ async function playSelectionOnce() {
   const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
   if (selectionSettings.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
   try {
+    showToast(buildSelectionPlaybackToast(selectionSettings), 2600);
     setPlaybackRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
     await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
   } finally {

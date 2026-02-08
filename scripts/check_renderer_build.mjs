@@ -22,6 +22,15 @@ async function assertSaveIntentGuards() {
   if (!saveBody.includes("session.intent === SAVE_INTENT.APPEND_TO_FILE")) {
     throw new Error("performSaveFlow() must handle explicit append intent.");
   }
+  if (!src.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")) {
+    throw new Error("Missing selection intent gate helper.");
+  }
+  if (!src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")) {
+    throw new Error("playSelectionOnce() must gate accidental selections.");
+  }
+  if (!src.includes("buildSelectionPlaybackToast(selectionSettings)")) {
+    throw new Error("Selection playback must show active flags toast.");
+  }
 
   const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
   const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);

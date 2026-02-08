@@ -5,7 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- Save flow hardening: explicit save-intent routing (`replace_tune` / `append_to_file` / `full_file`) to avoid ambiguous Save behavior in edge contexts.
+- Tune save: normalize tune text to `X:`-first form before write/sync, so leading comment/banner lines before `X:` no longer break save.
+- New tune append: strengthened target-file resolution to reduce accidental “no target” failures.
 
+### Changed
+- Selection playback now requires an intentional bar-span selection (playable content + barline) instead of any non-empty selection.
+- Added a compact selection-playback flags toast (loop/repeats/chords/voices/drums) shown only when selection playback is actually engaged.
 
 
 ## [0.29.1] - 2026-02-05

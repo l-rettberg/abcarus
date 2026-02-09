@@ -14,6 +14,7 @@ let mainWindow = null;
 let isQuitting = false;
 
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
+const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
 const STARTUP_T0_MS = Date.now();
 function logStartupPerf(label, data) {
   if (!STARTUP_PERF_ENABLED) return;
@@ -2021,6 +2022,17 @@ function createWindow() {
       try {
         win.webContents.send("menu:action", { type: "toggleAutoDump", value: Boolean(appState.debugFlags && appState.debugFlags.autoDump) });
       } catch {}
+      if (UI_SMOKE_ENABLED) {
+        runUiSmoke(win).catch((err) => {
+          try {
+            // eslint-disable-next-line no-console
+            console.error("[ui-smoke] FAIL (runtime):", err && err.message ? err.message : String(err));
+          } catch {}
+          process.exitCode = 1;
+          isQuitting = true;
+          try { app.exit(1); } catch { process.exit(1); }
+        });
+      }
     });
   } catch {}
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
@@ -2128,6 +2140,102 @@ function createWindow() {
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
+}
+
+async function runUiSmoke(win) {
+  // Keep this smoke tiny and deterministic: verify the exact UI contracts we keep regressing.
+  const result = await win.webContents.executeJavaScript(
+    `(async () => {
+      const byId = (id) => document.getElementById(id);
+      const focusBtn = byId("btnFocusMode");
+      const followBtn = byId("btnToggleFollow");
+      const errorsBtn = byId("btnToggleErrors");
+      const selectionLoopWrap = byId("selectionLoopWrap");
+      const libOpenBtn = byId("libOpen");
+      const groupBySelect = byId("groupBy");
+      const tuneSelect = byId("fileTuneSelect");
+      const tempoSelect = byId("practiceTempo");
+      const missing = [];
+      if (!focusBtn) missing.push("btnFocusMode");
+      if (!followBtn) missing.push("btnToggleFollow");
+      if (!errorsBtn) missing.push("btnToggleErrors");
+      if (!selectionLoopWrap) missing.push("selectionLoopWrap");
+      if (!libOpenBtn) missing.push("libOpen");
+      if (!groupBySelect) missing.push("groupBy");
+      if (!tuneSelect) missing.push("fileTuneSelect");
+      if (!tempoSelect) missing.push("practiceTempo");
+      if (missing.length) {
+        return { ok: false, reason: "missing-elements", missing };
+      }
+
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const errorsRight = errorsBtn.getBoundingClientRect().right;
+      const followLeft = followBtn.getBoundingClientRect().left;
+      const visualGapPx = Math.max(0, followLeft - errorsRight);
+      const errorsDisplay = getComputedStyle(errorsBtn).display;
+      const followDisplay = getComputedStyle(followBtn).display;
+      const toggles = byId("btnToggleGlobals") ? byId("btnToggleGlobals").parentElement : null;
+      const togglesGapPx = toggles ? (Number.parseFloat(getComputedStyle(toggles).gap || "0") || 0) : 0;
+      const errorsVisible = errorsDisplay !== "none";
+      const followVisible = followDisplay !== "none";
+      const libRadiusPx = Number.parseFloat(getComputedStyle(libOpenBtn).borderRadius || "0") || 0;
+      const selGroupRadiusPx = Number.parseFloat(getComputedStyle(groupBySelect).borderRadius || "0") || 0;
+      const selTuneRadiusPx = Number.parseFloat(getComputedStyle(tuneSelect).borderRadius || "0") || 0;
+      const selTempoHeightPx = Number.parseFloat(getComputedStyle(tempoSelect).minHeight || "0") || 0;
+
+      const isHidden = () => Boolean(selectionLoopWrap.hidden || selectionLoopWrap.hasAttribute("hidden"));
+      const body = document.body;
+      const initialFocus = body.classList.contains("focus-mode");
+      if (!initialFocus) {
+        focusBtn.click();
+        await wait(120);
+      }
+      const hiddenInFocus = isHidden();
+      if (!initialFocus) {
+        focusBtn.click();
+        await wait(120);
+      }
+      const shownOutOfFocus = !isHidden();
+      return {
+        ok: errorsVisible
+          && followVisible
+          && togglesGapPx >= 6
+          && libRadiusPx >= 7
+          && selGroupRadiusPx >= 7
+          && selTuneRadiusPx >= 7
+          && selTempoHeightPx >= 27
+          && hiddenInFocus
+          && shownOutOfFocus,
+        visualGapPx,
+        togglesGapPx,
+        libRadiusPx,
+        selGroupRadiusPx,
+        selTuneRadiusPx,
+        selTempoHeightPx,
+        errorsDisplay,
+        followDisplay,
+        hiddenInFocus,
+        shownOutOfFocus,
+      };
+    })()`,
+    true
+  );
+
+  if (result && result.ok) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log("[ui-smoke] PASS", JSON.stringify(result));
+    } catch {}
+    process.exitCode = 0;
+  } else {
+    try {
+      // eslint-disable-next-line no-console
+      console.error("[ui-smoke] FAIL", JSON.stringify(result || {}));
+    } catch {}
+    process.exitCode = 1;
+  }
+  isQuitting = true;
+  try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
 }
 
 app.whenReady().then(async () => {

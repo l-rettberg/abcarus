@@ -67,7 +67,16 @@
 .lib-controls{ display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .lib-label{ font-size: var(--font-size-xs, 11px); color: var(--muted-text, #444); display: grid; gap: 4px; }
 .lib-input{ height: var(--button-height, 28px); min-width: 320px; padding: 4px 8px; border-radius: var(--radius-1, 6px); border: 1px solid var(--button-border, #d0d0d0); }
-.lib-btn{ height: var(--button-height, 28px); padding: 0 10px; border-radius: var(--radius-1, 6px); border: 1px solid var(--button-border, #d0d0d0); background: var(--button-bg, #f7f7f7); color: var(--button-text, #333); }
+.lib-btn{
+  min-height: var(--button-height, 28px);
+  padding: 5px 10px;
+  border-radius: var(--button-radius, 8px);
+  border: 1px solid var(--button-border, #d0d0d0);
+  background: var(--button-bg, #f7f7f7);
+  color: var(--button-text, #333);
+  font-size: var(--font-size-sm, 12px);
+  line-height: 1.2;
+}
 .lib-btn:hover{ background: var(--button-bg-hover, #ededed); }
 .lib-btn.primary{ font-weight: 600; }
 .lib-body{ flex: 1 1 auto; min-height: 0; padding: 8px 10px; }

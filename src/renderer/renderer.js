@@ -25414,6 +25414,9 @@ function updatePracticeUi() {
     $practiceLoopTo.value = String(clampInt(playbackLoopToMeasure, 0, 100000, 0) || 0);
   }
 
+  // Avoid presenting two different loop concepts at the same time.
+  // In Focus mode we show bar-loop controls; outside Focus we show selection-loop toggle.
+  if ($selectionLoopWrap) $selectionLoopWrap.hidden = Boolean(focusModeEnabled);
   if ($selectionLoopEnabled && document.activeElement !== $selectionLoopEnabled) {
     const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionLoopEnabled);
     $selectionLoopEnabled.checked = enabled;

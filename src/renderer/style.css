@@ -57,7 +57,15 @@
   --button-border: var(--border-color);
   --button-bg: #f7f7f7;
   --button-bg-hover: #ededed;
+  --button-bg-active: #e2e2e2;
   --button-text: #333;
+  --button-rest-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
+  --button-hover-shadow: 0 2px 0 rgba(0, 0, 0, 0.22), 0 3px 8px rgba(0, 0, 0, 0.12);
+  --button-press-offset: 1px;
+  --button-press-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
+  --button-primary-bg: var(--accent);
+  --button-primary-bg-hover: #174f9d;
+  --button-primary-text: #fff;
   --accent: #1b5fbf;
   --accent-soft: #e6f1ff;
 }
@@ -185,7 +193,7 @@ header {
   height: 16px;
 }
 
-.practice-selection-loop {
+.practice-selection-loop:not([hidden]) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -318,13 +326,6 @@ main {
 .modal-footer button,
 .modal-close,
 .settings-tab {
-  min-height: var(--button-height);
-  padding: 5px 10px;
-  border-radius: var(--button-radius);
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
-  cursor: pointer;
   font-size: var(--font-size-sm);
   line-height: 1.2;
 }
@@ -353,16 +354,19 @@ main {
 .segmented {
   display: inline-flex;
   align-items: stretch;
-  border: 1px solid var(--button-border);
-  border-radius: var(--radius-1);
-  overflow: hidden;
-  background: var(--button-bg);
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  gap: 6px;
+  transition: none;
 }
 
 .segmented button {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--button-border);
+  border-radius: var(--button-radius);
+  background: var(--button-bg);
   min-height: var(--button-height);
   padding: 5px 10px;
   margin: 0;
@@ -371,8 +375,20 @@ main {
   gap: 6px;
 }
 
+.segmented:hover {
+  box-shadow: none;
+  filter: none;
+}
+
+.segmented:active {
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
 .segmented button + button {
   border-left: 1px solid var(--button-border);
+  margin-left: 0;
 }
 
 .segmented button:hover {
@@ -515,29 +531,15 @@ body.library-hidden .divider {
 }
 
 #groupBy {
-  font-size: var(--font-size-sm);
-  padding: 4px 8px;
   width: 100%;
   flex: 1;
   min-width: 0;
-  min-height: var(--button-height);
-  border-radius: var(--radius-1);
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
 }
 
 #sortBy {
-  font-size: var(--font-size-sm);
-  padding: 4px 8px;
   width: 100%;
   flex: 1;
   min-width: 0;
-  min-height: var(--button-height);
-  border-radius: var(--radius-1);
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
 }
 
 .sidebar-search input {
@@ -552,14 +554,8 @@ body.library-hidden .divider {
 }
 
 .scan-error-button {
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
   padding: 6px 10px;
-  border-radius: var(--button-radius);
-  min-height: var(--button-height);
   font-size: var(--font-size-sm);
-  cursor: pointer;
   white-space: nowrap;
 }
 
@@ -913,6 +909,10 @@ body.chordpro-mode #btnToggleGlobals {
   margin-left: auto;
 }
 
+.file-header-toggles.segmented {
+  gap: 6px;
+}
+
 .file-header-bar select:disabled {
   opacity: 0.45;
   cursor: default;
@@ -943,16 +943,9 @@ body.chordpro-mode #btnToggleGlobals {
 }
 
 #fileTuneSelect {
-  font-size: var(--font-size-sm);
-  padding: 4px 8px;
-  border-radius: var(--radius-1);
-  border: 1px solid var(--button-border);
   min-width: 180px;
   max-width: 45%;
   flex: 0 1 280px;
-  min-height: var(--button-height);
-  background: var(--button-bg);
-  color: var(--button-text);
 }
 
 #fileTuneSelect.error-filter-active{
@@ -966,14 +959,10 @@ body.chordpro-mode #btnToggleGlobals {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
   border-radius: var(--radius-1);
   min-height: var(--button-height);
   width: 32px;
   padding: 0;
-  cursor: pointer;
   flex: none;
 }
 
@@ -1034,14 +1023,8 @@ body.chordpro-mode #btnToggleGlobals {
 }
 
 .templates-toolbar button {
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
   padding: 6px 10px;
-  border-radius: var(--button-radius);
-  min-height: var(--button-height);
-  font-size: 12px;
-  cursor: pointer;
+  font-size: var(--font-size-sm);
   white-space: nowrap;
 }
 
@@ -1155,14 +1138,8 @@ body.chordpro-mode #btnToggleGlobals {
 }
 
 .templates-actions button {
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
-  color: var(--button-text);
   padding: 6px 12px;
-  border-radius: var(--button-radius);
-  min-height: var(--button-height);
-  font-size: 12px;
-  cursor: pointer;
+  font-size: var(--font-size-sm);
 }
 
 .templates-actions button:hover {
@@ -1196,7 +1173,7 @@ body.chordpro-mode #btnToggleGlobals {
 }
 
 .file-header-actions button {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .file-header-actions button:hover {
@@ -1580,7 +1557,7 @@ svg {
 }
 
 .errors-indicator{
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 10px;
   border-radius: 999px;
   border: 1px solid #d0d0d0;
@@ -1603,7 +1580,7 @@ svg {
 }
 
 .midi-status{
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 10px;
   border-radius: 999px;
   border: 1px solid #d0d0d0;
@@ -1998,12 +1975,9 @@ svg {
 .tool-panel-menu button {
   width: 100%;
   text-align: left;
-  border: 1px solid var(--button-border);
-  background: var(--button-bg);
   border-radius: var(--radius-1);
   padding: 6px 8px;
-  cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .tool-panel-menu button:hover {
@@ -2068,19 +2042,11 @@ svg {
 
 .tool-panel-control select {
   margin-top: 4px;
-  border-radius: var(--radius-1);
-  border: 1px solid var(--border-color);
-  padding: 5px 7px;
-  font-size: 12px;
-  background: #fff;
 }
 
 .tool-panel-base-row select {
-  border-radius: var(--radius-1);
-  border: 1px solid var(--border-color);
-  padding: 5px 7px;
-  font-size: 12px;
-  background: #fff;
+  padding-left: 7px;
+  padding-right: 7px;
 }
 
 .tool-panel-base-row input {
@@ -2415,14 +2381,14 @@ svg {
 }
 
 .modal-footer button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--button-primary-bg);
+  border-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
 }
 
 .modal-footer button.primary:hover {
-  background: #174f9d;
-  border-color: #174f9d;
+  background: var(--button-primary-bg-hover);
+  border-color: var(--button-primary-bg-hover);
 }
 
 .modal-title {
@@ -2509,16 +2475,15 @@ svg {
 
 .set-list-btn {
   padding: 4px 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--button-border);
   border-radius: var(--radius-1);
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
+  background: var(--button-bg);
+  color: var(--button-text);
   line-height: 1;
 }
 
 .set-list-btn:hover {
-  background: #f6f6f6;
+  background: var(--button-bg-hover);
 }
 
 .set-list-btn:disabled {
@@ -2554,7 +2519,6 @@ svg {
 
 .modal input[type="text"],
 .modal input[type="number"],
-.modal select,
 .modal textarea {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-1);
@@ -2819,9 +2783,87 @@ textarea {
   font-size: var(--font-size-ui);
 }
 
+select {
+  min-height: var(--button-height);
+  padding: 4px 8px;
+  border: 1px solid var(--button-border);
+  border-radius: var(--button-radius);
+  background: var(--button-bg);
+  color: var(--button-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  box-shadow: var(--button-rest-shadow);
+  transition: box-shadow 90ms ease, background 90ms ease, filter 90ms ease;
+}
+
+select:not(:disabled):hover {
+  background: var(--button-bg-hover);
+  box-shadow: var(--button-hover-shadow);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 button {
+  min-height: var(--button-height);
+  padding: 5px 10px;
+  border: 1px solid var(--button-border);
+  border-radius: var(--button-radius);
+  background: var(--button-bg);
+  color: var(--button-text);
+  cursor: pointer;
   font-family: inherit;
-  font-size: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  transition: transform 90ms ease, box-shadow 90ms ease, filter 90ms ease;
+}
+
+button:not(:disabled) {
+  box-shadow: var(--button-rest-shadow);
+}
+
+.segmented button:not(:disabled) {
+  box-shadow: var(--button-rest-shadow);
+}
+
+button:not(:disabled):hover {
+  box-shadow: var(--button-hover-shadow);
+  filter: brightness(1.015);
+}
+
+button:not(:disabled):active {
+  transform: translateY(var(--button-press-offset)) scale(0.995);
+  box-shadow: var(--button-press-shadow);
+  background: var(--button-bg-active);
+  filter: brightness(0.99);
+}
+
+.segmented button:not(:disabled):active {
+  background: var(--button-bg-active);
+  box-shadow: var(--button-press-shadow);
+}
+
+button.primary:not(:disabled),
+.abcarus-modal-btn.primary:not(:disabled) {
+  background: var(--button-primary-bg);
+  border-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  font-weight: 600;
+}
+
+button.primary:not(:disabled):hover,
+.abcarus-modal-btn.primary:not(:disabled):hover {
+  background: var(--button-primary-bg-hover);
+  border-color: var(--button-primary-bg-hover);
+}
+
+.controls button.toggle-active:not(:disabled):active,
+.segmented button.toggle-active:not(:disabled):active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
 }
 
 .settings-advanced > summary {
@@ -2941,11 +2983,6 @@ button {
 .settings-row select {
   width: 100%;
   max-width: 360px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-1);
-  background: #fff;
-  color: var(--text);
   box-sizing: border-box;
   justify-self: start;
 }

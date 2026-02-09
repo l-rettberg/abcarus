@@ -36,6 +36,14 @@ If something behaves “impossibly” (e.g. Electron commands acting like Node),
 
 ## Debugging workflow (preferred)
 
+### UI change verification protocol (required for UI tweaks)
+
+To avoid "patched but unchanged" loops on visual tasks:
+- Run from this repo via `scripts/local/run.sh` (or `npm start` if local script is unavailable).
+- Verify the exact acceptance point in-app before reporting done (specific control, state, and expected visual delta).
+- For layout/visibility changes, prefer objective checks (DOM state/class/hidden) plus a visible smoke check.
+- If the visual effect is subtle, first apply a clearly visible diagnostic delta, verify, then tune it down.
+
 ## Startup triage (do this early)
 
 If startup suddenly becomes very slow (blank/white window for seconds), do **not** assume it is a code regression first.

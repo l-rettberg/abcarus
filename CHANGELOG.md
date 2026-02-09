@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Dev QA: added `test:ui-smoke` (`scripts/ui_smoke.mjs`) with an Electron UI self-check mode (`ABCARUS_DEV_UI_SMOKE=1`) to verify key renderer contracts automatically.
+
+### Changed
+- UI controls: unified button styling across renderer surfaces (toolbar, file header actions, templates, tool panels, set list, catalog actions) with a shared tactile press/hover model and common theme tokens.
+- UI controls: unified dropdown (`select`) styling to match the button theme (height, radius, borders, background, hover/focus behavior), while keeping local width/layout constraints.
+- Header controls: made segmented control groups render as visually detached button sets with consistent spacing.
+- Focus toolbar: hides `Loop selection` while Focus mode is active to avoid presenting two loop concepts at once.
+- Library Catalog: aligned `.lib-btn` styling with the shared control contract.
+
+### Docs
+- Added a required UI change verification protocol to `ORIENTATION.md` (run-from-repo + explicit acceptance checks + visible diagnostic delta first when needed).
 
 
 ## [0.29.2] - 2026-02-08

@@ -6,10 +6,10 @@ This documentation is based on the current codebase and does not assume features
 
 ## Start here
 
-- Day-to-day workflow (dev + release): `WORKFLOW.md` (repo root)
-- Project orientation + invariants: `ORIENTATION.md` (repo root)
-- User-facing overview: `README.md` (repo root)
-- User guide (how to use the app): `docs/USER_GUIDE.md`
+- Day-to-day workflow (dev + release): [WORKFLOW.md](../WORKFLOW.md) (repo root)
+- Project orientation + invariants: [ORIENTATION.md](../ORIENTATION.md) (repo root)
+- User-facing overview: [README.md](../README.md) (repo root)
+- User guide (how to use the app): [docs/USER_GUIDE.md](USER_GUIDE.md)
 
 ## Local-only "kitchen"
 
@@ -44,35 +44,35 @@ Scripts are defined in `package.json`.
 
 ## Packaging/build
 Packaging scripts are available:
-- Linux AppImage: `npm run appimage` (see `scripts/build_appimage.sh` and `docs/packaging.md`)
-- Windows/macOS: `npm run dist:win` / `npm run dist:mac` (electron-builder; see `docs/packaging.md`)
+- Linux AppImage: `npm run appimage` (see `scripts/build_appimage.sh` and [docs/packaging.md](packaging.md))
+- Windows/macOS: `npm run dist:win` / `npm run dist:mac` (electron-builder; see [docs/packaging.md](packaging.md))
 
 ## Releases
-- Versioning rules: `docs/VERSIONING.md`
-- Release policy + CI notes: `docs/RELEASES.md`
-- Step-by-step checklist: `docs/RELEASE_CHECKLIST.md`
-- Changelog: `CHANGELOG.md` (repo root)
+- Versioning rules: [docs/VERSIONING.md](VERSIONING.md)
+- Release policy + CI notes: [docs/RELEASES.md](RELEASES.md)
+- Step-by-step checklist: [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- Changelog: [CHANGELOG.md](../CHANGELOG.md) (repo root)
 
 ## Packaging and Python (import/export)
-- Packaging (per OS): `docs/packaging.md`
-- Bundled Python policy + PBS workflow: `docs/python-build-standalone.md`
-- Runtime resolution order and env: `docs/python-runtime.md`
-- Windows-specific Python notes: `docs/windows.md`
+- Packaging (per OS): [docs/packaging.md](packaging.md)
+- Bundled Python policy + PBS workflow: [docs/python-build-standalone.md](python-build-standalone.md)
+- Runtime resolution order and env: [docs/python-runtime.md](python-runtime.md)
+- Windows-specific Python notes: [docs/windows.md](windows.md)
 
 ## Settings
-- Settings structure + schema workflow: `docs/settings-structure.md`
-- Export/import settings (offline): `docs/settings-export-import.md`
-- Settings audit notes: `docs/settings-audit.md`
+- Settings structure + schema workflow: [docs/settings-structure.md](settings-structure.md)
+- Export/import settings (offline): [docs/settings-export-import.md](settings-export-import.md)
+- Settings audit notes: [docs/settings-audit.md](settings-audit.md)
 
 ## Detailed docs
-- `docs/features.md`: End-user features and behaviors.
-- `docs/architecture.md`: Main/renderer responsibilities, IPC, and data flow.
-- `docs/REQUIREMENTS.md`: Consolidated product + engineering requirements/invariants.
-- `docs/METHODOLOGY.md`: How we develop (chat-driven) without losing context.
-- `docs/abc2svg-upgrade-playbook.md`: Repeatable pipeline for upgrading `third_party/abc2svg/`.
-- `docs/abc-syntax-policy.md`: ABCarus rules for ABC syntax, linting, and safe transforms.
-- `docs/abc-standards.md`: ABC 2.1/2.2 references used for lint/transforms.
-- `docs/abc-tag-conventions.md`: Draft metadata conventions for `R:`/`G:` (usul/makam/grouping namespaces).
-- `docs/soundfonts.md`: Soundfont selection and local setup.
-- `docs/notation-fonts.md`: Notation font (SMuFL / `%%musicfont`) notes and how to add more.
+- [docs/features.md](features.md): End-user features and behaviors.
+- [docs/architecture.md](architecture.md): Main/renderer responsibilities, IPC, and data flow.
+- [docs/REQUIREMENTS.md](REQUIREMENTS.md): Consolidated product + engineering requirements/invariants.
+- [docs/METHODOLOGY.md](METHODOLOGY.md): How we develop (chat-driven) without losing context.
+- [docs/abc2svg-upgrade-playbook.md](abc2svg-upgrade-playbook.md): Repeatable pipeline for upgrading `third_party/abc2svg/`.
+- [docs/abc-syntax-policy.md](abc-syntax-policy.md): ABCarus rules for ABC syntax, linting, and safe transforms.
+- [docs/abc-standards.md](abc-standards.md): ABC 2.1/2.2 references used for lint/transforms.
+- [docs/abc-tag-conventions.md](abc-tag-conventions.md): Draft metadata conventions for `R:`/`G:` (usul/makam/grouping namespaces).
+- [docs/soundfonts.md](soundfonts.md): Soundfont selection and local setup.
+- [docs/notation-fonts.md](notation-fonts.md): Notation font (SMuFL / `%%musicfont`) notes and how to add more.
 - `docs/adr/`: Architecture decision records (ADRs).

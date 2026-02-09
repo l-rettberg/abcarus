@@ -4,13 +4,13 @@ This project is developed iteratively via chat sessions. To prevent “context l
 
 ## Quick workflow
 For the day-to-day “how we work” commands (dev + release), what we commit vs keep local, and the key debug env vars, see:
-- `WORKFLOW.md`
+- [WORKFLOW.md](../WORKFLOW.md)
 
 ## Sources of truth (ordered)
 1) Code + `git` history (canonical).
 2) ADRs in `docs/adr/` (architectural decisions + constraints).
-3) Requirements in `docs/REQUIREMENTS.md` (product + engineering invariants).
-4) `docs/features.md` / `docs/architecture.md` (descriptions of current behavior/structure).
+3) Requirements in [docs/REQUIREMENTS.md](REQUIREMENTS.md) (product + engineering invariants).
+4) [docs/features.md](features.md) / [docs/architecture.md](architecture.md) (descriptions of current behavior/structure).
 5) Local devlog (optional; kept out of git).
 6) Chat exports (raw evidence; not canonical; kept out of git).
 
@@ -25,8 +25,8 @@ Write/update an ADR when a change affects any of these:
 ADRs should be small, concrete, and include constraints/acceptance criteria.
 
 ### How we record non-architectural decisions
-- Add/adjust requirements in `docs/REQUIREMENTS.md`.
-- Update `docs/features.md` when behavior changes.
+- Add/adjust requirements in [docs/REQUIREMENTS.md](REQUIREMENTS.md).
+- Update [docs/features.md](features.md) when behavior changes.
 - Optionally append a dated entry to a local devlog for session history and “why”:
   - `node scripts/chat-log.mjs -m "what changed" --notes "optional notes"`
 
@@ -35,8 +35,7 @@ Rules of thumb:
 - Treat exports as raw logs: do not rely on them as “spec” unless the same decision is recorded in an ADR/requirements.
 - When a chat introduces a new invariant/requirement, convert it into one of:
   - an ADR (`docs/adr/`), or
-  - a requirement (`docs/REQUIREMENTS.md`), or
-  - a QA checklist item (`docs/qa/manual-merge-checklist.md`).
+  - a requirement ([docs/REQUIREMENTS.md](REQUIREMENTS.md)).
 
 ## Implementation discipline (project conventions)
 - Prefer plain JavaScript; avoid new dependencies unless truly needed.
@@ -50,7 +49,7 @@ Rules of thumb:
 There are no full automated UI tests. Validation is primarily manual and scenario-driven.
 
 Required checks when touching file operations, rename/move, or persistence:
-- Follow `docs/qa/manual-merge-checklist.md`.
+- Follow [WORKFLOW.md](../WORKFLOW.md) and [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 - Specifically test:
   - read-only files / permission errors
   - file modified on disk between index and write
@@ -70,12 +69,12 @@ When planning work (especially performance/architecture), rank initiatives using
 Store dated plans under `roadmaps/YYYYMMDD/` as Markdown files.
 
 ## Release workflow
-- User-facing changes live in `CHANGELOG.md` (Keep a Changelog format).
+- User-facing changes live in [CHANGELOG.md](../CHANGELOG.md) (Keep a Changelog format).
 - Session narrative can live in a local devlog (not committed).
 - Versioning and releases:
-  - `docs/VERSIONING.md`
-  - `docs/RELEASES.md`
-  - `docs/RELEASE_CHECKLIST.md`
+  - [docs/VERSIONING.md](VERSIONING.md)
+  - [docs/RELEASES.md](RELEASES.md)
+  - [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
 
 ## Licensing hygiene
 - Do not copy/translate GPL/LGPL code into app-owned sources unless the licensing plan is explicit and compatible.

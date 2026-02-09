@@ -8,8 +8,8 @@ Principles:
 - Prefer upstream fixes; keep local patches small, explicit, and temporary.
 
 Related docs:
-- Upgrade review framework: `docs/third-party-review.md`
-- Workflow quick reference: `WORKFLOW.md`
+- Upgrade review framework: [docs/third-party-review.md](third-party-review.md)
+- Workflow quick reference: [WORKFLOW.md](../WORKFLOW.md)
 
 ---
 
@@ -110,8 +110,8 @@ If a specific bug motivated the upgrade, include its reproduction case as a mand
 If we patch abc2svg locally:
 - Keep it minimal and isolated.
 - Document it:
-  - `NOTICE.md` (if licensing/third-party notices need an update)
-  - plus a short note in `CHANGELOG.md` when user-visible
+  - [NOTICE.md](../NOTICE.md) (if licensing/third-party notices need an update)
+  - plus a short note in [CHANGELOG.md](../CHANGELOG.md) when user-visible
   - include upstream artifact ID and why the patch exists
 - Prefer upstream submission so we can drop the patch later.
 

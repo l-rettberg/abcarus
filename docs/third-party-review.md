@@ -18,7 +18,7 @@ Other vendored assets (CodeMirror, Tabulator, SF2, fonts) should still be review
 ## Workflow
 
 For abc2svg specifically, follow the dedicated “pipeline” playbook:
-- `docs/abc2svg-upgrade-playbook.md`
+- [docs/abc2svg-upgrade-playbook.md](abc2svg-upgrade-playbook.md)
 
 ### 1) Collect the candidate upstream package
 

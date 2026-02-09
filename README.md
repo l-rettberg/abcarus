@@ -11,7 +11,7 @@ ABCarus is designed for navigating, editing, rendering, and organizing large col
 
 Early-stage release. The app is actively developed; some workflows and UI details may still change. Keep backups of your data.
 
-See `docs/DISCLAIMER.md` and `CHANGELOG.md`.
+See [docs/DISCLAIMER.md](docs/DISCLAIMER.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Downloads (latest)
 
@@ -53,18 +53,18 @@ Release builds already bundle everything needed for normal use, including the Py
 ## Documentation
 
 For users:
-- User Guide (how to use ABCarus): `docs/USER_GUIDE.md`
+- User Guide (how to use ABCarus): [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
 For contributors:
-- Quick workflow (dev + release): `WORKFLOW.md`
-- Developer documentation index: `docs/README.md`
-- Detailed release checklist: `docs/RELEASE_CHECKLIST.md`
-- Product + engineering invariants: `docs/REQUIREMENTS.md`
-- Methodology (chat-driven, docs-backed): `docs/METHODOLOGY.md`
+- Quick workflow (dev + release): [WORKFLOW.md](WORKFLOW.md)
+- Developer documentation index: [docs/README.md](docs/README.md)
+- Detailed release checklist: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+- Product + engineering invariants: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
+- Methodology (chat-driven, docs-backed): [docs/METHODOLOGY.md](docs/METHODOLOGY.md)
 
 ## Quick workflow
 
-See `WORKFLOW.md` for:
+See [WORKFLOW.md](WORKFLOW.md) for:
 - 3–5-command release flow (version → tag → push → verify)
 - What we commit / keep local (e.g. `scripts/local/**`)
 - Useful debug env vars (e.g. `ABCARUS_DEBUG_KEYS=1`)
@@ -83,13 +83,13 @@ For import/export in development, install PBS runtime for your current OS:
 - Windows: `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-all.ps1`
 
 ### Soundfonts
-ABCarus ships only one bundled soundfont (`TimGM6mb.sf2`). Additional soundfonts are optional and installed locally. See `docs/soundfonts.md`.
+ABCarus ships only one bundled soundfont (`TimGM6mb.sf2`). Additional soundfonts are optional and installed locally. See [docs/soundfonts.md](docs/soundfonts.md).
 
 ### Notation fonts (SMuFL)
-ABCarus ships several bundled notation/text fonts (SIL OFL 1.1) for abc2svg rendering. See `docs/notation-fonts.md` and `NOTICE.md`.
+ABCarus ships several bundled notation/text fonts (SIL OFL 1.1) for abc2svg rendering. See [docs/notation-fonts.md](docs/notation-fonts.md) and [NOTICE.md](NOTICE.md).
 
 ### Release builds
-Release builds bundle a local Python runtime (PBS) for MusicXML import/export. See `docs/python-build-standalone.md` and `docs/python-runtime.md`.
+Release builds bundle a local Python runtime (PBS) for MusicXML import/export. See [docs/python-build-standalone.md](docs/python-build-standalone.md) and [docs/python-runtime.md](docs/python-runtime.md).
 
 ### Core features
 
@@ -119,8 +119,8 @@ Playback and rendering are implemented to support reading and editing, not to re
 ### Versioning & Releases
 
 - SemVer is used, with `package.json` as the source of truth.
-- Releases are tagged `vX.Y.Z` and documented in `CHANGELOG.md`.
-- See `docs/VERSIONING.md` and `docs/RELEASES.md`.
+- Releases are tagged `vX.Y.Z` and documented in [CHANGELOG.md](CHANGELOG.md).
+- See [docs/VERSIONING.md](docs/VERSIONING.md) and [docs/RELEASES.md](docs/RELEASES.md).
 
 ### Technology
 
@@ -161,7 +161,7 @@ Major third-party components used by ABCarus:
 - Python — https://www.python.org/
 - TimGM6mb.sf2 (soundfont) — https://timbrechbill.com/saxguru/
 
-See `NOTICE.md` for licenses and attribution details.
+See [NOTICE.md](NOTICE.md) for licenses and attribution details.
 
 ### Inspiration
 
@@ -193,4 +193,4 @@ These are personal sources of inspiration and gratitude, separate from the techn
 ABCarus source code is licensed under the MIT License.
 
 This project uses third-party components, including abc2svg (LGPL) and CodeMirror (MIT).
-See `NOTICE.md` for details.
+See [NOTICE.md](NOTICE.md) for details.

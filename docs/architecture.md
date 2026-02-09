@@ -95,5 +95,5 @@ Upgrading these components may require updates to:
 - Single-window UI; no session restoration beyond saved recents/settings.
 
 ## Architecture decision records (ADRs)
-- `docs/adr/ADR-0001-library-store-renderer-library-service-main.md`
-- `docs/adr/ADR-0002-incremental-full-scan-gated.md`
+- [docs/adr/ADR-0001-library-store-renderer-library-service-main.md](adr/ADR-0001-library-store-renderer-library-service-main.md)
+- [docs/adr/ADR-0002-incremental-full-scan-gated.md](adr/ADR-0002-incremental-full-scan-gated.md)

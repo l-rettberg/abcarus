@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library Catalog: aligned `.lib-btn` styling with the shared control contract.
 
 ### Docs
-- Added a required UI change verification protocol to `ORIENTATION.md` (run-from-repo + explicit acceptance checks + visible diagnostic delta first when needed).
+- Added a required UI change verification protocol to [ORIENTATION.md](ORIENTATION.md) (run-from-repo + explicit acceptance checks + visible diagnostic delta first when needed).
 
 ## [0.29.2] - 2026-02-08
 ### Fixed
@@ -334,7 +334,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.20.1] - 2026-01-13
 ### Added
-- Help: add an in-app user guide (`Help → ABCarus User Guide`) and a new `docs/USER_GUIDE.md`.
+- Help: add an in-app user guide (`Help → ABCarus User Guide`) and a new [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ### Changed
 - Docs: consolidate workflow/release/packaging notes and reduce duplication across reference files.

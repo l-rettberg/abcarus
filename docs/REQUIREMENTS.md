@@ -4,7 +4,7 @@ This document consolidates the *explicit* requirements and invariants that guide
 
 Sources used to build this doc:
 - Accepted ADRs in `docs/adr/`.
-- Current implementation (see `docs/features.md`, `docs/architecture.md`).
+- Current implementation (see [docs/features.md](features.md), [docs/architecture.md](architecture.md)).
 
 If a requirement in this file conflicts with the codebase, treat it as a signal to either:
 1) update the code to match, or
@@ -39,7 +39,7 @@ Baseline: standard desktop editor semantics for New/Open/Save/Save As/Close/Quit
 
 ### Library scan + indexing
 - Full scan UX must remain predictable (Tree shows tunes under files, without new placeholder “lazy loading” states).
-- Persisted index in `userData` is an *accelerator*, not a source of truth (see `docs/adr/ADR-0002-incremental-full-scan-gated.md`).
+- Persisted index in `userData` is an *accelerator*, not a source of truth (see [docs/adr/ADR-0002-incremental-full-scan-gated.md](adr/ADR-0002-incremental-full-scan-gated.md)).
 - Open-tune must self-heal on stale offsets: if file changed on disk, re-parse and refuse to silently open the wrong tune.
 - Any write action (move/copy/delete/rename/append) must be guarded against stale offsets and refuse loudly instead of corrupting.
 - Library progress UI must remain responsive; avoid IPC spam.
@@ -84,8 +84,9 @@ Playback must be deterministic and must stay in sync between editor and rendered
 - Risky automatic rewriting of user libraries without explicit confirmation.
 
 ## Related references
-- `docs/features.md` (what the code currently does)
-- `docs/architecture.md` (where responsibilities live)
-- `docs/adr/ADR-0001-library-store-renderer-library-service-main.md`
-- `docs/adr/ADR-0002-incremental-full-scan-gated.md`
-- `docs/qa/manual-merge-checklist.md`
+- [docs/features.md](features.md) (what the code currently does)
+- [docs/architecture.md](architecture.md) (where responsibilities live)
+- [docs/adr/ADR-0001-library-store-renderer-library-service-main.md](adr/ADR-0001-library-store-renderer-library-service-main.md)
+- [docs/adr/ADR-0002-incremental-full-scan-gated.md](adr/ADR-0002-incremental-full-scan-gated.md)
+- [WORKFLOW.md](../WORKFLOW.md)
+- [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)

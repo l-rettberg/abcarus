@@ -92,5 +92,5 @@ Editable settings include:
 ## Platform and scope notes
 - Desktop app only (Electron).
 - No automated tests are defined (only small harness scripts for core transforms).
-- Packaging/build scripts exist for AppImage and electron-builder (see `docs/packaging.md`).
+- Packaging/build scripts exist for AppImage and electron-builder (see [docs/packaging.md](packaging.md)).
 - Network access is not used by default; external resources are local.

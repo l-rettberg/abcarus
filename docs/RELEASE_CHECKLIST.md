@@ -4,7 +4,7 @@ This is a step-by-step guide for making a release build and pushing it to GitHub
 
 ## TL;DR (3–5 commands)
 
-1) Update `CHANGELOG.md` under `## [Unreleased]`.
+1) Update [CHANGELOG.md](../CHANGELOG.md) under `## [Unreleased]`.
 2) Run one:
    - `npm run release:patch`
    - `npm run release:minor`
@@ -20,10 +20,10 @@ CLI alternative (no browser, using GitHub CLI):
 - `gh release view vX.Y.Z`
 
 Where to find:
-- High-level policy: `docs/RELEASES.md`
-- This checklist: `docs/RELEASE_CHECKLIST.md`
-- User-facing changelog: `CHANGELOG.md`
-- Generated release notes (per release): `docs/RELEASE_NOTES.md`
+- High-level policy: [docs/RELEASES.md](RELEASES.md)
+- This checklist: [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- User-facing changelog: [CHANGELOG.md](../CHANGELOG.md)
+- Generated release notes (per release): [docs/RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ---
 
@@ -31,7 +31,7 @@ Where to find:
 
 - You are on the right branch (usually `master`).
 - You can run the app locally: `npm start`
-- AppImage toolchain is available (see `scripts/README.md`).
+- AppImage toolchain is available (see [scripts/README.md](../scripts/README.md)).
 
 ## Local-only files (do not commit)
 
@@ -57,14 +57,14 @@ Example:
 
 The repository release flow is driven by `scripts/release.mjs` (via `npm run release:*`), which:
 - bumps versions in `package.json` (+ `package-lock.json`)
-- moves the current `CHANGELOG.md` `## [Unreleased]` section into a dated `## [X.Y.Z] - YYYY-MM-DD` entry
+- moves the current [CHANGELOG.md](../CHANGELOG.md) `## [Unreleased]` section into a dated `## [X.Y.Z] - YYYY-MM-DD` entry
 - creates an annotated git tag `vX.Y.Z`
 - requires a clean git working tree (no uncommitted changes)
 
 Manual (optional):
 - Append local devlog entry:
   - `node scripts/chat-log.mjs -m "your message" --notes "optional notes"`
-- Edit `CHANGELOG.md`:
+- Edit [CHANGELOG.md](../CHANGELOG.md):
   - Ensure `## [Unreleased]` exists.
   - Add a new `## [X.Y.Z] - YYYY-MM-DD` section right under it.
 
@@ -83,7 +83,7 @@ This flow bumps the version, updates release docs, commits, and creates a tag:
    - `git push origin vX.Y.Z`
 
 Notes:
-- The user-facing release notes are the `CHANGELOG.md` entry for `vX.Y.Z`.
+- The user-facing release notes are the [CHANGELOG.md](../CHANGELOG.md) entry for `vX.Y.Z`.
 - Tag pushes trigger GitHub Actions (including `.github/workflows/release-assets.yml`) which builds and uploads artifacts to the GitHub Release for that tag.
 
 Tip: if you don’t want to use the browser, you can confirm the release and attached assets via:
@@ -99,7 +99,7 @@ Tip: if you don’t want to use the browser, you can confirm the release and att
 You want a GitHub Release for human-readable notes (title/body). Assets are uploaded by CI for the tag.
 
 1) Create (or edit) the GitHub Release for tag `vX.Y.Z`.
-2) Paste the release notes from `CHANGELOG.md` section `## [X.Y.Z] - ...`.
+2) Paste the release notes from [CHANGELOG.md](../CHANGELOG.md) section `## [X.Y.Z] - ...`.
 
 Notes:
 - CI (`.github/workflows/release-assets.yml`) uploads platform artifacts on tag push.

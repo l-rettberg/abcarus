@@ -2,7 +2,7 @@
 
 This project uses Semantic Versioning (SemVer) and Keep a Changelog.
 
-Versioning details live in `docs/VERSIONING.md` (to avoid duplicating rules across multiple files).
+Versioning details live in [docs/VERSIONING.md](VERSIONING.md) (to avoid duplicating rules across multiple files).
 
 ## Tags
 - Tags are annotated and follow `vX.Y.Z`.
@@ -44,7 +44,7 @@ Manual rebuild (upload to GitHub Release):
 
 ## Practical checklist
 For a step-by-step “one-shot” release workflow (deploy + AppImage + push), see:
-- `docs/RELEASE_CHECKLIST.md`
+- [docs/RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
 
 ## Release notes format
 Use Keep a Changelog headings:
@@ -54,7 +54,7 @@ Use Keep a Changelog headings:
 - Removed
 - Security
 
-Pre-releases and build metadata are documented in `docs/VERSIONING.md`.
+Pre-releases and build metadata are documented in [docs/VERSIONING.md](VERSIONING.md).
 
 ## Release notes template
 ```

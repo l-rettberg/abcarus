@@ -63,7 +63,7 @@ Convenience wrappers:
 - Windows: `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-all.ps1`
 
 Windows runtime layout notes:
-- `docs/windows.md`
+- [docs/windows.md](windows.md)
 
 ## Lock sanity check
 

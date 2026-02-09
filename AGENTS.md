@@ -3,7 +3,7 @@
 This repo is a small Electron app for working with ABC notation.
 
 ## Orientation (read first in new chats)
-- `ORIENTATION.md` — what to read, invariants, debug workflow, branch/push etiquette.
+- [ORIENTATION.md](ORIENTATION.md) — what to read, invariants, debug workflow, branch/push etiquette.
 
 ## Quick start
 - Install deps: `npm install`
@@ -39,4 +39,4 @@ This repo is a small Electron app for working with ABC notation.
 
 ## Quick workflow reference
 For day-to-day commands (dev + release), “what we commit”, and important debug flags, see:
-- `WORKFLOW.md`
+- [WORKFLOW.md](WORKFLOW.md)

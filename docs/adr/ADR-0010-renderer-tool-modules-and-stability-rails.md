@@ -65,9 +65,9 @@ When touching persistence or file operations:
 ### 4) Documentation: a single onboarding path
 
 Onboarding entrypoints are:
-1) `AGENTS.md` (hard constraints)
-2) `ORIENTATION.md` (what to read + triage playbooks)
-3) `docs/README.md` (developer docs index)
+1) [AGENTS.md](../../AGENTS.md) (hard constraints)
+2) [ORIENTATION.md](../../ORIENTATION.md) (what to read + triage playbooks)
+3) [docs/README.md](../README.md) (developer docs index)
 4) ADRs in `docs/adr/` (why decisions exist)
 
 ## Consequences

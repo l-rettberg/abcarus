@@ -13,8 +13,8 @@ ABCarus prefers a bundled Python runtime installed from a committed python-build
 - no requirement for users to install Python.
 
 Details:
-- PBS workflow (locks + installers): `docs/python-build-standalone.md`
-- Runtime resolution order: `docs/python-runtime.md`
+- PBS workflow (locks + installers): [docs/python-build-standalone.md](python-build-standalone.md)
+- Runtime resolution order: [docs/python-runtime.md](python-runtime.md)
 
 ## Runtime layout in ABCarus
 

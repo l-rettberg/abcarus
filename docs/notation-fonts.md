@@ -39,7 +39,7 @@ Notes:
    - `assets/fonts/notation/` (recommended)
 2) Keep licensing in mind:
    - Prefer fonts under permissive licenses (e.g. SIL OFL for Bravura).
-   - Track attribution in `NOTICE.md` if needed.
+   - Track attribution in [NOTICE.md](../NOTICE.md) if needed.
 3) Use `%%musicfont url("../../assets/fonts/notation/<font-file>") <size>` in the global header or file/tune header.
 
 Why this path works:
@@ -64,7 +64,7 @@ ABCarus ships several SMuFL-compatible fonts under SIL Open Font License 1.1 (OF
 Note: only SMuFL-compatible notation fonts work as `%%musicfont`. Text fonts (even if they include accidentals)
 will render incorrect glyphs when used as a notation font.
 
-See `assets/fonts/notation/OFL.txt` and `NOTICE.md`.
+See `assets/fonts/notation/OFL.txt` and [NOTICE.md](../NOTICE.md).
 
 ## UI support (Settings)
 

@@ -9,9 +9,9 @@ ABCarus supports:
 Import/export uses Python tools (`abc2xml`, `xml2abc`) and expects a bundled Python runtime installed from python-build-standalone (PBS).
 
 References:
-- PBS policy + lock/install workflow: `docs/python-build-standalone.md`
-- Runtime resolution order and system fallback (`ABCARUS_ALLOW_SYSTEM_PYTHON=1`): `docs/python-runtime.md`
-- Windows runtime layout notes: `docs/windows.md`
+- PBS policy + lock/install workflow: [docs/python-build-standalone.md](python-build-standalone.md)
+- Runtime resolution order and system fallback (`ABCARUS_ALLOW_SYSTEM_PYTHON=1`): [docs/python-runtime.md](python-runtime.md)
+- Windows runtime layout notes: [docs/windows.md](windows.md)
 
 Before packaging, install the PBS runtime for your platform:
 - Update lock: `node devtools/pbs/pbs-update-lock.mjs --platform=<platform>`

@@ -41,7 +41,7 @@ Upgrades remain atomic:
 - Recipe lives under `third_party/codemirror/`:
   - `third_party/codemirror/build/entry.*` defines imports/exports
   - `third_party/codemirror/build/build.mjs` builds the bundle
-  - `third_party/codemirror/BUILD.md` documents how to rebuild
+  - [third_party/codemirror/BUILD.md](../../third_party/codemirror/BUILD.md) documents how to rebuild
   - `third_party/codemirror/VERSION.txt` records upstream tag/commit and build tool versions
 
 ## Upgrade Checklist

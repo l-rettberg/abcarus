@@ -8,8 +8,8 @@ It is intended for:
 - maintaining compatibility with real-world ABC collections.
 
 Related references:
-- `docs/abc-standards.md` (ABC 2.1 / 2.2 notes + links)
-- `docs/REQUIREMENTS.md` (tolerant-read / strict-write invariants)
+- [docs/abc-standards.md](abc-standards.md) (ABC 2.1 / 2.2 notes + links)
+- [docs/REQUIREMENTS.md](REQUIREMENTS.md) (tolerant-read / strict-write invariants)
 - `third_party/abc2svg/` (practical accepted syntax for rendering/playback)
 
 ## 1) Guiding principles

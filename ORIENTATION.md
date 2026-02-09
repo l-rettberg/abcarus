@@ -22,9 +22,9 @@ ABCarus is a small Electron desktop app for working with ABC notation:
 
 ## “Where to look” (in order)
 
-1) `AGENTS.md` — repo-specific agent notes + constraints.
-2) `WORKFLOW.md` — day-to-day workflow, release flow, debug flags, “what not to commit”.
-3) `README.md` — user-facing overview and quick commands.
+1) [AGENTS.md](AGENTS.md) — repo-specific agent notes + constraints.
+2) [WORKFLOW.md](WORKFLOW.md) — day-to-day workflow, release flow, debug flags, “what not to commit”.
+3) [README.md](README.md) — user-facing overview and quick commands.
 4) `docs/` — deeper docs and release notes/checklists.
 
 ## Local development
@@ -32,7 +32,7 @@ ABCarus is a small Electron desktop app for working with ABC notation:
 - Install deps: `npm install`
 - Run app: `npm start`
 
-If something behaves “impossibly” (e.g. Electron commands acting like Node), check environment gotchas in `WORKFLOW.md`.
+If something behaves “impossibly” (e.g. Electron commands acting like Node), check environment gotchas in [WORKFLOW.md](WORKFLOW.md).
 
 ## Debugging workflow (preferred)
 
@@ -113,7 +113,7 @@ During rapid debugging/iteration:
 - Do **not** push WIP commits to GitHub unless explicitly requested.
 - Push only when there is a coherent checkpoint (or when asked to open/update a PR).
 
-See also: `WORKFLOW.md` → “Branch / Push etiquette”.
+See also: [WORKFLOW.md](WORKFLOW.md) → “Branch / Push etiquette”.
 
 ## Third-party updates (abc2svg, etc.)
 
@@ -122,7 +122,7 @@ See also: `WORKFLOW.md` → “Branch / Push etiquette”.
 
 ## What never to commit
 
-By policy (see `WORKFLOW.md` and `.gitignore`):
+By policy (see [WORKFLOW.md](WORKFLOW.md) and `.gitignore`):
 - `scripts/local/**` (local helpers, dumps).
 - `third_party/_upd/**` (staging).
 
@@ -137,13 +137,13 @@ By policy (see `WORKFLOW.md` and `.gitignore`):
 ## Releases (patch/minor/major)
 
 ABCarus uses `scripts/release.mjs` (via `npm run release:*`) to prepare releases.
-It requires a clean git working tree and a non-empty `CHANGELOG.md` `## [Unreleased]` section.
+It requires a clean git working tree and a non-empty [CHANGELOG.md](CHANGELOG.md) `## [Unreleased]` section.
 
 **Patch release sequence (typical)**
 - Ensure `master` is up to date and clean:
   - `git checkout master && git pull`
   - `npm run test:settings && npm run test:measures`
-- Add release notes to `CHANGELOG.md` under `## [Unreleased]` (must be non-empty), then commit:
+- Add release notes to [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` (must be non-empty), then commit:
   - `git add CHANGELOG.md && git commit -m "docs: add unreleased notes for next patch"`
 - Prepare the release (bumps version, moves changelog entry, creates tag):
   - `npm run release:patch`

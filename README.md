@@ -9,7 +9,7 @@ ABCarus is designed for navigating, editing, rendering, and organizing large col
 
 ## Status
 
-Pre-release / under active development. Internal APIs, UI layout, and the feature set may change. Keep backups of your data.
+Early-stage release. The app is actively developed; some workflows and UI details may still change. Keep backups of your data.
 
 See `docs/DISCLAIMER.md` and `CHANGELOG.md`.
 
@@ -40,6 +40,16 @@ After verifying the SHA256 sums, you can remove the quarantine attribute:
 [sha-mac-arm64]: https://github.com/topchyan/abcarus/releases/latest/download/SHA256SUMS-macos-arm64.txt
 [sha-mac-x64]: https://github.com/topchyan/abcarus/releases/latest/download/SHA256SUMS-macos-x64.txt
 
+## Quick install (end users)
+
+Use a release build from GitHub Releases (recommended for normal use).
+
+- Linux: download the AppImage, make it executable, run it.
+- Windows: download Setup (`ABCarus-setup-x64.exe`) or Portable (`ABCarus-portable-x64.exe`), then launch.
+- macOS: download the DMG for your CPU (arm64/x64), install, then launch.
+
+Release builds already bundle everything needed for normal use, including the Python runtime used by MusicXML import/export.
+
 ## Documentation
 
 For users:
@@ -58,14 +68,19 @@ See `WORKFLOW.md` for:
 - 3–5-command release flow (version → tag → push → verify)
 - What we commit / keep local (e.g. `scripts/local/**`)
 - Useful debug env vars (e.g. `ABCARUS_DEBUG_KEYS=1`)
+- Fast local checks: `npm run test:quick` and `npm run test:ui-smoke`
 
 ## Quick start (development)
 
 ### Development setup
+- Requirements: Node.js (LTS) and npm
 - Install dependencies: `npm install`
 - Run the app: `npm start`
 
 Python is not required for basic editing/rendering/playback in development. It is only needed for MusicXML import/export.
+For import/export in development, install PBS runtime for your current OS:
+- Linux/macOS: `bash devtools/pbs/pbs-install-all.sh`
+- Windows: `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-all.ps1`
 
 ### Soundfonts
 ABCarus ships only one bundled soundfont (`TimGM6mb.sf2`). Additional soundfonts are optional and installed locally. See `docs/soundfonts.md`.
@@ -83,7 +98,7 @@ Release builds bundle a local Python runtime (PBS) for MusicXML import/export. S
 - Text-first editing of ABC
 - Notation rendering
 - Print/export PDF for single tunes or full files
-- Basic playback for reference
+- Playback for editing/reference (including Focus/selection controls and soundfont-based output)
 - Error scanning and grouped diagnostics
 
 ## Design goals
@@ -98,7 +113,7 @@ Playback and rendering are implemented to support reading and editing, not to re
 
 ### Rendering notes
 
-- `%%sep` can trigger abc2svg errors in some scores. ABCarus currently ignores `%%sep` during rendering and logs a warning. Keep the original notation in your files.
+- `%%sep` can trigger abc2svg errors in some scores. ABCarus first tries normal rendering; if that fails and `%%sep` is present, it retries with a length-safe `%%sep` fallback and shows a warning.
 - Printing/exporting all tunes includes error summaries and inline error cards for tunes that fail to render.
 
 ### Versioning & Releases
@@ -121,11 +136,10 @@ Import/Export uses external Python converters stored under `third_party/`:
 - `third_party/abc2xml/abc2xml.py` (ABC → MusicXML)
 - `third_party/xml2abc/xml2abc.py` (MusicXML → ABC)
 
-By default, ABCarus prefers a bundled Python runtime (PBS). In development, install it with:
+By default, ABCarus prefers a bundled Python runtime (PBS). In development, install PBS with:
 
-- Linux: `bash devtools/pbs/pbs-install-unix.sh linux-x64`
-- macOS: `bash devtools/pbs/pbs-install-unix.sh darwin-arm64` or `bash devtools/pbs/pbs-install-unix.sh darwin-x64`
-- Windows: `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-windows.ps1 -Platform win-x64`
+- Linux/macOS: `bash devtools/pbs/pbs-install-all.sh`
+- Windows: `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-all.ps1`
 
 System Python fallback is opt-in only via `ABCARUS_ALLOW_SYSTEM_PYTHON=1`.
 
@@ -169,9 +183,9 @@ See `NOTICE.md` for licenses and attribution details.
 
 These are personal sources of inspiration and gratitude, separate from the technical projects above:
 
-- Houshamadyan — a project to reconstruct Ottoman Armenian town and village life: https://www.houshamadyan.org/home.html
-- Ara Dinkjian — composer, musician, and oud teacher: https://www.aradinkjian.com/
-- Corpus Musicae Ottomanicae: https://corpus-musicae-ottomanicae.de/content/index.xml
+- [Houshamadyan](https://www.houshamadyan.org/home.html) — a project to reconstruct Ottoman Armenian town and village life.
+- [Ara Dinkjian](https://www.aradinkjian.com/) — composer, musician, and oud teacher.
+- [Corpus Musicae Ottomanicae](https://corpus-musicae-ottomanicae.de/content/index.xml) — critical edition of Near Eastern music manuscripts.
 - My Lord and Savior Yeshua
 
 ### Licensing

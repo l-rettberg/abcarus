@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.30.0] - 2026-02-09
 ### Added
 - Dev QA: added `test:ui-smoke` (`scripts/ui_smoke.mjs`) with an Electron UI self-check mode (`ABCARUS_DEV_UI_SMOKE=1`) to verify key renderer contracts automatically.
 
@@ -18,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 - Added a required UI change verification protocol to `ORIENTATION.md` (run-from-repo + explicit acceptance checks + visible diagnostic delta first when needed).
-
 
 ## [0.29.2] - 2026-02-08
 ### Fixed

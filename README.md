@@ -11,7 +11,7 @@ ABCarus is designed for navigating, editing, rendering, and organizing large col
 
 Early-stage release. The app is actively developed; some workflows and UI details may still change. Keep backups of your data.
 
-See [docs/DISCLAIMER.md](docs/DISCLAIMER.md) and [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Downloads (latest)
 

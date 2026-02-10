@@ -13852,7 +13852,7 @@ function getMetre(abc) {
   return 1;
 }
 
-function getBarLength(abc, defaultLength, metre) {
+function getBarLengthCore(abc, defaultLength, metre) {
   let body = removeNonNoteFragments(abc);
   body = replaceChordsByFirstNote(body);
   const notePattern = /([_=^]?[A-Ga-gxz](,+|'+)?)(\d{0,3}(?:\/\d{0,3})*)(\.*)([><]?)/g;
@@ -13923,6 +13923,24 @@ function getBarLength(abc, defaultLength, metre) {
     total += mult * defaultLength;
   }
   return total;
+}
+
+function getBarLength(abc, defaultLength, metre) {
+  const text = String(abc || "");
+  // `&` creates overlays (parallel strands) inside a bar. For bar-length checks we must
+  // compare strand durations and use the longest one, not sum all strands serially.
+  if (text.includes("&")) {
+    const layers = text.split("&").map((s) => s.trim()).filter(Boolean);
+    if (layers.length > 1) {
+      let maxLen = 0;
+      for (const layer of layers) {
+        const len = getBarLengthCore(layer, defaultLength, metre);
+        if (Number.isFinite(len) && len > maxLen) maxLen = len;
+      }
+      return maxLen;
+    }
+  }
+  return getBarLengthCore(text, defaultLength, metre);
 }
 
 function isLikelyAnacrusis(bar, defaultLength, metre) {

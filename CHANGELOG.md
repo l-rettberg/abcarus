@@ -6,9 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.30.1] - 2026-02-10
 ### Fixed
 - Meter diagnostics: bar-length checks now handle `&` overlays as parallel strands (use longest strand), avoiding false mismatch warnings from summed durations.
-
 
 ## [0.30.0] - 2026-02-09
 ### Added

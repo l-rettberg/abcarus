@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.31.0] - 2026-02-11
 ### Added
 - Dialog memory: file chooser dialogs now remember the last successfully used folder and reopen there across sessions.
 
@@ -16,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Documentation: microtones/MIDI notes are now user-oriented and exclude internal implementation-only references.
-
 
 ## [0.30.1] - 2026-02-10
 ### Fixed

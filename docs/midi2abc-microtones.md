@@ -1,149 +1,38 @@
-# MIDI<->ABC Microtones in abc2svg (Implementation Notes)
+# MIDI <-> ABC Microtones (User Notes)
 
-This document captures the current understanding of how microtones work in
-`third_party/abc2svg`, with emphasis on:
+This note explains practical expectations for microtones when using MIDI import
+and playback in ABCarus.
 
-- score parsing and rendering,
-- `abc2mid` generation,
-- practical constraints for a future `MIDI -> ABC` converter in ABCarus.
+## What works
 
-The goal is to avoid re-discovery in future branches/chats.
+- Microtonal accidentals can be displayed and played.
+- Playback can preserve non-equal pitch detail when the playback path supports
+  tuning messages (SysEx).
+- Equal-temperament and temperament-related ABC directives are supported by the
+  bundled notation/playback engine.
 
-## Scope and guardrails
+## Practical limits of MIDI -> ABC
 
-- ABCarus **does not patch** files inside `third_party/abc2svg/`.
-- Any converter/import logic must live in our own code/lab area.
-- `%%MIDI gchord` / `%%MIDI drum` reconstruction from generic MIDI is out of
-  scope (macro semantics cannot be recovered reliably from explicit MIDI notes).
+From a plain MIDI file, some notation intent cannot be recovered reliably:
 
-See also: `kitchen/midi2abc-lab/POLICY.md`.
+- exact accidental spelling chosen by the editor,
+- original microtonal notation style,
+- explicit temperament declarations used in the source ABC.
 
-## End-to-end microtone path in abc2svg
+Because of this, roundtrip `ABC -> MIDI -> ABC` is usually musically close, but
+not text-identical.
 
-## 1) Parse layer: accidental representation
+## How ABCarus treats conversion quality
 
-In `third_party/abc2svg/core/parse.js`:
+- Priority is musical fidelity first (timing, pitch, voice flow).
+- ABC spelling is reconstructed with heuristics for readability.
+- Macro-style ABC directives are not inferred from generic MIDI note streams:
+  - `%%MIDI gchord`
+  - `%%MIDI drum`
 
-- `parse_acc_pit()` parses accidental + pitch.
-- Regular accidentals are numeric (`-2..2`, natural `3`).
-- Microtonal accidentals are represented as an object-like fraction `[num, den]`
-  (JavaScript array), e.g. shorthand forms after `^` / `_`.
+## What users should expect
 
-Key places:
-
-- `parse_acc_pit` (`core/parse.js`)
-- `nt_trans` (`core/parse.js`) handles transposition when accidental is
-  microtonal (`typeof a == "object"`).
-
-## 2) Pitch-to-MIDI mapping (fractional keys)
-
-In `pit2mid()` (`third_party/abc2svg/core/parse.js`):
-
-- output is a MIDI key with optional fractional part (cents),
-- microtones are converted using:
-  - explicit accidental fractions,
-  - `cfmt.temper` (temperament table),
-  - optional equal temperament path (`cfmt.nedo`).
-
-Important implication: internal playback/generation keeps microtonal detail as
-fractional semitone pitch, not only as textual accidental.
-
-## 3) Rendering path (staff glyphs)
-
-Microtonal accidentals are rendered natively:
-
-- Glyph table in `third_party/abc2svg/core/svg.js` includes:
-  - `acc-1_2` (quarter-tone flat),
-  - `acc-3_2` (three-quarter flat),
-  - `acc1_2` (quarter-tone sharp),
-  - `acc3_2` (three-quarter sharp).
-- Accidental drawing in `third_party/abc2svg/core/draw.js` has an explicit
-  microtone branch (`typeof a == "object"`), converts fractions, then maps to
-  `acc...` glyph ids.
-
-Result: score display and playback share the same microtonal intent from parse.
-
-## 4) MIDI generation path (`abc2mid`)
-
-In `third_party/abc2svg/midigen.js`:
-
-- `note_run()` gets a key `k` that may include fractional cents,
-- `dt = Math.round((k * 100) % 100)` extracts detune in cents,
-- integer key is separated (`k |= 0`),
-- `mutone()` sends MIDI Tuning Standard SysEx "note change" before note-on.
-
-`mutone()` uses a cache (`det_tb`) to avoid sending unchanged detunes.
-
-Practical reading: microtones are emitted via per-note tuning SysEx, not only
-by nearest-semitone pitch bend tricks.
-
-## 5) Runtime playback path (WebMIDI/audio bridge)
-
-Related files:
-
-- `third_party/abc2svg/util/sndmid.js`
-- `third_party/abc2svg/util/tomidi5.js`
-- bundled form in `third_party/abc2svg/snd-1.js`
-
-They use the same idea: extract cents and emit tuning SysEx when available.
-If SysEx is unavailable (`Midi5.ma.sysexEnabled == false`), microtone fidelity
-is reduced (or skipped), depending on path/device.
-
-## Temperament modules and special systems
-
-## `%%temperament`
-
-`third_party/abc2svg/modules/temper.js`:
-
-- accepts 12 integer cent offsets,
-- builds `cfmt.temper` mapping table.
-
-## `%%MIDI temperamentequal <nedo>`
-
-`third_party/abc2svg/modules/MIDI.js`:
-
-- supports equal temperament systems by division count,
-- includes special glyph setup when `nedo == 53` (Turkish accidentals path).
-
-There is also a transpose guard path in core (`notransp` message:
-"Cannot transpose with a temperament"), so temperament/transposition
-interactions must be treated carefully in tool logic.
-
-## What this means for ABCarus `MIDI -> ABC`
-
-## Hard constraints
-
-- From plain MIDI note stream alone, we often cannot recover:
-  - original accidental spelling,
-  - original microtonal notation style,
-  - original temperament declaration intent.
-- Round-trip `ABC -> MIDI -> ABC` is not identity for notation semantics.
-
-## Recommended converter policy
-
-- Preserve timing/pitch faithfully first.
-- Reconstruct readable ABC spelling heuristically.
-- Treat microtones as:
-  - nearest notated accidental + optional cent/fraction annotation strategy,
-  - optional `%%temperament` emission only when input carries robust tuning info.
-- Do not attempt to infer `%%MIDI drum/gchord` macros from explicit MIDI notes.
-
-## Suggested engineering checkpoints
-
-1. Implement converter stages explicitly:
-   - parse MIDI events,
-   - quantize/segment voices,
-   - derive pitch class + cent offset,
-   - spell notes to ABC with documented heuristics.
-2. Add "explainability" in output metadata:
-   - log which notes were approximated,
-   - log when temperament could not be inferred.
-3. Keep a corpus of known difficult tunes (multi-voice, ornaments, microtones)
-   and track regressions by metrics, not only visual spot checks.
-
-## Current lab location
-
-- `kitchen/midi2abc-lab/`
-- batch helper: `kitchen/midi2abc-lab/run_roundtrip.mjs`
-
-Lab outputs should remain in `kitchen/` and not be treated as production code.
+- Simple tonal material usually converts cleanly.
+- Complex microtonal pieces may need manual cleanup after import.
+- If your workflow depends on exact symbolic spelling, keep the original ABC as
+  the canonical source and treat imported ABC as an editable draft.

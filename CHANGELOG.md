@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Dialog memory: file chooser dialogs now remember the last successfully used folder and reopen there across sessions.
+
+### Fixed
+- Playback (Focus loop): bar-range bounds now resolve deterministically in linear visible order, preventing loop ranges like `3..6` from running past the selected end on repeat-heavy material.
+- Measures reflow: inline key-change fields (e.g. `[K:F]`) are no longer absorbed into barline tokens, preventing broken inline field formatting in imported/reflowed output.
+- Linux portal dialogs: improved default-path behavior and URI path normalization (`file://...`) for better folder recall reliability.
+
+### Changed
+- Documentation: microtones/MIDI notes are now user-oriented and exclude internal implementation-only references.
 
 
 ## [0.30.1] - 2026-02-10

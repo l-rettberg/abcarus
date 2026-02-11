@@ -286,6 +286,8 @@ function registerIpcHandlers(ctx) {
 	    addRecentFolder,
 	    getSettings,
 	    getSettingsPaths,
+      getDialogDefaultPath,
+      rememberDialogSelection,
 	    getSettingsFile,
 	    setSettingsFile,
 	    updateSettings,
@@ -337,6 +339,19 @@ function registerIpcHandlers(ctx) {
       if (typeof getDialogParent === "function") return getDialogParent(event);
     } catch {}
     return null;
+  };
+
+  const getDialogPath = (opts) => {
+    try {
+      if (typeof getDialogDefaultPath === "function") return getDialogDefaultPath(opts || {});
+    } catch {}
+    return undefined;
+  };
+
+  const rememberDialogPath = (selectedPath, opts) => {
+    try {
+      if (typeof rememberDialogSelection === "function") rememberDialogSelection(selectedPath, opts || {});
+    } catch {}
   };
 
   ipcMain.handle("dialog:open", async (event) => await showOpenDialog(event));
@@ -598,13 +613,16 @@ function registerIpcHandlers(ctx) {
     const result = dialog.showOpenDialogSync(parent || undefined, {
       modal: true,
       properties: ["openFile"],
+      defaultPath: getDialogPath(),
       filters: [
         { name: "SoundFont", extensions: ["sf2"] },
         { name: "All Files", extensions: ["*"] },
       ],
     });
     if (!result || !result.length) return null;
-    return result[0];
+    const selected = String(result[0] || "");
+    if (selected) rememberDialogPath(selected);
+    return selected || null;
   });
   ipcMain.handle("sf2:info", async (_e, name) => {
     try {
@@ -632,6 +650,7 @@ function registerIpcHandlers(ctx) {
 	    const result = dialog.showOpenDialogSync(parent || undefined, {
 	      modal: true,
 	      properties: ["openFile", "multiSelections"],
+        defaultPath: getDialogPath(),
 	      filters: [
 	        { name: "MusicXML", extensions: ["xml", "musicxml", "mxl"] },
 	        { name: "All Files", extensions: ["*"] },
@@ -641,6 +660,7 @@ function registerIpcHandlers(ctx) {
 	    try {
 	      const settings = getSettings ? getSettings() : {};
 	      const selected = Array.from(result).map(String);
+        if (selected[0]) rememberDialogPath(selected[0]);
 	      if (selected.length > 1 && shouldReversePortalMultiSelection(settings)) selected.reverse();
 	      const total = selected.length;
 	      let lastProgressAt = 0;
@@ -687,6 +707,7 @@ function registerIpcHandlers(ctx) {
     const result = dialog.showOpenDialogSync(parent || undefined, {
       modal: true,
       properties: ["openFile", "multiSelections"],
+      defaultPath: getDialogPath(),
       filters: [
         { name: "MIDI", extensions: ["mid", "midi"] },
         { name: "All Files", extensions: ["*"] },
@@ -696,6 +717,7 @@ function registerIpcHandlers(ctx) {
     try {
       const settings = getSettings ? getSettings() : {};
       const selected = Array.from(result).map(String);
+      if (selected[0]) rememberDialogPath(selected[0]);
       if (selected.length > 1 && shouldReversePortalMultiSelection(settings)) selected.reverse();
       const items = [];
       const total = selected.length;
@@ -743,6 +765,7 @@ function registerIpcHandlers(ctx) {
 	    const result = dialog.showOpenDialogSync(parent || undefined, {
 	      modal: true,
 	      properties: ["openFile", "multiSelections"],
+        defaultPath: getDialogPath(),
       filters: [
         { name: "MusicXML", extensions: ["xml", "musicxml", "mxl"] },
         { name: "All Files", extensions: ["*"] },
@@ -751,6 +774,7 @@ function registerIpcHandlers(ctx) {
 	    if (!result || !result.length) return { ok: false, canceled: true };
 	    const settings = getSettings ? getSettings() : {};
 	    const paths = Array.from(result).map(String);
+      if (paths[0]) rememberDialogPath(paths[0]);
 	    if (paths.length > 1 && shouldReversePortalMultiSelection(settings)) paths.reverse();
 	    return { ok: true, paths };
 	  });
@@ -792,13 +816,14 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "export:musicxml");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export MusicXML",
-      defaultPath: `${safeName}.musicxml`,
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.musicxml` }),
       filters: [
         { name: "MusicXML", extensions: ["musicxml", "xml"] },
         { name: "All Files", extensions: ["*"] },
       ],
     });
     if (!filePath) return { ok: false, canceled: true };
+    rememberDialogPath(filePath);
     try {
       const settings = getSettings ? getSettings() : {};
       const converted = await convertAbcToMusicXml({
@@ -836,13 +861,14 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "export:midi");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export MIDI",
-      defaultPath: `${safeName}.mid`,
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.mid` }),
       filters: [
         { name: "MIDI", extensions: ["mid", "midi"] },
         { name: "All Files", extensions: ["*"] },
       ],
     });
     if (!filePath) return { ok: false, canceled: true };
+    rememberDialogPath(filePath);
     try {
       await atomicWriteFileWithRetry(fs, path, filePath, buf);
       return { ok: true };
@@ -1002,12 +1028,13 @@ function registerIpcHandlers(ctx) {
       const resolved = resolveTemplatesFolder();
       const res = dialog.showOpenDialogSync(parent || undefined, {
         title: "Choose Templates Folder",
-        defaultPath: resolved.folder,
+        defaultPath: getDialogPath({ suggestedPath: resolved.folder, directoryOnly: true }),
         properties: ["openDirectory", "createDirectory"],
       });
       if (!res || !res.length) return { ok: true, canceled: true };
       const selected = String(res[0] || "");
       if (!selected) return { ok: true, canceled: true };
+      rememberDialogPath(selected, { isDirectory: true });
       if (typeof updateSettings === "function") {
         await updateSettings({ templatesFolder: selected });
       }
@@ -1100,10 +1127,11 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "print:pdf");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export PDF",
-      defaultPath: `${safeName}.pdf`,
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.pdf` }),
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
     if (!filePath) return { ok: false, error: "Canceled" };
+    rememberDialogPath(filePath);
     if (typeof exportPdf === "function") return exportPdf(svgMarkup, filePath);
     return withMainPrintMode(async (contents) => {
       try {
@@ -1205,10 +1233,13 @@ function registerIpcHandlers(ctx) {
         modal: true,
         title: "Add font",
         properties: ["openFile"],
+        defaultPath: getDialogPath(),
         filters: [{ name: "Fonts", extensions: ["otf", "ttf", "woff", "woff2"] }, { name: "All Files", extensions: ["*"] }],
       });
       if (!result || result.canceled || !Array.isArray(result.filePaths) || !result.filePaths[0]) return { ok: false, error: "Canceled" };
-      return { ok: true, path: String(result.filePaths[0]) };
+      const selected = String(result.filePaths[0] || "");
+      if (selected) rememberDialogPath(selected);
+      return { ok: true, path: selected };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1265,11 +1296,16 @@ function registerIpcHandlers(ctx) {
       const result = await dialog.showSaveDialog(parent || undefined, {
         modal: true,
         title: "Export Settings",
-        defaultPath,
+        defaultPath: getDialogPath({
+          suggestedName: "abcarus.properties",
+          suggestedDir: suggestedDir || "",
+          suggestedPath: defaultPath,
+        }),
         filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
       });
       if (!result || result.canceled || !result.filePath) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePath);
+      rememberDialogPath(filePath);
 
       const schema = getSettingsSchema();
       const current = getSettings();
@@ -1311,11 +1347,15 @@ function registerIpcHandlers(ctx) {
         modal: true,
         title: "Import Settings",
         properties: ["openFile"],
-        defaultPath: suggestedDir || undefined,
+        defaultPath: getDialogPath({
+          suggestedPath: suggestedDir || "",
+          directoryOnly: true,
+        }),
         filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
       });
       if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePaths[0]);
+      rememberDialogPath(filePath);
       const raw = await fs.promises.readFile(filePath, "utf8");
       const schema = getSettingsSchema();
       const patch = parseSettingsPatchFromProperties(raw, schema);

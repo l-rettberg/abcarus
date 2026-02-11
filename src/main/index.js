@@ -1,6 +1,7 @@
 // main.js
 const fs = require("fs");
 const path = require("path");
+const { fileURLToPath } = require("url");
 const childProcess = require("child_process");
 const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen } = require("electron");
 const { applyMenu } = require("./menu");
@@ -26,6 +27,7 @@ function logStartupPerf(label, data) {
 }
 const appState = {
   lastFolder: null,
+  lastDialogDir: null,
   recentTunes: [],
   recentFiles: [],
   recentFolders: [],
@@ -186,6 +188,7 @@ async function loadState() {
     const data = JSON.parse(raw);
     if (data && typeof data === "object") {
       appState.lastFolder = data.lastFolder || null;
+      appState.lastDialogDir = data.lastDialogDir || data.lastDialogPath || null;
       appState.recentTunes = Array.isArray(data.recentTunes) ? data.recentTunes : [];
       appState.recentFiles = Array.isArray(data.recentFiles) ? data.recentFiles : [];
       appState.recentFolders = Array.isArray(data.recentFolders) ? data.recentFolders : [];
@@ -249,6 +252,17 @@ async function pathExists(p) {
 async function migrateStatePaths() {
   const validLastFolder = await pathExists(appState.lastFolder);
   if (!validLastFolder) appState.lastFolder = null;
+  const validLastDialogDir = await pathExists(appState.lastDialogDir);
+  if (!validLastDialogDir) {
+    appState.lastDialogDir = null;
+  } else {
+    try {
+      const st = await fs.promises.stat(appState.lastDialogDir);
+      if (st && st.isFile()) appState.lastDialogDir = path.dirname(appState.lastDialogDir);
+    } catch {
+      appState.lastDialogDir = null;
+    }
+  }
 
   const validFolderEntries = [];
   for (const entry of appState.recentFolders) {
@@ -300,6 +314,7 @@ async function saveState() {
     const payload = JSON.stringify(
       {
         lastFolder: appState.lastFolder,
+        lastDialogDir: appState.lastDialogDir,
         recentTunes: appState.recentTunes,
         recentFiles: appState.recentFiles,
         recentFolders: appState.recentFolders,
@@ -451,18 +466,67 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
+function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, directoryOnly } = {}) {
+  const normalizeFsPath = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    if (/^file:\/\//i.test(raw)) {
+      try { return fileURLToPath(raw); } catch { return ""; }
+    }
+    return raw;
+  };
+  const rememberedDir = normalizeFsPath(appState.lastDialogDir);
+  const explicitDir = normalizeFsPath(suggestedDir);
+  const explicitPath = normalizeFsPath(suggestedPath);
+  const explicitPathAbs = explicitPath && path.isAbsolute(explicitPath) ? explicitPath : "";
+  const explicitPathDir = explicitPathAbs ? path.dirname(explicitPathAbs) : "";
+  const explicitPathBase = explicitPathAbs ? path.basename(explicitPathAbs) : "";
+
+  const baseDir = rememberedDir || explicitDir || explicitPathDir;
+  const portalLikelyActive = (
+    process.platform === "linux"
+    && (process.env.ABCARUS_USE_PORTAL === "1" || (appState.settings && appState.settings.usePortalFileDialogs))
+  );
+  if (directoryOnly) return baseDir || undefined;
+
+  const fileName = String(suggestedName || "").trim() || explicitPathBase;
+  // Linux portal dialogs often ignore defaultPath when a filename is included.
+  // Prefer a directory default there to keep navigation stable.
+  if (portalLikelyActive && baseDir) return baseDir;
+  if (baseDir && fileName) return path.join(baseDir, fileName);
+  if (baseDir) return baseDir;
+  if (explicitPathAbs) return explicitPathAbs;
+  return fileName || undefined;
+}
+
+function rememberDialogSelection(selectedPath, { isDirectory = false } = {}) {
+  const raw = String(selectedPath || "").trim();
+  if (!raw) return;
+  let resolved = raw;
+  if (/^file:\/\//i.test(resolved)) {
+    try { resolved = fileURLToPath(resolved); } catch { return; }
+  }
+  const nextDir = isDirectory ? resolved : path.dirname(resolved);
+  if (!nextDir) return;
+  appState.lastDialogDir = nextDir;
+  saveState().catch(() => {});
+}
+
 function showOpenDialog(senderOrEvent) {
   const parent = prepareDialogParent(senderOrEvent, "open-file");
   return dialog.showOpenDialog(parent || undefined, {
     modal: true,
     properties: ["openFile"],
+    defaultPath: getDialogDefaultPath(),
     filters: [
       { name: "ABC", extensions: ["abc"] },
       { name: "All Files", extensions: ["*"] },
     ],
   }).then((result) => {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
-    return result.filePaths[0];
+    const selected = result.filePaths[0];
+    rememberDialogSelection(selected);
+    return selected;
   });
 }
 
@@ -471,19 +535,26 @@ function showOpenFolderDialog(senderOrEvent) {
   return dialog.showOpenDialog(parent || undefined, {
     modal: true,
     properties: ["openDirectory"],
-    defaultPath: appState.lastFolder || undefined,
+    defaultPath: getDialogDefaultPath({
+      suggestedPath: appState.lastFolder || "",
+      directoryOnly: true,
+    }),
   }).then((result) => {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
-    appState.lastFolder = result.filePaths[0];
-    saveState();
-    return result.filePaths[0];
+    const selected = result.filePaths[0];
+    appState.lastFolder = selected;
+    rememberDialogSelection(selected, { isDirectory: true });
+    return selected;
   });
 }
 
 function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
   const parent = prepareDialogParent(senderOrEvent, "save-file");
   const defaultName = suggestedName || "Untitled.abc";
-  const defaultPath = suggestedDir ? path.join(suggestedDir, defaultName) : defaultName;
+  const defaultPath = getDialogDefaultPath({
+    suggestedName: defaultName,
+    suggestedDir,
+  });
   const ext = path.extname(defaultName || "").replace(/^\./, "").trim().toLowerCase();
   const filters = (() => {
     if (ext === "json") {
@@ -505,7 +576,9 @@ function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
     filters,
   }).then((result) => {
     if (!result || result.canceled) return null;
-    return result.filePath || null;
+    const filePath = result.filePath || null;
+    if (filePath) rememberDialogSelection(filePath);
+    return filePath;
   });
 }
 
@@ -2308,6 +2381,8 @@ registerIpcHandlers({
   printViaPdf,
   getDialogParent,
   prepareDialogParent,
+  getDialogDefaultPath,
+  rememberDialogSelection,
   confirmAppendToFile,
   confirmImportMusicXmlTarget,
   confirmDeleteTune,

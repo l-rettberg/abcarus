@@ -31,6 +31,15 @@ async function assertSaveIntentGuards() {
   if (!src.includes("buildSelectionPlaybackToast(selectionSettings)")) {
     throw new Error("Selection playback must show active flags toast.");
   }
+  if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {
+    throw new Error("Missing sequential measure resolver for focus loop bounds.");
+  }
+  if (!src.includes("resolveMeasureStartRenderIdxSequential(measureIndex, fromNum, { minBound })")) {
+    throw new Error("Focus loop start must prefer sequential measure mapping.");
+  }
+  if (!src.includes("resolveMeasureStartRenderIdxSequential(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender })")) {
+    throw new Error("Focus loop end must prefer sequential measure mapping.");
+  }
 
   const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
   const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);

@@ -25453,6 +25453,29 @@ function resolveMeasureStartRenderIdx(measureIndex, n, { minBound, minStartRende
   return null;
 }
 
+function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {}) {
+  if (!measureIndex) return null;
+  const num = clampInt(n, 0, 100000, 0);
+  if (num <= 0) return null;
+  const istarts = Array.isArray(measureIndex.istarts) ? measureIndex.istarts : null;
+  if (!istarts || !istarts.length) return null;
+  const anchor = Number.isFinite(Number(measureIndex.anchor)) ? Number(measureIndex.anchor) : 0;
+  const slot = (num - 1) + anchor;
+  let v = istarts[Math.max(0, Math.min(istarts.length - 1, slot))];
+  if (!Number.isFinite(v)) return null;
+  const bound = Number(minBound);
+  if (Number.isFinite(bound) && v < bound) {
+    const atOrAfterBound = findBoundaryAtOrAfter(istarts, bound);
+    if (Number.isFinite(atOrAfterBound)) v = atOrAfterBound;
+  }
+  const minStart = Number(minStartRenderIdx);
+  if (Number.isFinite(minStart) && v < minStart) {
+    const atOrAfterMin = findBoundaryAtOrAfter(istarts, minStart);
+    if (Number.isFinite(atOrAfterMin)) v = atOrAfterMin;
+  }
+  return v;
+}
+
 function computeFocusLoopPlaybackRange() {
   if (!focusModeEnabled) return null;
   if (!playbackLoopEnabled) return null;
@@ -25470,12 +25493,18 @@ function computeFocusLoopPlaybackRange() {
   const toMeasure = clampInt(playbackLoopToMeasure, 0, 100000, 0);
 
   const fromNum = fromMeasure > 0 ? fromMeasure : 1;
-  const startRender = resolveMeasureStartRenderIdx(measureIndex, fromNum, { minBound });
+  // Focus loop needs linear editor bars (visible sequence), not repeat-aware bar_num mapping.
+  // Using byNumber here can pick a repeated occurrence and create unstable loop bounds.
+  const startRender =
+    resolveMeasureStartRenderIdxSequential(measureIndex, fromNum, { minBound })
+    ?? resolveMeasureStartRenderIdx(measureIndex, fromNum, { minBound });
   if (!Number.isFinite(startRender)) return null;
 
   let endRender = null;
   if (toMeasure > 0) {
-    const endStart = resolveMeasureStartRenderIdx(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender });
+    const endStart =
+      resolveMeasureStartRenderIdxSequential(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender })
+      ?? resolveMeasureStartRenderIdx(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender });
     if (Number.isFinite(endStart)) {
       // End offset is the *next* bar start after the chosen end measure start.
       endRender = findBoundaryAfter(measureIndex.istarts, endStart);

@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld("api", {
   showOpenError: async (message) =>
     ipcRenderer.invoke("dialog:show-open-error", message),
   importMusicXml: async () => ipcRenderer.invoke("import:musicxml"),
+  importMidi: async () => ipcRenderer.invoke("import:midi"),
   pickMusicXmlFiles: async () => ipcRenderer.invoke("import:musicxml:pick"),
   convertMusicXmlFile: async (filePath) => ipcRenderer.invoke("import:musicxml:convert-one", filePath),
   exportMusicXml: async (abcText, suggestedName) =>
@@ -126,6 +127,9 @@ contextBridge.exposeInMainWorld("api", {
   },
   onImportMusicXmlProgress: (handler) => {
     ipcRenderer.on("import:musicxml:progress", (_evt, payload) => handler(payload));
+  },
+  onImportMidiProgress: (handler) => {
+    ipcRenderer.on("import:midi:progress", (_evt, payload) => handler(payload));
   },
   onSettingsChanged: (handler) => {
     ipcRenderer.on("settings:changed", (_evt, settings) => handler(settings));

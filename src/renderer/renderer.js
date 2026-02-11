@@ -4450,6 +4450,7 @@ let tuneBadgeText = "";
 let bufferStatusText = "";
 
 let appStatusText = "Ready";
+let midiImportInProgress = false;
 let startupUiLoading = true;
 let startupSettingsApplied = false;
 let startupAutoLoadStarted = false;
@@ -12945,6 +12946,24 @@ if (window.api && typeof window.api.onLibraryProgress === "function") {
   });
 }
 
+if (window.api && typeof window.api.onImportMidiProgress === "function") {
+  window.api.onImportMidiProgress((payload) => {
+    if (!midiImportInProgress || !payload) return;
+    const total = Number(payload.total) || 0;
+    const done = Number(payload.done) || 0;
+    if (done <= 0) {
+      setStatus("Importing MIDI…");
+      return;
+    }
+    if (total > 0 && done >= total) {
+      setStatus("Finalizing MIDI import…");
+      return;
+    }
+    const src = payload.sourcePath ? safeBasename(String(payload.sourcePath)) : "";
+    setStatus(src ? `Importing MIDI… ${done}/${total} (${src})` : `Importing MIDI… ${done}/${total}`);
+  });
+}
+
 function createBlankDocument() {
   return {
     path: null,
@@ -13582,6 +13601,8 @@ function renderToolStatus() {
     const entries = [
       ["abc2xml", "abc2xml"],
       ["xml2abc", "xml2abc"],
+      ["midi2xml", "midi2xml"],
+      ["midi2abc", "midi2abc"],
       ["python", "Python"],
     ];
     for (const [key, label] of entries) {
@@ -20848,40 +20869,33 @@ async function fileOpen() {
   }
 }
 
-async function importMusicXml() {
-  if (!window.api) return;
-  if (typeof window.api.pickMusicXmlFiles !== "function") return;
-  if (typeof window.api.convertMusicXmlFile !== "function") return;
-
-  let cancelRequested = false;
-  const cancelHintToast = () => {
-    try {
-      showToast("Importing… Press Esc to cancel.", 2600);
-    } catch {}
-  };
-  const cancelHandler = (e) => {
-    try {
-      if (!e) return;
-      if (e.key !== "Escape") return;
-      cancelRequested = true;
-      e.preventDefault();
-      e.stopPropagation();
-    } catch {}
-  };
+async function importPreparedAbcItems(preparedItems, opts = {}) {
+  const items = Array.isArray(preparedItems) ? preparedItems : [];
+  if (!items.length) {
+    setStatus("Ready");
+    return;
+  }
+  const cleanContext = String(opts.cleanContext || "importing files");
+  const preflightOk = await ensureSafeToAbandonCurrentDoc(cleanContext);
+  if (!preflightOk) {
+    setStatus("Ready");
+    return;
+  }
 
   const suggestDir = (() => {
     try {
-      if (activeTuneMeta && activeTuneMeta.path) return safeDirname(String(activeTuneMeta.path));
-      if (activeFilePath) return safeDirname(String(activeFilePath));
       if (currentDoc && currentDoc.path) return safeDirname(String(currentDoc.path));
+      if (activeFilePath) return safeDirname(String(activeFilePath));
+      if (activeTuneMeta && activeTuneMeta.path) return safeDirname(String(activeTuneMeta.path));
     } catch {}
     return "";
   })();
 
-  let existingTargetPath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path)
+  // Use editor-owned path first; tune metadata can lag behind after recent save/switch flows.
+  let existingTargetPath = (currentDoc && currentDoc.path)
+    ? String(currentDoc.path)
     : (activeFilePath ? String(activeFilePath) : "");
-  if (!existingTargetPath && currentDoc && currentDoc.path) existingTargetPath = String(currentDoc.path);
+  if (!existingTargetPath && activeTuneMeta && activeTuneMeta.path) existingTargetPath = String(activeTuneMeta.path);
 
   const targetChoice = await confirmImportMusicXmlTarget(existingTargetPath || "");
   if (targetChoice === "cancel") {
@@ -20890,13 +20904,6 @@ async function importMusicXml() {
   }
 
   let targetPath = existingTargetPath;
-  const targetLabel = () => {
-    try {
-      return targetPath ? safeBasename(targetPath) : "target file";
-    } catch {
-      return "target file";
-    }
-  };
   if (targetChoice === "new_file") {
     const ok = await ensureSafeToAbandonCurrentDoc("creating a new file");
     if (!ok) {
@@ -20915,11 +20922,9 @@ async function importMusicXml() {
       return;
     }
     targetPath = String(newPath);
-
     activeTuneId = null;
     activeTuneMeta = null;
     activeFilePath = targetPath;
-
     setTuneMetaText("Untitled");
     setFileNameMeta(stripFileExtension(safeBasename(targetPath)));
     setCurrentDocument({ path: targetPath, dirty: false, content: "" });
@@ -20928,11 +20933,7 @@ async function importMusicXml() {
     updateHeaderStateUI();
     clearErrors();
     scheduleRenderNow({ clearOutput: true });
-
-    // Ensure the UI updates before opening the next modal dialog.
     await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Best-effort: make the new file show up in the Library (without blocking the import on failure).
     try {
       await refreshLibraryFile(targetPath);
     } catch {}
@@ -20941,7 +20942,7 @@ async function importMusicXml() {
     return;
   }
 
-  if (!(await requireCleanForFileOp(targetPath, "importing MusicXML"))) {
+  if (!(await requireCleanForFileOp(targetPath, cleanContext))) {
     setStatus("Ready");
     return;
   }
@@ -20955,7 +20956,6 @@ async function importMusicXml() {
     }
   };
 
-  // For brand-new default docs, drop the placeholder tune automatically (non-destructive).
   let dropPlaceholderTune = false;
   try {
     const readRes = await readFile(targetPath);
@@ -20974,78 +20974,12 @@ async function importMusicXml() {
     }
   } catch {}
 
-  setStatus(`Choose MusicXML files…`);
-  const pickRes = await window.api.pickMusicXmlFiles();
-  if (!pickRes || pickRes.canceled) {
-    setStatus("Ready");
-    return;
-  }
-  if (!pickRes.ok) {
-    const msg = formatConversionError(pickRes);
-    logErr(msg);
-    setStatus("Error");
-    await showOpenError(msg);
-    return;
-  }
-
-  const pickedPaths = Array.isArray(pickRes.paths) ? pickRes.paths.map(String) : [];
-  if (!pickedPaths.length) {
-    setStatus("Ready");
-    return;
-  }
-
-  const preparedItems = [];
-  const total = pickedPaths.length;
-
-  // Allow user to abort long imports without killing the app.
-  window.addEventListener("keydown", cancelHandler, true);
-  cancelHintToast();
-  try {
-    for (let i = 0; i < pickedPaths.length; i += 1) {
-      if (cancelRequested) break;
-      const sourcePath = pickedPaths[i];
-      setStatus(`Importing to “${targetLabel()}”… ${i + 1}/${total}`);
-      const converted = await window.api.convertMusicXmlFile(sourcePath);
-      if (!converted || !converted.ok) {
-        const msg = formatConversionError(converted);
-        logErr(msg);
-        setStatus("Error");
-        await showOpenError(msg);
-        return;
-      }
-
-      const fallbackTitle = deriveTitleFromPath(converted.sourcePath ? converted.sourcePath : sourcePath);
-      let prepared = ensureTitleInAbc(String(converted.abcText || ""), fallbackTitle);
-      prepared = normalizeMeasuresLineBreaks(transformMeasuresPerLine(prepared, 4));
-      const aligned = alignBarsInText(prepared);
-      const finalText = aligned || prepared;
-      preparedItems.push({
-        abcText: finalText,
-        warnings: converted.warnings ? converted.warnings : null,
-        sourcePath: converted.sourcePath ? converted.sourcePath : sourcePath,
-      });
-    }
-  } finally {
-    window.removeEventListener("keydown", cancelHandler, true);
-  }
-
-  if (cancelRequested && preparedItems.length) {
-    try {
-      showToast(`Import canceled (imported ${preparedItems.length}/${total}).`, 2600);
-    } catch {}
-  } else if (cancelRequested) {
-    setStatus("Ready");
-    return;
-  }
-
   if (targetPath) {
     try {
       await withFileLock(targetPath, async () => {
         const readRes = await readFile(targetPath);
         if (!readRes || !readRes.ok) throw new Error((readRes && readRes.error) ? readRes.error : "Unable to read target file.");
         const before = String(readRes.data || "");
-
-        // For existing targets, refuse to import if the file changed on disk while the user was importing.
         if (targetChoice !== "new_file") {
           const verifyRes = await readFile(targetPath);
           if (!verifyRes || !verifyRes.ok) throw new Error((verifyRes && verifyRes.error) ? verifyRes.error : "Unable to verify file before importing.");
@@ -21059,11 +20993,12 @@ async function importMusicXml() {
         const beforeTuneCount = (isEmpty || (dropPlaceholderTune && isPlaceholder)) ? 0 : countTunesByX(before);
         let updated = (dropPlaceholderTune && isPlaceholder) ? "" : before;
         let lastWithX = "";
-        for (const item of preparedItems) {
+        for (const item of items) {
           const nextX = getNextXNumber(updated);
           lastWithX = ensureXNumberInAbc(String(item.abcText || ""), nextX);
           updated = appendTuneToContent(updated, lastWithX);
         }
+
         const shouldUseWorkingCopyCommit = Boolean(
           isWorkingCopyOpenForFile(targetPath)
           && window.api
@@ -21135,13 +21070,17 @@ async function importMusicXml() {
       return;
     }
 
-    for (const item of preparedItems) {
+    for (const item of items) {
+      if (item && item.backend) {
+        const p = item.sourcePath ? ` (${safeBasename(item.sourcePath)})` : "";
+        logErr(`Import backend${p}: ${item.backend}`);
+      }
       if (item && item.warnings) {
         const p = item.sourcePath ? ` (${safeBasename(item.sourcePath)})` : "";
         logErr(`Import warning${p}: ${item.warnings}`);
       }
     }
-    setStatus(`OK (imported ${preparedItems.length} file${preparedItems.length === 1 ? "" : "s"})`);
+    setStatus(`OK (imported ${items.length} file${items.length === 1 ? "" : "s"})`);
     return;
   }
 
@@ -21152,16 +21091,156 @@ async function importMusicXml() {
   }
 
   if (!currentDoc) setCurrentDocument(createBlankDocument());
-  // Without a target file, open the last imported tune as a draft.
-  const last = preparedItems.length ? preparedItems[preparedItems.length - 1] : null;
+  const last = items.length ? items[items.length - 1] : null;
   setActiveTuneText(last ? String(last.abcText || "") : "", null, { markDirty: true });
-  for (const item of preparedItems) {
+  for (const item of items) {
+    if (item && item.backend) {
+      const p = item.sourcePath ? ` (${safeBasename(item.sourcePath)})` : "";
+      logErr(`Import backend${p}: ${item.backend}`);
+    }
     if (item && item.warnings) {
       const p = item.sourcePath ? ` (${safeBasename(item.sourcePath)})` : "";
       logErr(`Import warning${p}: ${item.warnings}`);
     }
   }
   setStatus("OK");
+}
+
+async function importMusicXml() {
+  if (!window.api) return;
+  if (typeof window.api.pickMusicXmlFiles !== "function") return;
+  if (typeof window.api.convertMusicXmlFile !== "function") return;
+  const preflightOk = await ensureSafeToAbandonCurrentDoc("importing MusicXML");
+  if (!preflightOk) {
+    setStatus("Ready");
+    return;
+  }
+
+  let cancelRequested = false;
+  const cancelHintToast = () => {
+    try {
+      showToast("Importing… Press Esc to cancel.", 2600);
+    } catch {}
+  };
+  const cancelHandler = (e) => {
+    try {
+      if (!e) return;
+      if (e.key !== "Escape") return;
+      cancelRequested = true;
+      e.preventDefault();
+      e.stopPropagation();
+    } catch {}
+  };
+
+  setStatus("Choose MusicXML files…");
+  const pickRes = await window.api.pickMusicXmlFiles();
+  if (!pickRes || pickRes.canceled) {
+    setStatus("Ready");
+    return;
+  }
+  if (!pickRes.ok) {
+    const msg = formatConversionError(pickRes);
+    logErr(msg);
+    setStatus("Error");
+    await showOpenError(msg);
+    return;
+  }
+  const pickedPaths = Array.isArray(pickRes.paths) ? pickRes.paths.map(String) : [];
+  if (!pickedPaths.length) {
+    setStatus("Ready");
+    return;
+  }
+
+  const preparedItems = [];
+  const total = pickedPaths.length;
+  window.addEventListener("keydown", cancelHandler, true);
+  cancelHintToast();
+  try {
+    for (let i = 0; i < pickedPaths.length; i += 1) {
+      if (cancelRequested) break;
+      const sourcePath = pickedPaths[i];
+      setStatus(`Converting MusicXML… ${i + 1}/${total}`);
+      const converted = await window.api.convertMusicXmlFile(sourcePath);
+      if (!converted || !converted.ok) {
+        const msg = formatConversionError(converted);
+        logErr(msg);
+        setStatus("Error");
+        await showOpenError(msg);
+        return;
+      }
+      const fallbackTitle = deriveTitleFromPath(converted.sourcePath ? converted.sourcePath : sourcePath);
+      let prepared = ensureTitleInAbc(String(converted.abcText || ""), fallbackTitle);
+      prepared = normalizeMeasuresLineBreaks(transformMeasuresPerLine(prepared, 4));
+      const aligned = alignBarsInText(prepared);
+      preparedItems.push({
+        abcText: aligned || prepared,
+        warnings: converted.warnings ? converted.warnings : null,
+        sourcePath: converted.sourcePath ? converted.sourcePath : sourcePath,
+      });
+    }
+  } finally {
+    window.removeEventListener("keydown", cancelHandler, true);
+  }
+
+  if (cancelRequested && preparedItems.length) {
+    try {
+      showToast(`Import canceled (imported ${preparedItems.length}/${total}).`, 2600);
+    } catch {}
+  } else if (cancelRequested) {
+    setStatus("Ready");
+    return;
+  }
+
+  await importPreparedAbcItems(preparedItems, { cleanContext: "importing MusicXML" });
+}
+
+async function importMidi() {
+  if (!window.api || typeof window.api.importMidi !== "function") return;
+  const preflightOk = await ensureSafeToAbandonCurrentDoc("importing MIDI");
+  if (!preflightOk) {
+    setStatus("Ready");
+    return;
+  }
+  setStatus("Choose MIDI files…");
+  midiImportInProgress = true;
+  let res = null;
+  try {
+    res = await window.api.importMidi();
+  } finally {
+    midiImportInProgress = false;
+  }
+  if (!res || res.canceled) {
+    setStatus("Ready");
+    return;
+  }
+  if (!res.ok) {
+    const msg = formatConversionError(res);
+    logErr(msg);
+    setStatus("Error");
+    await showOpenError(msg);
+    return;
+  }
+
+  const rawItems = Array.isArray(res.items) ? res.items : [];
+  if (!rawItems.length) {
+    setStatus("Ready");
+    return;
+  }
+
+  const preparedItems = rawItems.map((item) => {
+    const sourcePath = item && item.sourcePath ? String(item.sourcePath) : "";
+    const fallbackTitle = deriveTitleFromPath(sourcePath);
+    let prepared = ensureTitleInAbc(String((item && item.abcText) || ""), fallbackTitle);
+    prepared = normalizeMeasuresLineBreaks(transformMeasuresPerLine(prepared, 4));
+    const aligned = alignBarsInText(prepared);
+    return {
+      abcText: aligned || prepared,
+      warnings: item && item.warnings ? item.warnings : null,
+      sourcePath,
+    };
+  });
+
+  await importPreparedAbcItems(preparedItems, { cleanContext: "importing MIDI" });
 }
 
 async function fileSave() {
@@ -21710,6 +21789,7 @@ function wireMenuActions() {
           "exportMusicXml",
           "exportMidi",
           "importMusicXml",
+          "importMidi",
           "templatesModal",
           "abcHelpers",
           "revertToDisk",
@@ -21765,6 +21845,7 @@ function wireMenuActions() {
       else if (actionType === "open") await fileOpen();
       else if (actionType === "openFolder") await scanAndLoadLibrary();
       else if (actionType === "importMusicXml") await importMusicXml();
+      else if (actionType === "importMidi") await importMidi();
       else if (actionType === "save") await fileSave();
       else if (actionType === "saveAs") await fileSaveAs();
       else if (actionType === "revertToDisk") {

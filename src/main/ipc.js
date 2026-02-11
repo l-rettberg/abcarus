@@ -680,6 +680,62 @@ function registerIpcHandlers(ctx) {
         code: e && e.code ? e.code : "",
       };
     }
+	  });
+
+  ipcMain.handle("import:midi", async (event) => {
+    const parent = getParentForDialog(event, "import:midi");
+    const result = dialog.showOpenDialogSync(parent || undefined, {
+      modal: true,
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "MIDI", extensions: ["mid", "midi"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (!result || !result.length) return { ok: false, canceled: true };
+    try {
+      const settings = getSettings ? getSettings() : {};
+      const selected = Array.from(result).map(String);
+      if (selected.length > 1 && shouldReversePortalMultiSelection(settings)) selected.reverse();
+      const items = [];
+      const total = selected.length;
+      let lastProgressAt = 0;
+      const sendProgress = (done, filePath) => {
+        try {
+          const now = Date.now();
+          if (done !== 0 && done !== total && now - lastProgressAt < 150) return;
+          lastProgressAt = now;
+          event.sender.send("import:midi:progress", { done, total, sourcePath: filePath || "" });
+        } catch {}
+      };
+      sendProgress(0, "");
+      for (let i = 0; i < selected.length; i += 1) {
+        const filePath = selected[i];
+        sendProgress(i, filePath);
+        const converted = await convertFileToAbc({
+          kind: "midi",
+          inputPath: filePath,
+          args: settings.midi2abcArgs || "",
+          midiBackend: settings.midiImportBackend || "auto",
+          xmlArgs: settings.xml2abcArgs || "",
+        });
+        items.push({
+          abcText: converted.abcText,
+          warnings: converted.warnings || null,
+          backend: converted.backend || "",
+          sourcePath: filePath,
+        });
+      }
+      sendProgress(total, "");
+      return { ok: true, items };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e && e.message ? e.message : String(e),
+        detail: e && e.detail ? e.detail : "",
+        code: e && e.code ? e.code : "",
+      };
+    }
   });
 
 	  ipcMain.handle("import:musicxml:pick", async (event) => {

@@ -171,6 +171,9 @@ MusicXML:
 - Import: `File → Import → MusicXML…`
 - Export: `File → Export → MusicXML…`
 
+MIDI:
+- Import: `File → Import → MIDI…` (experimental, converts `.mid/.midi` to ABC)
+
 MusicXML import/export requires Python (bundled in release builds; configurable in development). If Python is unavailable, ABCarus refuses the operation with an error rather than producing partial output.
 
 ### Import into the current file (recommended workflow)

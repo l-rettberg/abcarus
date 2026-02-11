@@ -71,6 +71,9 @@ Native (renderer):
 
 ## Import / export
 - Import MusicXML or MXL: `xml2abc.py` (Python) converts to ABC (`src/main/conversion/backends/xml2abc.js`).
+- Import MIDI (`.mid`, `.midi`):
+  - Default backend mode: `auto` (tries `midi2xml (music21) -> xml2abc`, falls back to bundled `midi2abc`).
+  - Explicit backends: bundled `midi2abc` (`src/main/conversion/backends/midi2abc.js`) or `midi2xml (music21) -> MusicXML -> xml2abc` (`third_party/midi2xml/midi2xml.py` + `src/main/conversion/backends/midi2abc_music21.js`), experimental.
 - Export MusicXML: `abc2xml.py` (Python) converts ABC to MusicXML (`src/main/conversion/backends/abc2xml.js`).
 - Export PDF: render pane is printed to PDF via Electron printing (`print:pdf` IPC).
 - Print preview opens a temporary PDF file and uses the OS PDF viewer (`print:preview` IPC).

@@ -46,6 +46,36 @@ xml2abc is used as an external tool.
 
 ---
 
+## midi2abc
+
+ABCarus includes **midi2abc** for experimental MIDI to ABC import.
+
+- Project: midi2abc
+- Author: marmooo
+- License: MIT License
+- Website: https://github.com/marmooo/midi2abc
+
+Upstream attribution notes:
+- Tone.js (MIT): https://github.com/Tonejs/Tone.js
+- Magenta.js (Apache-2.0): https://github.com/magenta/magenta-js
+
+---
+
+## midi2xml (ABCarus wrapper) / music21
+
+ABCarus includes a small wrapper for experimental MIDI -> MusicXML import:
+
+- Local wrapper: `third_party/midi2xml/midi2xml.py`
+- Backend library: `music21`
+
+music21:
+- Project: music21
+- Authors: cuthbertLab contributors
+- License: BSD-3-Clause
+- Website: https://github.com/cuthbertLab/music21
+
+---
+
 ## Python runtime (bundled)
 
 ABCarus bundles a Python runtime for MusicXML import/export tools.

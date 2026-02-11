@@ -3,6 +3,7 @@
 ABCarus bundles a portable Python runtime to run MusicXML import/export tools:
 - `third_party/abc2xml/abc2xml.py`
 - `third_party/xml2abc/xml2abc.py`
+- `third_party/midi2xml/midi2xml.py` (experimental MIDI import backend)
 
 ## Why PBS (instead of system Python)
 
@@ -69,6 +70,15 @@ Windows runtime layout notes:
 
 To verify that required lock files are present and well-formed:
 - `npm run pbs:check`
+
+## Python dependencies for converters
+
+`pbs-install-*` scripts also install converter dependencies declared in:
+- `third_party/midi2xml/requirements.txt`
+
+To skip dependency installation (debug only):
+- `ABCARUS_SKIP_PYDEPS=1 bash devtools/pbs/pbs-install-unix.sh <platform>`
+- `$env:ABCARUS_SKIP_PYDEPS="1"; pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-windows.ps1 -Platform win-x64`
 
 ## Legacy Windows runtime (note)
 

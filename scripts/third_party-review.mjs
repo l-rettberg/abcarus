@@ -197,6 +197,17 @@ function detectPythonToolVersion(sourceText) {
   return m ? m[1] : "";
 }
 
+function detectPinnedRequirementVersion(reqText, packageName) {
+  const lines = String(reqText || "").split(/\r?\n/);
+  for (const line of lines) {
+    const text = line.trim();
+    if (!text || text.startsWith("#")) continue;
+    const m = text.match(/^([A-Za-z0-9_.-]+)\s*==\s*([^\s#]+)\s*$/);
+    if (m && m[1].toLowerCase() === String(packageName || "").toLowerCase()) return m[2];
+  }
+  return "";
+}
+
 function componentInventory(root) {
   const base = path.resolve(root, "third_party");
   const abc2svgVersionTxt = readTextMaybe(path.join(base, "abc2svg", "version.txt"));
@@ -244,7 +255,24 @@ function componentInventory(root) {
     keyFiles: ["codemirror/cm.js"],
   };
 
-  return [abc2svg, abc2xml, xml2abc, tabulator, codemirror].map((c) => {
+  const midi2abc = {
+    name: "midi2abc",
+    path: "third_party/midi2abc",
+    kind: "js-asset",
+    version: "",
+    keyFiles: ["midi2abc/midi2abc.mjs", "midi2abc/LICENSE", "midi2abc/README.md"],
+  };
+
+  const midi2xmlReq = readTextMaybe(path.join(base, "midi2xml", "requirements.txt"));
+  const midi2xml = {
+    name: "midi2xml",
+    path: "third_party/midi2xml",
+    kind: "python",
+    version: detectPinnedRequirementVersion(midi2xmlReq, "music21"),
+    keyFiles: ["midi2xml/midi2xml.py", "midi2xml/requirements.txt", "midi2xml/README.md"],
+  };
+
+  return [abc2svg, abc2xml, xml2abc, midi2xml, tabulator, codemirror, midi2abc].map((c) => {
     const hashes = {};
     for (const rel of c.keyFiles) {
       const abs = path.join(base, rel);

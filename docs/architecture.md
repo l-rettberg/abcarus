@@ -75,6 +75,9 @@ The renderer does not access Node APIs directly; it uses these IPC methods.
 
 ### Import/export pipeline
 - Import MusicXML/MXL: main process runs `xml2abc.py`, returns ABC to the renderer.
+- Import MIDI (experimental): main process supports two backends:
+  - bundled `third_party/midi2abc/midi2abc.mjs` (default),
+  - optional `third_party/midi2xml/midi2xml.py (music21) -> MusicXML -> xml2abc` pipeline (configured in Settings, with fallback to bundled backend if dependencies are unavailable).
 - Export MusicXML: main process runs `abc2xml.py` on the current editor buffer.
 - Native transforms (renderer) perform in-place ABC rewriting.
 

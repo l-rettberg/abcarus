@@ -26,6 +26,8 @@ ABCarus is a small Electron desktop app for working with ABC notation:
 2) [WORKFLOW.md](WORKFLOW.md) — day-to-day workflow, release flow, debug flags, “what not to commit”.
 3) [README.md](README.md) — user-facing overview and quick commands.
 4) `docs/` — deeper docs and release notes/checklists.
+5) `docs/midi2abc-microtones.md` — microtone behavior in abc2svg and
+   converter constraints for future `MIDI -> ABC` work.
 
 ## Local development
 

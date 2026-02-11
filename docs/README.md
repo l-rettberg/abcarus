@@ -39,7 +39,7 @@ Scripts are defined in `package.json`.
 - `src/main/`: Electron main process (window, menus, IPC, file dialogs, scanning).
 - `src/preload.js`: Preload bridge exposing IPC APIs to the renderer.
 - `src/renderer/`: UI and feature logic (editor, library, rendering, playback).
-- `third_party/`: Bundled external tools and libraries (abc2svg, xml2abc, abc2xml, soundfonts).
+- `third_party/`: Bundled external tools and libraries (abc2svg, xml2abc, abc2xml, midi2xml, midi2abc, soundfonts).
 - `assets/`: App icons.
 
 ## Packaging/build
@@ -75,4 +75,5 @@ Packaging scripts are available:
 - [docs/abc-tag-conventions.md](abc-tag-conventions.md): Draft metadata conventions for `R:`/`G:` (usul/makam/grouping namespaces).
 - [docs/soundfonts.md](soundfonts.md): Soundfont selection and local setup.
 - [docs/notation-fonts.md](notation-fonts.md): Notation font (SMuFL / `%%musicfont`) notes and how to add more.
+- [docs/midi2abc-microtones.md](midi2abc-microtones.md): How abc2svg handles microtones (parse/render/MIDI) and constraints for future `MIDI -> ABC` conversion.
 - `docs/adr/`: Architecture decision records (ADRs).

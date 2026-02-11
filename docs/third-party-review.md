@@ -12,6 +12,8 @@ Regularly used script/tool components:
 - `third_party/abc2svg/` (renderer + playback engine)
 - `third_party/abc2xml/abc2xml.py` (ABC → MusicXML)
 - `third_party/xml2abc/xml2abc.py` (MusicXML → ABC)
+- `third_party/midi2xml/midi2xml.py` (+ `requirements.txt`) (MIDI → MusicXML, experimental)
+- `third_party/midi2abc/midi2abc.mjs` (MIDI → ABC, experimental)
 
 Other vendored assets (CodeMirror, Tabulator, SF2, fonts) should still be reviewed, but they are typically lower risk.
 

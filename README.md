@@ -3,9 +3,7 @@
 </p>
 <h1 align="center">ABCarus</h1>
 
-ABCarus is a desktop application for working with music encoded in ABC notation.
-
-ABCarus is designed for navigating, editing, rendering, and organizing large collections of `.abc` files. It treats each tune (from `X:` to the next `X:`) as an independent unit, which supports archival workflows and large libraries.
+ABCarus is a desktop application for working with music encoded in ABC notation. It is designed for navigating, editing, rendering, and organizing large collections of `.abc` files. It treats each tune (from `X:` to the next `X:`) as an independent unit, which supports archival workflows and large libraries.
 
 ## Status
 
@@ -135,6 +133,8 @@ Import/Export uses external Python converters stored under `third_party/`:
 
 - `third_party/abc2xml/abc2xml.py` (ABC → MusicXML)
 - `third_party/xml2abc/xml2abc.py` (MusicXML → ABC)
+- `third_party/midi2xml/midi2xml.py` (MIDI → MusicXML, experimental backend)
+- `third_party/midi2abc/midi2abc.mjs` (MIDI → ABC, experimental)
 
 By default, ABCarus prefers a bundled Python runtime (PBS). In development, install PBS with:
 
@@ -154,6 +154,8 @@ Major third-party components used by ABCarus:
 - abc2svg — https://chiselapp.com/user/moinejf/repository/abc2svg/doc/trunk/README.md
 - abc2xml — https://wim.vree.org/svgParse/abc2xml.html
 - xml2abc — https://wim.vree.org/svgParse/xml2abc.html
+- music21 — https://github.com/cuthbertLab/music21
+- midi2abc — https://github.com/marmooo/midi2abc
 - CodeMirror — https://codemirror.net/
 - Tabulator — https://tabulator.info/
 - Electron — https://www.electronjs.org/
@@ -172,6 +174,8 @@ See [NOTICE.md](NOTICE.md) for licenses and attribution details.
 | Seymour Shlien | EasyABC, runabc, midiexplorer | A long-running desktop editor that shaped many real-world workflows | https://ifdo.ca/~seymour/runabc/top.html |
 | James Allwright | abcMIDI | The classic ABC→MIDI toolbox many people still rely on | https://abcmidi.sourceforge.io/ |
 | Michael Eskin | ABC Transcription Tools | A huge set of practical online helpers for everyday ABC work | https://michaeleskin.com/abctools/abctools.html |
+| cuthbertLab | music21 | MIDI parsing backend used by the optional MIDI -> MusicXML -> ABC pipeline | https://github.com/cuthbertLab/music21 |
+| marmooo | midi2abc | Practical MIDI → ABC conversion baseline used for bundled import | https://github.com/marmooo/midi2abc |
 | Paul Rosen | abcjs | One of the most common ABC renderers on the web | https://www.abcjs.net/ |
 | Johan Vromans | ChordPro | A strong song/chords world that overlaps with ABC use cases | https://www.chordpro.org/ |
 | Willem Vree | abc2xml, xml2abc | The MusicXML bridge (ABC ↔ MusicXML) | https://wim.vree.org/ |

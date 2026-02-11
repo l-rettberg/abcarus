@@ -7,6 +7,7 @@ ABCarus supports:
 ## Python runtime (PBS)
 
 Import/export uses Python tools (`abc2xml`, `xml2abc`) and expects a bundled Python runtime installed from python-build-standalone (PBS).
+Experimental MIDI import backend `music21 -> midi2xml -> xml2abc` also uses the bundled Python runtime.
 
 References:
 - PBS policy + lock/install workflow: [docs/python-build-standalone.md](python-build-standalone.md)
@@ -17,6 +18,7 @@ Before packaging, install the PBS runtime for your platform:
 - Update lock: `node devtools/pbs/pbs-update-lock.mjs --platform=<platform>`
 - Install: `bash devtools/pbs/pbs-install-unix.sh <platform>` (Linux/macOS) or
   `pwsh -ExecutionPolicy Bypass -File devtools/pbs/pbs-install-windows.ps1 -Platform win-x64` (Windows)
+  - These install scripts also install Python dependencies declared in `third_party/midi2xml/requirements.txt`.
 The `dist:*` scripts include a pre-check that fails fast if the runtime is missing:
 - `npm run pbs:check-runtime`
 

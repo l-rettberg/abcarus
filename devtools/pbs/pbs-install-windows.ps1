@@ -139,3 +139,16 @@ try {
   Write-Host $_
   exit 1
 }
+
+if ($env:ABCARUS_SKIP_PYDEPS -eq "1") {
+  Write-Host "Skipping Python dependency install (ABCARUS_SKIP_PYDEPS=1)."
+  exit 0
+}
+
+$requirementsFile = "third_party/midi2xml/requirements.txt"
+if (Test-Path $requirementsFile) {
+  Write-Host "Installing Python dependencies from $requirementsFile"
+  try { & $pythonExe -m ensurepip --upgrade | Out-Null } catch {}
+  & $pythonExe -m pip install --upgrade pip
+  & $pythonExe -m pip install -r $requirementsFile
+}

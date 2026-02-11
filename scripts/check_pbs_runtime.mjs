@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const argv = Object.fromEntries(process.argv.slice(2).map((arg) => {
   const m = arg.match(/^--([^=]+)=(.*)$/);
@@ -96,6 +97,47 @@ function fail(message) {
   process.exit(1);
 }
 
+function runPythonProbe(pythonExe, code, cwd = process.cwd()) {
+  try {
+    execFileSync(pythonExe, ["-c", code], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    return { ok: true, error: "" };
+  } catch (e) {
+    const errText = String(
+      (e && e.stderr ? e.stderr.toString("utf8") : "")
+      || (e && e.stdout ? e.stdout.toString("utf8") : "")
+      || (e && e.message ? e.message : e)
+    ).trim();
+    return { ok: false, error: errText };
+  }
+}
+
+function parseRequiredPyModules() {
+  const reqPath = path.join("third_party", "midi2xml", "requirements.txt");
+  if (!existsFile(reqPath)) return [];
+  const raw = fs.readFileSync(reqPath, "utf8");
+  const modules = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const text = line.trim();
+    if (!text || text.startsWith("#")) continue;
+    const pkg = text.split(/[<>=!~\s\[]/, 1)[0].trim();
+    if (!pkg) continue;
+    // Known direct import names can diverge from package names.
+    if (pkg.toLowerCase() === "music21") modules.push("music21");
+  }
+  return Array.from(new Set(modules));
+}
+
+function verifyPythonDeps(pythonExe) {
+  const modules = parseRequiredPyModules();
+  if (!modules.length) return;
+  for (const mod of modules) {
+    const probe = runPythonProbe(pythonExe, `import ${mod}; print(${mod}.__name__)`);
+    if (!probe.ok) {
+      fail(`Missing Python dependency '${mod}' in PBS runtime.\n${probe.error}`);
+    }
+  }
+}
+
 if (!existsFile(lockPath)) {
   fail(`Missing PBS lock file: ${lockPath}`);
 }
@@ -112,6 +154,7 @@ if (platform === "win-x64") {
     if (entries.length) console.error(`Top-level entries: ${entries.join(", ")}`);
     fail("PBS runtime not installed.");
   }
+  verifyPythonDeps(candidates[0]);
   console.log(`OK: PBS runtime looks installed (${path.relative(process.cwd(), candidates[0])})`);
   process.exit(0);
 }
@@ -123,5 +166,5 @@ if (!existsExecutable(python3Path)) {
   fail(`Missing executable: ${python3Path}`);
 }
 
+verifyPythonDeps(python3Path);
 console.log(`OK: PBS runtime looks installed (${python3Path})`);
-

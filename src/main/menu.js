@@ -94,6 +94,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         label: "Import",
         submenu: [
           { label: "MusicXML…", click: () => sendMenuAction("importMusicXml") },
+          { label: "MIDI…", click: () => sendMenuAction("importMidi") },
         ],
       },
       { type: "separator" },

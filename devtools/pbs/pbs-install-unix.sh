@@ -74,3 +74,16 @@ rm -rf "${tmp}"
 echo "Done."
 echo "Python: ${dest}/bin/python3"
 "${dest}/bin/python3" -c 'import sys; print(sys.version); print(sys.executable)'
+
+if [[ "${ABCARUS_SKIP_PYDEPS:-0}" == "1" ]]; then
+  echo "Skipping Python dependency install (ABCARUS_SKIP_PYDEPS=1)."
+  exit 0
+fi
+
+requirements_file="third_party/midi2xml/requirements.txt"
+if [[ -f "${requirements_file}" ]]; then
+  echo "Installing Python dependencies from ${requirements_file}"
+  "${dest}/bin/python3" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  "${dest}/bin/python3" -m pip install --upgrade pip
+  "${dest}/bin/python3" -m pip install -r "${requirements_file}"
+fi

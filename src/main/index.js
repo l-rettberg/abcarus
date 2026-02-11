@@ -217,6 +217,13 @@ async function loadState() {
         if (!Object.prototype.hasOwnProperty.call(data.settings, "layoutRenderZoomHorizontal")) {
           merged.layoutRenderZoomHorizontal = merged.renderZoom;
         }
+        // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
+        // If the backend was never explicitly chosen, move to auto mode.
+        if (!Object.prototype.hasOwnProperty.call(data.settings, "midiImportBackendSetByUser")) {
+          if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
+            merged.midiImportBackend = "auto";
+          }
+        }
         appState.settings = merged;
       } else {
         appState.settings = getDefaultSettings();
@@ -997,6 +1004,12 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.editorHelpEnabled = Boolean(next.editorHelpEnabled);
   next.makamToolsEnabled = Boolean(next.makamToolsEnabled || next.studyToolsEnabled);
   next.payloadModeEnabled = Boolean(next.payloadModeEnabled);
+  {
+    const rawMidiBackend = String(next.midiImportBackend || "").trim();
+    const allowed = new Set(["auto", "midi2abc", "music21-xml2abc"]);
+    next.midiImportBackend = allowed.has(rawMidiBackend) ? rawMidiBackend : "auto";
+  }
+  next.midiImportBackendSetByUser = Boolean(next.midiImportBackendSetByUser);
   next.playbackNativeMidiDrums = Boolean(next.playbackNativeMidiDrums);
   next.playbackNativeMidiDrumsSetByUser = Boolean(next.playbackNativeMidiDrumsSetByUser);
   if (patch && Object.prototype.hasOwnProperty.call(patch, "usePortalFileDialogs")) {
@@ -1004,6 +1017,9 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   }
   if (patch && Object.prototype.hasOwnProperty.call(patch, "playbackNativeMidiDrums")) {
     next.playbackNativeMidiDrumsSetByUser = true;
+  }
+  if (patch && Object.prototype.hasOwnProperty.call(patch, "midiImportBackend")) {
+    next.midiImportBackendSetByUser = true;
   }
   // Errors feature is intentionally session-only and always persisted as off.
   next.errorsEnabled = false;

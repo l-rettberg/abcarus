@@ -104,6 +104,12 @@ async function main() {
 	      expected: "repeat-start_mpl2.abc",
 	      measuresPerLine: 2,
 	    },
+      {
+        name: "TEST 4: inline [K:..] is preserved when reflowing measures",
+        fixture: "inline-key-change.abc",
+        expected: "inline-key-change_mpl2.abc",
+        measuresPerLine: 2,
+      },
 	  ];
 
   for (const c of cases) {
@@ -123,14 +129,14 @@ async function main() {
 
 	  try {
 	    await runReflowRoundtripCase({
-	      name: "TEST 4: reflow 1 bar/line -> 2 bars/line changes output",
+	      name: "TEST 5: reflow 1 bar/line -> 2 bars/line changes output",
 	      fixture: "hasapia-mandilatos.abc",
 	      measuresPerLineA: 1,
 	      measuresPerLineB: 2,
 	    });
-	    console.log("% PASS TEST 4: reflow 1 bar/line -> 2 bars/line changes output");
+	    console.log("% PASS TEST 5: reflow 1 bar/line -> 2 bars/line changes output");
 	  } catch (e) {
-	    console.log("% FAIL TEST 4: reflow 1 bar/line -> 2 bars/line changes output");
+	    console.log("% FAIL TEST 5: reflow 1 bar/line -> 2 bars/line changes output");
 	    const msg = String(e && e.message ? e.message : e);
 	    for (const line of msg.split(/\r\n|\n|\r/)) {
 	      console.log(`% ${line}`);

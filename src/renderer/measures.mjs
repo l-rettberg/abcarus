@@ -49,7 +49,23 @@ function consumeBarlineToken(src, start) {
   // Standard barlines contain at least one '|'
   if (s[i] === "|") {
     let j = i;
-    while (j < s.length && (s[j] === "|" || s[j] === ":" || s[j] === "]" || s[j] === "[")) j += 1;
+    while (j < s.length) {
+      const ch = s[j];
+      if (ch === "|" || ch === ":" || ch === "]") {
+        j += 1;
+        continue;
+      }
+      if (ch === "[") {
+        // Keep "[1", "[2", "[|" as barline-related continuations, but do not
+        // consume inline fields like "[K:...]" into bar tokens.
+        const next = s[j + 1] || "";
+        if (/[0-9|:\]]/.test(next)) {
+          j += 1;
+          continue;
+        }
+      }
+      break;
+    }
     return { text: s.slice(i, j), end: j };
   }
   return null;

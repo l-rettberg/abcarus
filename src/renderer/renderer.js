@@ -8217,6 +8217,7 @@ const midiBeepAudio = new NotePreviewAudio();
 let noteTypingPreviewEnabled = false;
 let noteTypingPreviewVolume = 0.22;
 let noteTypingPreviewLengthMode = "typed";
+let noteTypingPreviewTrigger = "delimiter";
 let noteTypingPreviewSkipMicrotones = true;
 let noteTypingPreviewLastKey = "";
 const noteTypingPreviewAudio = new NotePreviewAudio();
@@ -8412,10 +8413,17 @@ function shouldHandleTypingPreviewChange(update) {
     inserted += String(text || "");
   });
   if (hasDelete || changeCount !== 1 || inserted.length !== 1) return false;
-  if (!/[ \t|\n]/.test(inserted)) return false;
-  const tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
+  const mode = noteTypingPreviewTrigger === "note" ? "note" : "delimiter";
+  let tokenInfo = null;
+  if (mode === "delimiter") {
+    if (!/[ \t|\n]/.test(inserted)) return false;
+    tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
+  } else {
+    if (!/[A-Ga-g]/.test(inserted)) return false;
+    tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom + 1);
+  }
   if (!tokenInfo || !tokenInfo.token) return false;
-  const dedupeKey = `${tokenInfo.from}:${tokenInfo.to}:${tokenInfo.token}`;
+  const dedupeKey = `${mode}:${tokenInfo.from}:${tokenInfo.to}:${tokenInfo.token}`;
   if (dedupeKey === noteTypingPreviewLastKey) return false;
   const context = parseHeadersNear(update.state.doc, tokenInfo.from);
   const parsed = parseAbcNoteToken(tokenInfo.token, context, {
@@ -8668,6 +8676,9 @@ function applyMidiSettingsPatch(patch, { notify = false } = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewLengthMode")) {
     noteTypingPreviewLengthMode = String(patch.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewTrigger")) {
+    noteTypingPreviewTrigger = String(patch.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
   }
   if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewSkipMicrotones")) {
     noteTypingPreviewSkipMicrotones = Boolean(patch.noteTypingPreviewSkipMicrotones);
@@ -25739,6 +25750,7 @@ function setNoteTypingPreviewFromSettings(settings) {
     ? Math.max(0, Math.min(1, Number(settings.noteTypingPreviewVolume)))
     : noteTypingPreviewVolume;
   noteTypingPreviewLengthMode = String(settings.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
+  noteTypingPreviewTrigger = String(settings.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
   noteTypingPreviewSkipMicrotones = settings.noteTypingPreviewSkipMicrotones !== false;
   if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
 }

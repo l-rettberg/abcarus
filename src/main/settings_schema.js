@@ -653,6 +653,24 @@ function getSettingsSchema() {
       advanced: true,
     },
     {
+      key: "noteTypingPreviewTrigger",
+      type: "string",
+      default: "delimiter",
+      section: "Tools",
+      group: "MIDI Input",
+      groupOrder: 30,
+      label: "Typing preview trigger",
+      help: "Choose when preview plays: after a delimiter, or immediately when typing a note letter.",
+      ui: {
+        input: "select",
+        options: [
+          { value: "delimiter", label: "On delimiter (space, bar, tab, newline)" },
+          { value: "note", label: "Immediately on note letter" },
+        ],
+      },
+      advanced: true,
+    },
+    {
       key: "noteTypingPreviewSkipMicrotones",
       type: "boolean",
       default: true,

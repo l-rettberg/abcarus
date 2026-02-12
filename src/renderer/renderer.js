@@ -42,6 +42,7 @@ import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
+import { NotePreviewAudio } from "./audio/note_preview_audio.mjs";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -8207,9 +8208,7 @@ let midiInputMacroEnabled = true;
 let midiInputBeepEnabled = false;
 let midiInputBeepVolume = 0.2;
 let midiInputBeepDurationMs = 140;
-let midiAudioCtx = null;
-let midiAudioUnlocked = false;
-let midiAudioUnlockPromise = null;
+const midiBeepAudio = new NotePreviewAudio();
 
 const MIDI_MACRO_MAP = new Map([
   [24, " "],   // space
@@ -8371,69 +8370,16 @@ function deleteEditorCharBeforeCursor() {
   return true;
 }
 
-function getMidiBeepFrequency(noteNumber) {
-  const note = Number(noteNumber);
-  if (!Number.isFinite(note)) return 440;
-  return 440 * Math.pow(2, (note - 69) / 12);
-}
-
-async function ensureMidiAudioContext() {
-  if (midiAudioCtx && midiAudioCtx.state !== "closed") return midiAudioCtx;
-  try {
-    midiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    midiAudioUnlocked = midiAudioCtx.state === "running";
-    return midiAudioCtx;
-  } catch {
-    return null;
-  }
-}
-
 async function unlockMidiAudioContext() {
-  if (midiAudioUnlocked) return true;
-  if (midiAudioUnlockPromise) return midiAudioUnlockPromise;
-  midiAudioUnlockPromise = (async () => {
-    const ctx = await ensureMidiAudioContext();
-    if (!ctx) return false;
-    if (ctx.state === "suspended") {
-      try { await ctx.resume(); } catch {}
-    }
-    midiAudioUnlocked = ctx.state === "running";
-    return midiAudioUnlocked;
-  })();
-  return midiAudioUnlockPromise;
+  return midiBeepAudio.unlock();
 }
 
 function playMidiBeep(noteNumber) {
   if (!midiInputBeepEnabled) return;
-  const freq = getMidiBeepFrequency(noteNumber);
-  ensureMidiAudioContext().then((ctx) => {
-    if (!ctx) return;
-    if (ctx.state !== "running") {
-      unlockMidiAudioContext();
-      if (ctx.state !== "running") return;
-    }
-    const now = ctx.currentTime;
-    const duration = Math.max(0.04, Math.min(0.4, midiInputBeepDurationMs / 1000));
-    const attack = Math.min(0.01, duration * 0.2);
-    const releaseStart = now + Math.max(attack, duration * 0.75);
-    const end = now + duration;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, now);
-    const peak = Math.max(0, Math.min(1, midiInputBeepVolume));
-    gain.gain.linearRampToValueAtTime(peak, now + attack);
-    gain.gain.linearRampToValueAtTime(0, releaseStart);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(end);
-    osc.onended = () => {
-      try { osc.disconnect(); } catch {}
-      try { gain.disconnect(); } catch {}
-    };
-  });
+  midiBeepAudio.playMidiNote(noteNumber, {
+    durationMs: midiInputBeepDurationMs,
+    volume: midiInputBeepVolume,
+  }).catch(() => {});
 }
 
 function approxFraction(value, maxDen = 64) {

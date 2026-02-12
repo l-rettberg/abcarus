@@ -84,6 +84,14 @@
             <span class="practice-loop-arrow">→</span>
             <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
           </label>
+          <label id="selectionSuppressWrap" class="practice-selection-suppress" title="Suppress repeats during scoped playback">
+            <input id="selectionSuppressEnabled" type="checkbox" />
+            <span>Suppress repeats</span>
+          </label>
+          <label id="selectionMutedWrap" class="practice-selection-muted" title="Mute voices for scoped playback (comma-separated voice IDs)">
+            <span>Mute voices</span>
+            <input id="selectionMutedVoices" class="practice-muted-voices" type="text" placeholder="e.g. 2,3" />
+          </label>
           <label id="selectionLoopWrap" class="practice-selection-loop" title="Selection playback options live in Settings → Playback">
             <input id="selectionLoopEnabled" type="checkbox" />
             <span>Loop selection</span>

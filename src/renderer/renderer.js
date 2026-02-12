@@ -127,6 +127,10 @@ const $btnStop = document.getElementById("btnStop");
 const $btnPlayPause = document.getElementById("btnPlayPause");
 const $selectionLoopWrap = document.getElementById("selectionLoopWrap");
 const $selectionLoopEnabled = document.getElementById("selectionLoopEnabled");
+const $selectionSuppressWrap = document.getElementById("selectionSuppressWrap");
+const $selectionSuppressEnabled = document.getElementById("selectionSuppressEnabled");
+const $selectionMutedWrap = document.getElementById("selectionMutedWrap");
+const $selectionMutedVoices = document.getElementById("selectionMutedVoices");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
 const $practiceLoopWrap = document.getElementById("practiceLoopWrap");
@@ -24219,6 +24223,8 @@ function updatePlaybackInteractionLock() {
   disable($practiceLoopEnabled);
   disable($practiceLoopFrom);
   disable($practiceLoopTo);
+  disable($selectionSuppressEnabled);
+  disable($selectionMutedVoices);
 
   disable($btnFonts);
 
@@ -25541,6 +25547,19 @@ function updatePracticeUi() {
   }
   if ($practiceLoopTo && document.activeElement !== $practiceLoopTo) {
     $practiceLoopTo.value = String(clampInt(playbackLoopToMeasure, 0, 100000, 0) || 0);
+  }
+
+  if ($selectionSuppressWrap) $selectionSuppressWrap.hidden = !focusModeEnabled;
+  if ($selectionSuppressEnabled && document.activeElement !== $selectionSuppressEnabled) {
+    const enabled = Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionSuppressRepeats !== false);
+    $selectionSuppressEnabled.checked = enabled;
+  }
+  if ($selectionMutedWrap) $selectionMutedWrap.hidden = !focusModeEnabled;
+  if ($selectionMutedVoices && document.activeElement !== $selectionMutedVoices) {
+    const raw = latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionMutedVoices != null
+      ? String(latestSettingsSnapshot.playbackSelectionMutedVoices)
+      : "";
+    if ($selectionMutedVoices.value !== raw) $selectionMutedVoices.value = raw;
   }
 
   // Avoid presenting two different loop concepts at the same time.
@@ -28661,6 +28680,31 @@ if ($selectionLoopEnabled) {
       window.api.updateSettings({ playbackSelectionLoopEnabled: next }).catch(() => {});
     }
   });
+}
+
+if ($selectionSuppressEnabled) {
+  $selectionSuppressEnabled.addEventListener("change", () => {
+    const next = Boolean($selectionSuppressEnabled.checked);
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackSelectionSuppressRepeats: next }).catch(() => {});
+    }
+  });
+}
+
+if ($selectionMutedVoices) {
+  const persistMutedVoices = () => {
+    const raw = String($selectionMutedVoices.value || "");
+    const normalized = raw
+      .split(/[,\s]+/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .join(",");
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackSelectionMutedVoices: normalized }).catch(() => {});
+    }
+  };
+  $selectionMutedVoices.addEventListener("change", persistMutedVoices);
+  $selectionMutedVoices.addEventListener("blur", persistMutedVoices);
 }
 
 if ($practiceTempo) {

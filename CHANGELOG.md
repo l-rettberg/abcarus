@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Focus toolbar: added inline controls for selection-scope playback options (`Suppress repeats`, `Mute voices`) so they can be changed without opening Settings.
+
+### Fixed
+- Focus loop playback now honors selection-scope option changes from the toolbar immediately on next start (repeat suppression and voice muting).
 
 
 ## [0.31.0] - 2026-02-11

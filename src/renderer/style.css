@@ -206,6 +206,32 @@ header {
   height: 16px;
 }
 
+.practice-selection-suppress:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--muted-text);
+}
+
+.practice-selection-suppress input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.practice-selection-muted:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--muted-text);
+}
+
+.practice-muted-voices {
+  min-height: var(--button-height);
+  width: 92px;
+}
+
 .practice-loop-num {
   min-height: var(--button-height);
   width: 72px;

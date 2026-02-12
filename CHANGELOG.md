@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Editor: optional `Play notes while typing` preview with `On delimiter` or `Immediate` trigger modes.
+- Editor: typed-note preview options for duration mode, envelope (`Short`/`Medium`), and optional retrigger when duration suffix is typed.
+- Play menu: added `Play Notes While Typing` toggle for quick on/off without opening Settings.
+
+### Changed
+- MIDI input preview labels now explicitly describe WebAudio note preview (replacing legacy “beep” wording in UI/settings).
+
+### Fixed
+- Immediate typing-preview mode now handles contiguous note entry (for example `d4e4f4`) and applies typed durations correctly.
 
 
 ## [0.31.1] - 2026-02-12

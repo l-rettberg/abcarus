@@ -53,11 +53,17 @@ export class NotePreviewAudio {
     const freq = midiToFreq(noteNumber);
     const durationMs = Number.isFinite(Number(opts.durationMs)) ? Number(opts.durationMs) : 140;
     const volume = Number.isFinite(Number(opts.volume)) ? Number(opts.volume) : 0.2;
-    const duration = Math.max(0.04, Math.min(0.4, durationMs / 1000));
+    const minDurationMs = Number.isFinite(Number(opts.minDurationMs)) ? Number(opts.minDurationMs) : 40;
+    const maxDurationMs = Number.isFinite(Number(opts.maxDurationMs)) ? Number(opts.maxDurationMs) : 400;
+    const profile = String(opts.profile || "short").toLowerCase() === "medium" ? "medium" : "short";
+    const profileMul = profile === "medium" ? 1.45 : 1;
+    const durationMsScaled = durationMs * profileMul;
+    const durationClampedMs = Math.max(minDurationMs, Math.min(maxDurationMs, durationMsScaled));
+    const duration = durationClampedMs / 1000;
     const peak = Math.max(0, Math.min(1, volume));
     const now = ctx.currentTime;
-    const attack = Math.min(0.008, duration * 0.18);
-    const hold = Math.max(0, duration * 0.4);
+    const attack = Math.min(profile === "medium" ? 0.012 : 0.008, duration * (profile === "medium" ? 0.22 : 0.18));
+    const hold = Math.max(0, duration * (profile === "medium" ? 0.58 : 0.4));
     const release = Math.max(0.02, duration - attack - hold);
     const end = now + duration;
 
@@ -106,4 +112,3 @@ export class NotePreviewAudio {
     return true;
   }
 }
-

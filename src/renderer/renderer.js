@@ -8218,6 +8218,8 @@ let noteTypingPreviewEnabled = false;
 let noteTypingPreviewVolume = 0.22;
 let noteTypingPreviewLengthMode = "typed";
 let noteTypingPreviewTrigger = "delimiter";
+let noteTypingPreviewEnvelope = "short";
+let noteTypingPreviewRetriggerDuration = true;
 let noteTypingPreviewSkipMicrotones = true;
 let noteTypingPreviewLastKey = "";
 const noteTypingPreviewAudio = new NotePreviewAudio();
@@ -8391,6 +8393,9 @@ function playMidiBeep(noteNumber) {
   midiBeepAudio.playMidiNote(noteNumber, {
     durationMs: midiInputBeepDurationMs,
     volume: midiInputBeepVolume,
+    minDurationMs: 40,
+    maxDurationMs: 400,
+    profile: "short",
   }).catch(() => {});
 }
 
@@ -8419,8 +8424,40 @@ function shouldHandleTypingPreviewChange(update) {
     if (!/[ \t|\n]/.test(inserted)) return false;
     tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
   } else {
-    if (!/[A-Ga-g]/.test(inserted)) return false;
-    tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom + 1);
+    const line = update.state.doc.lineAt(insertFrom + 1);
+    const rel = insertFrom - line.from;
+    const text = String(line.text || "");
+    if (rel < 0 || rel >= text.length) return false;
+
+    if (/[A-Ga-g]/.test(inserted)) {
+      if (!/[A-Ga-g]/.test(text[rel])) return false;
+      // Immediate mode previews only the note typed at the cursor (plus optional accidental
+      // prefix right before it), so successive letters don't collapse into one invalid token.
+      let start = rel;
+      while (start > 0 && /[\^_=]/.test(text[start - 1])) start -= 1;
+      tokenInfo = {
+        token: text.slice(start, rel + 1),
+        from: line.from + start,
+        to: line.from + rel + 1,
+      };
+    } else if (noteTypingPreviewRetriggerDuration && /[0-9/]/.test(inserted)) {
+      // Retrigger the current note token when duration suffix is typed (C -> C4, C/ ...).
+      // For contiguous notes (e.g. d4e4f4), bind to the nearest note letter on the left.
+      let noteIdx = rel;
+      while (noteIdx >= 0 && !/[A-Ga-g]/.test(text[noteIdx])) noteIdx -= 1;
+      if (noteIdx < 0) return false;
+      let start = noteIdx;
+      while (start > 0 && /[\^_=]/.test(text[start - 1])) start -= 1;
+      const token = text.slice(start, rel + 1);
+      if (!/^[\^_=]*[A-Ga-g][',]*[0-9/]*$/.test(token)) return false;
+      tokenInfo = {
+        token,
+        from: line.from + start,
+        to: line.from + rel + 1,
+      };
+    } else {
+      return false;
+    }
   }
   if (!tokenInfo || !tokenInfo.token) return false;
   const dedupeKey = `${mode}:${tokenInfo.from}:${tokenInfo.to}:${tokenInfo.token}`;
@@ -8435,6 +8472,9 @@ function shouldHandleTypingPreviewChange(update) {
   noteTypingPreviewAudio.playMidiNote(parsed.midi, {
     durationMs: parsed.durationMs,
     volume: noteTypingPreviewVolume,
+    minDurationMs: 60,
+    maxDurationMs: 2500,
+    profile: noteTypingPreviewEnvelope,
   }).catch(() => {});
   return true;
 }
@@ -8679,6 +8719,12 @@ function applyMidiSettingsPatch(patch, { notify = false } = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewTrigger")) {
     noteTypingPreviewTrigger = String(patch.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewEnvelope")) {
+    noteTypingPreviewEnvelope = String(patch.noteTypingPreviewEnvelope || "") === "medium" ? "medium" : "short";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewRetriggerDuration")) {
+    noteTypingPreviewRetriggerDuration = patch.noteTypingPreviewRetriggerDuration !== false;
   }
   if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewSkipMicrotones")) {
     noteTypingPreviewSkipMicrotones = Boolean(patch.noteTypingPreviewSkipMicrotones);
@@ -21765,6 +21811,7 @@ function wireMenuActions() {
           "toggleSplitOrientation",
           "toggleDebugMessages",
           "toggleAutoDump",
+          "toggleNoteTypingPreview",
         ]);
         if (!allowed.has(actionType)) return;
       }
@@ -21786,6 +21833,7 @@ function wireMenuActions() {
           "toggleSplitOrientation",
           "toggleDebugMessages",
           "toggleAutoDump",
+          "toggleNoteTypingPreview",
           "openKeyboardHelp",
           "openSettings",
           "openSettingsFolder",
@@ -21980,6 +22028,11 @@ function wireMenuActions() {
       else if (actionType === "playStart") await transportStartOver();
       else if (actionType === "playToggle") { await togglePlayPauseEffective(); }
       else if (actionType === "playGotoMeasure") await goToMeasureFromMenu();
+      else if (actionType === "toggleNoteTypingPreview") {
+        const next = Boolean(action && action.value);
+        applyMidiSettingsPatch({ noteTypingPreviewEnabled: next });
+        try { showToast(next ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
+      }
       else if (actionType === "resetLayout") resetLayout();
       else if (actionType === "helpGuide") await openExternal("https://abcplus.sourceforge.net/abcplus_en.pdf");
       else if (actionType === "helpUserGuide") await openExternal("https://github.com/topchyan/abcarus/blob/master/docs/USER_GUIDE.md");
@@ -25751,6 +25804,8 @@ function setNoteTypingPreviewFromSettings(settings) {
     : noteTypingPreviewVolume;
   noteTypingPreviewLengthMode = String(settings.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
   noteTypingPreviewTrigger = String(settings.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
+  noteTypingPreviewEnvelope = String(settings.noteTypingPreviewEnvelope || "") === "medium" ? "medium" : "short";
+  noteTypingPreviewRetriggerDuration = settings.noteTypingPreviewRetriggerDuration !== false;
   noteTypingPreviewSkipMicrotones = settings.noteTypingPreviewSkipMicrotones !== false;
   if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
 }

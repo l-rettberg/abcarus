@@ -193,6 +193,17 @@ function buildMenuTemplate(appState, sendMenuAction) {
       { label: "Start Over", accelerator: "F4", click: () => sendMenuAction("playStart") },
       { label: "Play / Pause", accelerator: "F5", click: () => sendMenuAction("playToggle") },
       { label: "Go to Measure…", accelerator: "CmdOrCtrl+Shift+G", click: () => sendMenuAction("playGotoMeasure") },
+      { type: "separator" },
+      {
+        label: "Play Notes While Typing",
+        type: "checkbox",
+        checked: Boolean(appState && appState.settings && appState.settings.noteTypingPreviewEnabled),
+        click: (item) => {
+          const next = Boolean(item && item.checked);
+          if (appState && appState.settings) appState.settings.noteTypingPreviewEnabled = next;
+          sendMenuAction({ type: "toggleNoteTypingPreview", value: next });
+        },
+      },
     ],
   };
 

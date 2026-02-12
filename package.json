@@ -24,6 +24,7 @@
     "test:measures": "node devtools/measures_harness/run_tests.js",
     "test:codemirror": "node devtools/codemirror_harness/run_tests.mjs",
     "test:transpose": "node devtools/transpose_harness/run_tests.js",
+    "test:note-preview": "node devtools/note_preview_harness/run_tests.mjs",
     "test:settings": "node devtools/settings_harness/run_tests.js",
     "test:truth-scale": "node devtools/truth_scale_53_harness/run_tests.js",
     "test:charset": "node devtools/charset_harness/run_tests.js",

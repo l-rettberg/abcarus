@@ -43,6 +43,11 @@ import { createLibraryActions } from "./library/actions.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import { NotePreviewAudio } from "./audio/note_preview_audio.mjs";
+import {
+  findCompletedNoteTokenBeforePosition,
+  parseAbcNoteToken,
+  parseHeadersNear,
+} from "./note_preview/abc_note_parse.mjs";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -8209,6 +8214,12 @@ let midiInputBeepEnabled = false;
 let midiInputBeepVolume = 0.2;
 let midiInputBeepDurationMs = 140;
 const midiBeepAudio = new NotePreviewAudio();
+let noteTypingPreviewEnabled = false;
+let noteTypingPreviewVolume = 0.22;
+let noteTypingPreviewLengthMode = "typed";
+let noteTypingPreviewSkipMicrotones = true;
+let noteTypingPreviewLastKey = "";
+const noteTypingPreviewAudio = new NotePreviewAudio();
 
 const MIDI_MACRO_MAP = new Map([
   [24, " "],   // space
@@ -8380,6 +8391,44 @@ function playMidiBeep(noteNumber) {
     durationMs: midiInputBeepDurationMs,
     volume: midiInputBeepVolume,
   }).catch(() => {});
+}
+
+function shouldHandleTypingPreviewChange(update) {
+  if (!noteTypingPreviewEnabled) return false;
+  if (!update || !update.docChanged) return false;
+  if (rawMode || payloadMode || chordproMode) return false;
+  if (!editorView || update.view !== editorView) return false;
+  if (!Array.isArray(update.transactions) || update.transactions.length !== 1) return false;
+  const tr = update.transactions[0];
+  if (!tr || tr.isUserEvent("delete") || tr.isUserEvent("input.paste")) return false;
+  let changeCount = 0;
+  let insertFrom = -1;
+  let inserted = "";
+  let hasDelete = false;
+  tr.changes.iterChanges((fromA, toA, fromB, _toB, text) => {
+    changeCount += 1;
+    if (fromA !== toA) hasDelete = true;
+    insertFrom = fromB;
+    inserted += String(text || "");
+  });
+  if (hasDelete || changeCount !== 1 || inserted.length !== 1) return false;
+  if (!/[ \t|\n]/.test(inserted)) return false;
+  const tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
+  if (!tokenInfo || !tokenInfo.token) return false;
+  const dedupeKey = `${tokenInfo.from}:${tokenInfo.to}:${tokenInfo.token}`;
+  if (dedupeKey === noteTypingPreviewLastKey) return false;
+  const context = parseHeadersNear(update.state.doc, tokenInfo.from);
+  const parsed = parseAbcNoteToken(tokenInfo.token, context, {
+    lengthMode: noteTypingPreviewLengthMode,
+    skipMicrotones: noteTypingPreviewSkipMicrotones,
+  });
+  if (!parsed || !Number.isFinite(parsed.midi) || !Number.isFinite(parsed.durationMs)) return false;
+  noteTypingPreviewLastKey = dedupeKey;
+  noteTypingPreviewAudio.playMidiNote(parsed.midi, {
+    durationMs: parsed.durationMs,
+    volume: noteTypingPreviewVolume,
+  }).catch(() => {});
+  return true;
 }
 
 function approxFraction(value, maxDen = 64) {
@@ -8608,6 +8657,20 @@ function applyMidiSettingsPatch(patch, { notify = false } = {}) {
   if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepDuration")) {
     const raw = Number(patch.midiInputBeepDuration);
     if (Number.isFinite(raw)) midiInputBeepDurationMs = Math.max(40, Math.min(400, raw));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewEnabled")) {
+    noteTypingPreviewEnabled = Boolean(patch.noteTypingPreviewEnabled);
+    if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")) {
+    const raw = Number(patch.noteTypingPreviewVolume);
+    if (Number.isFinite(raw)) noteTypingPreviewVolume = Math.max(0, Math.min(1, raw));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewLengthMode")) {
+    noteTypingPreviewLengthMode = String(patch.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewSkipMicrotones")) {
+    noteTypingPreviewSkipMicrotones = Boolean(patch.noteTypingPreviewSkipMicrotones);
   }
   updateMidiInputUi();
   if (window.api && typeof window.api.updateSettings === "function") {
@@ -11147,6 +11210,7 @@ function initEditor() {
 	  ]);
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
+      shouldHandleTypingPreviewChange(update);
       abRevision += 1;
       if (abPlan) clearAbPlan({ toast: true });
       if (!suppressDirty && currentDoc && !payloadMode) {
@@ -22162,6 +22226,7 @@ if (window.api && typeof window.api.getSettings === "function") {
 	    setDrumVelocityFromSettings(settings);
       setPlaybackFxFromSettings(settings);
       setMidiInputFromSettings(settings);
+      setNoteTypingPreviewFromSettings(settings);
 	        setLayoutFromSettings(settings);
 		      setFollowFromSettings(settings);
 		      setLoopFromSettings(settings);
@@ -22209,6 +22274,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 		    setDrumVelocityFromSettings(settings);
       setPlaybackFxFromSettings(settings);
       setMidiInputFromSettings(settings);
+      setNoteTypingPreviewFromSettings(settings);
       setLayoutFromSettings(settings);
 	    setFollowFromSettings(settings);
 	    setLoopFromSettings(settings);
@@ -25664,6 +25730,17 @@ function setMidiInputFromSettings(settings) {
   setMidiInputEnabled(Boolean(settings.midiInputEnabled), { notify: false });
   setMidiInputMuted(Boolean(settings.midiInputMuted), { notify: false });
   updateMidiInputUi();
+}
+
+function setNoteTypingPreviewFromSettings(settings) {
+  if (!settings || typeof settings !== "object") return;
+  noteTypingPreviewEnabled = Boolean(settings.noteTypingPreviewEnabled);
+  noteTypingPreviewVolume = Number.isFinite(Number(settings.noteTypingPreviewVolume))
+    ? Math.max(0, Math.min(1, Number(settings.noteTypingPreviewVolume)))
+    : noteTypingPreviewVolume;
+  noteTypingPreviewLengthMode = String(settings.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
+  noteTypingPreviewSkipMicrotones = settings.noteTypingPreviewSkipMicrotones !== false;
+  if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
 }
 
 function resetSoundfontCache() {

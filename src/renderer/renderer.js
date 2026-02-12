@@ -2180,6 +2180,7 @@ let abRevision = 0;
 let abDecorationsVersion = 0;
 let abVoiceIds = [];
 let playbackAbMutedVoices = null;
+let playbackScopedOptions = null; // transient per-start options for selection/ab/focus
 
 function shouldAutoDump() {
   // Runtime override via DevTools (no reload): window.__abcarusAutoDumpOnError = true/false
@@ -27930,15 +27931,26 @@ async function preparePlayback() {
     );
   }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
-  if (selectionMode) {
-    const selectionSettings = getSelectionPlaybackSettings();
-    if (!selectionSettings.allowMidiDrums) {
+  const scopedOptions = playbackScopedOptions && typeof playbackScopedOptions === "object"
+    ? playbackScopedOptions
+    : null;
+  if (scopedOptions) {
+    if (!scopedOptions.allowMidiDrums) {
       playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
     }
-    if (selectionSettings.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
-    if (selectionSettings.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
+    if (scopedOptions.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
+    if (scopedOptions.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
+    let effectiveMuted = null;
     if (playbackAbMutedVoices && Object.values(playbackAbMutedVoices).some(Boolean)) {
-      playbackText = stripMutedVoicesForPlayback(playbackText, playbackAbMutedVoices);
+      effectiveMuted = playbackAbMutedVoices;
+    } else if (Array.isArray(scopedOptions.mutedVoices) && scopedOptions.mutedVoices.length) {
+      effectiveMuted = scopedOptions.mutedVoices.reduce((acc, id) => {
+        acc[String(id)] = true;
+        return acc;
+      }, {});
+    }
+    if (effectiveMuted && Object.values(effectiveMuted).some(Boolean)) {
+      playbackText = stripMutedVoicesForPlayback(playbackText, effectiveMuted);
     }
   }
   if (/[\\^_]3\/4/.test(playbackText)) {
@@ -27946,7 +27958,7 @@ async function preparePlayback() {
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
-  if (nativeMidiDrums && !selectionMode && window.__abcarusPlaybackRelocateMidiDrums === true) {
+  if (nativeMidiDrums && !scopedOptions && window.__abcarusPlaybackRelocateMidiDrums === true) {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
@@ -27964,7 +27976,7 @@ async function preparePlayback() {
     playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackParseErrors = [];
-    if (nativeMidiDrums && !selectionMode) {
+    if (nativeMidiDrums && !scopedOptions) {
       // Experimental native path failed; fall back to our V:DRUM injection so drums still play after neutralization.
       const injected = injectDrumPlayback(playbackText);
       if (injected && injected.changed) {
@@ -28374,10 +28386,27 @@ async function startPlaybackFromRange(rangeOverride) {
   }
 
   clearNoteSelection();
-  const selectionMode = range && (range.origin === "selection" || range.origin === "ab");
+  const rangeOrigin = String((range && range.origin) || "cursor");
+  const selectionMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab");
+  const scopedMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab" || rangeOrigin === "focus");
+  if (rangeOrigin === "focus" || rangeOrigin === "selection") {
+    playbackScopedOptions = getSelectionPlaybackSettings();
+  } else if (rangeOrigin === "ab") {
+    const abMuted = playbackAbMutedVoices && typeof playbackAbMutedVoices === "object"
+      ? Object.keys(playbackAbMutedVoices).filter((k) => playbackAbMutedVoices[k])
+      : [];
+    playbackScopedOptions = {
+      allowMidiDrums: true,
+      muteGchords: window.__abcarusPlaybackStripChordSymbols === true,
+      suppressRepeats: true,
+      mutedVoices: abMuted,
+    };
+  } else {
+    playbackScopedOptions = null;
+  }
   const sourceKey = selectionMode ? null : getPlaybackSourceKey();
   const canReuse = (
-    !selectionMode
+    !scopedMode
     && !playbackNeedsReprepare
     && !lastPlaybackHasParts
     && playbackState
@@ -28415,6 +28444,7 @@ async function startPlaybackFromRange(rangeOverride) {
 		    return;
 		  } finally {
 		    playbackSelectionMode = false;
+        playbackScopedOptions = null;
 		  }
   if (startToken !== playbackStartToken) return;
 

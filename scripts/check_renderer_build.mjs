@@ -40,6 +40,15 @@ async function assertSaveIntentGuards() {
   if (!src.includes("resolveMeasureStartRenderIdxSequential(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender })")) {
     throw new Error("Focus loop end must prefer sequential measure mapping.");
   }
+  if (!src.includes("let playbackScopedOptions = null;")) {
+    throw new Error("Missing scoped playback options state.");
+  }
+  if (!src.includes("rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {
+    throw new Error("Range-origin routing for scoped playback options is missing.");
+  }
+  if (!src.includes("!scopedMode")) {
+    throw new Error("Playback reuse must be disabled for scoped (selection/ab/focus) modes.");
+  }
 
   const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
   const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);

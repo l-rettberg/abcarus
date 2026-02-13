@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Typing note preview now ignores non-musical text contexts (headers/comments/lyrics/quoted text), so ordinary prose editing no longer triggers note audio.
 
 
 ## [0.32.0] - 2026-02-12

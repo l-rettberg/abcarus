@@ -8399,6 +8399,26 @@ function playMidiBeep(noteNumber) {
   }).catch(() => {});
 }
 
+function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel) {
+  const text = String(lineText || "");
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/^%/.test(trimmed)) return false;
+  if (/^%%/.test(trimmed)) return false;
+  if (/^[A-Za-z]:/.test(trimmed)) return false; // header/info lines (X:, T:, K:, ...)
+  if (/^[Ww]:/.test(trimmed)) return false; // lyrics lines
+
+  // Do not preview while typing inside quoted chord symbols/annotations.
+  const left = text.slice(0, Math.max(0, tokenEndRel));
+  const quoteCount = (left.match(/"/g) || []).length;
+  if ((quoteCount % 2) === 1) return false;
+
+  const before = tokenStartRel > 0 ? text[tokenStartRel - 1] : "";
+  // If token starts in the middle of a word, skip.
+  if (before && /[A-Za-z]/.test(before)) return false;
+  return true;
+}
+
 function shouldHandleTypingPreviewChange(update) {
   if (!noteTypingPreviewEnabled) return false;
   if (!update || !update.docChanged) return false;
@@ -8423,6 +8443,12 @@ function shouldHandleTypingPreviewChange(update) {
   if (mode === "delimiter") {
     if (!/[ \t|\n]/.test(inserted)) return false;
     tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
+    if (tokenInfo) {
+      const line = update.state.doc.lineAt(tokenInfo.from);
+      const startRel = tokenInfo.from - line.from;
+      const endRel = tokenInfo.to - line.from;
+      if (!isTypingPreviewAllowedOnLine(line.text, startRel, endRel)) return false;
+    }
   } else {
     const line = update.state.doc.lineAt(insertFrom + 1);
     const rel = insertFrom - line.from;
@@ -8440,6 +8466,7 @@ function shouldHandleTypingPreviewChange(update) {
         from: line.from + start,
         to: line.from + rel + 1,
       };
+      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1)) return false;
     } else if (noteTypingPreviewRetriggerDuration && /[0-9/]/.test(inserted)) {
       // Retrigger the current note token when duration suffix is typed (C -> C4, C/ ...).
       // For contiguous notes (e.g. d4e4f4), bind to the nearest note letter on the left.
@@ -8455,6 +8482,7 @@ function shouldHandleTypingPreviewChange(update) {
         from: line.from + start,
         to: line.from + rel + 1,
       };
+      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1)) return false;
     } else {
       return false;
     }

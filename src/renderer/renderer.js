@@ -1568,7 +1568,7 @@ function clearErrorsFeatureState() {
 function updateErrorsFeatureUI() {
   if ($btnToggleErrors) {
     $btnToggleErrors.classList.toggle("toggle-active", Boolean(errorsEnabled));
-    $btnToggleErrors.textContent = "Errors";
+    setButtonText($btnToggleErrors, "Errors");
     $btnToggleErrors.setAttribute("aria-pressed", errorsEnabled ? "true" : "false");
   }
   if ($btnPrevMeasure) {
@@ -25745,14 +25745,14 @@ function buildAbc2svgFontHeaderLayer() {
 function updateGlobalHeaderToggle() {
   if (!$btnToggleGlobals) return;
   $btnToggleGlobals.classList.toggle("toggle-active", globalHeaderEnabled);
-  $btnToggleGlobals.textContent = "Globals";
+  setButtonText($btnToggleGlobals, "Globals");
   $btnToggleGlobals.setAttribute("aria-pressed", globalHeaderEnabled ? "true" : "false");
 }
 
 function updateFollowToggle() {
   if (!$btnToggleFollow) return;
   $btnToggleFollow.classList.toggle("toggle-active", followPlayback);
-  $btnToggleFollow.textContent = "Follow";
+  setButtonText($btnToggleFollow, "Follow");
   $btnToggleFollow.setAttribute("aria-pressed", followPlayback ? "true" : "false");
   if (!followPlayback) {
     clearSvgPlayhead();

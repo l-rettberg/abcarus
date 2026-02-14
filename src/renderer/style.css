@@ -528,6 +528,9 @@ body.library-hidden .divider {
 
 .sidebar-action {
   font-size: var(--font-size-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sidebar-action:hover {
@@ -1008,6 +1011,13 @@ body.chordpro-mode #btnToggleGlobals {
 .file-tune-action .btn-icon {
   width: 16px;
   height: 16px;
+}
+
+#btnNewTune.file-tune-action,
+#btnTemplates.file-tune-action {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
 }
 
 .modal-card.templates-card {

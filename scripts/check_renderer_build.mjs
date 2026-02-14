@@ -90,6 +90,41 @@ async function assertSaveIntentGuards() {
   }
 }
 
+async function assertInlineToolbarIconsCompatibility() {
+  const indexPath = "src/renderer/index.html";
+  const stylePath = "src/renderer/style.css";
+  const html = await readFile(indexPath, "utf8");
+  const css = await readFile(stylePath, "utf8");
+
+  if (!html.includes("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"0\" height=\"0\"")) {
+    throw new Error("Missing inline SVG sprite in renderer HTML.");
+  }
+  if (!html.includes("<use href=\"#ui-library\"></use>")) {
+    throw new Error("Toolbar icons must use inline sprite references.");
+  }
+  if (css.includes("background-image: url(\"../../assets/icons/ui/")) {
+    throw new Error("Toolbar icons must not use external SVG files.");
+  }
+  if (!css.includes("stroke: currentColor;") || !css.includes("fill: none;")) {
+    throw new Error(".btn-icon must use stroke/fill inline-SVG styling.");
+  }
+
+  const requiredSymbols = [
+    "ui-fonts",
+    "ui-focus",
+    "ui-split",
+    "ui-alert",
+    "ui-follow",
+    "ui-globe",
+    "ui-clear",
+  ];
+  for (const symbol of requiredSymbols) {
+    if (!html.includes(`<symbol id="${symbol}"`)) {
+      throw new Error(`Missing toolbar SVG symbol: ${symbol}`);
+    }
+  }
+}
+
 async function main() {
   const res = await build({
     entryPoints: ["src/renderer/renderer.js"],
@@ -105,6 +140,7 @@ async function main() {
   }
 
   await assertSaveIntentGuards();
+  await assertInlineToolbarIconsCompatibility();
 }
 
 main().catch((err) => {

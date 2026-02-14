@@ -57,7 +57,7 @@ The library tree supports per-tune file operations:
   - `playbackSelectionSuppressRepeats` (`Selection: suppress repeats`)
   - `playbackSelectionMuteGchords` (`Selection: mute chord symbols`)
   - `playbackSelectionAllowMidiDrums` (`Selection: allow MIDI drums`, best-effort)
-  - `playbackSelectionMutedVoices` (`Selection: muted voices`, best-effort; inline `[V:...]` switches are not supported)
+  - `playbackSelectionMutedVoices` (`Selection: muted voices`; `1` always targets the de-facto first voice; best-effort; inline `[V:...]` switches are not supported)
 - MIDI drums are supported via abc2svg (`%%MIDI drum`, `%%MIDI drumon`, `%%MIDI drumbars`).
 
 ## Transformations

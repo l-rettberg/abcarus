@@ -154,7 +154,7 @@ During playback, ABCarus highlights notes in both the editor and the preview.
   - `Playback -> Selection -> Selection: suppress repeats`
   - `Playback -> Selection -> Selection: mute chord symbols`
   - `Playback -> Selection -> Selection: allow MIDI drums` (best-effort)
-  - `Playback -> Selection -> Selection: muted voices` (comma-separated IDs; best-effort, inline `[V:...]` switches are not supported)
+  - `Playback -> Selection -> Selection: muted voices` (comma-separated IDs; `1` always means the de-facto first voice; best-effort, inline `[V:...]` switches are not supported)
 
 Soundfonts:
 - Playback uses an SF2 soundfont. You can select a soundfont in Settings (see below).

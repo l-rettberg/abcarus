@@ -2,6 +2,27 @@
 
 These are manual regression checks (no automated playback tests are currently set up).
 
+## Automated Focus Regression Kit
+
+For Issue #21 style regressions (Focus From/To boundary drift around repeats/voltas and muted-voice behavior),
+run:
+
+```bash
+npm run test:focus-playback
+```
+
+Harness location:
+- `devtools/focus_playback_harness/run_tests.js`
+- Fixture tune: `devtools/focus_playback_harness/fixtures/bouchard_x16_issue21.abc`
+
+The harness validates:
+- Segment mode boundary resolution for ranges before/through/after reprise sections.
+- Deterministic mapping for `1-2`, `3-6`, `8-18`, `15-16`, `17-18`.
+- Loop ON/OFF invariance for resolved playback bounds.
+- Visible mode (no From/To) planning.
+- Fail-closed invalid range handling.
+- Muted voices filtering, including implicit/malformed `V:1` behavior.
+
 ## PB-01 — Focus loop must not persist after exit
 
 Goal: Ensure leaving Focus mode resets any pending Focus-derived loop playback plan.
@@ -121,6 +142,7 @@ Steps:
 
 Expected:
 - Voice IDs listed in the setting are muted in selection playback.
+- Voice `1` mutes the de-facto first voice even if there is no explicit `V:1` line.
 - Inline `[V:...]` switching is not guaranteed (best-effort limitation).
 
 ## PB-SEL-06 — Allow MIDI drums toggle (best-effort)

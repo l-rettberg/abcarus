@@ -135,7 +135,7 @@ function getSettingsSchema() {
       group: "Selection",
       groupOrder: 35,
       label: "Selection: muted voices",
-      help: "Comma-separated voice IDs to mute during selection playback (best-effort; inline [V:...] switches are not supported).",
+      help: "Comma-separated voice IDs to mute during selection playback. Voice 1 is always treated as the de-facto first voice. Best-effort; inline [V:...] switches are not supported.",
       ui: { input: "text" },
       advanced: true,
     },

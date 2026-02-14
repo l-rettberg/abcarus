@@ -34,16 +34,25 @@ async function assertSaveIntentGuards() {
   if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {
     throw new Error("Missing sequential measure resolver for focus loop bounds.");
   }
-  if (!src.includes("resolveMeasureStartRenderIdxSequential(measureIndex, fromNum, { minBound })")) {
-    throw new Error("Focus loop start must prefer sequential measure mapping.");
+  if (!src.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
+    throw new Error("Missing Focus bar-number resolver for segment mode.");
   }
-  if (!src.includes("resolveMeasureStartRenderIdxSequential(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender })")) {
-    throw new Error("Focus loop end must prefer sequential measure mapping.");
+  if (!src.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
+    throw new Error("Focus segment mode must resolve From/To via abc2svg bar numbering.");
+  }
+  if (!src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")) {
+    throw new Error("Focus plan must compute first measure fallback offset.");
+  }
+  if (!src.includes("mode === \"segment\"") || !src.includes("Number(state.fromMeasure) === 1")) {
+    throw new Error("Focus segment mode must guard the From=1 fallback path.");
+  }
+  if (!src.includes("startOffset = firstMeasureOffset;")) {
+    throw new Error("Focus segment mode must apply first-measure fallback start.");
   }
   if (!src.includes("let playbackScopedOptions = null;")) {
     throw new Error("Missing scoped playback options state.");
   }
-  if (!src.includes("rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {
+  if (!src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {
     throw new Error("Range-origin routing for scoped playback options is missing.");
   }
   if (!src.includes("!scopedMode")) {

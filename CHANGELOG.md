@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tools → Transform: new `Reflow by Linebreak Marker` action that reflows by `I:linebreak` / `%%linebreak` marker (default `$`).
+- Measures harness: added regression fixtures/cases for linebreak-marker reflow, including marker-tail comments (`$ %N`) and mid-block inline comments.
+
+### Changed
+- Tools menu IA: removed nested `Transform` bucket; related operations are now grouped directly under `Tools` (`Transpose`, `Note Lengths`, `Bar Layout`).
+- Help menu IA: moved `Toggle Developer Tools` and `Open Settings Folder` under `Help → Diagnostics`; moved `Diagnostics` section below `Report an Issue…`.
+- Toolbar/File-header controls: added/expanded labels and icons for `New Tune`, `Templates`, `Focus`, `Split`, `Errors`, `Follow`, `Globals`, `Refresh`, and `Clear`; refreshed `Fonts` icon for clearer meaning.
+
+### Fixed
+- Linebreak-marker reflow no longer produces short/fragmented lines around marker comments; comment-bearing lines now merge deterministically with adjacent music blocks.
+- File-header toggle buttons (`Errors`/`Follow`/`Globals`) no longer lose icons during runtime state updates.
+- Renderer build guard now enforces inline toolbar SVG sprite usage (macOS-safe path; prevents regressions to external icon loading).
 
 
 ## [0.32.2] - 2026-02-14

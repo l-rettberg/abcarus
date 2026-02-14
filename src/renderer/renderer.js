@@ -934,20 +934,43 @@ function deriveAbVoices(tuneText) {
   const out = new Set();
   const text = String(tuneText || "");
   text.split(/\r\n|\n|\r/).forEach((line) => {
-    const m = line.match(/^\s*V\s*:\s*([^\s]+)/i);
-    if (m && m[1]) out.add(m[1].trim());
+    const m = line.match(/^\s*V\s*:\s*(.+)$/i);
+    const id = m ? normalizeVoiceIdToken(m[1]) : "";
+    if (id) out.add(id);
   });
   const inline = text.match(/\[V\s*:\s*([^\]\s]+)/gi) || [];
   for (const token of inline) {
     const m = token.match(/\[V\s*:\s*([^\]\s]+)/i);
-    if (m && m[1]) out.add(m[1].trim());
+    const id = m ? normalizeVoiceIdToken(m[1]) : "";
+    if (id) out.add(id);
   }
   abVoiceIds = Array.from(out);
 }
 
+function normalizeVoiceIdToken(value) {
+  const raw = String(value || "").trim().replace(/^\[+|\]+$/g, "");
+  if (!raw) return "";
+  const withPrefix = raw.match(/^V\s*:\s*(.+)$/i);
+  const token = withPrefix ? withPrefix[1].trim() : raw;
+  if (!token) return "";
+  const head = token.split(/\s+/)[0];
+  return head ? String(head).trim() : "";
+}
+
+function isLikelyMusicBodyLine(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("%") || /^%%/.test(trimmed)) return false;
+  if (/^[A-Za-z][A-Za-z0-9_-]*\s*:/.test(trimmed)) return false;
+  return /[A-Ga-gxzZ]/.test(trimmed) || /[|]/.test(trimmed);
+}
+
 function stripMutedVoicesForPlayback(text, mutedVoices) {
   const muted = mutedVoices && typeof mutedVoices === "object"
-    ? Object.entries(mutedVoices).filter(([, v]) => Boolean(v)).map(([k]) => String(k))
+    ? Object.entries(mutedVoices)
+      .filter(([, v]) => Boolean(v))
+      .map(([k]) => normalizeVoiceIdToken(k))
+      .filter(Boolean)
     : [];
   if (!muted.length) return text;
   if (/\[V\s*:/i.test(text)) {
@@ -958,6 +981,12 @@ function stripMutedVoicesForPlayback(text, mutedVoices) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   let inBody = false;
   let currentVoice = null;
+  let firstVoiceId = null;
+  const registerFirstVoice = (id) => {
+    if (firstVoiceId) return;
+    firstVoiceId = String(id || "").trim() || "1";
+    if (mutedSet.has("1")) mutedSet.add(firstVoiceId);
+  };
   const out = [];
   for (const line of lines) {
     const trimmed = line.trim();
@@ -970,12 +999,17 @@ function stripMutedVoicesForPlayback(text, mutedVoices) {
       out.push(line);
       continue;
     }
-    const match = line.match(/^\s*V\s*:\s*([^\s]+)/i);
-    if (match && match[1]) {
-      currentVoice = String(match[1]).trim();
+    const voiceLine = line.match(/^\s*V\s*:\s*(.*)$/i);
+    if (voiceLine) {
+      currentVoice = normalizeVoiceIdToken(voiceLine[1]) || "1";
+      registerFirstVoice(currentVoice);
       if (mutedSet.has(currentVoice)) continue;
       out.push(line);
       continue;
+    }
+    if (!currentVoice && isLikelyMusicBodyLine(line)) {
+      currentVoice = "1";
+      registerFirstVoice(currentVoice);
     }
     if (currentVoice && mutedSet.has(currentVoice)) {
       continue;
@@ -988,7 +1022,15 @@ function stripMutedVoicesForPlayback(text, mutedVoices) {
 function parseMutedVoiceSetting(value) {
   const raw = String(value || "").trim();
   if (!raw) return [];
-  return raw.split(/[,\s]+/).map((v) => v.trim()).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  raw.split(/[,\s]+/).forEach((part) => {
+    const id = normalizeVoiceIdToken(part);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  });
+  return out;
 }
 
 function getSelectionPlaybackSettings() {
@@ -1060,11 +1102,13 @@ function stripRepeatsForSelection(text) {
       continue;
     }
     let line = rawLine;
-    // Replace repeat starts/ends and voltas with same-length neutral bars/spaces.
+    // Replace repeat starts/ends and voltas while keeping source length stable.
+    // Voltas ([1/[2/...) are annotations, not standalone barlines; injecting an extra "|"
+    // here can create phantom bar boundaries and shift scoped end behavior.
     line = line.replace(/\|\s*:\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
     line = line.replace(/:\s*\|\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
     line = line.replace(/:\s*\|:\s*/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
-    line = line.replace(/\[\s*\d+/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
+    line = line.replace(/\[\s*\d+/g, (m) => " ".repeat(String(m || "").length));
     line = line.replace(/:{2,}/g, (m) => `|${" ".repeat(Math.max(0, String(m || "").length - 1))}`);
     // Only treat D.C./D.S. as playback directives when explicitly marked as decorations (e.g. !D.C.!).
     // Bare "DC" can be a real note sequence and must be preserved.
@@ -1242,8 +1286,8 @@ let playbackLoopEnabled = false;
 let playbackLoopFromMeasure = 0;
 let playbackLoopToMeasure = 0;
 let playbackLoopTuneId = null;
-const FOCUS_LOOP_DEFAULT_FROM = 1;
-const FOCUS_LOOP_DEFAULT_TO = 4;
+const FOCUS_LOOP_DEFAULT_FROM = 0;
+const FOCUS_LOOP_DEFAULT_TO = 0;
 let currentPlaybackPlan = null;
 let pendingPlaybackPlan = null;
 let selectionPlaybackCursor = null;
@@ -15537,6 +15581,7 @@ function findMeasureStartOffsetByNumber(text, measureNumber) {
   };
 
   let inTextBlock = false;
+  let inBody = false;
   let started = false;
   let currentMeasure = 1;
   let currentStart = null;
@@ -15556,6 +15601,10 @@ function findMeasureStartOffsetByNumber(text, measureNumber) {
     if (/^%%\s*begintext\b/i.test(trimmed)) { inTextBlock = true; continue; }
     if (/^%%\s*endtext\b/i.test(trimmed)) { inTextBlock = false; continue; }
     if (inTextBlock) continue;
+    if (!inBody) {
+      if (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(rawLine)) inBody = true;
+      continue;
+    }
     if (isSkippableLine(rawLine)) continue;
     if (!started && !isBodyLine(rawLine)) continue;
     if (!started) {
@@ -15591,6 +15640,98 @@ function findMeasureStartOffsetByNumber(text, measureNumber) {
   return null;
 }
 
+function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber) {
+  const target = Number(measureNumber);
+  if (!Number.isFinite(target) || target < 1) return null;
+  const src = String(text || "");
+  if (!src.trim()) return null;
+  const len = src.length;
+
+  const isSkippableLine = (line) => {
+    const trimmed = String(line || "").trim();
+    if (!trimmed) return true;
+    if (trimmed.startsWith("%")) return true;
+    if (/^%%/.test(trimmed)) return true;
+    if (/^[A-Za-z]:/.test(trimmed)) return true;
+    return false;
+  };
+  const isBodyLine = (line) => {
+    const trimmed = String(line || "").trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith("%")) return false;
+    if (/^%%/.test(trimmed)) return false;
+    if (/^[A-Za-z]:/.test(trimmed)) return false;
+    return true;
+  };
+
+  let inTextBlock = false;
+  let inBody = false;
+  let primaryVoice = null;
+  let currentVoice = null;
+  let started = false;
+  let currentMeasure = 1;
+
+  const lineStarts = [0];
+  for (let i = 0; i < len; i += 1) {
+    if (src[i] === "\n") lineStarts.push(i + 1);
+  }
+  lineStarts.push(len + 1);
+
+  for (let li = 0; li < lineStarts.length - 1; li += 1) {
+    const lineStart = lineStarts[li];
+    const lineEnd = Math.min(len, lineStarts[li + 1] - 1);
+    const rawLine = src.slice(lineStart, lineEnd);
+    const trimmed = rawLine.trim();
+
+    if (/^%%\s*begintext\b/i.test(trimmed)) { inTextBlock = true; continue; }
+    if (/^%%\s*endtext\b/i.test(trimmed)) { inTextBlock = false; continue; }
+    if (inTextBlock) continue;
+
+    if (!inBody) {
+      if (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(rawLine)) inBody = true;
+      continue;
+    }
+
+    const voiceLine = rawLine.match(/^\s*V\s*:\s*(.*)$/i);
+    if (voiceLine) {
+      currentVoice = normalizeVoiceIdToken(voiceLine[1]) || "1";
+      if (!primaryVoice) primaryVoice = currentVoice;
+      continue;
+    }
+
+    const effectiveVoice = currentVoice || "1";
+    if (!primaryVoice && isBodyLine(rawLine)) primaryVoice = effectiveVoice;
+    if (primaryVoice && effectiveVoice !== primaryVoice) continue;
+    if (isSkippableLine(rawLine)) continue;
+
+    if (!started && !isBodyLine(rawLine)) continue;
+    if (!started) {
+      started = true;
+      const firstNonSpace = rawLine.search(/\S/);
+      const start = firstNonSpace >= 0 ? lineStart + firstNonSpace : lineStart;
+      if (target === 1) return start;
+    }
+
+    let inQuote = false;
+    let inComment = false;
+    for (let i = lineStart; i < lineEnd; i += 1) {
+      const ch = src[i];
+      if (inComment) continue;
+      if (ch === "%" && src[i - 1] !== "\\") { inComment = true; continue; }
+      if (ch === "\"") { inQuote = !inQuote; continue; }
+      if (inQuote) continue;
+      if (ch !== "|") continue;
+
+      let j = i + 1;
+      while (j < lineEnd && /[:|\]\s]/.test(src[j])) j += 1;
+      currentMeasure += 1;
+      if (currentMeasure === target) return j;
+      i = j - 1;
+    }
+  }
+  return null;
+}
+
 let renderMeasureIndexCache = null; // { key, offset, istarts, anchor, byNumber }
 
 function buildMeasureIstartsFromAbc2svg(firstSymbol) {
@@ -15622,55 +15763,110 @@ function buildMeasureIstartsFromAbc2svg(firstSymbol) {
 
 function buildMeasureStartsByNumberFromAbc2svg(firstSymbol) {
   const byNumber = new Map(); // number -> [istart...]
-  const push = (n, istart) => {
+  const push = (targetMap, n, istart) => {
     const num = Number(n);
     if (!Number.isFinite(num)) return;
     const start = Number(istart);
     if (!Number.isFinite(start)) return;
-    const list = byNumber.get(num) || [];
+    const list = targetMap.get(num) || [];
     if (!list.length || list[list.length - 1] !== start) list.push(start);
-    byNumber.set(num, list);
+    targetMap.set(num, list);
   };
-  const isBarLikeSymbol = (symbol) => !!(symbol && (symbol.bar_type || symbol.type === 14));
-
-  // Measure 1 start should point at the first playable symbol, not at header tokens like Q:/K:/etc.
-  // abc2svg's bar_num typically labels the barline *ending* measure 1 as 2, so we may not get a natural
-  // (bar_num=1) mapping from barlines; we seed measure 1 explicitly.
-  let s = firstSymbol;
-  let guard = 0;
-  let firstPlayableStart = null;
-  while (s && guard < 200000) {
-    const playable = Number.isFinite(s.dur) && s.dur > 0;
-    if (playable && Number.isFinite(s.istart)) { firstPlayableStart = s.istart; break; }
-    s = s.ts_next;
-    guard += 1;
-  }
-  if (firstPlayableStart != null) {
-    // Also expose as bar 0 for pickup-heavy sources.
-    push(0, firstPlayableStart);
-    push(1, firstPlayableStart);
-  }
-
-  s = firstSymbol;
-  guard = 0;
-  while (s && guard < 200000) {
-    if (isBarLikeSymbol(s) && s.ts_next && Number.isFinite(s.ts_next.istart) && Number.isFinite(s.bar_num)) {
-      push(s.bar_num, s.ts_next.istart);
+  const normalizeMap = (targetMap) => {
+    for (const [k, list] of targetMap.entries()) {
+      const out = [];
+      let last = null;
+      for (const v of list.slice().sort((a, b) => a - b)) {
+        if (!Number.isFinite(v)) continue;
+        if (last == null || v !== last) out.push(v);
+        last = v;
+      }
+      targetMap.set(k, out);
     }
-    s = s.ts_next;
-    guard += 1;
-  }
-
-  // Normalize: sort each list and dedupe.
-  for (const [k, list] of byNumber.entries()) {
+  };
+  const normalizeList = (list) => {
     const out = [];
     let last = null;
-    for (const v of list.slice().sort((a, b) => a - b)) {
+    for (const v of (Array.isArray(list) ? list : []).slice().sort((a, b) => a - b)) {
       if (!Number.isFinite(v)) continue;
       if (last == null || v !== last) out.push(v);
       last = v;
     }
-    byNumber.set(k, out);
+    return out;
+  };
+  const findNextAfter = (sorted, value) => {
+    if (!Array.isArray(sorted) || !sorted.length) return null;
+    const target = Number(value);
+    if (!Number.isFinite(target)) return null;
+    let lo = 0;
+    let hi = sorted.length - 1;
+    let best = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const v = sorted[mid];
+      if (v > target) {
+        best = v;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return best;
+  };
+  const isBarLikeSymbol = (symbol) => !!(symbol && (symbol.bar_type || symbol.type === 14));
+  const genericByNumber = new Map();
+  const voiceStarts = new Map(); // voiceId -> [istart...]
+  const barlines = []; // { barNum, istart, voiceId }
+
+  let s = firstSymbol;
+  let guard = 0;
+  let primaryVoiceId = null;
+  while (s && guard < 200000) {
+    const istart = Number(s.istart);
+    const voiceId = (s && s.p_v && s.p_v.id != null) ? String(s.p_v.id) : "1";
+    if (Number.isFinite(istart)) {
+      if (!voiceStarts.has(voiceId)) voiceStarts.set(voiceId, []);
+      voiceStarts.get(voiceId).push(istart);
+    }
+    const playable = Number.isFinite(s.dur) && s.dur > 0;
+    if (!primaryVoiceId && playable && Number.isFinite(istart)) primaryVoiceId = voiceId;
+    if (isBarLikeSymbol(s) && Number.isFinite(s.bar_num) && Number.isFinite(istart)) {
+      barlines.push({ barNum: Number(s.bar_num), istart, voiceId });
+      if (s.ts_next && Number.isFinite(Number(s.ts_next.istart))) {
+        push(genericByNumber, s.bar_num, s.ts_next.istart);
+      }
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  if (!primaryVoiceId) primaryVoiceId = "1";
+
+  const primaryStarts = normalizeList(voiceStarts.get(primaryVoiceId));
+  const firstPrimaryStart = primaryStarts.length ? primaryStarts[0] : null;
+  if (Number.isFinite(firstPrimaryStart)) {
+    push(byNumber, 0, firstPrimaryStart);
+    push(byNumber, 1, firstPrimaryStart);
+  }
+
+  const primaryBars = barlines
+    .filter((item) => String(item.voiceId || "1") === String(primaryVoiceId))
+    .sort((a, b) => Number(a.istart) - Number(b.istart));
+
+  for (const item of primaryBars) {
+    const nextStart = findNextAfter(primaryStarts, Number(item.istart));
+    if (Number.isFinite(nextStart)) {
+      push(byNumber, item.barNum, nextStart);
+    }
+  }
+
+  normalizeMap(genericByNumber);
+  normalizeMap(byNumber);
+
+  // Fill missing bar numbers from generic map when primary-voice mapping is incomplete.
+  for (const [k, list] of genericByNumber.entries()) {
+    if (!byNumber.has(k) || !Array.isArray(byNumber.get(k)) || !byNumber.get(k).length) {
+      byNumber.set(k, Array.isArray(list) ? list.slice() : []);
+    }
   }
 
   return byNumber;
@@ -24350,15 +24546,42 @@ function updatePlaybackInteractionLock() {
 }
 
 function buildTransportPlaybackPlan() {
-  const loopPlan = focusModeEnabled ? computeFocusLoopPlaybackRange() : null;
+  const tempoMultiplier = focusModeEnabled
+    ? (Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : 1)
+    : 1;
+  if (focusModeEnabled) {
+    const focusResult = computeFocusPlaybackPlanFromCurrentState();
+    if (!focusResult || !focusResult.ok || !focusResult.plan) {
+      return {
+        mode: "focus",
+        invalid: true,
+        invalidReason: focusResult && focusResult.reason ? String(focusResult.reason) : "Cannot resolve Focus playback scope.",
+        rangeStart: Math.max(0, Number(transportPlayheadOffset) || 0),
+        rangeEnd: null,
+        loopEnabled: false,
+        tempoMultiplier,
+        focusPlan: null,
+      };
+    }
+    return {
+      mode: "focus",
+      invalid: false,
+      invalidReason: "",
+      rangeStart: focusResult.plan.startOffset,
+      rangeEnd: focusResult.plan.endOffset,
+      loopEnabled: Boolean(focusResult.plan.loop),
+      tempoMultiplier,
+      focusPlan: focusResult.plan,
+    };
+  }
   return {
     mode: "transport",
-    rangeStart: loopPlan ? loopPlan.startOffset : Math.max(0, Number(transportPlayheadOffset) || 0),
-    rangeEnd: loopPlan ? loopPlan.endOffset : null,
-    loopEnabled: Boolean(loopPlan && loopPlan.loop),
-    tempoMultiplier: focusModeEnabled
-      ? (Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : 1)
-      : 1,
+    invalid: false,
+    invalidReason: "",
+    rangeStart: Math.max(0, Number(transportPlayheadOffset) || 0),
+    rangeEnd: null,
+    loopEnabled: false,
+    tempoMultiplier,
   };
 }
 
@@ -24382,6 +24605,10 @@ async function togglePlayPauseEffective() {
 
   if (isPaused) {
     const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
     applyPlaybackPlanSpeed(plan);
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
     await startPlaybackFromRange({
@@ -24399,7 +24626,14 @@ async function togglePlayPauseEffective() {
     if (played) return;
   }
 
-  const plan = pendingPlaybackPlan || buildTransportPlaybackPlan();
+  const plan = focusModeEnabled
+    ? buildTransportPlaybackPlan()
+    : (pendingPlaybackPlan || buildTransportPlaybackPlan());
+  if (plan && plan.invalid) {
+    pendingPlaybackPlan = null;
+    showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+    return;
+  }
   pendingPlaybackPlan = null;
   currentPlaybackPlan = plan;
   applyPlaybackPlanSpeed(plan);
@@ -24427,6 +24661,10 @@ async function transportTogglePlayPause() {
   }
   if (isPaused) {
     const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
     await startPlaybackFromRange({
       startOffset: resumeOffset,
@@ -24457,6 +24695,10 @@ async function transportPause() {
   }
   if (isPaused) {
     const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
     await startPlaybackFromRange({
       startOffset: resumeOffset,
@@ -25286,7 +25528,14 @@ function stopPlaybackTransport() {
   isPlaying = false;
   isPaused = false;
   waitingForFirstNote = false;
-  transportPlayheadOffset = 0;
+  let nextTransportStart = 0;
+  if (focusModeEnabled) {
+    const focusResult = computeFocusPlaybackPlanFromCurrentState();
+    if (focusResult && focusResult.ok && focusResult.plan && focusResult.plan.mode === "segment") {
+      nextTransportStart = Math.max(0, Number(focusResult.plan.startOffset) || 0);
+    }
+  }
+  transportPlayheadOffset = nextTransportStart;
   transportJumpHighlightActive = false;
   suppressTransportJumpClearOnce = false;
   setPracticeBarHighlight(null);
@@ -25507,6 +25756,424 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
+function buildFocusBarIndexMap(measureIndex, editorDocLength) {
+  if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
+  const renderOffset = Number(measureIndex.offset) || 0;
+  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
+  const starts = measureIndex.istarts.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
+  if (!starts.length) return [];
+  const bars = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const startRenderOffset = starts[i];
+    const nextStart = (i + 1 < starts.length) ? starts[i + 1] : null;
+    const startOffset = Math.max(0, Math.min(max, Math.floor(startRenderOffset - renderOffset)));
+    const endOffset = Number.isFinite(nextStart)
+      ? Math.max(0, Math.min(max, Math.floor(nextStart - renderOffset)))
+      : max;
+    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
+    bars.push({
+      barNumber: bars.length + 1,
+      startRenderOffset,
+      endRenderOffset: Number.isFinite(nextStart) ? nextStart : null,
+      startOffset,
+      endOffset,
+    });
+  }
+  return bars;
+}
+
+function buildFocusBarIndexMapFromSvg(editorDocLength) {
+  if (!$out) return [];
+  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
+    ? Number(lastRenderPayload.offset)
+    : 0;
+  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
+  const barEls = Array.from($out.querySelectorAll(".bar-hl"));
+  if (!barEls.length) return [];
+  const raw = [];
+  for (const el of barEls) {
+    const s = Number(el.dataset && el.dataset.start);
+    const e = Number(el.dataset && el.dataset.end);
+    if (!Number.isFinite(s)) continue;
+    raw.push({
+      startRenderOffset: s,
+      endRenderOffset: (Number.isFinite(e) && e > s) ? e : null,
+    });
+  }
+  if (!raw.length) return [];
+  raw.sort((a, b) => {
+    if (a.startRenderOffset !== b.startRenderOffset) return a.startRenderOffset - b.startRenderOffset;
+    const ae = Number.isFinite(a.endRenderOffset) ? a.endRenderOffset : Number.POSITIVE_INFINITY;
+    const be = Number.isFinite(b.endRenderOffset) ? b.endRenderOffset : Number.POSITIVE_INFINITY;
+    return ae - be;
+  });
+  const deduped = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const key = `${item.startRenderOffset}:${Number.isFinite(item.endRenderOffset) ? item.endRenderOffset : "null"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  const bars = [];
+  for (let i = 0; i < deduped.length; i += 1) {
+    const item = deduped[i];
+    const next = (i + 1 < deduped.length) ? deduped[i + 1] : null;
+    let endRenderOffset = Number.isFinite(item.endRenderOffset) ? Number(item.endRenderOffset) : null;
+    const nextStart = next && Number.isFinite(next.startRenderOffset) ? Number(next.startRenderOffset) : null;
+    if (Number.isFinite(nextStart) && (!Number.isFinite(endRenderOffset) || endRenderOffset > nextStart)) {
+      endRenderOffset = nextStart;
+    }
+    if (!Number.isFinite(endRenderOffset)) endRenderOffset = renderOffset + max;
+    const startOffset = Math.max(0, Math.min(max, Math.floor(item.startRenderOffset - renderOffset)));
+    const endOffset = Math.max(0, Math.min(max, Math.floor(endRenderOffset - renderOffset)));
+    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
+    bars.push({
+      barNumber: bars.length + 1,
+      startRenderOffset: item.startRenderOffset,
+      endRenderOffset,
+      startOffset,
+      endOffset,
+    });
+  }
+  return bars;
+}
+
+function getVisibleFocusRenderRange() {
+  if (!focusModeEnabled || !$out || !$renderPane) return null;
+  const bars = Array.from($out.querySelectorAll(".bar-hl"));
+  if (!bars.length) return null;
+  const paneRect = $renderPane.getBoundingClientRect();
+  if (!(paneRect && paneRect.width > 1 && paneRect.height > 1)) return null;
+  let startRenderOffset = Number.POSITIVE_INFINITY;
+  let endRenderOffset = Number.NEGATIVE_INFINITY;
+  let hits = 0;
+  for (const el of bars) {
+    const rect = el.getBoundingClientRect();
+    if (!rect || rect.bottom <= paneRect.top || rect.top >= paneRect.bottom || rect.right <= paneRect.left || rect.left >= paneRect.right) {
+      continue;
+    }
+    const s = Number(el.dataset && el.dataset.start);
+    const e = Number(el.dataset && el.dataset.end);
+    if (!Number.isFinite(s)) continue;
+    const stop = (Number.isFinite(e) && e > s) ? e : (s + 1);
+    startRenderOffset = Math.min(startRenderOffset, s);
+    endRenderOffset = Math.max(endRenderOffset, stop);
+    hits += 1;
+  }
+  if (!hits || !Number.isFinite(startRenderOffset) || !Number.isFinite(endRenderOffset) || endRenderOffset <= startRenderOffset) return null;
+  return { startRenderOffset, endRenderOffset };
+}
+
+function resolveVisibleFocusBarRange(barMap, visibleRenderRange) {
+  if (!Array.isArray(barMap) || !barMap.length) return null;
+  if (!visibleRenderRange) return null;
+  const startRender = Number(visibleRenderRange.startRenderOffset);
+  const endRender = Number(visibleRenderRange.endRenderOffset);
+  if (!Number.isFinite(startRender) || !Number.isFinite(endRender) || endRender <= startRender) return null;
+  let startBarIndex = null;
+  let endBarIndex = null;
+  for (let i = 0; i < barMap.length; i += 1) {
+    const bar = barMap[i];
+    const barStart = Number(bar.startRenderOffset);
+    const barEnd = Number.isFinite(Number(bar.endRenderOffset)) ? Number(bar.endRenderOffset) : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(barStart)) continue;
+    if (barStart < endRender && barEnd > startRender) {
+      if (startBarIndex == null) startBarIndex = i;
+      endBarIndex = i;
+    }
+  }
+  if (startBarIndex == null || endBarIndex == null) return null;
+  return { startBarIndex, endBarIndex };
+}
+
+function normalizeFocusBarStarts(list) {
+  if (!Array.isArray(list) || !list.length) return [];
+  const out = [];
+  let last = null;
+  for (const value of list.slice().sort((a, b) => Number(a) - Number(b))) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) continue;
+    if (last == null || v !== last) out.push(v);
+    last = v;
+  }
+  return out;
+}
+
+function getFocusFirstMeasureStartRender(byNumber) {
+  if (!byNumber || typeof byNumber.get !== "function") return null;
+  const first = normalizeFocusBarStarts(byNumber.get(1));
+  if (!first.length) return null;
+  return Number(first[0]);
+}
+
+function getFocusMeasureStartCandidates(byNumber, measureNumber) {
+  if (!byNumber || typeof byNumber.get !== "function") return [];
+  const n = Number(measureNumber);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return [];
+  const firstMeasureStart = getFocusFirstMeasureStartRender(byNumber);
+  if (!Number.isFinite(firstMeasureStart)) return [];
+  if (n === 1) return [firstMeasureStart];
+
+  // Preferred: direct bar number mapping (works for repeated/volta numbers like 15/16/17).
+  const direct = normalizeFocusBarStarts(byNumber.get(n)).filter((v) => Number(v) > firstMeasureStart);
+  if (direct.length) return direct;
+
+  // Fallback: some sources expose next-measure starts as previous bar numbers.
+  return normalizeFocusBarStarts(byNumber.get(n - 1)).filter((v) => Number(v) > firstMeasureStart);
+}
+
+function findFocusBarIndexAtOrAfterStart(barMap, renderStart) {
+  if (!Array.isArray(barMap) || !barMap.length) return -1;
+  const target = Number(renderStart);
+  if (!Number.isFinite(target)) return -1;
+  // Prefer the bar that actually contains target (important when barMap[0] starts before
+  // the first playable note but still spans bar 1).
+  for (let i = 0; i < barMap.length; i += 1) {
+    const start = Number(barMap[i] && barMap[i].startRenderOffset);
+    const rawEnd = Number(barMap[i] && barMap[i].endRenderOffset);
+    const end = Number.isFinite(rawEnd) ? rawEnd : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(start)) continue;
+    if (target >= start && target < end) return i;
+  }
+  for (let i = 0; i < barMap.length; i += 1) {
+    const start = Number(barMap[i] && barMap[i].startRenderOffset);
+    if (!Number.isFinite(start)) continue;
+    if (start >= target) return i;
+  }
+  return barMap.length - 1;
+}
+
+function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to) {
+  if (!Array.isArray(barMap) || !barMap.length) return null;
+  if (!byNumber || typeof byNumber.get !== "function") return null;
+  const fromStarts = getFocusMeasureStartCandidates(byNumber, from);
+  const toStarts = getFocusMeasureStartCandidates(byNumber, to);
+  if (!fromStarts.length || !toStarts.length) return null;
+
+  const startRender = fromStarts[0];
+  let toStartRender = null;
+  for (let i = toStarts.length - 1; i >= 0; i -= 1) {
+    const candidate = Number(toStarts[i]);
+    if (!Number.isFinite(candidate)) continue;
+    if (candidate >= startRender) {
+      toStartRender = candidate;
+      break;
+    }
+  }
+  if (!Number.isFinite(toStartRender)) return null;
+
+  // Inclusive end: boundary is start of the next measure after selected To.
+  const nextStarts = getFocusMeasureStartCandidates(byNumber, to + 1);
+  let endBoundaryRender = null;
+  for (let i = 0; i < nextStarts.length; i += 1) {
+    const candidate = Number(nextStarts[i]);
+    if (!Number.isFinite(candidate)) continue;
+    if (candidate > toStartRender) {
+      endBoundaryRender = candidate;
+      break;
+    }
+  }
+  if (!Number.isFinite(endBoundaryRender)) {
+    for (let i = 0; i < barMap.length; i += 1) {
+      const candidate = Number(barMap[i] && barMap[i].startRenderOffset);
+      if (!Number.isFinite(candidate)) continue;
+      if (candidate > toStartRender) {
+        endBoundaryRender = candidate;
+        break;
+      }
+    }
+  }
+
+  const startBarIndex = findFocusBarIndexAtOrAfterStart(barMap, startRender);
+  const endBarIndex = findFocusBarIndexAtOrAfterStart(barMap, toStartRender);
+  if (startBarIndex < 0 || endBarIndex < 0 || endBarIndex < startBarIndex) return null;
+  return {
+    startBarIndex,
+    endBarIndex,
+    startRenderOffset: startRender,
+    toStartRenderOffset: toStartRender,
+    endBoundaryRenderOffset: Number.isFinite(endBoundaryRender) ? endBoundaryRender : null,
+  };
+}
+
+function getFocusBarMapRenderOffset(barMap) {
+  if (!Array.isArray(barMap) || !barMap.length) return null;
+  for (const bar of barMap) {
+    const renderStart = Number(bar && bar.startRenderOffset);
+    const editorStart = Number(bar && bar.startOffset);
+    if (!Number.isFinite(renderStart) || !Number.isFinite(editorStart)) continue;
+    return renderStart - editorStart;
+  }
+  return null;
+}
+
+function getFocusPlaybackState() {
+  const selectionSettings = getSelectionPlaybackSettings();
+  return {
+    fromMeasure: Number(playbackLoopFromMeasure),
+    toMeasure: Number(playbackLoopToMeasure),
+    loop: Boolean(playbackLoopEnabled),
+    suppressRepeats: Boolean(selectionSettings.suppressRepeats),
+    mutedVoices: Array.isArray(selectionSettings.mutedVoices) ? selectionSettings.mutedVoices.slice() : [],
+    muteGchords: Boolean(selectionSettings.muteGchords),
+    allowMidiDrums: Boolean(selectionSettings.allowMidiDrums),
+  };
+}
+
+function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
+  const bars = parsedTune && Array.isArray(parsedTune.barMap) ? parsedTune.barMap : [];
+  if (!bars.length) {
+    return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
+  }
+  const tuneText = String(parsedTune && parsedTune.text ? parsedTune.text : "");
+  const byNumber = (parsedTune && parsedTune.byNumber && typeof parsedTune.byNumber.get === "function")
+    ? parsedTune.byNumber
+    : null;
+  const state = focusState || {};
+  const from = Number(state.fromMeasure);
+  const to = Number(state.toMeasure);
+  const hasFrom = Number.isFinite(from) && from >= 1;
+  const hasTo = Number.isFinite(to) && to >= 1;
+  let mode = "visible";
+  let startBarIndex = null;
+  let endBarIndex = null;
+  let byNumberRange = null;
+
+  if (hasFrom && hasTo) {
+    if (!Number.isInteger(from) || !Number.isInteger(to) || to < from) {
+      return { ok: false, reason: "Invalid Focus range: set integer From/To with From <= To." };
+    }
+    byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);
+    if (byNumberRange) {
+      const resolvedSpan = (Number(byNumberRange.endBarIndex) - Number(byNumberRange.startBarIndex)) + 1;
+      const expectedSpan = (to - from) + 1;
+      const spanSuspicious = (
+        !Number.isFinite(resolvedSpan)
+        || resolvedSpan <= 0
+        || resolvedSpan > (expectedSpan + 8)
+        || (from <= 4 && resolvedSpan > (expectedSpan + 2))
+      );
+      if (spanSuspicious) byNumberRange = null;
+    }
+    if (byNumberRange) {
+      mode = "segment";
+      startBarIndex = byNumberRange.startBarIndex;
+      endBarIndex = byNumberRange.endBarIndex;
+    } else {
+      if (from > bars.length || to > bars.length) {
+        return { ok: false, reason: "Requested bar range is outside the focused tune." };
+      }
+      mode = "segment";
+      startBarIndex = from - 1;
+      endBarIndex = to - 1;
+    }
+  } else {
+    const visibleBars = resolveVisibleFocusBarRange(bars, visibleRange);
+    if (!visibleBars) {
+      return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
+    }
+    startBarIndex = visibleBars.startBarIndex;
+    endBarIndex = visibleBars.endBarIndex;
+  }
+
+  const startBar = bars[startBarIndex];
+  const endBar = bars[endBarIndex];
+  if (!startBar || !endBar) {
+    return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
+  }
+  let startOffset = Number(startBar.startOffset);
+  let endOffset = Number(endBar.endOffset);
+  if (mode === "segment" && byNumberRange) {
+    const renderOffset = getFocusBarMapRenderOffset(bars);
+    const max = Math.max(0, tuneText.length);
+    if (Number.isFinite(renderOffset) && Number.isFinite(Number(byNumberRange.startRenderOffset))) {
+      const exactStart = Math.floor(Number(byNumberRange.startRenderOffset) - Number(renderOffset));
+      startOffset = Math.max(0, Math.min(max, exactStart));
+    }
+    const boundaryRender = Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))
+      ? Number(byNumberRange.endBoundaryRenderOffset)
+      : Number(byNumberRange.toStartRenderOffset);
+    if (Number.isFinite(renderOffset) && Number.isFinite(boundaryRender)) {
+      const exactEnd = Math.floor(boundaryRender - Number(renderOffset));
+      endOffset = Math.max(0, Math.min(max, exactEnd));
+    } else if (Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))) {
+      const boundaryIdx = findFocusBarIndexAtOrAfterStart(bars, Number(byNumberRange.endBoundaryRenderOffset));
+      if (boundaryIdx >= 0) {
+        const boundaryBar = bars[boundaryIdx];
+        if (boundaryBar && Number.isFinite(Number(boundaryBar.startOffset))) {
+          endOffset = Number(boundaryBar.startOffset);
+        }
+      }
+    }
+  }
+  if (mode === "segment") {
+    const textStartOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, from);
+    const textEndOffsetExclusive = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, to + 1);
+    if (from === 1 && Number.isFinite(Number(textStartOffset)) && Number(textStartOffset) >= 0) {
+      startOffset = Number(textStartOffset);
+    }
+    if (!byNumberRange
+      && Number.isFinite(Number(textEndOffsetExclusive))
+      && Number(textEndOffsetExclusive) > startOffset) {
+      endOffset = Number(textEndOffsetExclusive);
+    }
+  }
+  // abc2svg measure timelines can omit the very first bar boundary in some multi-voice/volta layouts.
+  // Keep From=1 anchored to the real first measure start detected from source text.
+  const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
+  const noSegmentLimits = !hasFrom && !hasTo;
+  const mustAnchorToFirstMeasure = (
+    (mode === "segment" && Number(state.fromMeasure) === 1)
+    || (mode === "visible" && noSegmentLimits)
+  );
+  if (mustAnchorToFirstMeasure
+    && Number.isFinite(firstMeasureOffset)
+    && firstMeasureOffset >= 0
+    && firstMeasureOffset < startOffset) {
+    startOffset = firstMeasureOffset;
+  }
+  if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
+    return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
+  }
+
+  return {
+    ok: true,
+    plan: {
+      mode,
+      startBarIndex,
+      endBarIndex,
+      startOffset,
+      endOffset,
+      suppressRepeats: Boolean(state.suppressRepeats),
+      mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+      loop: Boolean(state.loop),
+    },
+  };
+}
+
+function computeFocusPlaybackPlanFromCurrentState() {
+  if (!editorView) return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
+  const tuneText = getEditorValue();
+  const measureIndex = getRenderMeasureIndex();
+  const barMap = buildFocusBarIndexMap(measureIndex, editorView.state.doc.length);
+  if (!barMap.length) {
+    return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
+  }
+  const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);
+  const focusState = getFocusPlaybackState();
+  return buildFocusPlaybackPlan({
+    parsedTune: {
+      text: tuneText,
+      barMap,
+      byNumber: measureIndex && measureIndex.byNumber ? measureIndex.byNumber : null,
+      firstMeasureOffset: Number.isFinite(firstMeasureOffset) ? Number(firstMeasureOffset) : null,
+    },
+    focusState,
+    visibleRange: getVisibleFocusRenderRange(),
+  });
+}
+
 function pickStartFromListAtOrAfter(list, minRenderIdx) {
   if (!Array.isArray(list) || !list.length) return null;
   const min = Number(minRenderIdx);
@@ -25588,51 +26255,15 @@ function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, min
 }
 
 function computeFocusLoopPlaybackRange() {
-  if (!focusModeEnabled) return null;
-  if (!playbackLoopEnabled) return null;
-  if (!editorView) return null;
-  if (rawMode) return null;
-
-  const measureIndex = getRenderMeasureIndex();
-  if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return null;
-
-  const renderOffset = Number(measureIndex.offset) || 0;
-  const anchor = Number.isFinite(Number(measureIndex.anchor)) ? Number(measureIndex.anchor) : 0;
-  const minBound = measureIndex.istarts[Math.max(0, Math.min(measureIndex.istarts.length - 1, anchor))];
-
-  const fromMeasure = clampInt(playbackLoopFromMeasure, 0, 100000, 0);
-  const toMeasure = clampInt(playbackLoopToMeasure, 0, 100000, 0);
-
-  const fromNum = fromMeasure > 0 ? fromMeasure : 1;
-  // Focus loop needs linear editor bars (visible sequence), not repeat-aware bar_num mapping.
-  // Using byNumber here can pick a repeated occurrence and create unstable loop bounds.
-  const startRender =
-    resolveMeasureStartRenderIdxSequential(measureIndex, fromNum, { minBound })
-    ?? resolveMeasureStartRenderIdx(measureIndex, fromNum, { minBound });
-  if (!Number.isFinite(startRender)) return null;
-
-  let endRender = null;
-  if (toMeasure > 0) {
-    const endStart =
-      resolveMeasureStartRenderIdxSequential(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender })
-      ?? resolveMeasureStartRenderIdx(measureIndex, toMeasure, { minBound, minStartRenderIdx: startRender });
-    if (Number.isFinite(endStart)) {
-      // End offset is the *next* bar start after the chosen end measure start.
-      endRender = findBoundaryAfter(measureIndex.istarts, endStart);
-    }
-  }
-
-  const max = editorView.state.doc.length;
-  const startOffset = Math.max(0, Math.min(max, Math.floor(startRender - renderOffset)));
-  const endOffset = (endRender == null || !Number.isFinite(endRender))
-    ? null
-    : Math.max(0, Math.min(max, Math.floor(Number(endRender) - renderOffset)));
-
-  if (endOffset != null && endOffset <= startOffset) {
-    // Invalid range; fallback to looping whole tune from the computed start.
-    return { startOffset, endOffset: null, origin: "focus", loop: true };
-  }
-  return { startOffset, endOffset, origin: "focus", loop: true };
+  if (!focusModeEnabled || !editorView || rawMode) return null;
+  const focusResult = computeFocusPlaybackPlanFromCurrentState();
+  if (!focusResult || !focusResult.ok || !focusResult.plan) return null;
+  return {
+    startOffset: Number(focusResult.plan.startOffset) || 0,
+    endOffset: Number.isFinite(Number(focusResult.plan.endOffset)) ? Number(focusResult.plan.endOffset) : null,
+    origin: "focus",
+    loop: Boolean(focusResult.plan.loop),
+  };
 }
 
 function updatePracticeUi() {
@@ -28426,9 +29057,17 @@ function resolvePlaybackEndAbcOffset(range, startAbcOffset) {
   if (!Number.isFinite(endOffset)) return null;
   const endAbcOffset = endOffset + playbackIndexOffset;
   if (!Number.isFinite(endAbcOffset) || endAbcOffset <= startAbcOffset) return null;
-  const sym = findSymbolAtOrAfter(endAbcOffset);
-  if (!sym || !Number.isFinite(sym.istart)) return null;
-  return sym.istart;
+  // `endOffset` is an exclusive editor boundary; choose the last symbol strictly before it.
+  // Using at-or-after can include the first symbol of the next bar and overshoot segment end.
+  const before = findSymbolAtOrBefore(endAbcOffset - 1);
+  if (before && Number.isFinite(before.istart) && before.istart > startAbcOffset) {
+    return before.istart;
+  }
+  const atOrAfter = findSymbolAtOrAfter(endAbcOffset);
+  if (atOrAfter && Number.isFinite(atOrAfter.istart) && atOrAfter.istart > startAbcOffset) {
+    return atOrAfter.istart;
+  }
+  return null;
 }
 
 function findBoundaryAtOrAfter(sorted, target) {
@@ -28615,8 +29254,7 @@ async function startPlaybackFromRange(rangeOverride) {
 		    activePlaybackEndAbcOffset = null;
 		  }
 	  if (range && range.loop) {
-	    const loopBounds = computeFocusLoopPlaybackRange();
-	    activeLoopRange = loopBounds || {
+	    activeLoopRange = {
 	      startOffset: Number(range.startOffset) || 0,
 	      endOffset: (range.endOffset == null) ? null : Number(range.endOffset),
 	      origin: String(range.origin || "focus"),

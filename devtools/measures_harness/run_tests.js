@@ -84,6 +84,15 @@ async function runReflowRoundtripCase({ name, fixture, measuresPerLineA, measure
   assertEqualBytes(name, twice, direct);
 }
 
+async function runLinebreakMarkerCase({ name, fixture, expected }) {
+  const input = readText(path.join(FIXTURES, fixture));
+  const expectedText = readText(path.join(EXPECTED, expected));
+  const { transformMeasuresByLinebreakMarker, normalizeMeasuresLineBreaks } = await import("../../src/renderer/measures.mjs");
+  const actual = normalizeMeasuresLineBreaks(transformMeasuresByLinebreakMarker(input));
+  assertNoBlankLinesOutsideBegintext(name, actual);
+  assertEqualBytes(name, actual, expectedText);
+}
+
 async function main() {
 	  const cases = [
 	    {
@@ -110,12 +119,28 @@ async function main() {
         expected: "inline-key-change_mpl2.abc",
         measuresPerLine: 2,
       },
+      {
+        name: "TEST 5: reflow by I:linebreak marker keeps marker comments",
+        fixture: "linebreak-marker.abc",
+        expected: "linebreak-marker_reflow.abc",
+      },
+      {
+        name: "TEST 6: marker comment line merges with pending music",
+        fixture: "linebreak-marker-comment-merge.abc",
+        expected: "linebreak-marker-comment-merge_reflow.abc",
+      },
+      {
+        name: "TEST 7: middle inline comment does not break marker merge",
+        fixture: "linebreak-marker-middle-comment.abc",
+        expected: "linebreak-marker-middle-comment_reflow.abc",
+      },
 	  ];
 
   for (const c of cases) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      await runCase(c);
+      if (c.measuresPerLine) await runCase(c);
+      else await runLinebreakMarkerCase(c);
       console.log(`% PASS ${c.name}`);
     } catch (e) {
       console.log(`% FAIL ${c.name}`);
@@ -129,14 +154,14 @@ async function main() {
 
 	  try {
 	    await runReflowRoundtripCase({
-	      name: "TEST 5: reflow 1 bar/line -> 2 bars/line changes output",
+	      name: "TEST 8: reflow 1 bar/line -> 2 bars/line changes output",
 	      fixture: "hasapia-mandilatos.abc",
 	      measuresPerLineA: 1,
 	      measuresPerLineB: 2,
 	    });
-	    console.log("% PASS TEST 5: reflow 1 bar/line -> 2 bars/line changes output");
+	    console.log("% PASS TEST 8: reflow 1 bar/line -> 2 bars/line changes output");
 	  } catch (e) {
-	    console.log("% FAIL TEST 5: reflow 1 bar/line -> 2 bars/line changes output");
+	    console.log("% FAIL TEST 8: reflow 1 bar/line -> 2 bars/line changes output");
 	    const msg = String(e && e.message ? e.message : e);
 	    for (const line of msg.split(/\r\n|\n|\r/)) {
 	      console.log(`% ${line}`);

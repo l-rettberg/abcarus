@@ -15,6 +15,8 @@ function buildDiagnosticsSubmenu(appState, sendMenuAction) {
   const autoDumpEnabled = Boolean(debugFlags.autoDump);
   return [
     { label: "Save Debug Dump…", accelerator: "CmdOrCtrl+Shift+D", click: () => sendMenuAction("dumpDebug") },
+    { role: "toggleDevTools", label: "Toggle Developer Tools" },
+    { label: "Open Settings Folder", click: () => sendMenuAction("openSettingsFolder") },
     { type: "separator" },
     {
       label: "Show Debug Messages",
@@ -161,8 +163,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
   const viewMenu = {
     label: "View",
     submenu: [
-      { role: "toggleDevTools" },
-      ...(isMac ? [{ type: "separator" }, { role: "togglefullscreen" }] : []),
+      ...(isMac ? [{ role: "togglefullscreen" }] : []),
       { type: "separator" },
       { label: "Library Catalog…", accelerator: "CmdOrCtrl+Shift+L", click: () => sendMenuAction("libraryList") },
       { label: "Set List…", click: () => sendMenuAction("setList") },
@@ -211,38 +212,38 @@ function buildMenuTemplate(appState, sendMenuAction) {
     label: "Tools",
     submenu: [
       {
-        label: "Transform",
+        label: "Transpose",
         submenu: [
           {
-            label: "Transpose",
-            submenu: [
-              {
-                label: "Up Semitone",
-                accelerator: "CmdOrCtrl+Shift+Up",
-                click: () => sendMenuAction("transformTransposeUp"),
-              },
-              {
-                label: "Down Semitone",
-                accelerator: "CmdOrCtrl+Shift+Down",
-                click: () => sendMenuAction("transformTransposeDown"),
-              },
-            ],
+            label: "Up Semitone",
+            accelerator: "CmdOrCtrl+Shift+Up",
+            click: () => sendMenuAction("transformTransposeUp"),
           },
           {
-            label: "Note Lengths",
-            submenu: [
-              {
-                label: "Double",
-                accelerator: "CmdOrCtrl+Shift+Right",
-                click: () => sendMenuAction("transformDouble"),
-              },
-              {
-                label: "Half",
-                accelerator: "CmdOrCtrl+Shift+Left",
-                click: () => sendMenuAction("transformHalf"),
-              },
-            ],
+            label: "Down Semitone",
+            accelerator: "CmdOrCtrl+Shift+Down",
+            click: () => sendMenuAction("transformTransposeDown"),
           },
+        ],
+      },
+      {
+        label: "Note Lengths",
+        submenu: [
+          {
+            label: "Double",
+            accelerator: "CmdOrCtrl+Shift+Right",
+            click: () => sendMenuAction("transformDouble"),
+          },
+          {
+            label: "Half",
+            accelerator: "CmdOrCtrl+Shift+Left",
+            click: () => sendMenuAction("transformHalf"),
+          },
+        ],
+      },
+      {
+        label: "Bar Layout",
+        submenu: [
           {
             label: "Measures per Line",
             submenu: [
@@ -254,6 +255,15 @@ function buildMenuTemplate(appState, sendMenuAction) {
                 };
               }),
             ],
+          },
+          {
+            label: "Reflow by Linebreak Marker",
+            click: () => sendMenuAction("transformLinebreakMarkers"),
+          },
+          {
+            label: "Align Bars",
+            accelerator: "CmdOrCtrl+Shift+A",
+            click: () => sendMenuAction("alignBars"),
           },
         ],
       },
@@ -276,7 +286,6 @@ function buildMenuTemplate(appState, sendMenuAction) {
         accelerator: "CmdOrCtrl+Shift+X",
         click: () => sendMenuAction("renumberXInFile"),
       },
-      { label: "Align Bars", accelerator: "CmdOrCtrl+Shift+A", click: () => sendMenuAction("alignBars") },
     ],
   };
 
@@ -287,14 +296,13 @@ function buildMenuTemplate(appState, sendMenuAction) {
       { label: "ABC Guide (F1)", accelerator: "F1", click: () => sendMenuAction("helpGuide") },
       { label: "ABCarus User Guide", click: () => sendMenuAction("helpUserGuide") },
       { type: "separator" },
-      { label: "Diagnostics", submenu: buildDiagnosticsSubmenu(appState, sendMenuAction) },
-      { label: "Open Settings Folder", click: () => sendMenuAction("openSettingsFolder") },
-      { type: "separator" },
       { label: "ABC Notation Homepage", click: () => sendMenuAction({ type: "helpLink", url: "https://abcnotation.com/" }) },
       { label: "ABCusers (Groups.io)", click: () => sendMenuAction({ type: "helpLink", url: "https://groups.io/g/abcusers/topics" }) },
       { label: "ABCNotation User Group (Facebook)", click: () => sendMenuAction({ type: "helpLink", url: "https://www.facebook.com/groups/498671610282070" }) },
       { type: "separator" },
       { label: "Report an Issue…", click: () => sendMenuAction({ type: "helpLink", url: "https://github.com/topchyan/abcarus/issues/new/choose" }) },
+      { type: "separator" },
+      { label: "Diagnostics", submenu: buildDiagnosticsSubmenu(appState, sendMenuAction) },
       ...(isMac ? [] : [{ type: "separator" }, { label: "About", click: () => sendMenuAction("about") }]),
     ],
   };

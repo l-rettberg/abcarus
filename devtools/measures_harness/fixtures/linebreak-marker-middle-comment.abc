@@ -1,0 +1,11 @@
+X:1
+T:Linebreak marker with middle comment
+L:1/8
+M:4/4
+I:linebreak $
+K:A
+V:1
+AA AA AA AA | BB BB BB BB | $
+CC CC CC CC |
+DD DD DD DD | %11
+EE EE EE EE | FF FF FF FF | $

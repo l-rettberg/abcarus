@@ -30,7 +30,11 @@ import {
   baseId53ForNaturalLetter,
   NOTE_BASES,
 } from "./transpose.mjs";
-import { normalizeMeasuresLineBreaks, transformMeasuresPerLine } from "./measures.mjs";
+import {
+  normalizeMeasuresLineBreaks,
+  transformMeasuresByLinebreakMarker,
+  transformMeasuresPerLine,
+} from "./measures.mjs";
 import {
   buildDefaultDrumVelocityMap,
   clampVelocity,
@@ -1564,7 +1568,7 @@ function clearErrorsFeatureState() {
 function updateErrorsFeatureUI() {
   if ($btnToggleErrors) {
     $btnToggleErrors.classList.toggle("toggle-active", Boolean(errorsEnabled));
-    $btnToggleErrors.textContent = "Errors";
+    setButtonText($btnToggleErrors, "Errors");
     $btnToggleErrors.setAttribute("aria-pressed", errorsEnabled ? "true" : "false");
   }
   if ($btnPrevMeasure) {
@@ -19293,6 +19297,7 @@ async function applyAbc2abcTransform(options) {
   const hasOnlyLengthTransform = (options.doubleLengths || options.halfLengths)
     && options.transposeSemitones == null
     && !options.measuresPerLine
+    && !options.linebreakMarker
     && !options.voice
     && options.renumberX == null;
   if (hasOnlyLengthTransform) {
@@ -19307,6 +19312,7 @@ async function applyAbc2abcTransform(options) {
   }
   const hasOnlyMeasuresPerLine = options.measuresPerLine
     && options.transposeSemitones == null
+    && !options.linebreakMarker
     && !options.voice
     && options.renumberX == null
     && !options.doubleLengths
@@ -19322,8 +19328,27 @@ async function applyAbc2abcTransform(options) {
     setStatus("OK");
     return;
   }
+  const hasOnlyLinebreakMarker = options.linebreakMarker
+    && options.transposeSemitones == null
+    && !options.measuresPerLine
+    && !options.voice
+    && options.renumberX == null
+    && !options.doubleLengths
+    && !options.halfLengths;
+  if (hasOnlyLinebreakMarker) {
+    let transformed = transformMeasuresByLinebreakMarker(abcText);
+    transformed = normalizeMeasuresLineBreaks(transformed);
+    if (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms) {
+      transformed = alignBarsInText(transformed);
+      transformed = normalizeMeasuresLineBreaks(transformed);
+    }
+    applyTransformedText(transformed);
+    setStatus("OK");
+    return;
+  }
   const hasOnlyTranspose = options.transposeSemitones != null
     && !options.measuresPerLine
+    && !options.linebreakMarker
     && !options.voice
     && options.renumberX == null
     && !options.doubleLengths
@@ -22268,6 +22293,9 @@ function wireMenuActions() {
       else if (actionType === "transformHalf") await applyAbc2abcTransform({ halfLengths: true });
       else if (actionType === "transformMeasures" && action && Number.isFinite(action.value)) {
         await applyAbc2abcTransform({ measuresPerLine: action.value });
+      }
+      else if (actionType === "transformLinebreakMarkers") {
+        await applyAbc2abcTransform({ linebreakMarker: true });
       }
       else if (actionType === "alignBars") alignBarsInEditor();
       else if (actionType === "openIntonationExplorer") {
@@ -25717,14 +25745,14 @@ function buildAbc2svgFontHeaderLayer() {
 function updateGlobalHeaderToggle() {
   if (!$btnToggleGlobals) return;
   $btnToggleGlobals.classList.toggle("toggle-active", globalHeaderEnabled);
-  $btnToggleGlobals.textContent = "Globals";
+  setButtonText($btnToggleGlobals, "Globals");
   $btnToggleGlobals.setAttribute("aria-pressed", globalHeaderEnabled ? "true" : "false");
 }
 
 function updateFollowToggle() {
   if (!$btnToggleFollow) return;
   $btnToggleFollow.classList.toggle("toggle-active", followPlayback);
-  $btnToggleFollow.textContent = "Follow";
+  setButtonText($btnToggleFollow, "Follow");
   $btnToggleFollow.setAttribute("aria-pressed", followPlayback ? "true" : "false");
   if (!followPlayback) {
     clearSvgPlayhead();

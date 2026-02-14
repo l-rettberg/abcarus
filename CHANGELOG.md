@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Focus playback: segment bar-range resolution no longer shifts when muted voices are configured; From/To now resolve deterministically from score bar numbering.
+- Focus toolbar: `From` and `To` fields are now independent while editing (no cross-overwrite during typing).
+- Focus playback: when `To < From`, bounds are normalized by swapping only at Play/Resume time.
+
+### Changed
+- Added/expanded automated Focus regression harness scenarios for reprise/volta boundary resolution and muted-voice invariance.
 
 
 ## [0.32.1] - 2026-02-13

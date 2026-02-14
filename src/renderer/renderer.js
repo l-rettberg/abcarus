@@ -24604,6 +24604,7 @@ async function togglePlayPauseEffective() {
   }
 
   if (isPaused) {
+    normalizeFocusLoopBoundsForPlayback();
     const plan = buildTransportPlaybackPlan();
     if (plan && plan.invalid) {
       showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
@@ -24626,6 +24627,7 @@ async function togglePlayPauseEffective() {
     if (played) return;
   }
 
+  if (focusModeEnabled) normalizeFocusLoopBoundsForPlayback();
   const plan = focusModeEnabled
     ? buildTransportPlaybackPlan()
     : (pendingPlaybackPlan || buildTransportPlaybackPlan());
@@ -24680,8 +24682,35 @@ async function transportTogglePlayPause() {
 
 async function transportPlay() {
   if (isPlaying) return;
+  if (focusModeEnabled) normalizeFocusLoopBoundsForPlayback();
   if (isPaused) {
-    await startPlaybackFromRange();
+    const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
+    const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
+    await startPlaybackFromRange({
+      startOffset: resumeOffset,
+      endOffset: plan.rangeEnd,
+      origin: focusModeEnabled ? "focus" : "transport",
+      loop: plan.loopEnabled,
+    });
+    return;
+  }
+  if (focusModeEnabled) {
+    const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
+    applyPlaybackPlanSpeed(plan);
+    await startPlaybackFromRange({
+      startOffset: plan.rangeStart,
+      endOffset: plan.rangeEnd,
+      origin: "focus",
+      loop: plan.loopEnabled,
+    });
     return;
   }
   const startOffset = Math.max(0, Number(transportPlayheadOffset) || 0);
@@ -24694,6 +24723,7 @@ async function transportPause() {
     return;
   }
   if (isPaused) {
+    normalizeFocusLoopBoundsForPlayback();
     const plan = buildTransportPlaybackPlan();
     if (plan && plan.invalid) {
       showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
@@ -26311,14 +26341,31 @@ function updatePracticeUi() {
   }
 }
 
-function normalizeLoopBounds(fromMeasure, toMeasure, { changedField } = {}) {
+function normalizeLoopBounds(fromMeasure, toMeasure) {
   const from = clampInt(fromMeasure, 0, 100000, 0);
   const to = clampInt(toMeasure, 0, 100000, 0);
-  if (from > 0 && to > 0 && from > to) {
-    if (changedField === "to") return { from: to, to };
-    return { from, to: from };
-  }
   return { from, to };
+}
+
+function normalizeFocusLoopBoundsForPlayback() {
+  if (!focusModeEnabled) return false;
+  const from = clampInt(playbackLoopFromMeasure, 0, 100000, 0);
+  const to = clampInt(playbackLoopToMeasure, 0, 100000, 0);
+  if (!(from > 0 && to > 0 && from > to)) return false;
+  playbackLoopFromMeasure = to;
+  playbackLoopToMeasure = from;
+  updatePracticeUi();
+  syncPendingPlaybackPlan();
+  const patch = {
+    playbackLoopFromMeasure: playbackLoopFromMeasure,
+    playbackLoopToMeasure: playbackLoopToMeasure,
+  };
+  if (activeTuneId) {
+    playbackLoopTuneId = String(activeTuneId);
+    patch.playbackLoopTuneId = playbackLoopTuneId;
+  }
+  persistLoopSettingsPatch(patch).catch(() => {});
+  return true;
 }
 
 function maybeResetFocusLoopForTune(tuneId, { updateUi = true } = {}) {
@@ -29499,17 +29546,13 @@ if ($practiceLoopEnabled) {
 if ($practiceLoopFrom) {
   $practiceLoopFrom.addEventListener("input", () => {
     const next = clampLoopField($practiceLoopFrom.value);
-    const normalized = normalizeLoopBounds(next, playbackLoopToMeasure, { changedField: "from" });
-    playbackLoopFromMeasure = normalized.from;
-    playbackLoopToMeasure = normalized.to;
+    playbackLoopFromMeasure = next;
     syncPendingPlaybackPlan();
     updatePracticeUi();
   });
   $practiceLoopFrom.addEventListener("change", () => {
     const next = clampLoopField($practiceLoopFrom.value);
-    const normalized = normalizeLoopBounds(next, playbackLoopToMeasure, { changedField: "from" });
-    playbackLoopFromMeasure = normalized.from;
-    playbackLoopToMeasure = normalized.to;
+    playbackLoopFromMeasure = next;
     syncPendingPlaybackPlan();
     updatePracticeUi();
     const patch = {
@@ -29527,17 +29570,13 @@ if ($practiceLoopFrom) {
 if ($practiceLoopTo) {
   $practiceLoopTo.addEventListener("input", () => {
     const next = clampLoopField($practiceLoopTo.value);
-    const normalized = normalizeLoopBounds(playbackLoopFromMeasure, next, { changedField: "to" });
-    playbackLoopFromMeasure = normalized.from;
-    playbackLoopToMeasure = normalized.to;
+    playbackLoopToMeasure = next;
     syncPendingPlaybackPlan();
     updatePracticeUi();
   });
   $practiceLoopTo.addEventListener("change", () => {
     const next = clampLoopField($practiceLoopTo.value);
-    const normalized = normalizeLoopBounds(playbackLoopFromMeasure, next, { changedField: "to" });
-    playbackLoopFromMeasure = normalized.from;
-    playbackLoopToMeasure = normalized.to;
+    playbackLoopToMeasure = next;
     syncPendingPlaybackPlan();
     updatePracticeUi();
     const patch = {

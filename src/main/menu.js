@@ -255,6 +255,10 @@ function buildMenuTemplate(appState, sendMenuAction) {
               }),
             ],
           },
+          {
+            label: "Reflow by Linebreak Marker",
+            click: () => sendMenuAction("transformLinebreakMarkers"),
+          },
         ],
       },
       { type: "separator" },

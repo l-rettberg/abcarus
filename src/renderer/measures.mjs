@@ -175,6 +175,77 @@ function reflowMeasuresInMusicLine(line, measuresPerLine) {
   return rebuilt + (comment || "");
 }
 
+function parseLinebreakMarkerFromDirective(line) {
+  const src = String(line || "");
+  const m = src.match(/^\s*(?:I:|%%)\s*linebreak\b(.*)$/i);
+  if (!m) return null;
+  const { head } = splitInlineComment(m[1] || "");
+  const body = String(head || "").trim();
+  if (!body) return "$";
+  return body[0] || "$";
+}
+
+function reflowMusicByLinebreakMarker(line, markerChar) {
+  const src = String(line || "");
+  const marker = String(markerChar || "$");
+  if (!src || !marker) return src;
+  const markerCh = marker[0];
+  if (!markerCh || !src.includes(markerCh)) return src;
+
+  const out = [];
+  let i = 0;
+  let inQuote = false;
+  let inDecoration = false;
+
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (inQuote) {
+      out.push(ch);
+      if (ch === "\"") inQuote = false;
+      i += 1;
+      continue;
+    }
+    if (inDecoration) {
+      out.push(ch);
+      if (ch === "!") inDecoration = false;
+      i += 1;
+      continue;
+    }
+    if (ch === "\"") {
+      inQuote = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === "!") {
+      inDecoration = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+
+    if (ch === markerCh && src[i - 1] !== "\\") {
+      out.push(ch);
+      i += 1;
+      while (i < src.length && (src[i] === " " || src[i] === "\t")) i += 1;
+      if (i < src.length && src[i] === "%") {
+        out.push(" ");
+        out.push(src.slice(i).trimEnd());
+        i = src.length;
+      }
+      if (i < src.length) out.push("\n");
+      continue;
+    }
+
+    out.push(ch);
+    i += 1;
+  }
+
+  if (out.length && out[out.length - 1] === "\n") out.pop();
+  return out.join("");
+}
+
 export function normalizeMeasuresLineBreaks(text) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   const out = [];
@@ -283,6 +354,111 @@ export function transformMeasuresPerLine(abcText, measuresPerLine) {
       }
     }
   }
+  flushPending();
+  return out.join("\n");
+}
+
+export function transformMeasuresByLinebreakMarker(abcText, markerOverride) {
+  const lines = String(abcText || "").split(/\r\n|\n|\r/);
+  const out = [];
+  let inTextBlock = false;
+  let pendingMusic = null;
+  let pendingComments = [];
+  let currentMarker = String(markerOverride || "").trim();
+  if (!currentMarker) currentMarker = "$";
+  currentMarker = currentMarker[0] || "$";
+
+  const flushPending = () => {
+    if (!pendingMusic) return;
+    const rebuilt = reflowMusicByLinebreakMarker(pendingMusic, currentMarker);
+    const chunks = String(rebuilt || "").split("\n");
+    if (chunks.length && pendingComments.length) {
+      const tail = pendingComments.join(" ").trim();
+      if (tail) chunks[chunks.length - 1] = `${chunks[chunks.length - 1]} ${tail}`;
+      pendingComments = [];
+    }
+    out.push(...chunks);
+    pendingMusic = null;
+  };
+
+  for (const line of lines) {
+    if (/^\s*%%\s*begintext\b/i.test(line)) inTextBlock = true;
+    if (inTextBlock) {
+      flushPending();
+      out.push(line);
+      if (/^\s*%%\s*endtext\b/i.test(line)) inTextBlock = false;
+      continue;
+    }
+    const nextMarker = parseLinebreakMarkerFromDirective(line);
+    if (nextMarker) {
+      flushPending();
+      out.push(line);
+      if (!markerOverride) currentMarker = nextMarker;
+      continue;
+    }
+    if (!line) {
+      flushPending();
+      out.push(line);
+      continue;
+    }
+    if (isAbcFieldLine(line)) {
+      flushPending();
+      out.push(line);
+      continue;
+    }
+    if (isInlineFieldOnlyLine(line)) {
+      flushPending();
+      out.push(line);
+      continue;
+    }
+    if (hasInlineComment(line)) {
+      // Keep marker comments (e.g. `$ % 12`) attached to the same reflow chunk.
+      // If there is pending music, merge this commented line into it and flush once.
+      const { head, comment } = splitInlineComment(line);
+      const markerInHead = String(head || "").includes(currentMarker);
+      if (pendingMusic && markerInHead) {
+        const prefix = pendingMusic.match(/^\s*/)?.[0] || "";
+        const left = pendingMusic.trimEnd();
+        const right = String(line || "").trimStart();
+        if (left.endsWith("|") && /^[0-9]/.test(right)) {
+          pendingMusic = `${prefix}${left.trim()}${right}`;
+        } else {
+          pendingMusic = `${prefix}${left.trim()} ${right}`;
+        }
+        flushPending();
+      } else if (pendingMusic) {
+        const prefix = pendingMusic.match(/^\s*/)?.[0] || "";
+        const left = pendingMusic.trimEnd();
+        const right = String(head || "").trimStart();
+        if (left.endsWith("|") && /^[0-9]/.test(right)) {
+          pendingMusic = `${prefix}${left.trim()}${right}`;
+        } else {
+          pendingMusic = `${prefix}${left.trim()} ${right}`;
+        }
+        const c = String(comment || "").trim();
+        if (c) pendingComments.push(c);
+      } else {
+        flushPending();
+        const rebuilt = reflowMusicByLinebreakMarker(line, currentMarker);
+        out.push(...String(rebuilt || "").split("\n"));
+      }
+      continue;
+    }
+
+    if (!pendingMusic) {
+      pendingMusic = line;
+    } else {
+      const prefix = pendingMusic.match(/^\s*/)?.[0] || "";
+      const left = pendingMusic.trimEnd();
+      const right = line.trimStart();
+      if (left.endsWith("|") && /^[0-9]/.test(right)) {
+        pendingMusic = `${prefix}${left.trim()}${right}`;
+      } else {
+        pendingMusic = `${prefix}${left.trim()} ${right}`;
+      }
+    }
+  }
+
   flushPending();
   return out.join("\n");
 }

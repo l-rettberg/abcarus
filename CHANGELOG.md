@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.33.0] - 2026-02-16
 ### Added
 - Export: MP3 export via external `TiMidity++ -> FFmpeg (libmp3lame)` pipeline (`File -> Export -> MP3…`) with runtime availability checks.
 - Settings: configurable paths for MP3 toolchain binaries (`MP3 export: TiMidity++ path`, `MP3 export: FFmpeg path`) with PATH auto-detection fallback.
@@ -24,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tests
 - Focus playback harness extended for muted-voice invariance and first-voice fallback (`V:1` implicit mapping).
 - Note preview harness extended with regression coverage for inline field suppression (`[P:...]` should not sound).
-
 
 ## [0.32.3] - 2026-02-14
 ### Added

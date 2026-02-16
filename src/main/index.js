@@ -466,7 +466,7 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
-function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, directoryOnly } = {}) {
+function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
   const normalizeFsPath = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -492,7 +492,7 @@ function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, dire
   const fileName = String(suggestedName || "").trim() || explicitPathBase;
   // Linux portal dialogs often ignore defaultPath when a filename is included.
   // Prefer a directory default there to keep navigation stable.
-  if (portalLikelyActive && baseDir) return baseDir;
+  if (portalLikelyActive && baseDir && !preferFileNameOnPortal) return baseDir;
   if (baseDir && fileName) return path.join(baseDir, fileName);
   if (baseDir) return baseDir;
   if (explicitPathAbs) return explicitPathAbs;
@@ -554,6 +554,7 @@ function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
   const defaultPath = getDialogDefaultPath({
     suggestedName: defaultName,
     suggestedDir,
+    preferFileNameOnPortal: true,
   });
   const ext = path.extname(defaultName || "").replace(/^\./, "").trim().toLowerCase();
   const filters = (() => {
@@ -1106,6 +1107,8 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
     Object.prototype.hasOwnProperty.call(patch, "makamToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "studyToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "payloadModeEnabled")
+    || Object.prototype.hasOwnProperty.call(patch, "mp3ExportTimidityPath")
+    || Object.prototype.hasOwnProperty.call(patch, "mp3ExportFfmpegPath")
   )) {
     refreshMenu();
   }

@@ -49,6 +49,7 @@ const NOTE_BASE_MIDI = {
   A: 69,
   B: 71,
 };
+const INLINE_FIELD_RE = /\[\s*[A-Za-z][A-Za-z0-9_-]*\s*:[^\]]*\]/g;
 
 function parseFraction(text) {
   const raw = String(text || "").trim();
@@ -133,6 +134,20 @@ function parseAccidental(prefix, { skipMicrotones = true } = {}) {
 function isNoteToken(text) {
   const raw = String(text || "");
   return Boolean(raw && NOTE_TOKEN_CHARS.test(raw));
+}
+
+export function isRangeInsideInlineField(lineText, fromRel, toRel) {
+  const text = String(lineText || "");
+  const from = Math.max(0, Number.isFinite(Number(fromRel)) ? Number(fromRel) : 0);
+  const to = Math.max(from, Number.isFinite(Number(toRel)) ? Number(toRel) : from);
+  INLINE_FIELD_RE.lastIndex = 0;
+  let m = null;
+  while ((m = INLINE_FIELD_RE.exec(text)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (from < end && to > start) return true;
+  }
+  return false;
 }
 
 export function parseHeadersNear(doc, pos) {
@@ -245,4 +260,3 @@ export function parseAbcNoteToken(token, context, opts = {}) {
     durationMs: Math.round(seconds * 1000),
   };
 }
-

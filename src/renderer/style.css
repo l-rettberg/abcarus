@@ -300,43 +300,63 @@ header {
 #status {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  background: rgba(0, 0, 0, 0.04);
-  color: #0b2a78;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4a5568;
   font-weight: 600;
   white-space: nowrap;
+  min-width: 0;
+}
+
+#status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #8ca3c7;
+  flex: none;
 }
 
 #status.status-ready {
-  color: #0b2a78;
-  background: rgba(76, 127, 255, 0.14);
-  border-color: rgba(76, 127, 255, 0.32);
+  color: #4566a8;
+}
+
+#status.status-ready::before {
+  background: #6f90d1;
 }
 
 #status.status-saved {
-  color: #1b1b1b;
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.14);
+  color: #2d3748;
+}
+
+#status.status-saved::before {
+  background: #8a9aae;
 }
 
 #status.status-dirty {
-  color: #fff;
+  color: #b94710;
+}
+
+#status.status-dirty::before {
   background: #d9480f;
-  border-color: rgba(0, 0, 0, 0.18);
 }
 
 #status.status-conflict {
-  color: #fff;
+  color: #9f2031;
+}
+
+#status.status-conflict::before {
   background: #b02a37;
-  border-color: rgba(0, 0, 0, 0.18);
 }
 
 #status.status-loading {
-  color: #b45309;
-  background: rgba(245, 159, 0, 0.16);
-  border-color: rgba(245, 159, 0, 0.32);
+  color: #a05a00;
+}
+
+#status.status-loading::before {
+  background: #d08a2e;
 }
 
 main {
@@ -1585,11 +1605,7 @@ svg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: none;
-}
-
-.hover-status:not(:empty) {
-  display: block;
+  display: none !important;
 }
 
 .errors-indicator{
@@ -1617,6 +1633,10 @@ svg {
 
 .midi-status{
   font-size: var(--font-size-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 2px 10px;
   border-radius: 999px;
   border: 1px solid #d0d0d0;
@@ -1624,6 +1644,12 @@ svg {
   color: #333;
   cursor: pointer;
   white-space: nowrap;
+  min-width: 96px;
+}
+
+.midi-status .btn-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .midi-status.hidden{
@@ -1790,6 +1816,10 @@ svg {
   display: none;
   align-items: center;
   border: 1px solid #f0c57a;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-status.warn {

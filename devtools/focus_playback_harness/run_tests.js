@@ -640,14 +640,6 @@ function normalizeVoiceIdToken(value) {
   return head ? String(head).trim() : "";
 }
 
-function isLikelyMusicBodyLine(line) {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith("%") || /^%%/.test(trimmed)) return false;
-  if (/^[A-Za-z][A-Za-z0-9_-]*\s*:/.test(trimmed)) return false;
-  return /[A-Ga-gxzZ]/.test(trimmed) || /[|]/.test(trimmed);
-}
-
 function parseMutedVoiceSetting(value) {
   const raw = String(value || "").trim();
   if (!raw) return [];
@@ -662,53 +654,82 @@ function parseMutedVoiceSetting(value) {
   return out;
 }
 
-function stripMutedVoicesForPlayback(text, mutedVoices) {
-  const muted = mutedVoices && typeof mutedVoices === "object"
-    ? Object.entries(mutedVoices)
-      .filter(([, v]) => Boolean(v))
-      .map(([k]) => normalizeVoiceIdToken(k))
-      .filter(Boolean)
-    : [];
-  if (!muted.length) return text;
-  if (/\[V\s*:/i.test(text)) return String(text || "");
-  const mutedSet = new Set(muted);
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  let inBody = false;
-  let currentVoice = null;
-  let firstVoiceId = null;
-  const registerFirstVoice = (id) => {
-    if (firstVoiceId) return;
-    firstVoiceId = String(id || "").trim() || "1";
-    if (mutedSet.has("1")) mutedSet.add(firstVoiceId);
-  };
-  const out = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!inBody && /^K:/.test(trimmed)) {
-      inBody = true;
-      out.push(line);
-      continue;
-    }
-    if (!inBody) {
-      out.push(line);
-      continue;
-    }
-    const voiceLine = line.match(/^\s*V\s*:\s*(.*)$/i);
-    if (voiceLine) {
-      currentVoice = normalizeVoiceIdToken(voiceLine[1]) || "1";
-      registerFirstVoice(currentVoice);
-      if (mutedSet.has(currentVoice)) continue;
-      out.push(line);
-      continue;
-    }
-    if (!currentVoice && isLikelyMusicBodyLine(line)) {
-      currentVoice = "1";
-      registerFirstVoice(currentVoice);
-    }
-    if (currentVoice && mutedSet.has(currentVoice)) continue;
-    out.push(line);
+function resolveEffectiveMutedVoiceIds(mutedVoiceIds, firstPlayableVoiceId) {
+  const ids = Array.isArray(mutedVoiceIds) ? mutedVoiceIds.map((v) => normalizeVoiceIdToken(v)).filter(Boolean) : [];
+  if (!ids.length) return [];
+  const firstId = normalizeVoiceIdToken(firstPlayableVoiceId);
+  const set = new Set(ids);
+  if (set.has("1") && firstId) set.add(firstId);
+  return Array.from(set);
+}
+
+function getFirstPlayableVoiceIdFromTuneRoot(firstSymbol) {
+  let s = firstSymbol || null;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
   }
-  return out.join("\n");
+  guard = 0;
+  while (s && guard < 200000) {
+    const pv = s.p_v || null;
+    const id = pv && pv.id != null ? String(pv.id) : "";
+    const upper = id.toUpperCase();
+    if (id && upper !== "_DRUM" && upper !== "_CHORD" && upper !== "_BEATS") return id;
+    s = s.ts_next;
+    guard += 1;
+  }
+  return "";
+}
+
+function applyMutedVoicesToTuneRoot(firstSymbol, mutedVoiceIds) {
+  const mutedSet = new Set(Array.isArray(mutedVoiceIds) ? mutedVoiceIds.map((v) => String(v)) : []);
+  if (!firstSymbol || !mutedSet.size) return false;
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  let changed = false;
+  guard = 0;
+  while (s && guard < 400000) {
+    const pv = s.p_v || null;
+    const id = pv && pv.id != null ? String(pv.id) : "";
+    if (id && mutedSet.has(id)) {
+      s.noplay = true;
+      changed = true;
+      if (Array.isArray(s.notes)) {
+        for (const note of s.notes) {
+          if (note && typeof note === "object") note.noplay = true;
+        }
+      }
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  return changed;
+}
+
+function countPlayableByVoice(firstSymbol) {
+  const out = new Map();
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  while (s && guard < 400000) {
+    const playable = !s.noplay && Number.isFinite(s.dur) && s.dur > 0;
+    if (playable) {
+      const id = (s.p_v && s.p_v.id != null) ? String(s.p_v.id) : "";
+      if (id) out.set(id, (out.get(id) || 0) + 1);
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  return out;
 }
 
 function shiftByNumberMap(byNumber, renderOffset) {
@@ -948,19 +969,31 @@ async function main() {
     process.exitCode = 1;
   }
 
-  // Muted voices parsing / filtering regression tests.
+  // Muted voices parsing / symbol-level muting regression tests.
   try {
     const ids = parseMutedVoiceSetting("2, 3  2");
     assert(ids.length === 2 && ids[0] === "2" && ids[1] === "3", "parseMutedVoiceSetting should dedupe");
 
-    const muted23 = stripMutedVoicesForPlayback(tuneText, { "2": true, "3": true });
-    assert(/\nV:1\b/.test(`\n${muted23}`), "muted 2,3 should keep V:1");
-    assert(!/\nV:2\b/.test(`\n${muted23}`), "muted 2,3 should remove V:2");
-    assert(!/\nV:3\b/.test(`\n${muted23}`), "muted 2,3 should remove V:3");
+    const baseRoot = parseTuneWithAbc2svg(tuneText);
+    const baseCounts = countPlayableByVoice(baseRoot);
+    assert((baseCounts.get("1") || 0) > 0, "fixture must contain playable V:1 symbols");
+    assert((baseCounts.get("2") || 0) > 0, "fixture must contain playable V:2 symbols");
 
-    const muted1 = stripMutedVoicesForPlayback(tuneText, { "1": true });
-    assert(!/\nV:1\b/.test(`\n${muted1}`), "muted 1 should remove V:1");
-    assert(/\nV:2\b/.test(`\n${muted1}`), "muted 1 should keep V:2");
+    const mutedV1Root = parseTuneWithAbc2svg(tuneText);
+    const firstId = getFirstPlayableVoiceIdFromTuneRoot(mutedV1Root);
+    const effectiveMuteV1 = resolveEffectiveMutedVoiceIds(["1"], firstId);
+    const changedV1 = applyMutedVoicesToTuneRoot(mutedV1Root, effectiveMuteV1);
+    assert(changedV1, "muted V:1 should modify tune symbols");
+    const afterV1 = countPlayableByVoice(mutedV1Root);
+    assert((afterV1.get("1") || 0) === 0, "muted V:1 must silence voice 1");
+    assert((afterV1.get("2") || 0) > 0, "muted V:1 must keep voice 2 playable");
+
+    const mutedV2Root = parseTuneWithAbc2svg(tuneText);
+    const changedV2 = applyMutedVoicesToTuneRoot(mutedV2Root, ["2"]);
+    assert(changedV2, "muted V:2 should modify tune symbols");
+    const afterV2 = countPlayableByVoice(mutedV2Root);
+    assert((afterV2.get("2") || 0) === 0, "muted V:2 must silence voice 2");
+    assert((afterV2.get("1") || 0) > 0, "muted V:2 must keep voice 1 playable");
 
     const implicitVoiceText = [
       "X:1",
@@ -972,9 +1005,13 @@ async function main() {
       "V:2",
       "A2 B2 | c2 d2 |",
     ].join("\n");
-    const implicitMuted1 = stripMutedVoicesForPlayback(implicitVoiceText, { "1": true });
-    assert(!/D2 E2/.test(implicitMuted1), "implicit V:1 content must be muted when voice 1 is muted");
-    assert(/V:2/.test(implicitMuted1), "implicit V:1 mute should keep explicit V:2");
+    const implicitRoot = parseTuneWithAbc2svg(implicitVoiceText);
+    const implicitFirst = getFirstPlayableVoiceIdFromTuneRoot(implicitRoot);
+    const implicitEffective = resolveEffectiveMutedVoiceIds(["1"], implicitFirst);
+    assert(implicitEffective.includes(implicitFirst), "implicit/malformed V:1 should map to de-facto first voice");
+    applyMutedVoicesToTuneRoot(implicitRoot, implicitEffective);
+    const implicitAfter = countPlayableByVoice(implicitRoot);
+    assert((implicitAfter.get("2") || 0) > 0, "implicit V:1 mute should keep explicit V:2 playable");
 
     const malformedVoiceText = [
       "X:1",
@@ -987,12 +1024,16 @@ async function main() {
       "V:2",
       "A2 B2 | c2 d2 |",
     ].join("\n");
-    const malformedMuted1 = stripMutedVoicesForPlayback(malformedVoiceText, { "1": true });
-    assert(!/D2 E2/.test(malformedMuted1), "malformed V: should still be treated as de-facto V:1");
-    assert(/V:2/.test(malformedMuted1), "malformed V: mute should keep explicit V:2");
-    console.log("% PASS TEST 13: Muted voices (including implicit/malformed V:1) behave correctly");
+    const malformedRoot = parseTuneWithAbc2svg(malformedVoiceText);
+    const malformedFirst = getFirstPlayableVoiceIdFromTuneRoot(malformedRoot);
+    const malformedEffective = resolveEffectiveMutedVoiceIds(["1"], malformedFirst);
+    assert(malformedEffective.includes(malformedFirst), "malformed V: should still map mute 1 to de-facto first voice");
+    applyMutedVoicesToTuneRoot(malformedRoot, malformedEffective);
+    const malformedAfter = countPlayableByVoice(malformedRoot);
+    assert((malformedAfter.get("2") || 0) > 0, "malformed V: mute should keep explicit V:2 playable");
+    console.log("% PASS TEST 13: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
   } catch (e) {
-    console.log("% FAIL TEST 13: Muted voices (including implicit/malformed V:1) behave correctly");
+    console.log("% FAIL TEST 13: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

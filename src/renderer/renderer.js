@@ -49,6 +49,7 @@ import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, wr
 import { NotePreviewAudio } from "./audio/note_preview_audio.mjs";
 import {
   findCompletedNoteTokenBeforePosition,
+  isRangeInsideInlineField,
   parseAbcNoteToken,
   parseHeadersNear,
 } from "./note_preview/abc_note_parse.mjs";
@@ -74,6 +75,7 @@ const $midiInputKeyAwareCtl = document.getElementById("midiInputKeyAwareCtl");
 const $midiInputGridCtl = document.getElementById("midiInputGridCtl");
 const $midiInputMacroCtl = document.getElementById("midiInputMacroCtl");
 const $midiInputMacroNote = document.getElementById("midiInputMacroNote");
+const $midiInputStateHint = document.getElementById("midiInputStateHint");
 const $midiInputBeepCtl = document.getElementById("midiInputBeepCtl");
 const $midiInputBeepVolumeCtl = document.getElementById("midiInputBeepVolumeCtl");
 const $midiInputBeepDurationCtl = document.getElementById("midiInputBeepDurationCtl");
@@ -961,68 +963,6 @@ function normalizeVoiceIdToken(value) {
   return head ? String(head).trim() : "";
 }
 
-function isLikelyMusicBodyLine(line) {
-  const trimmed = String(line || "").trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith("%") || /^%%/.test(trimmed)) return false;
-  if (/^[A-Za-z][A-Za-z0-9_-]*\s*:/.test(trimmed)) return false;
-  return /[A-Ga-gxzZ]/.test(trimmed) || /[|]/.test(trimmed);
-}
-
-function stripMutedVoicesForPlayback(text, mutedVoices) {
-  const muted = mutedVoices && typeof mutedVoices === "object"
-    ? Object.entries(mutedVoices)
-      .filter(([, v]) => Boolean(v))
-      .map(([k]) => normalizeVoiceIdToken(k))
-      .filter(Boolean)
-    : [];
-  if (!muted.length) return text;
-  if (/\[V\s*:/i.test(text)) {
-    showToast("Voice muting not supported for inline [V:] switches.", 3600);
-    return text;
-  }
-  const mutedSet = new Set(muted);
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  let inBody = false;
-  let currentVoice = null;
-  let firstVoiceId = null;
-  const registerFirstVoice = (id) => {
-    if (firstVoiceId) return;
-    firstVoiceId = String(id || "").trim() || "1";
-    if (mutedSet.has("1")) mutedSet.add(firstVoiceId);
-  };
-  const out = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!inBody && /^K:/.test(trimmed)) {
-      inBody = true;
-      out.push(line);
-      continue;
-    }
-    if (!inBody) {
-      out.push(line);
-      continue;
-    }
-    const voiceLine = line.match(/^\s*V\s*:\s*(.*)$/i);
-    if (voiceLine) {
-      currentVoice = normalizeVoiceIdToken(voiceLine[1]) || "1";
-      registerFirstVoice(currentVoice);
-      if (mutedSet.has(currentVoice)) continue;
-      out.push(line);
-      continue;
-    }
-    if (!currentVoice && isLikelyMusicBodyLine(line)) {
-      currentVoice = "1";
-      registerFirstVoice(currentVoice);
-    }
-    if (currentVoice && mutedSet.has(currentVoice)) {
-      continue;
-    }
-    out.push(line);
-  }
-  return out.join("\n");
-}
-
 function parseMutedVoiceSetting(value) {
   const raw = String(value || "").trim();
   if (!raw) return [];
@@ -1035,6 +975,65 @@ function parseMutedVoiceSetting(value) {
     out.push(id);
   });
   return out;
+}
+
+function resolveEffectiveMutedVoiceIds(mutedVoiceIds, firstPlayableVoiceId) {
+  const ids = Array.isArray(mutedVoiceIds) ? mutedVoiceIds.map((v) => normalizeVoiceIdToken(v)).filter(Boolean) : [];
+  if (!ids.length) return [];
+  const firstId = normalizeVoiceIdToken(firstPlayableVoiceId);
+  const set = new Set(ids);
+  // Project rule: "1" maps to the de-facto first voice when explicit V:1 is missing/malformed.
+  if (set.has("1") && firstId) set.add(firstId);
+  return Array.from(set);
+}
+
+function getFirstPlayableVoiceIdFromTuneRoot(firstSymbol) {
+  let s = firstSymbol || null;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  while (s && guard < 200000) {
+    const pv = s.p_v || null;
+    const id = pv && pv.id != null ? String(pv.id) : "";
+    const upper = id.toUpperCase();
+    if (id && upper !== "_DRUM" && upper !== "_CHORD" && upper !== "_BEATS") return id;
+    s = s.ts_next;
+    guard += 1;
+  }
+  return "";
+}
+
+function applyMutedVoicesToTuneRoot(firstSymbol, mutedVoiceIds) {
+  const mutedSet = new Set(Array.isArray(mutedVoiceIds) ? mutedVoiceIds.map((v) => String(v)) : []);
+  if (!firstSymbol || !mutedSet.size) return false;
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  let changed = false;
+  guard = 0;
+  while (s && guard < 400000) {
+    const pv = s.p_v || null;
+    const id = pv && pv.id != null ? String(pv.id) : "";
+    if (id && mutedSet.has(id)) {
+      // Skip muted voice events at scheduler level (not just note heads), so both sound and onnote highlights stay aligned.
+      s.noplay = true;
+      changed = true;
+      if (Array.isArray(s.notes)) {
+        for (const note of s.notes) {
+          if (note && typeof note === "object") note.noplay = true;
+        }
+      }
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  return changed;
 }
 
 function getSelectionPlaybackSettings() {
@@ -4444,9 +4443,6 @@ function setScanStatus(text, title) {
   if ($scanStatus) {
     $scanStatus.textContent = display;
     $scanStatus.title = titleValue;
-  }
-  if (/^Done\b/i.test(value)) {
-    setStatus(value);
   }
 }
 
@@ -8271,6 +8267,7 @@ let noteTypingPreviewRetriggerDuration = true;
 let noteTypingPreviewSkipMicrotones = true;
 let noteTypingPreviewLastKey = "";
 const noteTypingPreviewAudio = new NotePreviewAudio();
+const MIDI_PREVIEW_VOLUME_SYNC_KEYS = ["midiInputBeepVolume", "noteTypingPreviewVolume"];
 
 const MIDI_MACRO_MAP = new Map([
   [24, " "],   // space
@@ -8290,14 +8287,6 @@ function supportsMidiInput() {
   return typeof navigator !== "undefined" && typeof navigator.requestMIDIAccess === "function";
 }
 
-function formatMidiStatusLabel() {
-  if (!midiInputEnabled) return "";
-  if (!supportsMidiInput()) return "MIDI: unsupported";
-  if (midiInputMuted) return "MIDI: muted";
-  if (midiDeviceCount <= 0) return "MIDI: no device";
-  return "MIDI: on";
-}
-
 function formatMidiButtonLabel() {
   if (!supportsMidiInput()) return "MIDI: unsupported";
   if (!midiInputEnabled) return "MIDI: off";
@@ -8309,22 +8298,22 @@ function formatMidiButtonLabel() {
 function updateMidiInputUi() {
   if (!$midiInputStatus) return;
   const label = formatMidiButtonLabel();
-  $midiInputStatus.textContent = label;
+  setButtonText($midiInputStatus, label);
   $midiInputStatus.title = "MIDI input controls";
   $midiInputStatus.classList.remove("midi-on", "midi-muted", "midi-off");
   if (!midiInputEnabled) $midiInputStatus.classList.add("midi-off");
   else if (midiInputMuted) $midiInputStatus.classList.add("midi-muted");
   else $midiInputStatus.classList.add("midi-on");
-  if (midiInputEnabled) {
-    $midiInputStatus.classList.remove("hidden");
-    $midiInputStatus.style.display = "";
-  } else {
-    $midiInputStatus.classList.add("hidden");
-    $midiInputStatus.style.display = "none";
-  }
+  $midiInputStatus.classList.remove("hidden");
+  $midiInputStatus.style.display = "";
 
   if ($midiInputEnabledCtl) $midiInputEnabledCtl.checked = midiInputEnabled;
-  if ($midiInputMutedCtl) $midiInputMutedCtl.checked = midiInputMuted;
+  if ($midiInputMutedCtl) {
+    $midiInputMutedCtl.checked = midiInputMuted;
+    $midiInputMutedCtl.disabled = !midiInputEnabled;
+    const mutedLabel = $midiInputMutedCtl.closest("label");
+    if (mutedLabel) mutedLabel.style.opacity = midiInputEnabled ? "1" : "0.6";
+  }
   if ($midiInputKeyAwareCtl) $midiInputKeyAwareCtl.checked = midiInputKeyAware;
   if ($midiInputGridCtl) $midiInputGridCtl.value = midiInputGrid;
   if ($midiInputMacroCtl) $midiInputMacroCtl.checked = midiInputMacroEnabled;
@@ -8332,8 +8321,20 @@ function updateMidiInputUi() {
     $midiInputMacroNote.style.display = midiInputMacroEnabled ? "" : "none";
   }
   if ($midiInputBeepCtl) $midiInputBeepCtl.checked = midiInputBeepEnabled;
-  if ($midiInputBeepVolumeCtl) $midiInputBeepVolumeCtl.value = String(Math.round(midiInputBeepVolume * 100));
+  if ($midiInputBeepVolumeCtl) {
+    const mergedPreviewVolume = Math.round(Math.max(0, Math.min(1, noteTypingPreviewVolume)) * 100);
+    $midiInputBeepVolumeCtl.value = String(mergedPreviewVolume);
+  }
   if ($midiInputBeepDurationCtl) $midiInputBeepDurationCtl.value = String(Math.round(midiInputBeepDurationMs));
+  if ($midiInputStateHint) {
+    let hint = "";
+    if (!supportsMidiInput()) hint = "MIDI input is unsupported in this environment.";
+    else if (!midiInputEnabled) hint = "Input is disabled.";
+    else if (midiDeviceCount <= 0) hint = "No MIDI device connected.";
+    else if (midiInputMuted) hint = "Input is muted; incoming notes are ignored.";
+    else hint = `Devices connected: ${midiDeviceCount}.`;
+    $midiInputStateHint.textContent = hint;
+  }
 }
 
 function positionMidiInputPopover() {
@@ -8447,14 +8448,16 @@ function playMidiBeep(noteNumber) {
   }).catch(() => {});
 }
 
-function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel) {
+function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel, options = {}) {
   const text = String(lineText || "");
+  const allowAdjacentNoteLetters = Boolean(options && options.allowAdjacentNoteLetters);
   const trimmed = text.trim();
   if (!trimmed) return false;
   if (/^%/.test(trimmed)) return false;
   if (/^%%/.test(trimmed)) return false;
   if (/^[A-Za-z]:/.test(trimmed)) return false; // header/info lines (X:, T:, K:, ...)
   if (/^[Ww]:/.test(trimmed)) return false; // lyrics lines
+  if (isRangeInsideInlineField(text, tokenStartRel, tokenEndRel)) return false; // [P:...], [K:...], [V:...], ...
 
   // Do not preview while typing inside quoted chord symbols/annotations.
   const left = text.slice(0, Math.max(0, tokenEndRel));
@@ -8463,7 +8466,10 @@ function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel) {
 
   const before = tokenStartRel > 0 ? text[tokenStartRel - 1] : "";
   // If token starts in the middle of a word, skip.
-  if (before && /[A-Za-z]/.test(before)) return false;
+  if (before && /[A-Za-z]/.test(before)) {
+    const adjacentNoteLetters = /[A-Ga-g]/.test(before) && /[A-Ga-g]/.test(text[tokenStartRel] || "");
+    if (!(allowAdjacentNoteLetters && adjacentNoteLetters)) return false;
+  }
   return true;
 }
 
@@ -8514,7 +8520,7 @@ function shouldHandleTypingPreviewChange(update) {
         from: line.from + start,
         to: line.from + rel + 1,
       };
-      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1)) return false;
+      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1, { allowAdjacentNoteLetters: true })) return false;
     } else if (noteTypingPreviewRetriggerDuration && /[0-9/]/.test(inserted)) {
       // Retrigger the current note token when duration suffix is typed (C -> C4, C/ ...).
       // For contiguous notes (e.g. d4e4f4), bind to the nearest note letter on the left.
@@ -8530,7 +8536,7 @@ function shouldHandleTypingPreviewChange(update) {
         from: line.from + start,
         to: line.from + rel + 1,
       };
-      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1)) return false;
+      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1, { allowAdjacentNoteLetters: true })) return false;
     } else {
       return false;
     }
@@ -8790,6 +8796,20 @@ function applyMidiSettingsPatch(patch, { notify = false } = {}) {
     const raw = Number(patch.noteTypingPreviewVolume);
     if (Number.isFinite(raw)) noteTypingPreviewVolume = Math.max(0, Math.min(1, raw));
   }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")
+    && !Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")
+  ) {
+    noteTypingPreviewVolume = midiInputBeepVolume;
+    patch.noteTypingPreviewVolume = noteTypingPreviewVolume;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")
+    && !Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")
+  ) {
+    midiInputBeepVolume = noteTypingPreviewVolume;
+    patch.midiInputBeepVolume = midiInputBeepVolume;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewLengthMode")) {
     noteTypingPreviewLengthMode = String(patch.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
   }
@@ -8807,7 +8827,21 @@ function applyMidiSettingsPatch(patch, { notify = false } = {}) {
   }
   updateMidiInputUi();
   if (window.api && typeof window.api.updateSettings === "function") {
-    window.api.updateSettings(patch).catch(() => {});
+    const persistedPatch = {};
+    for (const [k, v] of Object.entries(patch)) persistedPatch[k] = v;
+    if (
+      Object.prototype.hasOwnProperty.call(persistedPatch, "midiInputBeepVolume")
+      || Object.prototype.hasOwnProperty.call(persistedPatch, "noteTypingPreviewVolume")
+    ) {
+      const merged = Object.prototype.hasOwnProperty.call(persistedPatch, "noteTypingPreviewVolume")
+        ? persistedPatch.noteTypingPreviewVolume
+        : persistedPatch.midiInputBeepVolume;
+      if (Number.isFinite(Number(merged))) {
+        const normalized = Math.max(0, Math.min(1, Number(merged)));
+        for (const key of MIDI_PREVIEW_VOLUME_SYNC_KEYS) persistedPatch[key] = normalized;
+      }
+    }
+    window.api.updateSettings(persistedPatch).catch(() => {});
   }
 }
 
@@ -13146,8 +13180,9 @@ function setHoverStatus(text) {
 }
 
 function pinHoverStatus(text) {
-  pinnedHoverStatusText = String(text || "");
-  setHoverStatus(pinnedHoverStatusText);
+  // Keep hover status transient; avoid sticky long labels in the taskbar.
+  pinnedHoverStatusText = "";
+  setHoverStatus("");
 }
 
 function showHoverStatus(text) {
@@ -13163,6 +13198,14 @@ function restoreHoverStatus() {
 function setBufferStatus(text) {
   bufferStatusText = String(text || "");
   renderBufferStatus();
+}
+
+function setTransientBufferStatus(text, autoClearMs = 3200) {
+  setBufferStatus(text);
+  const delay = Number.isFinite(Number(autoClearMs)) ? Number(autoClearMs) : 3200;
+  setTimeout(() => {
+    if (bufferStatusText === String(text || "")) setBufferStatus("");
+  }, Math.max(0, delay));
 }
 
 function formatDefaultLenText(defaultLen) {
@@ -13902,11 +13945,9 @@ let lastCursorStatus = null;
 function setCursorStatus(line, col, offset, totalLines, totalChars) {
   if (!$cursorStatus) return;
   lastCursorStatus = { line, col, offset, totalLines, totalChars };
-  const midiLabel = formatMidiStatusLabel();
   const base = `Ln ${line}/${totalLines}, Col ${col}  •  Ch ${offset}/${totalChars}`;
-  const text = midiLabel ? `${base}  •  ${midiLabel}` : base;
-  $cursorStatus.textContent = text;
-  $cursorStatus.title = text;
+  $cursorStatus.textContent = base;
+  $cursorStatus.title = base;
 }
 
 function refreshCursorStatus() {
@@ -17991,7 +18032,7 @@ function renderNow() {
         }
       }
         if (sepFallbackUsed && isDebugMessagesEnabled()) {
-          setBufferStatus("Note: %%sep ignored for rendering.");
+          setTransientBufferStatus("Note: %%sep ignored for rendering.");
         }
         setStatus("OK");
         setRenderBusy(false);
@@ -21666,21 +21707,27 @@ async function exportMusicXml() {
   }
 
   setStatus("Exporting…");
-  const res = await window.api.exportMusicXml(abcText, getSuggestedBaseName());
-  if (!res || res.canceled) {
-    setStatus("Ready");
-    return;
-  }
-  if (!res.ok) {
-    const msg = formatConversionError(res);
+  try {
+    const res = await window.api.exportMusicXml(abcText, getSuggestedBaseName());
+    if (!res || res.canceled) {
+      setStatus("Ready");
+      return;
+    }
+    if (!res.ok) {
+      const msg = formatConversionError(res);
+      logErr(msg);
+      setStatus("Error");
+      await showSaveError(msg);
+      return;
+    }
+    if (res.warnings) logErr(`Export warning: ${res.warnings}`);
+    setStatus("OK");
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
     logErr(msg);
     setStatus("Error");
     await showSaveError(msg);
-    return;
   }
-
-  if (res.warnings) logErr(`Export warning: ${res.warnings}`);
-  setStatus("OK");
 }
 
 async function buildMidiBytesFromAbc(abcText) {
@@ -21753,6 +21800,37 @@ async function exportMidi() {
   try {
     const midiBytes = await buildMidiBytesFromAbc(abcText);
     const res = await window.api.exportMidi(midiBytes, getSuggestedBaseName());
+    if (!res || res.canceled) {
+      setStatus("Ready");
+      return;
+    }
+    if (!res.ok) {
+      const msg = formatConversionError(res);
+      logErr(msg);
+      setStatus("Error");
+      await showSaveError(msg);
+      return;
+    }
+    setStatus("OK");
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    logErr(msg);
+    setStatus("Error");
+    await showSaveError(msg);
+  }
+}
+
+async function exportMp3() {
+  if (!window.api || typeof window.api.exportMp3 !== "function") return;
+  const abcText = getEditorValue();
+  if (!abcText.trim()) {
+    setStatus("No notation to export.");
+    return;
+  }
+  setStatus("Exporting…");
+  try {
+    const midiBytes = await buildMidiBytesFromAbc(abcText);
+    const res = await window.api.exportMp3(midiBytes, getSuggestedBaseName());
     if (!res || res.canceled) {
       setStatus("Ready");
       return;
@@ -22111,6 +22189,7 @@ function wireMenuActions() {
           "exportPdfAll",
           "exportMusicXml",
           "exportMidi",
+          "exportMp3",
           "importMusicXml",
           "importMidi",
           "templatesModal",
@@ -22218,6 +22297,7 @@ function wireMenuActions() {
       else if (actionType === "printAll") await runPrintAllAction("print");
       else if (actionType === "exportMusicXml") await exportMusicXml();
       else if (actionType === "exportMidi") await exportMidi();
+      else if (actionType === "exportMp3") await exportMp3();
       else if (actionType === "exportPdf") await runPrintAction("pdf");
       else if (actionType === "exportPdfAll") await runPrintAllAction("pdf");
       else if (actionType === "close") await requestCloseDocument();
@@ -25299,7 +25379,7 @@ function buildPlaybackState(firstSymbol) {
     if (arr.length && arr[arr.length - 1].istart === symbol.istart) return;
     arr.push({ istart: symbol.istart, symbol });
   };
-  const isPlayableSymbol = (symbol) => !!(symbol && Number.isFinite(symbol.dur) && symbol.dur > 0);
+  const isPlayableSymbol = (symbol) => !!(symbol && !symbol.noplay && Number.isFinite(symbol.dur) && symbol.dur > 0);
   const isBarLikeSymbol = (symbol) => !!(symbol && (symbol.bar_type || symbol.type === 14));
 
   let s = firstSymbol;
@@ -26536,12 +26616,14 @@ function setNoteTypingPreviewFromSettings(settings) {
   noteTypingPreviewVolume = Number.isFinite(Number(settings.noteTypingPreviewVolume))
     ? Math.max(0, Math.min(1, Number(settings.noteTypingPreviewVolume)))
     : noteTypingPreviewVolume;
+  midiInputBeepVolume = noteTypingPreviewVolume;
   noteTypingPreviewLengthMode = String(settings.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
   noteTypingPreviewTrigger = String(settings.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
   noteTypingPreviewEnvelope = String(settings.noteTypingPreviewEnvelope || "") === "medium" ? "medium" : "short";
   noteTypingPreviewRetriggerDuration = settings.noteTypingPreviewRetriggerDuration !== false;
   noteTypingPreviewSkipMicrotones = settings.noteTypingPreviewSkipMicrotones !== false;
   if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
+  updateMidiInputUi();
 }
 
 function resetSoundfontCache() {
@@ -28792,8 +28874,9 @@ async function preparePlayback() {
         return acc;
       }, {});
     }
-    if (effectiveMuted && Object.values(effectiveMuted).some(Boolean)) {
-      playbackText = stripMutedVoicesForPlayback(playbackText, effectiveMuted);
+    // Voice muting is applied after parse on tune symbols to keep istart mapping stable.
+    if (effectiveMuted && Object.values(effectiveMuted).some(Boolean) && /\[V\s*:/i.test(playbackText)) {
+      showToast("Voice muting for inline [V:] switches is best-effort.", 2800);
     }
   }
   if (/[\\^_]3\/4/.test(playbackText)) {
@@ -28812,6 +28895,7 @@ async function preparePlayback() {
     }
   }
   abc.tosvg("play", playbackText);
+
 
   // abc2svg requires %%MIDI drum/drumon/drumbars to be inside a voice; many real-world files place them in headers.
   // Neutralize (comment out) these directives for tolerant playback while preserving istart mapping.
@@ -28949,6 +29033,23 @@ async function preparePlayback() {
 
   tunes = abc.tunes || [];
   if (!tunes.length) throw new Error("No tunes parsed; cannot play.");
+
+  // Apply muted voices on parsed symbols (offset-stable, parse-safe).
+  if (scopedOptions && Array.isArray(scopedOptions.mutedVoices) && scopedOptions.mutedVoices.length) {
+    const root = tunes[0] && tunes[0][0] ? tunes[0][0] : null;
+    const firstVoiceId = getFirstPlayableVoiceIdFromTuneRoot(root);
+    const effectiveMutedIds = resolveEffectiveMutedVoiceIds(scopedOptions.mutedVoices, firstVoiceId);
+    if (effectiveMutedIds.length) {
+      let anyMuted = false;
+      for (const t of tunes) {
+        const first = t && t[0] ? t[0] : null;
+        if (applyMutedVoicesToTuneRoot(first, effectiveMutedIds)) anyMuted = true;
+      }
+      if (!anyMuted) {
+        playbackSanitizeWarnings.push({ kind: "playback-muted-voices-no-match", voices: effectiveMutedIds.slice(0, 12) });
+      }
+    }
+  }
 
   try {
     lastPlaybackTuneInfo = {

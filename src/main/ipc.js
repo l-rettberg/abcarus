@@ -65,6 +65,100 @@ function execVersion(cmd, args) {
   });
 }
 
+function splitPathEnv(pathValue, pathModule) {
+  return String(pathValue || "")
+    .split(pathModule.delimiter)
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+}
+
+function normalizeExecutablePath(rawPath) {
+  return String(rawPath || "").trim();
+}
+
+function executableNameCandidates(baseName) {
+  const name = String(baseName || "").trim();
+  if (!name) return [];
+  if (process.platform !== "win32") return [name];
+  const extRaw = String(process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM");
+  const extList = extRaw
+    .split(";")
+    .map((ext) => String(ext || "").trim().toLowerCase())
+    .filter(Boolean);
+  const lower = name.toLowerCase();
+  if (extList.some((ext) => lower.endsWith(ext))) return [name];
+  return [name, ...extList.map((ext) => `${name}${ext}`)];
+}
+
+async function hasExecutableAccess(fs, absPath) {
+  const target = normalizeExecutablePath(absPath);
+  if (!target) return false;
+  try {
+    if (process.platform === "win32") {
+      await fs.promises.access(target, fs.constants.F_OK);
+    } else {
+      await fs.promises.access(target, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveExecutablePath({ fs, pathModule, configuredPath, names }) {
+  const configured = normalizeExecutablePath(configuredPath);
+  if (configured && await hasExecutableAccess(fs, configured)) return configured;
+  const dirs = splitPathEnv(process.env.PATH, pathModule);
+  const baseNames = Array.isArray(names) ? names : [names];
+  for (const baseName of baseNames) {
+    for (const name of executableNameCandidates(baseName)) {
+      for (const dir of dirs) {
+        const candidate = pathModule.join(dir, name);
+        if (await hasExecutableAccess(fs, candidate)) return candidate;
+      }
+    }
+  }
+  return "";
+}
+
+function runExecFile(execPath, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    execFile(execPath, args, { timeout: timeoutMs }, (err, _stdout, stderr) => {
+      if (err) {
+        const detail = String(stderr || err.message || "").trim();
+        return reject(new Error(detail || "Process failed."));
+      }
+      return resolve();
+    });
+  });
+}
+
+async function resolveMp3Toolchain({ fs, pathModule, settings }) {
+  const timidity = await resolveExecutablePath({
+    fs,
+    pathModule,
+    configuredPath: settings && settings.mp3ExportTimidityPath,
+    names: ["timidity", "timidity++"],
+  });
+  const ffmpeg = await resolveExecutablePath({
+    fs,
+    pathModule,
+    configuredPath: settings && settings.mp3ExportFfmpegPath,
+    names: ["ffmpeg"],
+  });
+  return {
+    ok: Boolean(timidity && ffmpeg),
+    timidity,
+    ffmpeg,
+  };
+}
+
+async function removeDirBestEffort(fs, dirPath) {
+  try {
+    await fs.promises.rm(dirPath, { recursive: true, force: true });
+  } catch {}
+}
+
 async function resolveChordProCommand({ app, fs, path } = {}) {
   const envBin = process.env.CHORDPRO_BIN ? String(process.env.CHORDPRO_BIN) : "";
   if (envBin) return { cmd: envBin, argsPrefix: [] };
@@ -814,14 +908,22 @@ function registerIpcHandlers(ctx) {
       ? String(suggestedName).trim()
       : "tune";
     const parent = getParentForDialog(event, "export:musicxml");
-    const filePath = dialog.showSaveDialogSync(parent || undefined, {
-      title: "Export MusicXML",
-      defaultPath: getDialogPath({ suggestedName: `${safeName}.musicxml` }),
-      filters: [
-        { name: "MusicXML", extensions: ["musicxml", "xml"] },
-        { name: "All Files", extensions: ["*"] },
-      ],
-    });
+    let filePath = null;
+    try {
+      filePath = dialog.showSaveDialogSync(parent || undefined, {
+        title: "Export MusicXML",
+        defaultPath: getDialogPath({ suggestedName: `${safeName}.musicxml`, preferFileNameOnPortal: true }),
+        filters: [
+          { name: "MusicXML", extensions: ["musicxml", "xml"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        error: e && e.message ? e.message : "Unable to open save dialog.",
+      };
+    }
     if (!filePath) return { ok: false, canceled: true };
     rememberDialogPath(filePath);
     try {
@@ -861,7 +963,7 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "export:midi");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export MIDI",
-      defaultPath: getDialogPath({ suggestedName: `${safeName}.mid` }),
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.mid`, preferFileNameOnPortal: true }),
       filters: [
         { name: "MIDI", extensions: ["mid", "midi"] },
         { name: "All Files", extensions: ["*"] },
@@ -879,6 +981,64 @@ function registerIpcHandlers(ctx) {
         detail: e && e.detail ? e.detail : "",
         code: e && e.code ? e.code : "",
       };
+    }
+  });
+  ipcMain.handle("export:mp3", async (event, midiBytes, suggestedName) => {
+    const toBuffer = (value) => {
+      if (!value) return null;
+      if (Buffer.isBuffer(value)) return value;
+      if (value instanceof Uint8Array) return Buffer.from(value);
+      if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+      if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value));
+      if (typeof value === "string") return Buffer.from(value, "base64");
+      return null;
+    };
+    const buf = toBuffer(midiBytes);
+    if (!buf || !buf.length) {
+      return { ok: false, error: "No MIDI data to export." };
+    }
+    const settings = getSettings ? getSettings() : {};
+    const toolchain = await resolveMp3Toolchain({ fs, pathModule: path, settings });
+    if (!toolchain.ok) {
+      return {
+        ok: false,
+        error: "MP3 export is unavailable. Configure FFmpeg and TiMidity++ in Settings -> Options -> Import/Export.",
+      };
+    }
+    const safeName = suggestedName && String(suggestedName).trim()
+      ? String(suggestedName).trim()
+      : "tune";
+    const parent = getParentForDialog(event, "export:mp3");
+    const filePath = dialog.showSaveDialogSync(parent || undefined, {
+      title: "Export MP3",
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.mp3`, preferFileNameOnPortal: true }),
+      filters: [
+        { name: "MP3", extensions: ["mp3"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (!filePath) return { ok: false, canceled: true };
+    rememberDialogPath(filePath);
+
+    const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const tempDir = path.join(os.tmpdir(), `abcarus-mp3-${token}`);
+    const tempMidi = path.join(tempDir, "source.mid");
+    const tempWav = path.join(tempDir, "source.wav");
+    const tempMp3 = path.join(tempDir, "out.mp3");
+    try {
+      await fs.promises.mkdir(tempDir, { recursive: true });
+      await atomicWriteFileWithRetry(fs, path, tempMidi, buf);
+      await runExecFile(toolchain.timidity, [tempMidi, "-Ow", "-o", tempWav], 180000);
+      await runExecFile(toolchain.ffmpeg, ["-y", "-i", tempWav, "-acodec", "libmp3lame", "-ab", "64k", tempMp3], 180000);
+      await atomicCopyFileWithRetry(fs, path, tempMp3, filePath);
+      return { ok: true };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e && e.message ? e.message : String(e),
+      };
+    } finally {
+      await removeDirBestEffort(fs, tempDir);
     }
   });
   ipcMain.handle("chordpro:pdf", async (_event, inputPath, outputPath) => {
@@ -1127,7 +1287,7 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "print:pdf");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export PDF",
-      defaultPath: getDialogPath({ suggestedName: `${safeName}.pdf` }),
+      defaultPath: getDialogPath({ suggestedName: `${safeName}.pdf`, preferFileNameOnPortal: true }),
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
     if (!filePath) return { ok: false, error: "Canceled" };
@@ -1300,6 +1460,7 @@ function registerIpcHandlers(ctx) {
           suggestedName: "abcarus.properties",
           suggestedDir: suggestedDir || "",
           suggestedPath: defaultPath,
+          preferFileNameOnPortal: true,
         }),
         filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
       });

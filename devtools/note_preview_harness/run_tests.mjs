@@ -1,5 +1,6 @@
 import {
   findCompletedNoteTokenBeforePosition,
+  isRangeInsideInlineField,
   parseAbcNoteToken,
   parseHeadersNear,
 } from "../../src/renderer/note_preview/abc_note_parse.mjs";
@@ -63,6 +64,15 @@ function run() {
 
   const micro = parseAbcNoteToken("^3c", ctx, { lengthMode: "typed", skipMicrotones: true });
   assert(micro === null, "microtonal-like token should be skipped when skipMicrotones=true");
+
+  assert(
+    isRangeInsideInlineField("[P:A] C D", 3, 4) === true,
+    "note-like letters inside [P:...] must not be previewed",
+  );
+  assert(
+    isRangeInsideInlineField("[K:D] C D", 6, 7) === false,
+    "musical tokens outside inline fields should remain previewable",
+  );
 
   console.log("[note_preview_harness] OK");
 }

@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("export:musicxml", abcText, suggestedName),
   exportMidi: async (midiBytes, suggestedName) =>
     ipcRenderer.invoke("export:midi", midiBytes, suggestedName),
+  exportMp3: async (midiBytes, suggestedName) =>
+    ipcRenderer.invoke("export:mp3", midiBytes, suggestedName),
   exportChordProPdf: async (inputPath, outputPath) =>
     ipcRenderer.invoke("chordpro:pdf", inputPath, outputPath),
   previewChordProPdf: async (payload) =>

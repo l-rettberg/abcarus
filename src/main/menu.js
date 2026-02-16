@@ -1,4 +1,5 @@
 const { Menu } = require("electron");
+const fs = require("fs");
 const path = require("path");
 
 function formatRecentLabel(entry) {
@@ -6,6 +7,69 @@ function formatRecentLabel(entry) {
   const x = entry.xNumber ? `X:${entry.xNumber}` : "X:";
   const title = entry.title ? ` ${entry.title}` : "";
   return `${base}  ${x}${title}`;
+}
+
+function splitPathEnv(raw) {
+  return String(raw || "")
+    .split(path.delimiter)
+    .map((p) => String(p || "").trim())
+    .filter(Boolean);
+}
+
+function normalizeExecutablePath(rawPath) {
+  return String(rawPath || "").trim();
+}
+
+function executableCandidates(name) {
+  const base = String(name || "").trim();
+  if (!base) return [];
+  if (process.platform !== "win32") return [base];
+  const extRaw = String(process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM");
+  const extList = extRaw
+    .split(";")
+    .map((ext) => String(ext || "").trim().toLowerCase())
+    .filter(Boolean);
+  const lower = base.toLowerCase();
+  if (extList.some((ext) => lower.endsWith(ext))) return [base];
+  return [base, ...extList.map((ext) => `${base}${ext}`)];
+}
+
+function hasExecutableSync(filePath) {
+  const abs = normalizeExecutablePath(filePath);
+  if (!abs) return false;
+  try {
+    if (process.platform === "win32") {
+      fs.accessSync(abs, fs.constants.F_OK);
+    } else {
+      fs.accessSync(abs, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveExecutableSync(configuredPath, names) {
+  const configured = normalizeExecutablePath(configuredPath);
+  if (configured && hasExecutableSync(configured)) return configured;
+  const dirs = splitPathEnv(process.env.PATH);
+  const candidates = Array.isArray(names) ? names : [names];
+  for (const rawName of candidates) {
+    for (const name of executableCandidates(rawName)) {
+      for (const dir of dirs) {
+        const candidatePath = path.join(dir, name);
+        if (hasExecutableSync(candidatePath)) return candidatePath;
+      }
+    }
+  }
+  return "";
+}
+
+function canExportMp3(appState) {
+  const settings = appState && appState.settings ? appState.settings : {};
+  const timidity = resolveExecutableSync(settings.mp3ExportTimidityPath, ["timidity", "timidity++"]);
+  const ffmpeg = resolveExecutableSync(settings.mp3ExportFfmpegPath, ["ffmpeg"]);
+  return Boolean(timidity && ffmpeg);
 }
 
 function buildDiagnosticsSubmenu(appState, sendMenuAction) {
@@ -125,6 +189,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
           { type: "separator" },
           { label: "MusicXML…", accelerator: "CmdOrCtrl+Shift+E", click: () => sendMenuAction("exportMusicXml") },
           { label: "MIDI…", click: () => sendMenuAction("exportMidi") },
+          { label: "MP3…", click: () => sendMenuAction("exportMp3"), enabled: canExportMp3(appState) },
         ],
       },
       { type: "separator" },

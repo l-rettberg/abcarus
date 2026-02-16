@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Export: MP3 export via external `TiMidity++ -> FFmpeg (libmp3lame)` pipeline (`File -> Export -> MP3…`) with runtime availability checks.
+- Settings: configurable paths for MP3 toolchain binaries (`MP3 export: TiMidity++ path`, `MP3 export: FFmpeg path`) with PATH auto-detection fallback.
+
+### Changed
+- Linux portal save dialogs: enabled filename-preserving defaults for export/save flows so suggested names are applied consistently.
+- MIDI input popover wording clarified (`Preview volume (input + typing)`, `MIDI preview ms`) to match actual behavior.
+
+### Fixed
+- Focus playback muting: voice muting now applies at parsed-symbol level, remains deterministic in multi-voice tunes, and correctly supports muting `V:1` (including implicit first-voice mapping when explicit `V:1` is missing/malformed).
+- Focus playback robustness: fixed no-sound failures caused by muted-voice preprocessing edge cases.
+- Typing note preview: inline field directives like `[P:...]` / `[K:...]` / `[V:...]` no longer trigger note preview.
+- Preview loudness consistency: MIDI-input preview and typing preview volume are now synchronized (UI + persisted settings), removing mismatched perceived loudness.
+- Export dialogs: hardened MusicXML save dialog error handling and aligned suggested-name behavior across MusicXML/MIDI/MP3/PDF/settings export.
+
+### Tests
+- Focus playback harness extended for muted-voice invariance and first-voice fallback (`V:1` implicit mapping).
+- Note preview harness extended with regression coverage for inline field suppression (`[P:...]` should not sound).
 
 
 ## [0.32.3] - 2026-02-14

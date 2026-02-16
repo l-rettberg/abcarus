@@ -104,6 +104,10 @@
 	              <svg class="btn-icon icon-fonts" aria-hidden="true"><use href="#ui-fonts"></use></svg>
 	              <span class="btn-text">Fonts</span>
 	            </button>
+              <button id="midiInputStatus" class="midi-status hidden" type="button" aria-label="MIDI input status">
+                <svg class="btn-icon icon-midi" aria-hidden="true"><use href="#ui-midi"></use></svg>
+                <span class="btn-text">MIDI: off</span>
+              </button>
 		        </div>
 		        <div class="segmented" aria-label="View">
 			          <button id="btnFocusMode" title="Playback focus mode (F7)" aria-label="Playback focus mode" aria-pressed="false">
@@ -225,6 +229,13 @@
         <circle cx="12" cy="12" r="9"></circle>
         <path d="m9 9 6 6"></path>
         <path d="m15 9-6 6"></path>
+      </symbol>
+      <symbol id="ui-midi" viewBox="0 0 24 24">
+        <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+        <path d="M6 18V12"></path>
+        <path d="M10 18V12"></path>
+        <path d="M14 18V12"></path>
+        <path d="M18 18V12"></path>
       </symbol>
     </svg>
 
@@ -439,7 +450,6 @@
 		      <div id="status" class="status-loading">Loading…</div>
 		      <div id="hoverStatus" class="hover-status" aria-live="polite"></div>
 		      <div id="toolStatus" class="tool-status" aria-live="polite"></div>
-		      <button id="midiInputStatus" class="midi-status hidden" type="button" aria-label="MIDI input status">MIDI: off</button>
 		    </div>
 		    <div id="cursorStatus" class="cursor-status"></div>
 		    <div id="bufferStatus" class="buffer-status" aria-live="polite"></div>
@@ -459,8 +469,9 @@
           <button id="midiInputPopoverClose" type="button" aria-label="Close">×</button>
         </div>
         <div class="midi-popover-body">
-          <label><input type="checkbox" id="midiInputEnabledCtl"> Enable input</label>
-          <label><input type="checkbox" id="midiInputMutedCtl"> Muted</label>
+          <label><input type="checkbox" id="midiInputEnabledCtl"> MIDI input</label>
+          <label><input type="checkbox" id="midiInputMutedCtl"> Mute input</label>
+          <div id="midiInputStateHint" class="midi-popover-note"></div>
           <label><input type="checkbox" id="midiInputKeyAwareCtl"> Key-aware spelling</label>
           <label class="midi-popover-row">
             <span>Grid</span>
@@ -476,11 +487,11 @@
           </div>
           <label><input type="checkbox" id="midiInputBeepCtl"> Note preview on MIDI input</label>
           <label class="midi-popover-row">
-            <span>Preview volume</span>
+            <span>Preview volume (input + typing)</span>
             <input type="range" id="midiInputBeepVolumeCtl" min="0" max="100" step="5" value="20" aria-label="Preview volume">
           </label>
           <label class="midi-popover-row">
-            <span>Preview ms</span>
+            <span>MIDI preview ms</span>
             <input type="range" id="midiInputBeepDurationCtl" min="40" max="400" step="10" value="140" aria-label="Preview duration">
           </label>
         </div>

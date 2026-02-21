@@ -16,6 +16,7 @@ let isQuitting = false;
 
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
 const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
+const DEV_NO_CACHE_ENABLED = process.env.ABCARUS_DEV_NO_CACHE !== "0";
 const STARTUP_T0_MS = Date.now();
 function logStartupPerf(label, data) {
   if (!STARTUP_PERF_ENABLED) return;
@@ -246,6 +247,26 @@ async function pathExists(p) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function clearDevRuntimeCaches() {
+  if (app.isPackaged || !DEV_NO_CACHE_ENABLED) return;
+  const userData = app.getPath("userData");
+  if (!userData) return;
+  const candidates = [
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "DawnCache",
+    "blob_storage",
+    "Service Worker",
+  ];
+  for (const name of candidates) {
+    const target = path.join(userData, name);
+    try {
+      await fs.promises.rm(target, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -717,6 +738,10 @@ async function getMusicFontBase64() {
 function injectFontIntoSvg(svgMarkup, fontBase64) {
   if (!fontBase64 || !svgMarkup) return svgMarkup || "";
   const raw = String(svgMarkup);
+  // Keep user-selected/custom music fonts embedded by abc2svg.
+  // Inject fallback only when no "music" font-face is present.
+  const hasMusicFontFace = /@font-face[\s\S]*?font-family\s*:\s*["']?music["']?/i.test(raw);
+  if (hasMusicFontFace) return raw;
   const fontCss = `@font-face {
   font-family: "music";
   src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
@@ -724,8 +749,7 @@ function injectFontIntoSvg(svgMarkup, fontBase64) {
   font-style: normal;
 }
 .f3 { font-family: "music" !important; }`;
-  const cleaned = raw.replace(/@font-face\\s*\\{[^}]*\\}/g, "");
-  return cleaned.replace(/<svg\\b([^>]*)>/g, (match, attrs) => {
+  return raw.replace(/<svg\\b([^>]*)>/g, (match, attrs) => {
     return `<svg${attrs}><style>${fontCss}</style>`;
   });
 }
@@ -2067,7 +2091,7 @@ async function scanLibrary(rootDir, sender, options = {}) {
   };
 }
 
-function createWindow() {
+async function createWindow() {
   logStartupPerf("createWindow()");
   // Default to following the OS theme (also used for picking a visible window icon on Linux).
   nativeTheme.themeSource = "system";
@@ -2127,6 +2151,19 @@ function createWindow() {
       }
     });
   } catch {}
+  if (!app.isPackaged && DEV_NO_CACHE_ENABLED) {
+    try {
+      const ses = win.webContents.session;
+      if (ses && typeof ses.clearCache === "function") {
+        await ses.clearCache();
+      }
+      if (ses && typeof ses.clearStorageData === "function") {
+        await ses.clearStorageData({
+          storages: ["serviceworkers", "cachestorage", "shadercache"],
+        });
+      }
+    } catch {}
+  }
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   logStartupPerf("loadFile(index.html) queued");
   // Avoid maximizing before the renderer is ready: it can make the initial window paint feel sluggish.
@@ -2345,13 +2382,18 @@ app.whenReady().then(async () => {
   logStartupPerf("migrateStatePaths() start");
   await migrateStatePaths();
   logStartupPerf("migrateStatePaths() done");
+  logStartupPerf("clearDevRuntimeCaches() start");
+  await clearDevRuntimeCaches();
+  logStartupPerf("clearDevRuntimeCaches() done");
   cleanupTempPrintFiles().catch(() => {});
   logStartupPerf("cleanupTempPrintFiles() queued");
-  createWindow();
+  await createWindow();
   refreshMenu();
   logStartupPerf("refreshMenu() done");
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow().catch(() => {});
+    }
   });
 });
 

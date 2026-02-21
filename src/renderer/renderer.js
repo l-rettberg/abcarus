@@ -2862,6 +2862,8 @@ let measureErrorRenderRanges = [];
 let barMismatchMarkers = [];
 let barMismatchVersion = 0;
 let lastRenderPayload = null;
+let noteHighlightIndexCache = null;
+const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let globalHeaderText = "";
 let globalHeaderEnabled = true;
 let globalHeaderLocalText = "";
@@ -16497,6 +16499,87 @@ function pickClosestNoteElement(els) {
   return best;
 }
 
+function invalidateNoteHighlightIndexCache() {
+  noteHighlightIndexCache = null;
+}
+
+function extractRenderIdxFromElementClass(el) {
+  if (el && typeof el.getAttribute === "function") {
+    const raw = Number(el.getAttribute("data-start"));
+    if (Number.isFinite(raw)) return raw;
+  }
+  if (!el || !el.classList) return null;
+  for (const cls of Array.from(el.classList)) {
+    const m = String(cls || "").match(/^_(\d+)_$/);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
+function buildNoteHighlightIndexCache() {
+  if (noteHighlightIndexCache) return noteHighlightIndexCache;
+  if (!$out) return null;
+  const map = new Map();
+  const idxs = [];
+  const els = $out.querySelectorAll(".note-hl");
+  for (const el of Array.from(els || [])) {
+    const idx = extractRenderIdxFromElementClass(el);
+    if (!Number.isFinite(idx)) continue;
+    if (!map.has(idx)) {
+      map.set(idx, []);
+      idxs.push(idx);
+    }
+    map.get(idx).push(el);
+  }
+  idxs.sort((a, b) => a - b);
+  noteHighlightIndexCache = { map, idxs };
+  return noteHighlightIndexCache;
+}
+
+function queryNoteHighlightElementsByRenderIdx(renderIdx) {
+  if (!Number.isFinite(renderIdx) || renderIdx < 0) return [];
+  const cache = buildNoteHighlightIndexCache();
+  if (!cache || !cache.map) return [];
+  const hit = cache.map.get(renderIdx);
+  return Array.isArray(hit) ? hit : [];
+}
+
+function findNearestNoteHighlightElements(renderIdx, maxDelta = 240) {
+  const idx = Number(renderIdx);
+  if (!Number.isFinite(idx)) return [];
+  const cap = Math.max(0, Number(maxDelta) || 0);
+  const cache = buildNoteHighlightIndexCache();
+  if (!cache || !cache.map || !Array.isArray(cache.idxs) || !cache.idxs.length) return [];
+
+  const exact = cache.map.get(idx);
+  if (Array.isArray(exact) && exact.length) return exact;
+
+  const list = cache.idxs;
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < idx) lo = mid + 1;
+    else hi = mid;
+  }
+  const right = lo < list.length ? list[lo] : null;
+  const left = lo > 0 ? list[lo - 1] : null;
+
+  const rightDist = Number.isFinite(right) ? Math.abs(right - idx) : Infinity;
+  const leftDist = Number.isFinite(left) ? Math.abs(idx - left) : Infinity;
+  let winner = null;
+  if (rightDist === leftDist) {
+    // Forward-first tie-break keeps Follow from sticking to the previous note.
+    winner = Number.isFinite(right) ? right : left;
+  } else {
+    winner = rightDist < leftDist ? right : left;
+  }
+  if (!Number.isFinite(winner)) return [];
+  if (Math.abs(winner - idx) > cap) return [];
+  const hit = cache.map.get(winner);
+  return Array.isArray(hit) ? hit : [];
+}
+
 function highlightNoteAtIndex(idx) {
   if (!$out) return;
   clearNoteSelection();
@@ -17908,6 +17991,7 @@ function addBarMismatchErrorsFromMarkers(markers) {
 
 function renderNow() {
   clearNoteSelection();
+  invalidateNoteHighlightIndexCache();
   clearErrors();
   setRenderBusy(true);
   const currentText = getEditorValue();
@@ -17915,6 +17999,7 @@ function renderNow() {
     setBarMismatchMarkers([]);
     setStatus("ChordPro full view.");
     if ($out) $out.innerHTML = "";
+    invalidateNoteHighlightIndexCache();
     setRenderBusy(false);
     updateLibraryErrorIndexFromCurrentErrors();
     reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
@@ -18017,6 +18102,7 @@ function renderNow() {
         const svg = svgParts.join("");
         if (!svg.trim()) throw new Error("No SVG output produced (see errors).");
         $out.innerHTML = svg;
+        invalidateNoteHighlightIndexCache();
         applyMeasureHighlights(renderPayload.offset || 0);
         // Keep notation synced to the editor selection (especially after edits re-render the SVG).
         if (editorView) {
@@ -18420,6 +18506,7 @@ async function buildDebugDumpSnapshot({ reason = "" } = {}) {
       meta: workingCopyMeta,
     },
     playback: {
+      followPipelineVersion: FOLLOW_PIPELINE_VERSION,
       isPlaying: Boolean(isPlaying),
       isPaused: Boolean(isPaused),
       waitingForFirstNote: Boolean(waitingForFirstNote),
@@ -24311,7 +24398,8 @@ function maybeAutoScrollRenderToCursor(el) {
     const relLeft = targetRect.left - containerRect.left;
     const relRight = relLeft + targetRect.width;
 
-    const duration = mode === "center" ? 160 : 260;
+    // Deterministic follow: avoid smooth animation lag during playback.
+    const duration = 0;
     const maxTop = Math.max(0, $renderPane.scrollHeight - $renderPane.clientHeight);
     const maxLeft = Math.max(0, $renderPane.scrollWidth - $renderPane.clientWidth);
     const clampedTop = Math.max(0, Math.min(maxTop, Number(toTop) || 0));
@@ -24386,7 +24474,8 @@ function maybeAutoScrollRenderToCursor(el) {
     }
   }
 
-  const duration = mode === "page" ? 420 : (mode === "center" ? 160 : 260);
+  // Deterministic follow: avoid smooth animation lag during playback.
+  const duration = 0;
   const maxTop = Math.max(0, $renderPane.scrollHeight - $renderPane.clientHeight);
   const maxLeft = Math.max(0, $renderPane.scrollWidth - $renderPane.clientWidth);
   const clampedTop = Math.max(0, Math.min(maxTop, Number(nextTop) || 0));
@@ -24966,13 +25055,26 @@ function schedulePlaybackUiUpdate(istart) {
         const times = Array.isArray(tl.times) ? tl.times : null;
         const istarts = Array.isArray(tl.istarts) ? tl.istarts : null;
         if (times && istarts && times.length && times.length === istarts.length) {
-          const pos = upperBoundTime(times, currentTime) - 1;
-          const idx = Math.max(0, Math.min(istarts.length - 1, pos));
-          const mapped = istarts[idx];
+          const beforePos = upperBoundTime(times, currentTime) - 1;
+          const beforeIdx = Math.max(0, Math.min(istarts.length - 1, beforePos));
+          const afterIdx = Math.max(0, Math.min(istarts.length - 1, beforeIdx + 1));
+          const beforeTime = Number.isFinite(times[beforeIdx]) ? times[beforeIdx] : null;
+          const afterTime = Number.isFinite(times[afterIdx]) ? times[afterIdx] : null;
+          let pick = beforeIdx;
+          if (beforeTime == null && afterTime != null) {
+            pick = afterIdx;
+          } else if (beforeTime != null && afterTime != null && afterIdx !== beforeIdx) {
+            const dBefore = Math.abs(currentTime - beforeTime);
+            const dAfter = Math.abs(afterTime - currentTime);
+            // Tie -> prefer forward note so visual follow does not stay one note behind.
+            if (dAfter <= dBefore) pick = afterIdx;
+          }
+          const mapped = istarts[pick];
           if (Number.isFinite(mapped)) targetIstart = mapped;
         }
       }
     }
+    targetIstart = snapIstartToPlayable(targetIstart);
 
     const editorIdx = Math.max(0, targetIstart - playbackIndexOffset);
     const editorLen = editorView ? editorView.state.doc.length : 0;
@@ -24995,26 +25097,13 @@ function schedulePlaybackUiUpdate(istart) {
     // This avoids ambiguity when the left barline of the current measure is on the previous system line.
     clearSvgFollowBarHighlight();
 
-    let els = $out.querySelectorAll("._" + renderIdx + "_");
-    let noteEls = els && els.length
-      ? Array.from(els).filter((el) => el.classList && el.classList.contains("note-hl"))
-      : [];
-    if (!noteEls.length && Number.isFinite(renderIdx)) {
-      // Deterministic fallback: search backward for a nearby mapped note.
-      // Some playback istart values do not land exactly on a `note-hl` anchor (multi-voice, ties, etc.).
-      const maxBack = 240;
-      for (let d = 1; d <= maxBack; d += 1) {
-        const probe = renderIdx - d;
-        if (probe < 0) break;
-        els = $out.querySelectorAll("._" + probe + "_");
-        noteEls = els && els.length
-          ? Array.from(els).filter((el) => el.classList && el.classList.contains("note-hl"))
-          : [];
-        if (noteEls.length) break;
-      }
-    }
+    const noteEls = findNearestNoteHighlightElements(renderIdx, 240);
     const chosen = noteEls.length ? pickClosestNoteElement(noteEls) : null;
     if (chosen) {
+      const chosenRenderIdx = extractRenderIdxFromElementClass(chosen);
+      const chosenEditorIdx = Number.isFinite(chosenRenderIdx)
+        ? Math.max(0, chosenRenderIdx - renderOffset)
+        : editorIdx;
       const nearestBar = findNearestBarElForNote(chosen);
       setSvgPlayheadFromElements(chosen, nearestBar);
       highlightSvgFollowMeasureForNote(chosen, nearestBar);
@@ -25025,7 +25114,7 @@ function schedulePlaybackUiUpdate(istart) {
 	          lastPlaybackUiScrollAt = now;
           }
 	      }
-	      highlightSourceAt(editorIdx, true);
+	      highlightSourceAt(chosenEditorIdx, true);
 	      return;
 	    }
 
@@ -25494,6 +25583,11 @@ function buildPlaybackState(firstSymbol) {
   // If we de-duplicate istarts here, binary-search indices no longer match array indices and Follow/voice selection breaks.
   const symbolIstarts = symbols.map((item) => item.istart);
   const measureIstarts = measures.map((item) => item.istart);
+  const playableIstarts = uniqSorted(
+    symbols
+      .filter((item) => isPlayableSymbol(item && item.symbol))
+      .map((item) => item.istart)
+  );
   const timeline = symbols.map((item) => {
     const sym = item.symbol;
     return {
@@ -25548,6 +25642,7 @@ function buildPlaybackState(firstSymbol) {
     measures,
     symbolIstarts,
     measureIstarts,
+    playableIstarts,
     barIstarts: uniqSorted(barIstarts),
     timeline,
     voiceTimeline,
@@ -25591,6 +25686,25 @@ function upperBoundIstart(list, value) {
     else hi = mid;
   }
   return lo;
+}
+
+function snapIstartToPlayable(istart) {
+  if (!Number.isFinite(istart)) return istart;
+  if (!playbackState || !Array.isArray(playbackState.playableIstarts) || !playbackState.playableIstarts.length) {
+    return istart;
+  }
+  const list = playbackState.playableIstarts;
+  const pos = lowerBoundIstart(list, istart);
+  const right = pos < list.length ? list[pos] : null;
+  const left = pos > 0 ? list[pos - 1] : null;
+  const rightDist = Number.isFinite(right) ? Math.abs(right - istart) : Infinity;
+  const leftDist = Number.isFinite(left) ? Math.abs(istart - left) : Infinity;
+  // Prefer the forward note on ties so Follow doesn't lag behind.
+  const winner = rightDist <= leftDist ? right : left;
+  if (!Number.isFinite(winner)) return istart;
+  // Guardrail: snap only if close; large jumps usually mean unrelated timeline noise.
+  if (Math.abs(winner - istart) > 32) return istart;
+  return winner;
 }
 
 function upperBoundTime(list, value) {
@@ -25735,15 +25849,21 @@ function setGlobalHeaderFromSettings(settings) {
 function sanitizeFontAssetName(name) {
   const raw = String(name || "").trim();
   if (!raw) return "";
-  // Backward-compat: accept plain filenames and treat them as bundled.
-  if (/^[A-Za-z0-9._-]+\.(otf|ttf|woff2?)$/i.test(raw)) return `bundled:${raw}`;
   const m = raw.match(/^(bundled|user):(.*)$/);
-  if (!m) return "";
-  const origin = m[1];
-  const fileName = String(m[2] || "").trim();
-  if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) return "";
-  if (!/^[A-Za-z0-9._-]+\.(otf|ttf|woff2?)$/i.test(fileName)) return "";
-  return `${origin}:${fileName}`;
+  if (m) {
+    const origin = m[1];
+    let fileName = String(m[2] || "").trim();
+    // Recover from previously persisted double-prefixed values, e.g. "bundled:bundled:Leland.otf".
+    const nested = fileName.match(/^(bundled|user):(.*)$/);
+    if (nested) fileName = String(nested[2] || "").trim();
+    if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) return "";
+    if (/[\x00-\x1f]/.test(fileName)) return "";
+    if (!/^[^/\\]+\.(otf|ttf|woff2?)$/i.test(fileName)) return "";
+    return `${origin}:${fileName}`;
+  }
+  // Backward-compat: accept plain filenames and treat them as bundled.
+  if (/^[^/\\]+\.(otf|ttf|woff2?)$/i.test(raw)) return `bundled:${raw}`;
+  return "";
 }
 
 function setAbc2svgFontsFromSettings(settings) {
@@ -25764,6 +25884,7 @@ function filePathToFileUrl(filePath) {
 function buildAbc2svgFontHeaderLayer() {
   const lines = [];
   const comment = "% ABCarus: font overrides (auto)";
+  const encodeBundledFileName = (name) => encodeURIComponent(String(name || "")).replace(/%2F/gi, "");
 
   if (abc2svgNotationFontFile) {
     const m = abc2svgNotationFontFile.match(/^(bundled|user):(.*)$/);
@@ -25771,11 +25892,12 @@ function buildAbc2svgFontHeaderLayer() {
       const origin = m[1];
       const fileName = m[2];
       const url = origin === "bundled"
-        ? `../../assets/fonts/notation/${fileName}`
+        ? `../../assets/fonts/notation/${encodeBundledFileName(fileName)}`
         : (fontDirs && fontDirs.userDir
           ? filePathToFileUrl(window.api && window.api.pathJoin ? window.api.pathJoin(fontDirs.userDir, fileName) : `${fontDirs.userDir}/${fileName}`)
           : "");
-      if (url) lines.push(`%%musicfont url("${url}") *`);
+      // Use explicit size for broad abc2svg compatibility.
+      if (url) lines.push(`%%musicfont url("${url}") 24`);
     }
   }
 
@@ -25786,7 +25908,7 @@ function buildAbc2svgFontHeaderLayer() {
       const origin = m[1];
       const fileName = m[2];
       url = origin === "bundled"
-        ? `../../assets/fonts/notation/${fileName}`
+        ? `../../assets/fonts/notation/${encodeBundledFileName(fileName)}`
         : (fontDirs && fontDirs.userDir
           ? filePathToFileUrl(window.api && window.api.pathJoin ? window.api.pathJoin(fontDirs.userDir, fileName) : `${fontDirs.userDir}/${fileName}`)
           : "");
@@ -26804,6 +26926,7 @@ function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
   const parts = [];
   const tuneHeaderKeys = tuneText ? collectHeaderKeys(tuneText) : new Set();
   const layers = [];
+  const fontLayerRaw = buildAbc2svgFontHeaderLayer();
   if (globalHeaderEnabled) {
     const globalHeaderRaw = normalizeHeaderLayer(globalHeaderGlobalText);
     if (globalHeaderRaw) layers.push(globalHeaderRaw);
@@ -26813,9 +26936,8 @@ function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
     if (userHeaderRaw) layers.push(userHeaderRaw);
     const legacyHeaderRaw = normalizeHeaderLayer(globalHeaderText);
     if (legacyHeaderRaw) layers.push(legacyHeaderRaw);
-    const fontLayerRaw = buildAbc2svgFontHeaderLayer();
-    if (fontLayerRaw) layers.push(fontLayerRaw);
   }
+  if (fontLayerRaw) layers.push(fontLayerRaw);
   const fileHeaderRaw = String(entryHeader || "");
   if (fileHeaderRaw.trim()) layers.push(fileHeaderRaw.replace(/[\r\n]+$/, ""));
   const deduped = dedupeHeaderLayers(layers, tuneHeaderKeys);
@@ -26855,6 +26977,7 @@ function dedupeHeaderLayersWithMeta(layers, blockedKeys) {
 function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText) {
   const tuneHeaderKeys = tuneText ? collectHeaderKeys(tuneText) : new Set();
   const layers = [];
+  const fontLayerRaw = buildAbc2svgFontHeaderLayer();
   if (globalHeaderEnabled) {
     const globalHeaderRaw = normalizeHeaderLayer(globalHeaderGlobalText);
     if (globalHeaderRaw) layers.push({ kind: "abcarus", text: globalHeaderRaw });
@@ -26864,9 +26987,8 @@ function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText
     if (userHeaderRaw) layers.push({ kind: "abcarus", text: userHeaderRaw });
     const legacyHeaderRaw = normalizeHeaderLayer(globalHeaderText);
     if (legacyHeaderRaw) layers.push({ kind: "abcarus", text: legacyHeaderRaw });
-    const fontLayerRaw = buildAbc2svgFontHeaderLayer();
-    if (fontLayerRaw) layers.push({ kind: "abcarus", text: fontLayerRaw });
   }
+  if (fontLayerRaw) layers.push({ kind: "abcarus", text: fontLayerRaw });
   const fileHeaderRaw = String(entryHeader || "");
   if (fileHeaderRaw.trim()) layers.push({ kind: "fileHeader", text: fileHeaderRaw.replace(/[\r\n]+$/, "") });
 
@@ -28799,6 +28921,9 @@ async function preparePlayback() {
     abcplay: p,
   };
   const abc = new AbcCtor(user);
+  // Determinism first: always rebuild playback payload for each Play.
+  // This avoids stale Follow/playback mappings after tune switches or heavy edits.
+  lastPlaybackPayloadCache = null;
   const playbackPayload = getPlaybackPayload();
   if (!playbackPayload || playbackPayload.empty || !String(playbackPayload.text || "").trim()) {
     setStatus("Ready");

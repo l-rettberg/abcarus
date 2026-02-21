@@ -327,14 +327,17 @@ function sanitizeFontFileName(name) {
   const raw = String(name || "").trim();
   if (!raw) return "";
   if (raw.includes("/") || raw.includes("\\") || raw.includes("..")) return "";
-  if (!/^[A-Za-z0-9._-]+\.(otf|ttf|woff2?)$/i.test(raw)) return "";
+  if (/[\x00-\x1f]/.test(raw)) return "";
+  if (!/^[^/\\]+\.(otf|ttf|woff2?)$/i.test(raw)) return "";
   return raw;
 }
 
 function classifyFontName(name) {
   const raw = String(name || "");
   if (!raw) return "notation";
-  return /text|script/i.test(raw) ? "text" : "notation";
+  const stem = raw.replace(/\.(otf|ttf|woff2?)$/i, "");
+  if (/(text|script)$/i.test(stem)) return "text";
+  return /(?:^|[._\-\s])(text|script)(?:[._\-\s]|$)/i.test(stem) ? "text" : "notation";
 	}
 
 	function shouldReversePortalMultiSelection(settings) {

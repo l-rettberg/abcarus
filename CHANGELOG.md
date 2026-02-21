@@ -5,7 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Follow playback synchronization now resolves note anchors by nearest timing (forward-biased on ties) to reduce visual lag/jitter in dense multi-voice passages.
+- Follow auto-scroll during playback now uses deterministic instant movement (no easing), eliminating delayed “catch-up” behavior on long scores.
+- Local dev runner now defaults to cacheless startup (`ABCARUS_DEV_NO_CACHE=1`) and clears Electron runtime caches in dev for more reliable verification after code changes.
 
+### Fixed
+- Follow mapping robustness: note-highlight lookup now uses indexed nearest-note resolution instead of repeated broad SVG queries, reducing highlight instability and scroll stutter.
+- Playback preparation now rebuilds payload state per start, preventing stale tune-switch state from leaking into Follow/playback mapping.
+- Debug dumps now include explicit Follow pipeline version to verify the running code path during regression analysis.
 
 
 ## [0.33.0] - 2026-02-16

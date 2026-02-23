@@ -22,6 +22,9 @@ Checks:
 - Suppress repeats ON/OFF range planning acceptance.
 - Visible mode planning (`From/To` unset).
 - Fail-closed invalid range (`From > To`).
+- Focus loop bounds swap on Play (`From > To` => swap).
+- Focus Stop resets playhead to segment start.
+- Fail-closed repeat-crossing segment when `Suppress repeats` is OFF.
 - Muted voices filtering:
   - `2,3`
   - `1`

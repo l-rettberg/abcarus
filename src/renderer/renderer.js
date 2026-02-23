@@ -18637,6 +18637,9 @@ function formatAboutInfo(info) {
     `Chromium: ${info.chrome || ""}`.trim(),
     `Node.js: ${info.node || ""}`.trim(),
     `V8: ${info.v8 || ""}`.trim(),
+    (info.abc2svgVersion || info.abc2svgDate)
+      ? `abc2svg: ${[info.abc2svgVersion || "", info.abc2svgDate || ""].filter(Boolean).join(" ")}`
+      : "",
     `OS: ${osParts}`.trim(),
     distro ? `Distro: ${distro}` : "",
     info.sessionType ? `Session: ${info.sessionType}` : "",
@@ -26396,6 +26399,9 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
     return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
   }
+  if (mode === "segment" && !Boolean(state.suppressRepeats) && hasRepeatTokensInSlice(tuneText, startOffset, endOffset)) {
+    return { ok: false, reason: "Selection crosses repeats; enable 'Suppress repeats' or adjust range." };
+  }
 
   return {
     ok: true,
@@ -28071,7 +28077,6 @@ function normalizeBlankLinesForPlayback(text) {
   const out = [];
   let inTextBlock = false;
   let inBody = false;
-  const isInlineFieldLine = (line) => isInlineFieldOnlyLine(line);
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     const trimmed = line.trim();
@@ -28086,16 +28091,9 @@ function normalizeBlankLinesForPlayback(text) {
       out.push(line);
       continue;
     }
-    // Inside the tune body, some playback parsers treat blank lines as tune separators.
-    // Be conservative: if a blank line is immediately followed by an inline field directive
-    // (e.g. [P:...], [M:...], [K:...]), replace it with a comment line for playback only.
-    let j = i + 1;
-    while (j < lines.length && lines[j].trim() === "") j += 1;
-    if (j < lines.length && isInlineFieldLine(lines[j])) {
-      out.push("%");
-      continue;
-    }
-    out.push(line);
+    // Inside tune body, blank lines can be parsed as tune separators and stop playback.
+    // Keep output stable by replacing them with comment placeholders.
+    out.push("%");
   }
   return out.join("\n");
 }

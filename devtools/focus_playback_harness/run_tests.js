@@ -614,6 +614,9 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
     return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
   }
+  if (mode === "segment" && !Boolean(state.suppressRepeats) && hasRepeatTokensInSlice(tuneText, startOffset, endOffset)) {
+    return { ok: false, reason: "Selection crosses repeats; enable 'Suppress repeats' or adjust range." };
+  }
 
   return {
     ok: true,
@@ -628,6 +631,30 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       loop: Boolean(state.loop),
     },
   };
+}
+
+function hasRepeatTokensInSlice(text, start, end) {
+  const src = String(text || "");
+  const a = Math.max(0, Math.min(src.length, Number(start) || 0));
+  const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
+  const slice = src.slice(a, b);
+  return /(\|\:|:\||\[\d|\[1|\[2|repeat)/i.test(slice);
+}
+
+function normalizeFocusLoopBoundsForPlaybackState({ focusModeEnabled, fromMeasure, toMeasure }) {
+  const from = Math.max(0, Math.min(100000, Number.isFinite(Number(fromMeasure)) ? Math.floor(Number(fromMeasure)) : 0));
+  const to = Math.max(0, Math.min(100000, Number.isFinite(Number(toMeasure)) ? Math.floor(Number(toMeasure)) : 0));
+  if (!focusModeEnabled) return { swapped: false, from, to };
+  if (from > 0 && to > 0 && from > to) {
+    return { swapped: true, from: to, to: from };
+  }
+  return { swapped: false, from, to };
+}
+
+function resolveStopResetPlayheadOffset({ focusModeEnabled, focusPlan }) {
+  if (!focusModeEnabled) return 0;
+  if (!focusPlan || focusPlan.mode !== "segment") return 0;
+  return Math.max(0, Number(focusPlan.startOffset) || 0);
 }
 
 function normalizeVoiceIdToken(value) {
@@ -858,9 +885,9 @@ async function main() {
     { name: "TEST 2: Segment 1-2 starts at bar 1 (loop on, suppress on)", state: { fromMeasure: 1, toMeasure: 2, loop: true, suppressRepeats: true, mutedVoices: [] }, exp: { mode: "segment", mustStartAtFirstMeasure: true, expectFallbackBeforeFirstBar: true } },
     { name: "TEST 3: Segment 1-3 stays bounded (no far overshoot)", state: { fromMeasure: 1, toMeasure: 3, loop: false, suppressRepeats: false, mutedVoices: [] }, exp: { mode: "segment", mustStartAtFirstMeasure: true, maxSpanBars: 5 } },
     { name: "TEST 4: Segment 3-6 resolves before repeat section", state: { fromMeasure: 3, toMeasure: 6, loop: false, suppressRepeats: false, mutedVoices: [] }, exp: { mode: "segment", startBar: 3, endBar: 6 } },
-    { name: "TEST 5: Segment 8-18 resolves across reprise/voltas (suppress off)", state: { fromMeasure: 8, toMeasure: 18, loop: false, suppressRepeats: false, mutedVoices: [] }, exp: { mode: "segment", startBar: 8, endBar: 18 } },
+    { name: "TEST 5: Segment 8-18 resolves across reprise/voltas (suppress on)", state: { fromMeasure: 8, toMeasure: 18, loop: false, suppressRepeats: true, mutedVoices: [] }, exp: { mode: "segment", startBar: 8, endBar: 18 } },
     { name: "TEST 6: Segment 8-18 resolves across reprise/voltas (suppress on, loop on)", state: { fromMeasure: 8, toMeasure: 18, loop: true, suppressRepeats: true, mutedVoices: [] }, exp: { mode: "segment", startBar: 8, endBar: 18 } },
-    { name: "TEST 7: Segment 15-16 (between voltas) remains deterministic", state: { fromMeasure: 15, toMeasure: 16, loop: false, suppressRepeats: false, mutedVoices: [] }, exp: { mode: "segment", startBar: 15, endBar: 16 } },
+    { name: "TEST 7: Segment 15-16 (between voltas) remains deterministic (suppress on)", state: { fromMeasure: 15, toMeasure: 16, loop: false, suppressRepeats: true, mutedVoices: [] }, exp: { mode: "segment", startBar: 15, endBar: 16 } },
     { name: "TEST 8: Segment 14-17 reaches real bar 17 (not second-volta 15)", state: { fromMeasure: 14, toMeasure: 17, loop: true, suppressRepeats: true, mutedVoices: [] }, exp: { mode: "segment", startBar: 14, endBar: 17 } },
     { name: "TEST 9: Segment 17-18 (after reprise) remains deterministic", state: { fromMeasure: 17, toMeasure: 18, loop: false, suppressRepeats: false, mutedVoices: [] }, exp: { mode: "segment", startBar: 17, endBar: 18 } },
   ];
@@ -969,6 +996,72 @@ async function main() {
     process.exitCode = 1;
   }
 
+  // Focus Play should auto-swap From/To when both are positive and reversed.
+  try {
+    const swapped = normalizeFocusLoopBoundsForPlaybackState({
+      focusModeEnabled: true,
+      fromMeasure: 6,
+      toMeasure: 3,
+    });
+    assert(swapped.swapped === true, "expected swap=true for reversed positive bounds");
+    assert(swapped.from === 3 && swapped.to === 6, `expected 3..6 after swap, got ${swapped.from}..${swapped.to}`);
+    const unchanged = normalizeFocusLoopBoundsForPlaybackState({
+      focusModeEnabled: true,
+      fromMeasure: 0,
+      toMeasure: 0,
+    });
+    assert(unchanged.swapped === false, "0/0 should not be swapped");
+    assert(unchanged.from === 0 && unchanged.to === 0, "0/0 should remain 0/0");
+    console.log("% PASS TEST 13: Focus loop bounds auto-swap on Play (From>To)");
+  } catch (e) {
+    console.log("% FAIL TEST 13: Focus loop bounds auto-swap on Play (From>To)");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Stop in Focus segment mode resets playhead to the segment start.
+  try {
+    const ctx = contexts[0];
+    const planResult = buildFocusPlaybackPlan({
+      parsedTune: { text: tuneText, barMap: ctx.barMap, byNumber: ctx.byNumber, firstMeasureOffset: ctx.firstMeasureOffset },
+      focusState: { fromMeasure: 3, toMeasure: 6, loop: true, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: ctx.visibleRange,
+    });
+    assert(planResult && planResult.ok, "segment plan must be valid");
+    const nextOffset = resolveStopResetPlayheadOffset({
+      focusModeEnabled: true,
+      focusPlan: planResult.plan,
+    });
+    assert(nextOffset === planResult.plan.startOffset, "Stop should reset playhead to Focus segment startOffset");
+    console.log("% PASS TEST 14: Focus Stop resets playhead to segment start");
+  } catch (e) {
+    console.log("% FAIL TEST 14: Focus Stop resets playhead to segment start");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Segment crossing repeats with suppress OFF should fail closed.
+  try {
+    const ctx = contexts[0];
+    const crossing = buildFocusPlaybackPlan({
+      parsedTune: { text: tuneText, barMap: ctx.barMap, byNumber: ctx.byNumber, firstMeasureOffset: ctx.firstMeasureOffset },
+      focusState: { fromMeasure: 8, toMeasure: 18, loop: false, suppressRepeats: false, mutedVoices: [] },
+      visibleRange: ctx.visibleRange,
+    });
+    assert(crossing && crossing.ok === false, "repeat-crossing segment with suppress OFF must fail");
+    const okSuppressed = buildFocusPlaybackPlan({
+      parsedTune: { text: tuneText, barMap: ctx.barMap, byNumber: ctx.byNumber, firstMeasureOffset: ctx.firstMeasureOffset },
+      focusState: { fromMeasure: 8, toMeasure: 18, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: ctx.visibleRange,
+    });
+    assert(okSuppressed && okSuppressed.ok === true, "repeat-crossing segment with suppress ON must pass");
+    console.log("% PASS TEST 15: Repeat-crossing segment fails closed when suppress is OFF");
+  } catch (e) {
+    console.log("% FAIL TEST 15: Repeat-crossing segment fails closed when suppress is OFF");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
   // Muted voices parsing / symbol-level muting regression tests.
   try {
     const ids = parseMutedVoiceSetting("2, 3  2");
@@ -1031,9 +1124,9 @@ async function main() {
     applyMutedVoicesToTuneRoot(malformedRoot, malformedEffective);
     const malformedAfter = countPlayableByVoice(malformedRoot);
     assert((malformedAfter.get("2") || 0) > 0, "malformed V: mute should keep explicit V:2 playable");
-    console.log("% PASS TEST 13: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
+    console.log("% PASS TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
   } catch (e) {
-    console.log("% FAIL TEST 13: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
+    console.log("% FAIL TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

@@ -55,6 +55,38 @@ async function readOsRelease(fs) {
   }
 }
 
+function parseAbc2svgVersionText(raw) {
+  const text = String(raw || "");
+  const versionMatch = text.match(/abc2svg\.version\s*=\s*"([^"]+)"/);
+  const dateMatch = text.match(/abc2svg\.vdate\s*=\s*"([^"]+)"/);
+  return {
+    version: versionMatch ? String(versionMatch[1] || "").trim() : "",
+    date: dateMatch ? String(dateMatch[1] || "").trim() : "",
+  };
+}
+
+async function readAbc2svgVersionInfo({ fs, path, app }) {
+  const appPath = app && typeof app.getAppPath === "function" ? String(app.getAppPath() || "") : "";
+  const candidates = [
+    path.resolve(__dirname, "../../third_party/abc2svg/abc2svg-1.js"),
+    appPath ? path.join(appPath, "third_party", "abc2svg", "abc2svg-1.js") : "",
+    path.join(process.cwd(), "third_party", "abc2svg", "abc2svg-1.js"),
+    path.resolve(__dirname, "../../third_party/abc2svg/version.txt"),
+    appPath ? path.join(appPath, "third_party", "abc2svg", "version.txt") : "",
+    path.join(process.cwd(), "third_party", "abc2svg", "version.txt"),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const raw = await fs.promises.readFile(candidate, "utf8");
+      const parsed = parseAbc2svgVersionText(raw);
+      if (parsed.version || parsed.date) {
+        return { ...parsed, source: candidate };
+      }
+    } catch {}
+  }
+  return { version: "", date: "", source: "" };
+}
+
 function execVersion(cmd, args) {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: 1200 }, (err, stdout, stderr) => {
@@ -1652,6 +1684,7 @@ function registerIpcHandlers(ctx) {
     const env = process.env || {};
     const osReleaseInfo = await readOsRelease(ctx.fs);
     const pythonVersion = await getPythonVersion();
+    const abc2svg = await readAbc2svgVersionInfo({ fs, path, app });
     return {
       appName: app.getName ? app.getName() : "ABCarus",
       appVersion: app.getVersion ? app.getVersion() : "",
@@ -1681,6 +1714,8 @@ function registerIpcHandlers(ctx) {
       lang: String(env.LANG || ""),
       lcAll: String(env.LC_ALL || ""),
       pythonVersion,
+      abc2svgVersion: abc2svg.version,
+      abc2svgDate: abc2svg.date,
     };
   });
 }

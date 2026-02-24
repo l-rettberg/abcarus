@@ -5,10 +5,12 @@
 //   node scripts/release-downloads-report.mjs [--limit N]
 //   node scripts/release-downloads-report.mjs --all
 //   node scripts/release-downloads-report.mjs --format wide
+//   node scripts/release-downloads-report.mjs --format compact
 //
 // Formats:
 // - long (default): tag, publishedAt, total, assetCount, assets (one cell: name(count); ...)
 // - wide: crosstab with stable columns per asset kind (short names), plus otherTotal/otherAssets.
+// - compact: terminal-friendly summary: tag, total, and a compact per-platform breakdown.
 
 import { execFileSync } from "node:child_process";
 
@@ -19,9 +21,10 @@ function parseArgs(argv) {
     if (a === "--all") out.all = true;
     else if (a === "--format") {
       const v = String(argv[i + 1] || "").trim();
-      if (v === "wide" || v === "long") out.format = v;
+      if (v === "wide" || v === "long" || v === "compact") out.format = v;
       i += 1;
     } else if (a === "--wide") out.format = "wide";
+    else if (a === "--compact") out.format = "compact";
     else if (a === "--limit") {
       const n = Number(argv[i + 1]);
       if (Number.isFinite(n) && n > 0) out.limit = Math.floor(n);
@@ -52,12 +55,18 @@ function assetToKey(assetName) {
   if (/^abcarus-win-unpacked-x64\.zip$/.test(n)) return "win_unpacked_zip";
   if (/^abcarus-x86_64\.appimage$/.test(n)) return "linux_appimage";
   if (/^abcarus-x86_64-portable\.tar\.gz$/.test(n)) return "linux_portable_targz";
-  if (/^sha256sums-linux\.txt$/.test(n)) return "sha_linux";
-  if (/^sha256sums-macos-x64\.txt$/.test(n)) return "sha_macos_x64";
-  if (/^sha256sums-macos-arm64\.txt$/.test(n)) return "sha_macos_arm64";
-  if (/^sha256sums-windows\.txt$/.test(n)) return "sha_windows";
 
   return null;
+}
+
+function shouldIgnoreAsset(assetName) {
+  const n = String(assetName || "").toLowerCase();
+  if (!n) return true;
+  if (/^sha256sums-linux\.txt$/.test(n)) return true;
+  if (/^sha256sums-macos-x64\.txt$/.test(n)) return true;
+  if (/^sha256sums-macos-arm64\.txt$/.test(n)) return true;
+  if (/^sha256sums-windows\.txt$/.test(n)) return true;
+  return false;
 }
 
 function wideColumns() {
@@ -69,11 +78,24 @@ function wideColumns() {
     { key: "win_unpacked_zip", label: "win_unpacked_zip" },
     { key: "linux_appimage", label: "linux_appimage" },
     { key: "linux_portable_targz", label: "linux_portable_targz" },
-    { key: "sha_linux", label: "sha_linux" },
-    { key: "sha_macos_arm64", label: "sha_macos_arm64" },
-    { key: "sha_macos_x64", label: "sha_macos_x64" },
-    { key: "sha_windows", label: "sha_windows" },
+    // { key: "sha_linux", label: "sha_linux" },
+    // { key: "sha_macos_arm64", label: "sha_macos_arm64" },
+    // { key: "sha_macos_x64", label: "sha_macos_x64" },
+    // { key: "sha_windows", label: "sha_windows" },
   ];
+}
+
+function compactLabelForKey(key) {
+  const map = {
+    mac_arm64_dmg: "macA",
+    mac_x64_dmg: "macX",
+    win_setup_x64: "winS",
+    win_portable_x64: "winP",
+    win_unpacked_zip: "winZ",
+    linux_appimage: "linA",
+    linux_portable_targz: "linT",
+  };
+  return map[key] || key;
 }
 
 function main() {
@@ -97,15 +119,17 @@ function main() {
   for (const rel of releases) {
     const tag = String(rel.tag_name || "");
     const publishedAt = rel.published_at || rel.created_at || "";
-    const assets = Array.isArray(rel.assets) ? rel.assets : [];
+    const allAssets = Array.isArray(rel.assets) ? rel.assets : [];
+    const assets = allAssets.filter((a) => !shouldIgnoreAsset(a && a.name ? String(a.name) : ""));
 
     const total = assets.reduce((sum, a) => sum + (Number(a.download_count) || 0), 0);
-    if (opts.format === "wide") {
+    if (opts.format === "wide" || opts.format === "compact") {
       const byKey = new Map();
       const other = [];
       let otherTotal = 0;
       for (const a of assets) {
         const name = a && a.name ? String(a.name) : "";
+        if (shouldIgnoreAsset(name)) continue;
         const count = Number(a && a.download_count) || 0;
         const key = assetToKey(name);
         if (key) byKey.set(key, (byKey.get(key) || 0) + count);
@@ -156,6 +180,23 @@ function main() {
           safe(r.otherAssets || ""),
         ].join("\t") + "\n"
       );
+    }
+    return;
+  }
+
+  if (opts.format === "compact") {
+    const cols = wideColumns();
+    process.stdout.write("tag\ttotal\tbreakdown\n");
+    for (const r of rows) {
+      const parts = [];
+      for (const c of cols) {
+        const v = r.byKey && typeof r.byKey.get === "function" ? (r.byKey.get(c.key) || 0) : 0;
+        const num = Number(v) || 0;
+        if (num > 0) parts.push(`${compactLabelForKey(c.key)}:${num}`);
+      }
+      const other = Number(r.otherTotal) || 0;
+      if (other > 0) parts.push(`other:${other}`);
+      process.stdout.write(`${safe(r.tag)}\t${String(r.total)}\t${parts.join(" ")}\n`);
     }
     return;
   }

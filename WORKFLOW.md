@@ -91,6 +91,9 @@ when uploading assets via `.github/workflows/release-assets.yml`.
 Upstream `abc2svg` updates usually arrive as a source snapshot under `third_party/_upd/` (not committed). The safe workflow:
 
 ```bash
+# Optional: fetch latest abc2svg tip zip into third_party/_upd/
+npm run abc2svg:fetch-tip
+
 # 1) Generate a review report (SAFE / HOLD)
 npm run thirdparty:review -- --candidate third_party/_upd/<abc2svg>.zip --abc2svg-build
 

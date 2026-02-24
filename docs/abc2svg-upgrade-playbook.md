@@ -27,6 +27,8 @@ Avoid upgrading “just because” during periods of heavy upstream churn; prefe
 ## 1) Collect a candidate snapshot (local-only)
 
 1) Download an upstream archive (zip/tar) or export a fossil checkout as an archive.
+   - Convenience helper for latest `tip` zip:
+     - `npm run abc2svg:fetch-tip`
 2) Put it under `third_party/_upd/` (gitignored; never commit).
 3) Record upstream identity:
    - fossil artifact hash or tag

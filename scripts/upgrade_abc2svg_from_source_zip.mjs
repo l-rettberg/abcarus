@@ -130,12 +130,6 @@ function extractZipToDir(zipPath, destDir) {
   }
 }
 
-function stripAbc2svgVdate(text) {
-  const lines = String(text || "").split(/\r?\n/);
-  const filtered = lines.filter((ln) => !/^\s*abc2svg\.version=.*abc2svg\.vdate=.*\s*$/.test(ln));
-  return filtered.join("\n");
-}
-
 function checkSndDrumContract(builtSndText) {
   const src = String(builtSndText || "");
   const callsDrum = src.includes("abc2svg.drum(");
@@ -225,6 +219,7 @@ function main() {
     "abc2svg-1.js",
     "snd-1.js",
     "MIDI-1.js",
+    "version.txt",
     "edit-1.js",
     "edit-1.xhtml",
     "edit-1.css",
@@ -244,15 +239,6 @@ function main() {
 
     const destPath = path.join(destRoot, f);
     const localBuf = readMaybe(destPath);
-
-    if (f === "abc2svg-1.js" && localBuf) {
-      const a = sha256Buffer(Buffer.from(stripAbc2svgVdate(localBuf.toString("utf8")), "utf8"));
-      const b = sha256Buffer(Buffer.from(stripAbc2svgVdate(builtBuf.toString("utf8")), "utf8"));
-      if (a === b) {
-        changes.push({ file: f, action: "skip (only vdate differs)" });
-        continue;
-      }
-    }
 
     const localSha = localBuf ? sha256Buffer(localBuf) : null;
     const builtSha = sha256Buffer(builtBuf);

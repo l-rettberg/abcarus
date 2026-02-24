@@ -1,7 +1,7 @@
 // abc2svg - ABC to SVG translator
 // @source: https://chiselapp.com/user/moinejf/repository/abc2svg
 // Copyright (C) 2014-2025 Jean-François Moine - LGPL3+
-//abc2svg-abc2svg.js
+
 if(typeof abc2svg=="undefined")
 var abc2svg={};abc2svg.C={BLEN:1536,BAR:0,CLEF:1,CUSTOS:2,SM:3,GRACE:4,KEY:5,METER:6,MREST:7,NOTE:8,PART:9,REST:10,SPACE:11,STAVES:12,STBRK:13,TEMPO:14,BLOCK:16,REMARK:17,FULL:0,EMPTY:1,OVAL:2,OVALBARS:3,SQUARE:4,SL_ABOVE:0x01,SL_BELOW:0x02,SL_AUTO:0x03,SL_HIDDEN:0x04,SL_DOTTED:0x08,SL_ALI_MSK:0x70,SL_ALIGN:0x10,SL_CENTER:0x20,SL_CLOSE:0x40};abc2svg.sym_name=['bar','clef','custos','smark','grace','key','meter','Zrest','note','part','rest','yspace','staves','Break','tempo','','block','remark']
 abc2svg.keys=[new Int8Array([-1,-1,-1,-1,-1,-1,-1]),new Int8Array([-1,-1,-1,0,-1,-1,-1]),new Int8Array([0,-1,-1,0,-1,-1,-1]),new Int8Array([0,-1,-1,0,0,-1,-1]),new Int8Array([0,0,-1,0,0,-1,-1]),new Int8Array([0,0,-1,0,0,0,-1]),new Int8Array([0,0,0,0,0,0,-1]),new Int8Array([0,0,0,0,0,0,0]),new Int8Array([0,0,0,1,0,0,0]),new Int8Array([1,0,0,1,0,0,0]),new Int8Array([1,0,0,1,1,0,0]),new Int8Array([1,1,0,1,1,0,0]),new Int8Array([1,1,0,1,1,1,0]),new Int8Array([1,1,1,1,1,1,0]),new Int8Array([1,1,1,1,1,1,1])]
@@ -103,7 +103,7 @@ function syntax(sev,msg,a1,a2,a3,a4){var s={fname:parse.fname,istart:parse.istar
 error(sev,s,msg,a1,a2,a3,a4)}
 function js_inject(js){eval('"use strict";\n'+js)}
 var dd_tb={},a_de,cross
-var decos={dot:"0 stc 6 .7 1",tenuto:"0 emb 6 4 3",slide:"1 sld 5,5 7 1",arpeggio:"2 arp 12 10 3",roll:"3 roll 5,4 5 6",lowermordent:"3 lmrd 6,5 4 6",uppermordent:"3 umrd 6,5 4 6",trill:"3 trl 14 5 8",upbow:"3 upb 12,2 3 7",downbow:"3 dnb 8,2 4 6",gmark:"3 grm 7 4 6",wedge:"0 wedge 8 1.5 1",longphrase:"5 lphr 0 1 16",mediumphrase:"5 mphr 0 1 16",shortphrase:"5 sphr 0 1 16",turnx:"3 turnx 7,2.5 5 6",invertedturn:"3 turn 7,2 5 6",plus:"3 dplus 8,2 2 4","+":"3 dplus 8,2 2 4",">":"5 accent 3.5,3.5 4 4",accent:"5 accent 3.5,3.5 4 4",emphasis:"5 accent 3.5,3.5 4 4",marcato:"3 marcato 9 5 5","^":"3 marcato 9 5 5",mordent:"3 lmrd 6,5 4 6",open:"3 opend 8 3 3",snap:"3 snap 10 3 3",thumb:"3 thumb 10 3 3",turn:"3 turn 7,2.5 5 6","trill(":"5 ltr 8 0 0","trill)":"5 ltr 8 0 0","8va(":"5 8va 12 6 6","8va)":"5 8va 12 6 6","8vb(":"4 8vb 10,5 6 6","8vb)":"4 8vb 10,5 6 6","15ma(":"5 15ma 12 9 9","15ma)":"5 15ma 12 9 9","15mb(":"4 15mb 12 9 9","15mb)":"4 15mb 12 9 9",breath:"5 brth 0 1 16",caesura:"5 caes 0 1 20",short:"5 short 0 1 16",tick:"5 tick 0 1 16",coda:"5 coda 22,5 10 10",dacapo:"5 dacs 16 20 20 Da Capo",dacoda:"5 dacs 16 20 20 Da Coda","D.C.":"5 dcap 16,3 6 6","D.S.":"5 dsgn 16,3 6 6","D.C.alcoda":"5 dacs 16 32 32 D.C. al Coda","D.S.alcoda":"5 dacs 16 32 32 D.S. al Coda","D.C.alfine":"5 dacs 16 32 32 D.C. al Fine","D.S.alfine":"5 dacs 16 32 32 D.S. al Fine",fermata:"5 hld 12 7.5 7.5",fine:"5 dacs 16 12 12 Fine",invertedfermata:"7 hld 12 8 8",segno:"5 sgno 22,2 5 5",f:"6 f 12,5 3 4",ff:"6 ff 12,5 8 5",fff:"6 fff 12,5 11 9",ffff:"6 ffff 12,5 15 12",mf:"6 mf 12,5 8 10",mp:"6 mp 12,5 9 10",p:"6 p 12,5 3 6",pp:"6 pp 12,5 8 9",ppp:"6 ppp 12,5 14 11",pppp:"6 pppp 12,5 14 17",pralltriller:"3 umrd 6,5 4 6",sfz:"6 sfz 12,5 9 9",ped:"6 ped 9 6 10","ped-up":"6 pedoff 9 4 4","ped(":"7 lped 14 1 1","ped)":"7 lped 14 1 1","crescendo(":"6 cresc 15,2 0 0","crescendo)":"6 cresc 15,2 0 0","<(":"6 cresc 15,2 0 0","<)":"6 cresc 15,2 0 0","diminuendo(":"6 dim 15,2 0 0","diminuendo)":"6 dim 15,2 0 0",">(":"6 dim 15,2 0 0",">)":"6 dim 15,2 0 0","-(":"8 gliss 0 0 0","-)":"8 gliss 0 0 0","~(":"8 glisq 0 0 0","~)":"8 glisq 0 0 0",invisible:"32 0 0 0 0",beamon:"33 0 0 0 0",trem1:"34 0 0 0 0",trem2:"34 0 0 0 0",trem3:"34 0 0 0 0",trem4:"34 0 0 0 0",xstem:"35 0 0 0 0",beambr1:"36 0 0 0 0",beambr2:"36 0 0 0 0",rbstop:"37 0 0 0 0","/":"38 0 0 6 6","//":"38 0 0 6 6","///":"38 0 0 6 6","beam-accel":"39 0 0 0 0","beam-rall":"39 0 0 0 0",stemless:"40 0 0 0 0",rbend:"41 0 0 0 0",editorial:"42 0 0 0 0","sacc-1":"3 sacc-1 6,4 4 4",sacc3:"3 sacc3 6,5 4 4",sacc1:"3 sacc1 6,4 4 4",courtesy:"43 0 0 0 0","cacc-1":"3 cacc-1 0 0 0",cacc3:"3 cacc3 0 0 0",cacc1:"3 cacc1 0 0 0","tie(":"44 0 0 0 0","tie)":"44 0 0 0 0",fg:"45 0 0 0 0"},f_near=[d_near,d_slide,d_arp],f_note=[null,null,null,null,d_upstaff],f_staff=[null,null,null,d_upstaff,null,d_upstaff,d_upstaff,d_upstaff]
+var decos={dot:"0 stc 6 .7 1",tenuto:"0 emb 6 4 3",slide:"1 sld 5,5 7 1",arpeggio:"2 arp 12 10 3",roll:"3 roll 5,4 5 6",lowermordent:"3 lmrd 6,5 4 6",uppermordent:"3 umrd 6,5 4 6",trill:"3 trl 14 5 8",upbow:"3 upb 12,2 3 7",downbow:"3 dnb 8,2 4 6",gmark:"3 grm 7 4 6",wedge:"0 wedge 8 1.5 1",longphrase:"5 lphr 0 1 16",mediumphrase:"5 mphr 0 1 16",shortphrase:"5 sphr 0 1 16",turnx:"3 turnx 7,2.5 5 6",invertedturn:"3 turn 7,2 5 6",plus:"3 dplus 8,2 2 4","+":"3 dplus 8,2 2 4",">":"5 accent 3.5,3.5 4 4",accent:"5 accent 3.5,3.5 4 4",emphasis:"5 accent 3.5,3.5 4 4",marcato:"3 marcato 9 5 5","^":"3 marcato 9 5 5",mordent:"3 lmrd 6,5 4 6",open:"3 opend 8 3 3",snap:"3 snap 10 3 3",thumb:"3 thumb 10 3 3",turn:"3 turn 7,2.5 5 6","trill(":"5 ltr 8 0 0","trill)":"5 ltr 8 0 0","8va(":"5 8va 12 6 6","8va)":"5 8va 12 6 6","8vb(":"4 8vb 10,5 6 6","8vb)":"4 8vb 10,5 6 6","15ma(":"5 15ma 12 9 9","15ma)":"5 15ma 12 9 9","15mb(":"4 15mb 12 9 9","15mb)":"4 15mb 12 9 9",breath:"5 brth 0 1 16",caesura:"5 caes 0 1 20",short:"5 short 0 1 16",tick:"5 tick 0 1 16",coda:"5 coda 22,5 10 10",dacapo:"5 dacs 16 20 20 Da Capo",dacoda:"5 dacs 16 20 20 Da Coda","D.C.":"5 dcap 16,3 6 6","D.S.":"5 dsgn 16,3 6 6","D.C.alcoda":"5 dacs 16 32 32 D.C. al Coda","D.S.alcoda":"5 dacs 16 32 32 D.S. al Coda","D.C.alfine":"5 dacs 16 32 32 D.C. al Fine","D.S.alfine":"5 dacs 16 32 32 D.S. al Fine",fermata:"5 hld 12 7.5 7.5",fine:"5 dacs 16 12 12 Fine",invertedfermata:"7 hld 12 8 8",segno:"5 sgno 22,2 5 5",f:"6 f 12,5 3 4",ff:"6 ff 12,5 8 5",fff:"6 fff 12,5 11 9",ffff:"6 ffff 12,5 15 12",mf:"6 mf 12,5 8 10",mp:"6 mp 12,5 9 10",p:"6 p 12,5 3 6",pp:"6 pp 12,5 8 9",ppp:"6 ppp 12,5 14 11",pppp:"6 pppp 12,5 14 17",pralltriller:"3 umrd 6,5 4 6",sfz:"6 sfz 12,5 9 9",ped:"6 ped 9 6 10","ped-up":"6 pedoff 9 4 4","ped(":"7 lped 14 1 1","ped)":"7 lped 14 1 1","crescendo(":"6 cresc 15,2 0 0","crescendo)":"6 cresc 15,2 0 0","<(":"6 cresc 15,2 0 0","<)":"6 cresc 15,2 0 0","diminuendo(":"6 dim 15,2 0 0","diminuendo)":"6 dim 15,2 0 0",">(":"6 dim 15,2 0 0",">)":"6 dim 15,2 0 0","-(":"8 gliss 0 0 0","-)":"8 gliss 0 0 0","~(":"8 glisq 0 0 0","~)":"8 glisq 0 0 0",invisible:"32 0 0 0 0",beamon:"33 0 0 0 0",trem1:"34 0 0 0 0",trem2:"34 0 0 0 0",trem3:"34 0 0 0 0",trem4:"34 0 0 0 0",xstem:"35 0 0 0 0",beambr1:"36 0 0 0 0",beambr2:"36 0 0 0 0",rbstop:"37 0 0 0 0","/":"38 0 0 6 6","//":"38 0 0 6 6","///":"38 0 0 6 6","beam-accel":"39 0 0 0 0","beam-rall":"39 0 0 0 0",stemless:"40 0 0 0 0",rbend:"41 0 0 0 0",editorial:"42 0 0 0 0","sacc-1":"3 sacc-1 6,4 4 4",sacc3:"3 sacc3 6,5 4 4",sacc1:"3 sacc1 6,4 4 4",courtesy:"43 0 0 0 0","cacc-1":"3 cacc-1 0 16 0",cacc3:"3 cacc3 0 16 0",cacc1:"3 cacc1 0 16 0","tie(":"44 0 0 0 0","tie)":"44 0 0 0 0",fg:"45 0 0 0 0"},f_near=[d_near,d_slide,d_arp],f_note=[null,null,null,null,d_upstaff],f_staff=[null,null,null,d_upstaff,null,d_upstaff,d_upstaff,d_upstaff]
 function y_get(st,up,x,w){var y,p_staff=staff_tb[st],i=(x/2)|0,j=((x+w)/2)|0
 if(i<0){i=0
 if(j<0)
@@ -472,10 +472,9 @@ curvoice.acc[s.notes[0].pit+19]=0
 break
 case 43:if(s.type!=C.NOTE){error(1,s,errs.must_note,nm)
 continue}
-j=curvoice.acc[s.notes[0].pit+19]
-if(s.notes[0].acc||!j)
+if(s.notes[0].acc)
 continue
-court=1
+court=curvoice.acc[s.notes[0].pit+19]||3
 break
 case 44:if(s.type!=C.NOTE){error(1,s,errs.must_note,nm)
 continue}
@@ -489,7 +488,7 @@ continue}}
 if(!s.a_dd)
 s.a_dd=[]
 s.a_dd.push(dd)}
-if(court){a_dcn.push("cacc"+j)
+if(court){a_dcn.push("cacc"+court)
 dh_cnv(s,s.notes[0])}}
 function dh_cnv(s,nt){var k,nm,dd
 while(1){nm=a_dcn.shift()
@@ -1953,6 +1952,9 @@ break}}}}else{s3=null}
 if(!s3){s.p_v.sls.push(sl);s2=s.p_v.s_next.prev
 while(s2.next)
 s2=s2.next;sl=Object.create(sl)}}
+if(sl.slr)
+sl.ty=sl.slr.ty
+else
 switch(sl.ty&0x07){case C.SL_ABOVE:dir=1;break
 case C.SL_BELOW:dir=-1;break
 default:dir=s.v!=s2.v?1:slur_direction(s,s2)
@@ -2634,12 +2636,12 @@ xygl(x-2,y,(s.clef_octave==7||s.clef_octave==-7)?"oct":"oct2")}
 anno_a.push(s)
 break
 case C.METER:p_voice.meter=s
-if(s.second||!staff_tb[s.st].topbar)
+if(s.second||!gene.st_print[st]||!staff_tb[s.st].topbar)
 break
 set_color();set_sscale(s.st);anno_start(s);draw_meter(s);anno_a.push(s)
 break
 case C.KEY:p_voice.ckey=s
-if(s.second||!staff_tb[s.st].topbar)
+if(s.second||!gene.st_print[st]||!staff_tb[s.st].topbar)
 break
 set_color();set_sscale(s.st);anno_start(s);self.draw_keysig(x,s);anno_a.push(s)
 break
@@ -3733,7 +3735,7 @@ generate()
 cfmt=sav.cfmt;info=sav.info;char_tb=sav.char_tb;glovar=sav.glovar;maps=sav.maps;mac=sav.mac;maci=sav.maci;parse.tune_v_opts=null;parse.scores=null;parse.ufmt=false
 delete parse.pq
 init_tune()
-img.chg=true;set_page();if(cfmt.show_source){user.img_out("</div>")
+img.chg=true;set_page();if(cfmt.show_source&&user.img_out){user.img_out("</div>")
 if(cfmt.show_source[0][0]=='a')
 user.img_out(sav.src)}}
 function do_voice(select,in_tune){var opt,bol
@@ -3826,7 +3828,9 @@ parse.eol=file.indexOf('\n',i+6)
 if(parse.eol<0)
 parse.eol=eof
 continue}
-switch(a[1]){case"show_source":b=uncomment(a[2])
+switch(a[1]){case"show_source":if(!user.img_out)
+continue
+b=uncomment(a[2])
 switch(b[0]){case'*':i=file.indexOf('\n'+line0+line1
 +"show_source",eol)
 bol-=2
@@ -3898,7 +3902,7 @@ if(eol<0)
 eol=eof;parse.eol=eol
 continue}
 sav.cfmt=clone(cfmt);sav.info=clone(info,2)
-sav.char_tb=clone(char_tb);sav.glovar=clone(glovar);sav.maps=clone(maps,1);sav.mac=clone(mac);sav.maci=clone(maci);if(cfmt.show_source){bol-=2
+sav.char_tb=clone(char_tb);sav.glovar=clone(glovar);sav.maps=clone(maps,1);sav.mac=clone(mac);sav.maci=clone(maci);if(cfmt.show_source&&user.img_out){bol-=2
 set_src(cfmt.show_source)
 if(cfmt.show_source[0][0]=='b')
 user.img_out(sav.src)
@@ -5177,7 +5181,7 @@ delete s4.a_dd
 delete s4.soln
 delete s4.a_gch
 delete s4.part
-lkvsym(s4,s.next)
+lkvsym(s4,s2.next)
 s4.time=tim
 while(s3&&!s3.dur&&s3.time==tim)
 s3=s3.ts_next
@@ -7010,7 +7014,7 @@ continue
 for(i=0;i<=s2.nhd;i++)
 s2.notes[i].dur*=fac}
 curvoice.time=s.time=time}
-function new_bar(){var s2,c,bar_type,line=parse.line,s={type:C.BAR,fname:parse.fname,istart:parse.bol+line.index,dur:0,multi:0}
+function new_bar(){var s2,c,bar_type,i,line=parse.line,s={type:C.BAR,fname:parse.fname,istart:parse.bol+line.index,dur:0,multi:0}
 if(vover&&vover.bar)
 get_vover('|')
 if(glovar.new_nbar){s.bar_num=glovar.new_nbar;glovar.new_nbar=0}
@@ -7047,13 +7051,18 @@ bar_type=bar_type.slice(0,-1)
 if(bar_type.slice(-1)==':'){s.rbstop=1
 if(s.text){syntax(1,"Variant ending on a left repeat bar")
 delete s.text}
-curvoice.tie_s_rep=null}
+curvoice.tie_s_rep=null
+i=curvoice.sls.length
+while(--i>=0){if(!curvoice.sls[i].rep)
+curvoice.sls.splice(i,1)}}
 if(s.text){s.rbstart=s.rbstop=2
 if(s.text[0]=='1'){curvoice.tie_s_rep=curvoice.tie_s
 if(curvoice.acc_tie)
 curvoice.acc_tie_rep=curvoice.acc_tie.slice()
 else if(curvoice.acc_tie_rep)
-curvoice.acc_tie_rep=null}else{curvoice.tie_s=curvoice.tie_s_rep
+curvoice.acc_tie_rep=null
+for(i=0;i<curvoice.sls.length;i++){if(!curvoice.sls[i].rep)
+curvoice.sls[i].rep=1}}else{curvoice.tie_s=curvoice.tie_s_rep
 if(curvoice.acc_tie_rep)
 curvoice.acc_tie=curvoice.acc_tie_rep.slice()}
 if(curvoice.norepbra&&!curvoice.second)
@@ -7261,7 +7270,9 @@ function slur_add(s,nt){var i,s2,sl
 for(i=curvoice.sls.length;--i>=0;){sl=curvoice.sls[i]
 if(sl.ss==s)
 continue
-curvoice.sls.splice(i,1)
+if(sl.rep){if(sl.rep>=10)
+break
+sl.rep=10}else{curvoice.sls.splice(i,1)}
 sl.se=s
 if(nt)
 sl.nte=nt
@@ -7272,8 +7283,9 @@ s2.sls.push(sl)
 if(sl.grace)
 sl.grace.sl1=true
 return}
-for(s2=s.prev;s2;s2=s2.prev){if(s2.type==C.BAR&&s2.bar_type[0]==':'&&s2.text){if(!s2.sls)
-s2.sls=[];s2.sls.push({ty:C.SL_AUTO,ss:s2,se:s})
+if(sl&&sl.rep)
+for(s2=s.prev;s2;s2=s2.prev){if(s2.type==C.BAR&&(s2.bar_type[0]==':'||s2.text)){if(!s2.sls)
+s2.sls=[];s2.sls.push({ty:C.SL_AUTO,ss:s2,se:s,slr:sl})
 if(nt)
 s2.sls[s2.sls.length-1].nte=nt
 return}}
@@ -7352,9 +7364,9 @@ s.nmeas=(c>'0'&&c<='9')?line.get_int():1;if(curvoice.wmeasure==1){error(1,s,"mul
 return}
 s.dur=curvoice.wmeasure*s.nmeas
 if(s.nmeas==1){s.type=C.REST;s.dur_orig=s.dur;s.fmr=1
-s.notes=[{pit:18,dur:s.dur}]}else{glovar.mrest_p=true
-if(par_sy.voices.length==1){s.tacet=curvoice.tacet
-delete s.invis}}
+s.notes=[{pit:18,dur:s.dur}]
+s.nmeas=0}else{glovar.mrest_p=true
+s.tacet=curvoice.tacet}
 break
 case'y':s.type=C.SPACE;s.invis=true;s.dur=0;c=line.next_char()
 if(c>='0'&&c<='9')
@@ -8108,7 +8120,6 @@ if(r[2][0]=='"')
 r[2]=r[2].slice(1,-1)
 return r}
 Abc.prototype.tunhd=function(){var i,j,area,composer,origin,rhythm,down1,down2,p,lwidth=get_lwidth()
-vskip(cfmt.topspace)
 if(info.T&&cfmt.writefields.indexOf('T')>=0){i=0
 while(1){j=info.T.indexOf("\n",i)
 if(j<0){write_title(info.T.substring(i),i!=0)
@@ -8161,7 +8172,7 @@ var output="",style='\
 \n.sldW{stroke:currentColor;fill:none;stroke-width:.7;stroke-dasharray:5,10}\
 \n.sW{stroke:currentColor;fill:none;stroke-width:.7}\
 \n.box{outline:1px solid black;outline-offset:1px}',font_style='',posx=cfmt.leftmargin/cfmt.scale,posy=0,img={width:cfmt.pagewidth,lm:cfmt.leftmargin,rm:cfmt.rightmargin,wx:0,chg:1},defined_glyph={},defs='',fulldefs='',stv_g={scale:1,stsc:1,vsc:1,dy:0,st:-1,v:-1,g:0},blkdiv=0
-var tgls={"mtr ":{x:0,y:0,c:"\u0020"},brace:{x:0,y:0,c:"\ue000"},lphr:{x:0,y:23,c:"\ue030"},mphr:{x:0,y:23,c:"\ue038"},sphr:{x:0,y:25,c:"\ue039"},short:{x:0,y:32,c:"\ue038"},tick:{x:0,y:25,c:"\ue039"},rdots:{x:0,y:0,c:"\ue043"},rdot:{x:0,y:0,c:"\ue044"},dsgn:{x:-12,y:0,c:"\ue045"},dcap:{x:-12,y:0,c:"\ue046"},sgno:{x:-5,y:0,c:"\ue047"},coda:{x:-10,y:0,c:"\ue048"},tclef:{x:-8,y:0,c:"\ue050"},cclef:{x:-8,y:0,c:"\ue05c"},bclef:{x:-8,y:0,c:"\ue062"},pclef:{x:-6,y:0,c:"\ue069"},spclef:{x:-6,y:0,c:"\ue069"},stclef:{x:-8,y:0,c:"\ue07a"},scclef:{x:-8,y:0,c:"\ue07b"},sbclef:{x:-7,y:0,c:"\ue07c"},oct:{x:0,y:2,c:"\ue07d"},oct2:{x:0,y:2,c:"\ue07e"},mtr0:{x:0,y:0,c:"\ue080"},mtr1:{x:0,y:0,c:"\ue081"},mtr2:{x:0,y:0,c:"\ue082"},mtr3:{x:0,y:0,c:"\ue083"},mtr4:{x:0,y:0,c:"\ue084"},mtr5:{x:0,y:0,c:"\ue085"},mtr6:{x:0,y:0,c:"\ue086"},mtr7:{x:0,y:0,c:"\ue087"},mtr8:{x:0,y:0,c:"\ue088"},mtr9:{x:0,y:0,c:"\ue089"},mtrC:{x:0,y:0,c:"\ue08a"},"mtrC|":{x:0,y:0,c:"\ue08b"},"mtr+":{x:0,y:0,c:"\ue08c"},"mtr(":{x:0,y:0,c:"\ue094"},"mtr)":{x:0,y:0,c:"\ue095"},HDD:{x:-7,y:0,c:"\ue0a0"},breve:{x:-7,y:0,c:"\ue0a1"},HD:{x:-5.2,y:0,c:"\ue0a2"},Hd:{x:-3.8,y:0,c:"\ue0a3"},hd:{x:-3.7,y:0,c:"\ue0a4"},ghd:{x:2,y:0,c:"\ue0a4",sc:.66},pshhd:{x:-3.7,y:0,c:"\ue0a9"},pfthd:{x:-3.7,y:0,c:"\ue0b3"},x:{x:-3.7,y:0,c:"\ue0a9"},"circle-x":{x:-3.7,y:0,c:"\ue0b3"},srep:{x:-5,y:0,c:"\ue101"},"dot+":{x:-5,y:0,sc:.7,c:"\ue101"},diamond:{x:-4,y:0,c:"\ue1b9"},triangle:{x:-4,y:0,c:"\ue1bb"},dot:{x:-1,y:0,c:"\ue1e7"},flu1:{x:-.3,y:0,c:"\ue240"},fld1:{x:-.3,y:0,c:"\ue241"},flu2:{x:-.3,y:0,c:"\ue242"},fld2:{x:-.3,y:0,c:"\ue243"},flu3:{x:-.3,y:3.5,c:"\ue244"},fld3:{x:-.3,y:-4,c:"\ue245"},flu4:{x:-.3,y:8,c:"\ue246"},fld4:{x:-.3,y:-9,c:"\ue247"},flu5:{x:-.3,y:12.5,c:"\ue248"},fld5:{x:-.3,y:-14,c:"\ue249"},"acc-1":{x:-1,y:0,c:"\ue260"},"cacc-1":{x:-18,y:0,c:"\ue26a\ue260\ue26b"},"sacc-1":{x:-1,y:0,sc:.7,c:"\ue260"},acc3:{x:-1,y:0,c:"\ue261"},"cacc3":{x:-18,y:0,c:"\ue26a\ue261\ue26b"},sacc3:{x:-1,y:0,sc:.7,c:"\ue261"},acc1:{x:-2,y:0,c:"\ue262"},"cacc1":{x:-18,y:0,c:"\ue26a\ue262\ue26b"},sacc1:{x:-2,y:0,sc:.7,c:"\ue262"},acc2:{x:-3,y:0,c:"\ue263"},"acc-2":{x:-3,y:0,c:"\ue264"},"acc-1_2":{x:-2,y:0,c:"\ue280"},"acc-3_2":{x:-3,y:0,c:"\ue281"},acc1_2:{x:-1,y:0,c:"\ue282"},acc3_2:{x:-3,y:0,c:"\ue283"},accent:{x:-3,y:2,c:"\ue4a0"},stc:{x:0,y:-2,c:"\ue4a2"},emb:{x:0,y:-2,c:"\ue4a4"},wedge:{x:0,y:0,c:"\ue4a8"},marcato:{x:-3,y:-2,c:"\ue4ac"},hld:{x:-7,y:-2,c:"\ue4c0"},brth:{x:0,y:0,c:"\ue4ce"},caes:{x:0,y:8,c:"\ue4d1"},r00:{x:-1.5,y:0,c:"\ue4e1"},r0:{x:-1.5,y:0,c:"\ue4e2"},r1:{x:-3.5,y:-6,c:"\ue4e3"},r2:{x:-3.2,y:0,c:"\ue4e4"},r4:{x:-3,y:0,c:"\ue4e5"},r8:{x:-3,y:0,c:"\ue4e6"},r16:{x:-4,y:0,c:"\ue4e7"},r32:{x:-4,y:0,c:"\ue4e8"},r64:{x:-4,y:0,c:"\ue4e9"},r128:{x:-4,y:0,c:"\ue4ea"},mrep:{x:-6,y:0,c:"\ue500"},mrep2:{x:-9,y:0,c:"\ue501"},p:{x:-3,y:0,c:"\ue520"},f:{x:-3,y:0,c:"\ue522"},pppp:{x:-15,y:0,c:"\ue529"},ppp:{x:-14,y:0,c:"\ue52a"},pp:{x:-8,y:0,c:"\ue52b"},mp:{x:-8,y:0,c:"\ue52c"},mf:{x:-8,y:0,c:"\ue52d"},ff:{x:-7,y:0,c:"\ue52f"},fff:{x:-10,y:0,c:"\ue530"},ffff:{x:-14,y:0,c:"\ue531"},sfz:{x:-10,y:0,c:"\ue539"},trl:{x:-3,y:-3,c:"\ue566"},turn:{x:-5,y:0,c:"\ue567"},turnx:{x:-5,y:0,c:"\ue569"},umrd:{x:-6,y:2,c:"\ue56c"},lmrd:{x:-6,y:2,c:"\ue56d"},dplus:{x:-3,y:0,c:"\ue582"},sld:{x:-3,y:2,c:"\ue5d0"},grm:{x:-3,y:-2,c:"\ue5e2"},dnb:{x:-3,y:0,c:"\ue610"},upb:{x:-2,y:0,c:"\ue612"},opend:{x:-2,y:-2,c:"\ue614"},roll:{x:0,y:0,c:"\ue618"},thumb:{x:-2,y:-2,c:"\ue624"},snap:{x:-2,y:-2,c:"\ue630"},ped:{x:-10,y:0,c:"\ue650"},pedoff:{x:-5,y:0,c:"\ue655"},"mtro.":{x:0,y:0,c:"\ue910"},mtro:{x:0,y:0,c:"\ue911"},"mtro|":{x:0,y:0,c:"\ue912"},"mtrc.":{x:0,y:0,c:"\ue914"},mtrc:{x:0,y:0,c:"\ue915"},"mtrc|":{x:0,y:0,c:"\ue918"},longa:{x:-4.7,y:0,c:"\ue95d"},custos:{x:-4,y:3,c:"\uea02"},ltr:{x:2,y:6,c:"\ueaa4"}}
+var tgls={"mtr ":{x:0,y:0,c:"\u0020"},brace:{x:0,y:0,c:"\ue000"},lphr:{x:0,y:23,c:"\ue030"},mphr:{x:0,y:23,c:"\ue038"},sphr:{x:0,y:25,c:"\ue039"},short:{x:0,y:32,c:"\ue038"},tick:{x:0,y:25,c:"\ue039"},rdots:{x:0,y:0,c:"\ue043"},rdot:{x:0,y:0,c:"\ue044"},dsgn:{x:-12,y:0,c:"\ue045"},dcap:{x:-12,y:0,c:"\ue046"},sgno:{x:-5,y:0,c:"\ue047"},coda:{x:-10,y:0,c:"\ue048"},tclef:{x:-8,y:0,c:"\ue050"},cclef:{x:-8,y:0,c:"\ue05c"},bclef:{x:-8,y:0,c:"\ue062"},pclef:{x:-6,y:0,c:"\ue069"},spclef:{x:-6,y:0,c:"\ue069"},stclef:{x:-8,y:0,c:"\ue07a"},scclef:{x:-8,y:0,c:"\ue07b"},sbclef:{x:-7,y:0,c:"\ue07c"},oct:{x:0,y:2,c:"\ue07d"},oct2:{x:0,y:2,c:"\ue07e"},mtr0:{x:0,y:0,c:"\ue080"},mtr1:{x:0,y:0,c:"\ue081"},mtr2:{x:0,y:0,c:"\ue082"},mtr3:{x:0,y:0,c:"\ue083"},mtr4:{x:0,y:0,c:"\ue084"},mtr5:{x:0,y:0,c:"\ue085"},mtr6:{x:0,y:0,c:"\ue086"},mtr7:{x:0,y:0,c:"\ue087"},mtr8:{x:0,y:0,c:"\ue088"},mtr9:{x:0,y:0,c:"\ue089"},mtrC:{x:0,y:0,c:"\ue08a"},"mtrC|":{x:0,y:0,c:"\ue08b"},"mtr+":{x:0,y:0,c:"\ue08c"},"mtr(":{x:0,y:0,c:"\ue094"},"mtr)":{x:0,y:0,c:"\ue095"},HDD:{x:-7,y:0,c:"\ue0a0"},breve:{x:-7,y:0,c:"\ue0a1"},HD:{x:-5.2,y:0,c:"\ue0a2"},Hd:{x:-3.8,y:0,c:"\ue0a3"},hd:{x:-3.7,y:0,c:"\ue0a4"},ghd:{x:2,y:0,c:"\ue0a4",sc:.66},pshhd:{x:-3.7,y:0,c:"\ue0a9"},pfthd:{x:-3.7,y:0,c:"\ue0b3"},x:{x:-3.7,y:0,c:"\ue0a9"},"circle-x":{x:-3.7,y:0,c:"\ue0b3"},srep:{x:-5,y:0,c:"\ue101"},"dot+":{x:-5,y:0,sc:.7,c:"\ue101"},diamond:{x:-4,y:0,c:"\ue1b9"},triangle:{x:-4,y:0,c:"\ue1bb"},dot:{x:-1,y:0,c:"\ue1e7"},flu1:{x:-.3,y:0,c:"\ue240"},fld1:{x:-.3,y:0,c:"\ue241"},flu2:{x:-.3,y:0,c:"\ue242"},fld2:{x:-.3,y:0,c:"\ue243"},flu3:{x:-.3,y:3.5,c:"\ue244"},fld3:{x:-.3,y:-4,c:"\ue245"},flu4:{x:-.3,y:8,c:"\ue246"},fld4:{x:-.3,y:-9,c:"\ue247"},flu5:{x:-.3,y:12.5,c:"\ue248"},fld5:{x:-.3,y:-14,c:"\ue249"},"acc-1":{x:-1,y:0,c:"\ue260"},"cacc-1":{x:0,y:0,c:"\ue26a\ue260\ue26b"},"sacc-1":{x:-1,y:0,sc:.7,c:"\ue260"},acc3:{x:-1,y:0,c:"\ue261"},"cacc3":{x:0,y:0,c:"\ue26a\ue261\ue26b"},sacc3:{x:-1,y:0,sc:.7,c:"\ue261"},acc1:{x:-2,y:0,c:"\ue262"},"cacc1":{x:0,y:0,c:"\ue26a\ue262\ue26b"},sacc1:{x:-2,y:0,sc:.7,c:"\ue262"},acc2:{x:-3,y:0,c:"\ue263"},"acc-2":{x:-3,y:0,c:"\ue264"},"acc-1_2":{x:-2,y:0,c:"\ue280"},"acc-3_2":{x:-3,y:0,c:"\ue281"},acc1_2:{x:-1,y:0,c:"\ue282"},acc3_2:{x:-3,y:0,c:"\ue283"},accent:{x:-3,y:2,c:"\ue4a0"},stc:{x:0,y:-2,c:"\ue4a2"},emb:{x:0,y:-2,c:"\ue4a4"},wedge:{x:0,y:0,c:"\ue4a8"},marcato:{x:-3,y:-2,c:"\ue4ac"},hld:{x:-7,y:-2,c:"\ue4c0"},brth:{x:0,y:0,c:"\ue4ce"},caes:{x:0,y:8,c:"\ue4d1"},r00:{x:-1.5,y:0,c:"\ue4e1"},r0:{x:-1.5,y:0,c:"\ue4e2"},r1:{x:-3.5,y:-6,c:"\ue4e3"},r2:{x:-3.2,y:0,c:"\ue4e4"},r4:{x:-3,y:0,c:"\ue4e5"},r8:{x:-3,y:0,c:"\ue4e6"},r16:{x:-4,y:0,c:"\ue4e7"},r32:{x:-4,y:0,c:"\ue4e8"},r64:{x:-4,y:0,c:"\ue4e9"},r128:{x:-4,y:0,c:"\ue4ea"},mrep:{x:-6,y:0,c:"\ue500"},mrep2:{x:-9,y:0,c:"\ue501"},p:{x:-3,y:0,c:"\ue520"},f:{x:-3,y:0,c:"\ue522"},pppp:{x:-15,y:0,c:"\ue529"},ppp:{x:-14,y:0,c:"\ue52a"},pp:{x:-8,y:0,c:"\ue52b"},mp:{x:-8,y:0,c:"\ue52c"},mf:{x:-8,y:0,c:"\ue52d"},ff:{x:-7,y:0,c:"\ue52f"},fff:{x:-10,y:0,c:"\ue530"},ffff:{x:-14,y:0,c:"\ue531"},sfz:{x:-10,y:0,c:"\ue539"},trl:{x:-3,y:-3,c:"\ue566"},turn:{x:-5,y:0,c:"\ue567"},turnx:{x:-5,y:0,c:"\ue569"},umrd:{x:-6,y:2,c:"\ue56c"},lmrd:{x:-6,y:2,c:"\ue56d"},dplus:{x:-3,y:0,c:"\ue582"},sld:{x:-3,y:2,c:"\ue5d0"},grm:{x:-3,y:-2,c:"\ue5e2"},dnb:{x:-3,y:0,c:"\ue610"},upb:{x:-2,y:0,c:"\ue612"},opend:{x:-2,y:-2,c:"\ue614"},roll:{x:0,y:0,c:"\ue618"},thumb:{x:-2,y:-2,c:"\ue624"},snap:{x:-2,y:-2,c:"\ue630"},ped:{x:-10,y:0,c:"\ue650"},pedoff:{x:-5,y:0,c:"\ue655"},"mtro.":{x:0,y:0,c:"\ue910"},mtro:{x:0,y:0,c:"\ue911"},"mtro|":{x:0,y:0,c:"\ue912"},"mtrc.":{x:0,y:0,c:"\ue914"},mtrc:{x:0,y:0,c:"\ue915"},"mtrc|":{x:0,y:0,c:"\ue918"},longa:{x:-4.7,y:0,c:"\ue95d"},custos:{x:-4,y:3,c:"\uea02"},ltr:{x:2,y:6,c:"\ueaa4"}}
 var glyphs={}
 function m_gl(s){return s.replace(/./g,function(e){var m=tgls["mtr"+e]
 return m?m.c:0})}
@@ -8372,7 +8383,7 @@ output+='"/>\n'}
 function xygl(x,y,gl){if(glyphs[gl]){def_use(gl)
 out_XYAB('<use x="X" y="Y" xlink:href="#A"/>\n',x,y,gl)}else{var tgl=tgls[gl]
 if(tgl){x+=tgl.x*stv_g.scale;y-=tgl.y
-if(tgl.sc){out_XYAB('<text transform="translate(X,Y) scale(A)">B</text>\n',x,y,tgl.sc,tgl.c)}else{gla[0].push(sx(x))
+if(tgl.sc){out_XYAB('<text transform="translate(X,Y) scale(A)">B</text>\n',x,y,tgl.sc,tgl.c)}else if(tgl.c.length>1){out_XYAB('<text x="X" y="Y">A</text>\n',x,y,tgl.c)}else{gla[0].push(sx(x))
 gla[1].push(sy(y))
 gla[2]+=tgl.c}}else if(gl!='nil'){error(1,null,'no definition of $1',gl)}}}
 function out_acciac(x,y,dx,dy,up){if(up){x-=1;y+=4}else{x-=5;y-=4}
@@ -8869,6 +8880,8 @@ if(!sys_chg){delete p_voice.eoln
 while(1){sl=p_voice.sls.shift()
 if(!sl)
 break
+if(sl.rep)
+continue
 s=sl.ss
 if(!s.sls)
 s.sls=[]
@@ -8891,6 +8904,9 @@ s.a_ly=s2.a_ly;s2.a_ly=null
 break}
 break}
 continue
+case C.MREST:if(voice_tb.length==1&&s.tacet&&s.invis)
+s.invis=0
+break
 case C.NOTE:if(s.feathered_beam)
 set_feathered_beam(s)
 break}}}}
@@ -9331,7 +9347,7 @@ for(v=0;v<voice_tb.length;v++){if(voice_tb[v].time>mxt){p_v2=voice_tb[v]
 mxt=p_v2.time}}
 if(p_v.time>=mxt)
 return
-var p_v_sav=curvoice,dur=mxt-p_v.time,s={type:C.MREST,stem:0,multi:0,nhd:0,xmx:0,frm:1,dur:dur,dur_orig:dur,nmes:dur/p_v.wmeasure,notes:[{pit:18,dur:dur}],tacet:p_v.tacet},s2={type:C.BAR,bar_type:'|',dur:0,multi:0}
+var p_v_sav=curvoice,dur=mxt-p_v.time,s={type:C.MREST,stem:0,multi:0,nhd:0,xmx:0,frm:1,dur:dur,dur_orig:dur,nmeas:dur/p_v.wmeasure,notes:[{pit:18,dur:dur}],tacet:p_v.tacet},s2={type:C.BAR,bar_type:'|',dur:0,multi:0}
 if(p_v2.last_sym.bar_type)
 s2.bar_type=p_v2.last_sym.bar_type
 glovar.mrest_p=1
@@ -10244,4 +10260,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.22.36";abc2svg.vdate="2026-02-02"
+abc2svg.version="v1.22.37";abc2svg.vdate="2026-02-22"

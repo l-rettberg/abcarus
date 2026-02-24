@@ -1,4 +1,4 @@
-//MIDI.js-module to handle the%%MIDI parameters
+
 if(typeof abc2svg=="undefined")
 var abc2svg={}
 abc2svg.MIDI={do_midi:function(parm){function tb40(qs){var i,n1=[2,25,8,31,14,37,20,3,26,9,32,15,38,21,4,27,10,33,16,39],n2=[0,19,36,13,30,7,24,1,18,35,12,29,6,23,0,17],da=21-3*qs,b=new Float32Array(40)

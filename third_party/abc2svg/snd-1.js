@@ -1,4 +1,4 @@
-//snd-1.js-file to include in html pages with abc2svg-1.js for playing
+
 function AbcPlay(i_conf){var conf=i_conf,init={},audio=ToAudio(),audio5,midi5,current,abcplay={clear:audio.clear,add:audio.add,set_sfu:function(v){if(v==undefined)
 return conf.sfu
 conf.sfu=v},set_speed:function(v){if(v==undefined)
@@ -222,7 +222,7 @@ rsk.push(s)}}
 if(abc2svg.swing)
 abc2svg.swing.swing(first,voice_tb,cfmt)
 if(cfmt.chord)
-abc2svg.chord(first,voice_tb,cfmt)
+abc2svg.genchrd(first,voice_tb,cfmt)
 if(cfmt.drum)
 abc2svg.drum(s,voice_tb,cfmt)
 s_m=first.p_v.meter
@@ -438,7 +438,7 @@ play_cont(po)}
 if(typeof module=='object'&&typeof exports=='object')
 exports.ToAudio=ToAudio
 var abcsf2=[]
-function Audio5(i_conf){var po,conf=i_conf,empty=function(){},errmsg,ac,gain,model,parser,presets,instr=[],params=[],rates=[],w_instr=0,fx_out,fx_rev,fx_rev_gain,fx_cho,fx_cho_gain,fx_init=false
+function Audio5(i_conf){var po,conf=i_conf,empty=function(){},errmsg,ac,gain,model,parser,presets,instr=[],params=[],rates=[],w_instr=0
 var b64d=[]
 function init_b64d(){var b64l='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',l=b64l.length
 for(var i=0;i<l;i++)
@@ -466,49 +466,6 @@ a[j++]=(t>>16)&0xff
 if(j<dl)
 a[j++]=(t>>8)&0xff}
 return a}
-function fx_level(v){if(v==undefined)
-return 0
-v=Number(v)
-if(isNaN(v)||v<=0)
-return 0
-if(v>127)
-v=127
-return v/127}
-function fx_impulse(){var rate=ac.sampleRate,len=Math.max(1,rate*1.4|0),buf=ac.createBuffer(2,len,rate),ch=0
-for(ch=0;ch<2;ch++){var data=buf.getChannelData(ch)
-for(var i=0;i<len;i++){var n=(Math.random()*2-1)
-data[i]=n*Math.pow(1-i/len,2.2)}}return buf}
-function fx_setup(){if(fx_init)
-return
-fx_init=true
-fx_out=ac.createGain()
-fx_out.gain.value=1
-var dry=ac.createGain()
-dry.gain.value=1
-gain.connect(dry)
-dry.connect(fx_out)
-fx_rev=ac.createConvolver()
-fx_rev.buffer=fx_impulse()
-fx_rev_gain=ac.createGain()
-fx_rev_gain.gain.value=0
-gain.connect(fx_rev)
-fx_rev.connect(fx_rev_gain)
-fx_rev_gain.connect(fx_out)
-fx_cho=ac.createDelay()
-fx_cho.delayTime.value=0.025
-fx_cho_gain=ac.createGain()
-fx_cho_gain.gain.value=0
-gain.connect(fx_cho)
-fx_cho.connect(fx_cho_gain)
-fx_cho_gain.connect(fx_out)}
-function fx_apply(){if(!gain)
-return
-fx_setup()
-var rv=fx_level(conf.reverb),ch=fx_level(conf.chorus)
-if(fx_rev_gain)
-fx_rev_gain.gain.value=rv*0.6
-if(fx_cho_gain)
-fx_cho_gain.gain.value=ch*0.4}
 function sample_cp(b,s){var i,n,a=b.getChannelData(0)
 for(i=0;i<s.length;i++)
 a[i]=s[i]/196608}
@@ -688,8 +645,6 @@ o.start(t)
 o.stop(t+d)}
 function play_start(){if(po.stop){po.onend(repv)
 return}
-if(fx_out){fx_out.connect(ac.destination)}
-else
 gain.connect(ac.destination)
 abc2svg.play_next(po)}
 init_b64d()
@@ -711,7 +666,6 @@ ac.resume()
 play_unlock()}
 gain=ac.createGain()
 gain.gain.value=conf.gain}
-fx_apply()
 while(i_start.noplay)
 i_start=i_start.ts_next
 po={conf:conf,onend:conf.onend||empty,onnote:conf.onnote||empty,s_end:i_end,s_cur:i_start,repv:i_lvl||0,tgen:2,get_time:get_time,midi_ctrl:midi_ctrl,midi_prog:midi_prog,note_run:note_run,timouts:[],v_c:[],c_i:[],v_b:[],ac:ac,gain:gain,rates:rates}
@@ -722,13 +676,7 @@ play_start()},stop:function(){po.stop=true
 po.timouts.forEach(function(id){clearTimeout(id)})
 abc2svg.play_next(po)
 if(gain){gain.disconnect()
-gain=null
-fx_out=null
-fx_rev=null
-fx_rev_gain=null
-fx_cho=null
-fx_cho_gain=null
-fx_init=false}},set_vol:function(v){if(gain)
+gain=null}},set_vol:function(v){if(gain)
 gain.gain.value=v}}}
 (function(root,factory){if(typeof exports==="object"){root.sf2=exports;factory(exports)}else if(typeof define==="function"&&define.amd){define(["exports"],function(exports){root.sf2=exports;return(root.sf2,factory(exports))})}else{root.sf2={};factory(root.sf2)}}(this,function(sf2){"use strict";sf2.Parser=function(input,options){options=options||{};this.input=input;this.parserOptions=options.parserOptions};sf2.Parser.prototype.parse=function(){var parser=new sf2.Riff.Parser(this.input,this.parserOptions),chunk;parser.parse();if(parser.chunkList.length!==1)
 throw new Error('wrong chunk length');chunk=parser.getChunk(0);if(chunk===null)
@@ -849,16 +797,265 @@ sty.innerHTML=".abcr {fill: #d00000; fill-opacity: 0; z-index: 15}"
 document.head.appendChild(sty)})()
 abc2svg.chnm={'':[0,4,7],'6':[0,4,7,9],'7':[0,4,7,10],M7:[0,4,7,11],aug:[0,4,8],aug7:[0,4,8,10],m:[0,3,7],m6:[0,3,7,9],m7:[0,3,7,10],mM7:[0,3,7,11],dim:[0,3,6],dim7:[0,3,6,9],m7b5:[0,3,6,10],'9':[0,4,7,10,14],'11':[0,4,7,10,14,17],sus4:[0,5,7]}
 abc2svg.letmid={C:0,D:2,E:4,F:5,G:7,A:9,B:11}
-abc2svg.chord=function(first,voice_tb,cfmt){var chnm,i,k,vch,s,gchon,s_ch,rhy,ti,dt,gchnb,md=first.p_v.meter.wmeasure,nextim=0,C=abc2svg.C,trans=48+(cfmt.chord.trans?cfmt.chord.trans*12:0)
-function chcr(b,ch){var j,r=ch.slice(),i=r.length
-if(b){while(--i>0){if(r[i]==b)
-break}
-if(i>0)
-for(j=0;j<r.length;j++)
-r[j]=ch[(j+i)%r.length]
+abc2svg.chord={alias:{c:"135789",b:"*1,135789",f:"*1,",g:"1'",h:"3'",i:"5'",j:"7'",z:"0",G:"1",H:"3",I:"5",J:"7",},prg_nam:`
+0 acoustic grand piano
+1 bright acoustic piano 
+2 electric grand piano
+3 honky-tonk piano 
+4 electric piano 1 
+5 electric piano 2 
+6 harpsichord 
+7 clavi 
+8 celesta 
+9 glockenspiel 
+10 music box 
+11 vibraphone 
+12 marimba 
+13 xylophone 
+14 tubular bells 
+15 dulcimer 
+16 drawbar organ 
+17 percussive organ 
+18 rock organ 
+19 church organ 
+20 reed organ 
+21 accordion 
+22 harmonica 
+23 tango accordion 
+24 acoustic guitar (nylon) 
+25 acoustic guitar (steel) 
+26 electric guitar (jazz) 
+27 electric guitar (clean) 
+28 electric guitar (muted) 
+29 overdriven guitar 
+30 distortion guitar 
+31 guitar harmonics 
+32 acoustic bass 
+33 electric bass (finger) 
+34 electric bass (pick) 
+35 fretless bass 
+36 slap bass 1 
+37 slap bass 2 
+38 synth bass 1 
+39 synth bass 2 
+40 violin 
+41 viola
+42 cello 
+43 contrabass 
+44 tremolo strings 
+45 pizzicato strings 
+46 orchestral harp 
+47 timpani 
+48 string ensemble 1 
+49 string ensemble 2 
+50 synthstrings 1 
+51 synthstrings 2 
+52 choir aahs 
+53 voice oohs 
+54 synth voice 
+55 orchestra hit 
+56 trumpet 
+57 trombone 
+58 tuba 
+59 muted trumpet 
+60 french horn 
+61 brass section 
+62 synthbrass 1 
+63 synthbrass 2 
+64 soprano sax
+65 alto sax 
+66 tenor sax 
+67 baritone sax 
+68 oboe 
+69 english horn
+70 bassoon 
+71 clarinet 
+72 piccolo
+73 flute 
+74 recorder 
+75 pan flute
+76 blown bottle
+77 shakuhachi 
+78 whistle 
+79 ocarina 
+80 lead 1 (square) 
+81 lead 2 (sawtooth)
+82 lead 3 (calliope) 
+83 lead 4 (chiff) 
+84 lead 5 (charang) 
+85 lead 6 (voice) 
+86 lead 7 (fifths) 
+87 lead 8 (bass + lead)
+88 pad 1 (new age)
+89 pad 2 (warm) 
+90 pad 3 (polysynth)
+91 pad 4 (choir) 
+92 pad 5 (bowed) 
+93 pad 6 (metallic) 
+94 pad 7 (halo) 
+95 pad 8 (sweep) 
+96 fx 1 (rain) 
+97 fx 2 (soundtrack) 
+98 fx 3 (crystal) 
+99 fx 4 (atmosphere) 
+100 fx 5 (brightness) 
+101 fx 6 (goblins) 
+102 fx 7 (echoes) 
+103 fx 8 (sci-fi) 
+104 sitar 
+105 banjo 
+106 shamisen 
+107 koto 
+108 kalimba 
+109 bag pipe 
+110 fiddle 
+111 shanai 
+112 tinkle bell 
+113 agogo 
+114 steel drums 
+115 woodblock 
+116 taiko drum 
+117 melodic tom 
+118 synth drum 
+119 reverse cymbal 
+120 guitar fret noise 
+121 breath noise 
+122 seashore 
+123 bird tweet 
+124 telephone ring 
+125 helicopter 
+126 applause 
+127 gunshot
+`,set_kit:function(abc,cmd,parm){if(!parm)
+return
+var k,s,v,cfmt=abc.cfmt(),curv=abc.get_curvoice(),parse=abc.get_parse(),a=parm.match(/=|[^\s=]+/g),val={}
+function bad(){abc.syntax(1,abc.errs.bad_val,"%%chordkit")}
+function abc2pit(p){var i,c,a,o=[]
+for(i=0;i<p.length;i++){c=p[i]
+if(c=='^')
+a=1,c=p[++i]
+else if(c=='_')
+a=-1,c=p[++i]
 else
-r.unshift(b)
-r[0]-=12}
+a=0
+c="C D EF G A Bc d ef g a b".indexOf(c)
+if(c<0)
+return
+o.push(c)}
+return o}
+function get_prog(p){p='\\d+ '+p.toLowerCase(p).replace(/(.)/g,'[$1].*')+'\n'
+p=new RegExp(p)
+p=abc2svg.chord.prg_nam.match(p)
+if(p)
+return p[0].split(' ',1)[0]}
+if(!a)
+return bad()
+while(1){k=a.shift()
+if(!k)
+break
+if(a[0]!='='||!a[1])
+return bad()
+a.shift()
+v=a.shift()
+if(/^[A-Za-z]$/.test(k)){if(!/^(\*?[0135-9],*'*)+$/.test(v))
+return bad
+if(!val.alias)
+val.alias={}
+val.alias[k]=v
+continue}
+switch(k){case"type":k=v.split(':')
+if(k.length!=2)
+return bad()
+v=abc2pit(k[1])
+if(!v)
+return bad()
+chnm[k[0]]=v
+continue
+case"alias":return bad()
+case"instr":if(v[0]<'1'||v[0]>'9')
+v=get_prog(v)
+k="prog"
+case"prog":v=+v
+break
+case"oct":k="trans"
+v=v=='-'?-1:1
+break
+case"vol":v=+v
+if(v<0||v>127)
+v=null
+break}
+if(v==null||isNaN(v))
+return bad()
+val[k]=v}
+if(parse.state>=2&&curv){s=abc.new_block("midigch")
+s.play=s.invis=1
+Object.assign(s,val)}else{if(!cfmt.chord)
+cfmt.chord={}
+if(cfmt.chord.alias&&val.alias){Object.assign(cfmt.chord.alias,val.alias)
+delete val.alias}
+if(cfmt.chord.type&&val.type){Object.assign(cfmt.chord.type,val.type)
+delete val.type}
+Object.assign(cfmt.chord,val)}},set_fmt:function(of,cmd,parm){if(cmd=="chordkit")
+return abc2svg.chord.set_kit(this,cmd,parm)
+if(cmd!="chord")
+return of(cmd,parm)
+if(!parm)
+parm="1"
+var c,i,j,n,rhy,s,abc=this,cfmt=abc.cfmt(),curv=abc.get_curvoice(),parse=abc.get_parse(),a=parm
+function bad(){abc.syntax(1,abc.errs.bad_val,"%%chord")}
+n=+a[0]
+if(isNaN(n))
+n=1
+else
+a=a.slice(1).trim()
+if(!cfmt.chord){if(!n)
+return
+cfmt.chord={}}
+if(!cfmt.chord.alias)
+cfmt.chord.alias={}
+if(/[A-Za-z]/.test(a)){rhy=[]
+i=0
+if(a[0]=='+')
+rhy.push('+'),i++
+for(;i<a.length;i++){c=a[i]
+if(c=='+')
+c='2'
+if(c>='2'&&c<'9'){while(--c>0)
+rhy.push('+')
+continue}
+if(cfmt.chord.alias[c])
+rhy.push(cfmt.chord.alias[c])
+else if(abc2svg.chord.alias[c])
+rhy.push(abc2svg.chord.alias[c])
+else
+return bad()}}else{rhy=a.match(/((\*?[0135-9],*'*)+|\+)/g)}
+if(!rhy)
+return bad()
+if(parse.state>=2&&curv){s=abc.new_block("midigch")
+s.play=s.invis=1
+s.on=n
+if(n)
+s.gchnb=n
+if(rhy.length)
+s.rhy=rhy}else{cfmt.chord.on=n
+if(n)
+cfmt.chord.gchnb=n
+if(rhy.length)
+cfmt.chord.rhy=rhy}},set_hooks:function(abc){abc.set_format=abc2svg.chord.set_fmt.bind(abc,abc.set_format)}}
+abc2svg.genchrd=function(first,voice_tb,cfmt){var chnm,i,k,vch,s,gchon,rhy,ti,dt,gchnb,inv,chmid=[],md=first.p_v.meter.wmeasure,nextim=0,C=abc2svg.C,trans=48+(cfmt.chord.trans?cfmt.chord.trans*12:0)
+function chcr(b,ch){var j,r,i=ch.length
+if(b){while(--i>0){if(ch[i]==b)
+break}
+if(i>0){r=[]
+for(j=i;j<ch.length;j++)
+r.push(ch[j])
+for(j=0;j<i;j++)
+r.push(ch[j]+12)}}
+if(!r)
+r=ch.slice()
+if(!i)
+r[0]=b-12
+inv=rhy[0]=='+'&&i==1
 return r}
 function meterhy(s){if(!s.a_meter[0])
 return'+'
@@ -872,13 +1069,15 @@ return"fzczcz"
 return"fzczfzczfzcz".slice(0,t*2)
 case'8':return"fzcfzcfzcfzc".slice(0,t)}
 return'z'}
-function bld_rhy(p){var i,c,j=0
-rhy=p[0]
-for(i=1;i<p.length;i++){c=p[i]
-if(c>='1'&&c<='9'){while(--c>0)
-rhy+='+'
-continue}
-rhy+=c}
+function bld_rhy(p){var i,c,n
+if(typeof p!="string"){rhy=p}else{rhy=p=='+'?p:p.match(/\[([G-Lg-l]\,*)+\]\d?|[bcf-lzG-L],*\d?/g)
+if(!rhy)
+rhy='+'
+for(i=0;i<rhy.length;i++){c=rhy[i]
+n=c.slice(-1)
+if(n>='2'&&n<='9'){rhy[i]=c.slice(0,-1)
+while(--n>0)
+rhy.splice(++i,0,'+')}}}
 dt=md/rhy.length*gchnb}
 function gench(sb,i){var r,ch,b,m,n,nt,a=sb.a_gch[i].otext
 if(a.slice(-1)==')')
@@ -904,50 +1103,87 @@ case"b":b=(b+11)%12;break}
 b=b-r
 if(b<0)
 b+=12}}
-ch=chcr(b,ch)
-n=ch.length
+chmid=chcr(b,ch)
+n=chmid.length
 r+=trans
-for(m=0;m<n;m++){nt=s_ch.notes[m]
-if(!nt)
-s_ch.notes[m]=nt=[]
-nt.midi=r+ch[m]}
-s_ch.nhd=n-1}
+for(m=0;m<n;m++)
+chmid[m]+=r}
 function set_dur(s2,tim){if(s2.dur||tim==s2.time||s2.nhd==undefined)
 return
 s2.dur=tim-s2.time
 for(var m=0;m<=s2.nhd;m++)
 s2.notes[m].dur=s2.dur}
-function insch(s_next,tim){if(s_ch.nhd==undefined)
+function addnt(s,p){p="GHIJKghijk".indexOf(p)
+if((p%5)>=chmid.length)
+return
+s.nhd++
+s.notes.push({midi:chmid[p%5]})
+if(p>=5)
+s.notes[s.nhd].midi+=12}
+function gennum(s,p){var c,nt,m=0
+if(p[0]=='*'){m++}
+for(;m<p.length;m++){c=+p[m]
+switch(c){case 1:c=chmid[0]
+break
+case 3:c=chmid[1]
+break
+case 5:c=chmid[2]
+break
+default:while(!chmid[c])
+c--
+c=chmid[c]
+if(s.notes[s.nhd]&&s.notes[s.nhd].midi>=c)
+c=0
+break}
+if(c){s.nhd++
+nt={midi:c}
+s.notes.push(nt)}
+while(p[m+1]=="'"){if(c)
+nt.midi+=12
+m++}
+while(p[m+1]==','){if(c)
+nt.midi-=12
+m++}}}
+function insch(s_next,tim){if(!chmid.length)
 return
 var s,m,s2=vch.last_sym,i=rhy[ti++]
-switch(i){case'+':if(rhy!='+')
+switch(i[0]){case'+':if(ti!=1)
 return
-i='b'
 ti=0
+if(rhy[1])
+i=rhy[1]
 break
-case undefined:case'z':set_dur(s2,tim)
+case undefined:case'0':case'z':set_dur(s2,tim)
 return}
-s={v:vch.v,p_v:vch,type:C.NOTE,notes:[]}
+s={v:vch.v,p_v:vch,type:C.NOTE,nhd:-1,notes:[]}
 s.time=tim
-switch(i){case'c':s.nhd=s_ch.nhd-1
+switch(i[0]){case'c':s.nhd=chmid.length-1
 for(m=0;m<=s.nhd;m++)
-s.notes[m]={midi:s_ch.notes[m+1].midi}
+s.notes.push({midi:chmid[m]})
 break
-default:i="GHIJKghijk".indexOf(i)
-if(i<0||(i%5)>s_ch.nhd)
-return
-s.notes[0]={midi:s_ch.notes[i%5].midi}
-if(i>=5)
-s.notes[0].midi+=12
-s.nhd=0
+case'[':for(m=1;m<i.length-1;m++){addnt(s,i[m])
+while(i[m+1]==',')
+s.notes[s.nhd].midi-=12,m++}
 break
-case'f':s.notes[0]={midi:s_ch.notes[0].midi-12}
-s.nhd=0
-break
-case'b':s.nhd=s_ch.nhd
-for(m=0;m<=s.nhd;m++)
-s.notes[m]={midi:s_ch.notes[m].midi}
+default:if((i[0]>='1'&&i[0]<='9')||i[0]=='*'){gennum(s,i)
 break}
+addnt(s,i[0])
+m=1
+while(i[m]==',')
+s.notes[0].midi-=12,m++
+break
+case'f':s.notes[0]={midi:chmid[0]-12}
+s.nhd=0
+break
+case'+':case'b':s.nhd=chmid.length
+s.notes.push({midi:chmid[0]-12})
+for(m=0;m<s.nhd;m++)
+s.notes.push({midi:chmid[m]})
+break}
+if(s.nhd<0)
+return
+if(inv&&s.notes[0].midi%12==s.notes[1].midi%12)
+s.notes[1].midi=s.notes[3].midi-12
 s.prev=s2
 s2.next=s
 set_dur(s2,tim)
@@ -986,41 +1222,43 @@ vch.sym.next.ts_next=s.ts_next
 if(s.ts_next)
 s.ts_next.ts_prev=vch.sym.next
 s.ts_next=vch.sym
-s_ch={notes:[]}
 if(cfmt.chord.gchon!=false)
 gchon=1
 gchnb=cfmt.chord.gchnb||1
 s=first
 bld_rhy(cfmt.chord.rhy||meterhy(s.p_v.meter))
 ti=0
-while(1){if(gchon){while(s.time>nextim){insch(s,nextim)
-nextim+=rhy=='+'?100000:dt}
-if(s.bar_type=="|"&&rhy!='+'&&nextim!=s.time){nextim=s.time
+while(1){if(gchon){while(s.time>nextim&&ti<rhy.length){insch(s,nextim)
+nextim+=rhy[0]=='+'?100000:dt}
+if(s.bar_type=="|"&&rhy[0]!='+'&&nextim!=s.time){nextim=s.time
 ti=0}}
 if(gchon&&s.a_gch){for(i=0;i<s.a_gch.length;i++){if(s.a_gch[i].type!='g')
 continue
 gench(s,i)
-if(rhy=='+')
+if(rhy[0]=='+')
 nextim=s.time
 break}}
 if(!s.dur){if(s.bar_num){if(gchnb==1||!((s.bar_num-1)%gchnb))
 ti=0}else if(s.wmeasure){md=s.wmeasure
-if(rhy!='+')
-bld_rhy(meterhy(s))}else if(s.subtype=="midigch"){if(s.on!=undefined){gchon=s.on
-if(!gchon&&rhy=='+')
-set_dur(vch.last_sym,s.time)}
+if(rhy[0]!='+')
+bld_rhy(meterhy(s))}else if(s.subtype=="midigch"){if(gchon&&s.rhy)
+bld_rhy(s.rhy)
 if(s.gchnb)
 gchnb=s.gchnb
-if(gchon&&s.rhy)
-bld_rhy(s.rhy)}}
+if(s.on!=undefined){gchon=s.on
+if(!gchon&&rhy[0]=='+')
+set_dur(vch.last_sym,s.time)}}}
 if(!s.ts_next)
 break
 s=s.ts_next}
 if(gchon){while(s.time+(s.dur||0)>nextim){insch(s.dur?null:s,nextim)
-if(rhy=='+')
+if(rhy[0]=='+')
 break
 nextim+=dt}
 set_dur(vch.last_sym,s.time+(s.dur||0))}}
+if(!abc2svg.mhooks)
+abc2svg.mhooks={}
+abc2svg.mhooks.chord=abc2svg.chord.set_hooks
 abc2svg.drum=function(first,voice_tb,cfmt){var c,i,on,n,nb,ss,v,str,pits,vols,l,dl,i_rst,j_rst,s=first,C=abc2svg.C,vdr={v:voice_tb.length,id:"_drum",time:0,sym:{type:C.BLOCK,subtype:"midiprog",chn:9,time:0,dur:0}},_sdr={v:vdr.v,p_v:vdr,type:C.NOTE,nhd:0}
 function gendr(ss,s){var c,i,j,sdr,s2,ti=ss.time,te=s.time+(s.dur||0),d=dl*nb/l
 while(!ss.dur)

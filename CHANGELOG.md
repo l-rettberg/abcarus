@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- abc2svg tooling: new `npm run abc2svg:fetch-tip` helper to download latest upstream tip zip into `third_party/_upd/`.
+- About diagnostics: show current bundled `abc2svg` version/date in system information.
+
+### Changed
+- Upgraded bundled `abc2svg` package to `v1.22.37`.
+- abc2svg upgrade pipeline now applies package files consistently (including `version.txt`) and no longer skips `abc2svg-1.js` on version/date-only diffs.
+- Release downloads report: added compact terminal format (`--format compact` / `--compact`) and excluded checksum assets from totals/breakdown.
+
+### Fixed
+- File-header sanitization now preserves all content inside `%%beginsvg ... %%endsvg` blocks (no line stripping inside SVG blocks).
 
 
 ## [0.33.1] - 2026-02-21

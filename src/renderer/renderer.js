@@ -27034,9 +27034,20 @@ function sanitizeFileHeaderForInteractiveRender(text) {
   const lines = raw.split("\n");
   const out = [];
   let inTextBlock = false;
+  let inSvgBlock = false;
 
   for (const line of lines) {
     const trimmed = String(line || "").trim();
+    if (/^%%\s*beginsvg\b/i.test(trimmed)) {
+      inSvgBlock = true;
+      out.push(line);
+      continue;
+    }
+    if (inSvgBlock) {
+      out.push(line);
+      if (/^%%\s*endsvg\b/i.test(trimmed)) inSvgBlock = false;
+      continue;
+    }
     if (/^%%\s*begintext\b/i.test(trimmed)) {
       inTextBlock = true;
       continue;
@@ -27090,9 +27101,20 @@ function sanitizeFileHeaderForPerTuneRender(text) {
   const lines = raw.split("\n");
   const out = [];
   let inTextBlock = false;
+  let inSvgBlock = false;
 
   for (const line of lines) {
     const trimmed = String(line || "").trim();
+    if (/^%%\s*beginsvg\b/i.test(trimmed)) {
+      inSvgBlock = true;
+      out.push(line);
+      continue;
+    }
+    if (inSvgBlock) {
+      out.push(line);
+      if (/^%%\s*endsvg\b/i.test(trimmed)) inSvgBlock = false;
+      continue;
+    }
     if (/^%%\s*begintext\b/i.test(trimmed)) {
       inTextBlock = true;
       continue;

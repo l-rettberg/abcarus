@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+
+
+## [0.34.0] - 2026-02-26
 ### Added
 - abc2svg tooling: new `npm run abc2svg:fetch-tip` helper to download latest upstream tip zip into `third_party/_upd/`.
 - About diagnostics: show current bundled `abc2svg` version/date in system information.
@@ -16,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - File-header sanitization now preserves all content inside `%%beginsvg ... %%endsvg` blocks (no line stripping inside SVG blocks).
-
 
 ## [0.33.1] - 2026-02-21
 ### Changed

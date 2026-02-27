@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- ChordPro settings: new optional paths in `Settings -> Advanced -> Options -> Tools -> Import/Export` for
+  `ChordPro: binary path` and `ChordPro: repo path` to support explicit CLI resolution across platforms.
+
+### Changed
+- ChordPro integration is now non-blocking: opening/editing ChordPro files no longer requires a working CLI.
+- ChordPro PDF Preview button state is now availability-aware in ChordPro mode (enabled only when CLI is available).
+
+### Fixed
+- ChordPro UX flow: when opening a ChordPro file without CLI, app now shows a compact guidance toast with exact settings path, instead of blocking file open.
 
 
 ## [0.34.0] - 2026-02-26

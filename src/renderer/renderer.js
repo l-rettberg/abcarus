@@ -3043,6 +3043,32 @@ async function ensureChordProAvailable({ context = "using ChordPro", dialog = "o
   return false;
 }
 
+async function refreshChordProPdfButtonState({ force = false } = {}) {
+  if (!$btnChordproPdf) return;
+  if (!chordproMode) {
+    $btnChordproPdf.disabled = true;
+    $btnChordproPdf.title = "Preview PDF via ChordPro";
+    return;
+  }
+  $btnChordproPdf.disabled = true;
+  $btnChordproPdf.title = "Checking ChordPro CLI…";
+  let res = null;
+  try {
+    res = await getChordProAvailability({ force });
+  } catch {
+    res = { ok: false, error: "ChordPro check failed." };
+  }
+  if (!chordproMode) return;
+  if (res && res.ok) {
+    $btnChordproPdf.disabled = false;
+    $btnChordproPdf.title = "Preview PDF via ChordPro";
+    return;
+  }
+  const msg = res && res.error ? String(res.error) : "ChordPro CLI is not available.";
+  $btnChordproPdf.disabled = true;
+  $btnChordproPdf.title = msg;
+}
+
 function getChordProActiveBlock() {
   if (!chordproMode || !Array.isArray(chordproBlocks) || !chordproBlocks.length) return null;
   const idx = Math.max(0, Math.min(chordproBlocks.length - 1, Number(chordproActiveIndex) || 0));
@@ -3212,6 +3238,7 @@ function setChordProMode(enabled) {
     if ($fileHeaderToggle) $fileHeaderToggle.disabled = true;
     if ($fileHeaderSave) $fileHeaderSave.disabled = true;
     if ($fileHeaderReload) $fileHeaderReload.disabled = true;
+    refreshChordProPdfButtonState().catch(() => {});
   } else {
     chordproFullView = false;
     chordproFullText = "";
@@ -3233,6 +3260,10 @@ function setChordProMode(enabled) {
     if ($fileHeaderToggle) $fileHeaderToggle.disabled = false;
     if ($fileHeaderSave) $fileHeaderSave.disabled = false;
     if ($fileHeaderReload) $fileHeaderReload.disabled = false;
+    if ($btnChordproPdf) {
+      $btnChordproPdf.disabled = true;
+      $btnChordproPdf.title = "Preview PDF via ChordPro";
+    }
   }
   updateFileContext();
 }
@@ -21230,11 +21261,6 @@ async function openChordProFile(filePath, content, { suppressRecent = false } = 
     text = readRes.data || "";
   }
 
-  const canUseChordPro = await ensureChordProAvailable({ context: "Opening a ChordPro file", dialog: "open" });
-  if (!canUseChordPro) {
-    return { ok: false, error: "ChordPro CLI not available." };
-  }
-
   setChordProMode(true);
   setRawModeUI(false);
   chordproFullView = false;
@@ -21284,6 +21310,14 @@ async function openChordProFile(filePath, content, { suppressRecent = false } = 
   updateFileHeaderPanel();
   updateHeaderStateUI();
   scheduleRenderNow({ clearOutput: true });
+
+  try {
+    const avail = await getChordProAvailability();
+    if (!avail || !avail.ok) {
+      const msg = "ChordPro preview is unavailable: set ChordPro binary/repo in Settings -> Advanced -> Options -> Tools -> Import/Export.";
+      showToast(msg, 4200);
+    }
+  } catch {}
 
   if (!suppressRecent && !suppressRecentEntries && window.api && typeof window.api.addRecentFile === "function") {
     window.api.addRecentFile({ path: p, basename: safeBasename(p) });
@@ -22752,6 +22786,8 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
     syncPlaybackFxPreset(settings, prevSettings);
 	    const prevHeader = `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`;
 	    const prevSoundfont = soundfontName;
+      const prevChordproBinPath = prevSettings && prevSettings.chordproBinPath ? String(prevSettings.chordproBinPath) : "";
+      const prevChordproRepoPath = prevSettings && prevSettings.chordproRepoPath ? String(prevSettings.chordproRepoPath) : "";
 	    setUiFontsFromSettings(settings);
 	    setEditorHelpFromSettings(settings);
 	    setGlobalHeaderFromSettings(settings);
@@ -22783,19 +22819,26 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
     if (settings && prevHeader !== `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`) {
       scheduleRenderNow();
     }
-    if (settings && prevSoundfont !== soundfontName) {
-      resetSoundfontCache();
-      if (player && typeof player.stop === "function") {
+	    if (settings && prevSoundfont !== soundfontName) {
+	      resetSoundfontCache();
+	      if (player && typeof player.stop === "function") {
         suppressOnEnd = true;
         player.stop();
       }
       player = null;
       playbackState = null;
       playbackIndexOffset = 0;
-      ensureSoundfontLoaded().catch(() => setSoundfontStatus("Soundfont load failed", 5000));
-    }
-  });
-}
+	      ensureSoundfontLoaded().catch(() => setSoundfontStatus("Soundfont load failed", 5000));
+	    }
+      if (chordproMode) {
+        const nextChordproBinPath = settings && settings.chordproBinPath ? String(settings.chordproBinPath) : "";
+        const nextChordproRepoPath = settings && settings.chordproRepoPath ? String(settings.chordproRepoPath) : "";
+        if (nextChordproBinPath !== prevChordproBinPath || nextChordproRepoPath !== prevChordproRepoPath) {
+          refreshChordProPdfButtonState({ force: true }).catch(() => {});
+        }
+      }
+	  });
+	}
 if (settingsController && editorView) {
   editorView.dom.addEventListener("focusin", () => {
     settingsController.setActivePane("editor");

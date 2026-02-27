@@ -191,12 +191,17 @@ async function removeDirBestEffort(fs, dirPath) {
   } catch {}
 }
 
-async function resolveChordProCommand({ app, fs, path } = {}) {
+async function resolveChordProCommand({ app, fs, path, settings } = {}) {
+  const configuredBin = settings && settings.chordproBinPath ? String(settings.chordproBinPath).trim() : "";
+  if (configuredBin && await hasExecutableAccess(fs, configuredBin)) return { cmd: configuredBin, argsPrefix: [] };
+
   const envBin = process.env.CHORDPRO_BIN ? String(process.env.CHORDPRO_BIN) : "";
   if (envBin) return { cmd: envBin, argsPrefix: [] };
 
+  const configuredRepo = settings && settings.chordproRepoPath ? String(settings.chordproRepoPath).trim() : "";
   const repoEnv = process.env.CHORDPRO_REPO ? String(process.env.CHORDPRO_REPO) : "";
   const candidates = [];
+  if (configuredRepo) candidates.push(configuredRepo);
   if (repoEnv) candidates.push(repoEnv);
   if (app && typeof app.getAppPath === "function") {
     candidates.push(path.resolve(app.getAppPath(), "..", "chordpro"));
@@ -217,13 +222,13 @@ async function resolveChordProCommand({ app, fs, path } = {}) {
   return { cmd: "chordpro", argsPrefix: [] };
 }
 
-async function runChordProPdf({ app, fs, path, inputPath, outputPath }) {
+async function runChordProPdf({ app, fs, path, inputPath, outputPath, settings }) {
   const inPath = String(inputPath || "");
   const outPath = String(outputPath || "");
   if (!inPath || !outPath) throw new Error("Missing input or output path.");
   const outDir = path.dirname(outPath);
   await fs.promises.mkdir(outDir, { recursive: true });
-  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path });
+  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path, settings });
   const args = [...(argsPrefix || []), "--output", outPath, inPath];
   await new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: 120000 }, (err, stdout, stderr) => {
@@ -240,8 +245,8 @@ async function runChordProPdf({ app, fs, path, inputPath, outputPath }) {
   });
 }
 
-async function checkChordProAvailable({ app, fs, path }) {
-  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path });
+async function checkChordProAvailable({ app, fs, path, settings }) {
+  const { cmd, argsPrefix } = await resolveChordProCommand({ app, fs, path, settings });
   const runCheck = (args) => new Promise((resolve) => {
     execFile(cmd, args, { timeout: 8000 }, (err, stdout, stderr) => {
       if (err) {
@@ -1078,7 +1083,8 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("chordpro:pdf", async (_event, inputPath, outputPath) => {
     try {
-      await runChordProPdf({ app, fs, path, inputPath, outputPath });
+      const settings = getSettings ? getSettings() : {};
+      await runChordProPdf({ app, fs, path, inputPath, outputPath, settings });
       await shell.openPath(String(outputPath || ""));
       return { ok: true, path: String(outputPath || "") };
     } catch (e) {
@@ -1087,6 +1093,7 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("chordpro:preview", async (_event, payload) => {
     try {
+      const settings = getSettings ? getSettings() : {};
       const data = payload && typeof payload === "object" ? payload : { inputPath: payload };
       const inPathRaw = data && data.inputPath ? String(data.inputPath || "") : "";
       const text = data && data.text != null ? String(data.text) : null;
@@ -1104,7 +1111,7 @@ function registerIpcHandlers(ctx) {
       const token = Math.random().toString(16).slice(2);
       const fileName = `${base}-${Date.now()}-${token}.pdf`;
       const outputPath = path.join(os.tmpdir(), fileName);
-      await runChordProPdf({ app, fs, path, inputPath: inPath, outputPath });
+      await runChordProPdf({ app, fs, path, inputPath: inPath, outputPath, settings });
       await shell.openPath(String(outputPath || ""));
       return { ok: true, path: String(outputPath || "") };
     } catch (e) {
@@ -1113,7 +1120,8 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("chordpro:check", async () => {
     try {
-      return await checkChordProAvailable({ app, fs, path });
+      const settings = getSettings ? getSettings() : {};
+      return await checkChordProAvailable({ app, fs, path, settings });
     } catch (e) {
       return { ok: false, error: e && e.message ? String(e.message) : String(e) };
     }

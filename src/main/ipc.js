@@ -196,7 +196,18 @@ async function resolveChordProCommand({ app, fs, path, settings } = {}) {
   if (configuredBin && await hasExecutableAccess(fs, configuredBin)) return { cmd: configuredBin, argsPrefix: [] };
 
   const envBin = process.env.CHORDPRO_BIN ? String(process.env.CHORDPRO_BIN) : "";
-  if (envBin) return { cmd: envBin, argsPrefix: [] };
+  if (envBin && await hasExecutableAccess(fs, envBin)) return { cmd: envBin, argsPrefix: [] };
+
+  if (process.platform === "win32") {
+    const programFiles = [
+      process.env.ProgramFiles,
+      process.env["ProgramFiles(x86)"],
+    ].map((v) => String(v || "").trim()).filter(Boolean);
+    for (const base of programFiles) {
+      const candidate = path.join(base, "ChordPro.ORG", "ChordPro", "chordpro.exe");
+      if (await hasExecutableAccess(fs, candidate)) return { cmd: candidate, argsPrefix: [] };
+    }
+  }
 
   const configuredRepo = settings && settings.chordproRepoPath ? String(settings.chordproRepoPath).trim() : "";
   const repoEnv = process.env.CHORDPRO_REPO ? String(process.env.CHORDPRO_REPO) : "";
@@ -235,7 +246,7 @@ async function runChordProPdf({ app, fs, path, inputPath, outputPath, settings }
       if (err) {
         const code = err && err.code ? String(err.code) : "";
         if (code === "ENOENT") {
-          return reject(new Error("ChordPro CLI not found. Install chordpro or set CHORDPRO_BIN/CHORDPRO_REPO."));
+          return reject(new Error("ChordPro CLI not found. Install chordpro or set ChordPro paths in Settings or CHORDPRO_BIN/CHORDPRO_REPO."));
         }
         const detail = String(stderr || err.message || "").trim();
         return reject(new Error(detail || "ChordPro export failed."));
@@ -255,7 +266,7 @@ async function checkChordProAvailable({ app, fs, path, settings }) {
           return resolve({
             ok: false,
             code,
-            error: "ChordPro CLI not found. Install chordpro or set CHORDPRO_BIN/CHORDPRO_REPO.",
+            error: "ChordPro CLI not found. Install chordpro or set ChordPro paths in Settings or CHORDPRO_BIN/CHORDPRO_REPO.",
           });
         }
         const detail = String(stderr || err.message || "").trim();

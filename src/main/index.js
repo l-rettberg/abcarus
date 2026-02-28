@@ -541,6 +541,7 @@ function showOpenDialog(senderOrEvent) {
     defaultPath: getDialogDefaultPath(),
     filters: [
       { name: "ABC", extensions: ["abc"] },
+      { name: "ChordPro", extensions: ["cho", "crd", "chopro", "chordpro", "chord", "pro"] },
       { name: "All Files", extensions: ["*"] },
     ],
   }).then((result) => {

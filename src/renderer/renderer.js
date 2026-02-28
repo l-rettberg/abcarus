@@ -2918,7 +2918,7 @@ function isChordProText(text) {
 
 function isChordProFilePath(filePath) {
   const p = String(filePath || "").toLowerCase();
-  return p.endsWith(".cho") || p.endsWith(".chordpro") || p.endsWith(".chopro") || p.endsWith(".crd") || p.endsWith(".pro");
+  return p.endsWith(".cho") || p.endsWith(".chordpro") || p.endsWith(".chopro") || p.endsWith(".chord") || p.endsWith(".crd") || p.endsWith(".pro");
 }
 
 function extractChordProLabel(rawArgs) {

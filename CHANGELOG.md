@@ -6,13 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.34.2] - 2026-02-28
 ### Changed
 - `File -> Open` now includes a dedicated `ChordPro` file filter for quicker selection in mixed score folders.
 
 ### Fixed
 - ChordPro auto-detection on Windows now checks the default install location (`Program Files\\ChordPro.ORG\\ChordPro\\chordpro.exe`, including x86 variant).
 - ChordPro file detection now also recognizes `.chord` extension.
-
 
 ## [0.34.1] - 2026-02-27
 ### Added

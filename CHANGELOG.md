@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.34.3] - 2026-02-28
 ### Added
 - Focus playback regression fixture for `X:218 Slide Dance` (`devtools/focus_playback_harness/fixtures/slide_dance_x218_focus_repeat.abc`) with explicit reprise-boundary coverage.
 - Focus playback harness coverage for visible-scope repeat-close extension (`TEST 19`), preventing premature stop before `:|` in `Suppress repeats = off`.
@@ -20,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Focus playback (`visible` mode, `Suppress repeats = off`): end boundary now auto-extends to the nearest required `:|` when the visible slice cuts an open `|:` block, so final reprises are not dropped.
 - Focus playback end-boundary enforcement uses exclusive end-symbol semantics, improving deterministic repeat execution at range boundaries.
 - Focus playback options (`Gchords` / `Drums`) are now directly controllable from the Focus toolbar and applied on the next start without opening Settings.
-
 
 ## [0.34.2] - 2026-02-28
 ### Changed

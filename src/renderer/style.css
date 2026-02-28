@@ -123,6 +123,18 @@ body.focus-mode .editor-pane {
   display: none;
 }
 
+/* Focus mode UI trim: keep only playback-relevant controls in the top bar. */
+body.focus-mode #btnToggleLibrary,
+body.focus-mode #btnFileNew,
+body.focus-mode #btnFileOpen,
+body.focus-mode #btnFileSave,
+body.focus-mode #btnFileClose,
+body.focus-mode #btnToggleRaw,
+body.focus-mode #midiInputStatus,
+body.focus-mode #btnToggleSplit {
+  display: none;
+}
+
 body.focus-mode .render-pane {
   flex: 1;
   min-width: 0;
@@ -166,6 +178,18 @@ header {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.practice-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.practice-group:not([hidden]) + .practice-group:not([hidden]) {
+  border-left: 1px solid var(--border-color);
+  padding-left: 10px;
 }
 
 .practice-tempo:not([hidden]) {
@@ -219,6 +243,21 @@ header {
   height: 16px;
 }
 
+.practice-selection-gchords:not([hidden]),
+.practice-selection-drums:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--muted-text);
+}
+
+.practice-selection-gchords input[type="checkbox"],
+.practice-selection-drums input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 .practice-selection-muted:not([hidden]) {
   display: inline-flex;
   align-items: center;
@@ -229,7 +268,7 @@ header {
 
 .practice-muted-voices {
   min-height: var(--button-height);
-  width: 92px;
+  width: 96px;
 }
 
 .practice-loop-num {

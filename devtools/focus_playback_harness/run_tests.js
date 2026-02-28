@@ -6,7 +6,9 @@ const vm = require("vm");
 
 const ROOT = path.resolve(__dirname);
 const FIXTURE = path.join(ROOT, "fixtures", "bouchard_x16_issue21.abc");
+const FOCUS_REPEAT_FIXTURE = path.join(ROOT, "fixtures", "slide_dance_x218_focus_repeat.abc");
 const ABC2SVG_PATH = path.resolve(ROOT, "../../third_party/abc2svg/abc2svg-1.js");
+const SNDGEN_PATH = path.resolve(ROOT, "../../third_party/abc2svg/util/sndgen.js");
 
 function fail(message) {
   throw new Error(String(message || "Test failed"));
@@ -21,12 +23,22 @@ function readText(filePath) {
 }
 
 let abcCtorCache = null;
-function getAbcCtor() {
-  if (abcCtorCache) return abcCtorCache;
+let abcSandboxCache = null;
+function getAbcSandbox() {
+  if (abcSandboxCache) return abcSandboxCache;
   const source = fs.readFileSync(ABC2SVG_PATH, "utf8");
+  const sndgenSource = fs.readFileSync(SNDGEN_PATH, "utf8");
   const sandbox = { console };
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: "abc2svg-1.js" });
+  vm.runInContext(sndgenSource, sandbox, { filename: "sndgen.js" });
+  abcSandboxCache = sandbox;
+  return abcSandboxCache;
+}
+
+function getAbcCtor() {
+  if (abcCtorCache) return abcCtorCache;
+  const sandbox = getAbcSandbox();
   if (!sandbox.abc2svg || typeof sandbox.abc2svg.Abc !== "function") {
     fail("abc2svg constructor is unavailable");
   }
@@ -43,6 +55,123 @@ function parseTuneWithAbc2svg(tuneText) {
   const first = tunes && tunes[0] ? tunes[0][0] : null;
   if (!first) fail("abc2svg produced no parsed tune symbols");
   return first;
+}
+
+function buildVoiceTableFromTuneRoot(firstSymbol) {
+  const out = [];
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  while (s && guard < 400000) {
+    const pv = s.p_v;
+    if (pv && Number.isFinite(pv.v) && !out[pv.v]) out[pv.v] = pv;
+    s = s.ts_next;
+    guard += 1;
+  }
+  return out;
+}
+
+function findSymbolAtOrAfterInRoot(firstSymbol, abcOffset) {
+  const target = Number(abcOffset);
+  if (!Number.isFinite(target)) return null;
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  let candidate = null;
+  while (s && guard < 400000) {
+    const at = Number(s.istart);
+    if (Number.isFinite(at) && at >= target) {
+      candidate = s;
+      break;
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  return candidate;
+}
+
+function findSymbolAtOrBeforeInRoot(firstSymbol, abcOffset) {
+  const target = Number(abcOffset);
+  if (!Number.isFinite(target)) return null;
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  let last = null;
+  while (s && guard < 400000) {
+    const at = Number(s.istart);
+    if (Number.isFinite(at) && at <= target) last = s;
+    if (Number.isFinite(at) && at > target) break;
+    s = s.ts_next;
+    guard += 1;
+  }
+  return last;
+}
+
+function resolvePlaybackEndSymbolInRoot(firstSymbol, startSymbol, endOffset) {
+  if (!firstSymbol || !startSymbol || !Number.isFinite(startSymbol.istart)) return null;
+  const endAbcOffset = Number(endOffset);
+  if (!Number.isFinite(endAbcOffset) || endAbcOffset <= Number(startSymbol.istart)) return null;
+  const lastInRange = findSymbolAtOrBeforeInRoot(firstSymbol, endAbcOffset - 1);
+  if (!lastInRange || !Number.isFinite(lastInRange.istart)) return null;
+  if (Number(lastInRange.istart) <= Number(startSymbol.istart)) return null;
+  return lastInRange.ts_next || null;
+}
+
+function collectVisitedBarNumbersUntilEnd(startSymbol, endSymbol) {
+  const repeatState = { repv: 1, repn: false };
+  let s = startSymbol || null;
+  const visited = [];
+  let backwardJumps = 0;
+  let guard = 0;
+  while (s && guard < 200000) {
+    const currentIstart = Number(s.istart);
+    if (s.bar_type && Number.isFinite(Number(s.bar_num))) {
+      visited.push(Number(s.bar_num));
+    }
+    let s2 = null;
+    if (s.bar_type && s.rep_p) {
+      repeatState.repv += 1;
+      if (!repeatState.repn && (!s.rep_v || repeatState.repv <= s.rep_v.length)) {
+        s2 = s.rep_p;
+        repeatState.repn = true;
+      } else {
+        repeatState.repn = false;
+        if (String(s.bar_type || "").slice(-1) === ":") repeatState.repv = 1;
+      }
+    }
+    if (s.bar_type && s.rep_s) {
+      s2 = s.rep_s[repeatState.repv];
+      if (s2) {
+        repeatState.repn = false;
+        if (s2 === s) s2 = null;
+      }
+    }
+    if (s.bar_type && String(s.bar_type || "").slice(-1) === ":" && String(s.bar_type || "")[0] !== ":") {
+      repeatState.repv = 1;
+    }
+    if (s2) {
+      const jumpIstart = Number(s2.istart);
+      if (Number.isFinite(currentIstart) && Number.isFinite(jumpIstart) && jumpIstart < currentIstart) backwardJumps += 1;
+      s = s2;
+      while (s && !s.dur) s = s.ts_next;
+    }
+    if (!s || s === endSymbol || !s.ts_next || s.ts_next === endSymbol) break;
+    s = s.ts_next;
+    guard += 1;
+  }
+  return { visited, backwardJumps };
 }
 
 function buildMeasureIstartsFromAbc2svg(firstSymbol) {
@@ -573,20 +702,27 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       const exactStart = Math.floor(Number(byNumberRange.startRenderOffset) - Number(renderOffset));
       startOffset = Math.max(0, Math.min(max, exactStart));
     }
-    const boundaryRender = Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))
-      ? Number(byNumberRange.endBoundaryRenderOffset)
-      : Number(byNumberRange.toStartRenderOffset);
+    let boundaryRender = null;
+    if (Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))) {
+      boundaryRender = Number(byNumberRange.endBoundaryRenderOffset);
+    } else if (Number.isFinite(Number(endBar.endRenderOffset))) {
+      boundaryRender = Number(endBar.endRenderOffset);
+    } else if (Number.isFinite(renderOffset) && Number.isFinite(Number(endBar.endOffset))) {
+      boundaryRender = Number(renderOffset) + Number(endBar.endOffset);
+    }
     if (Number.isFinite(renderOffset) && Number.isFinite(boundaryRender)) {
       const exactEnd = Math.floor(boundaryRender - Number(renderOffset));
       endOffset = Math.max(0, Math.min(max, exactEnd));
-    } else if (Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))) {
-      const boundaryIdx = findFocusBarIndexAtOrAfterStart(bars, Number(byNumberRange.endBoundaryRenderOffset));
+    } else if (Number.isFinite(boundaryRender)) {
+      const boundaryIdx = findFocusBarIndexAtOrAfterStart(bars, boundaryRender);
       if (boundaryIdx >= 0) {
         const boundaryBar = bars[boundaryIdx];
         if (boundaryBar && Number.isFinite(Number(boundaryBar.startOffset))) {
           endOffset = Number(boundaryBar.startOffset);
         }
       }
+    } else if (Number.isFinite(Number(endBar.endOffset))) {
+      endOffset = Number(endBar.endOffset);
     }
   }
   if (mode === "segment") {
@@ -611,10 +747,24 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   ) {
     startOffset = firstMeasureOffset;
   }
+  if (
+    mode === "segment"
+    && byNumberRange
+    && Number.isFinite(Number(startBar.startOffset))
+    && Number.isFinite(Number(endBar.endOffset))
+    && (!Number.isFinite(endOffset) || endOffset <= startOffset)
+  ) {
+    startOffset = Number(startBar.startOffset);
+    endOffset = Number(endBar.endOffset);
+  }
   if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
     return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
   }
-  if (mode === "segment" && !Boolean(state.suppressRepeats) && hasRepeatTokensInSlice(tuneText, startOffset, endOffset)) {
+  if (mode === "visible" && !Boolean(state.suppressRepeats)) {
+    const extendedEnd = extendVisibleRangeToRepeatClose(tuneText, startOffset, endOffset);
+    if (Number.isFinite(extendedEnd) && extendedEnd > endOffset) endOffset = extendedEnd;
+  }
+  if (mode === "segment" && !Boolean(state.suppressRepeats) && focusRangeCrossesRepeats(tuneText, startOffset, endOffset)) {
     return { ok: false, reason: "Selection crosses repeats; enable 'Suppress repeats' or adjust range." };
   }
 
@@ -639,6 +789,32 @@ function hasRepeatTokensInSlice(text, start, end) {
   const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
   const slice = src.slice(a, b);
   return /(\|\:|:\||\[\d|\[1|\[2|repeat)/i.test(slice);
+}
+
+function focusRangeCrossesRepeats(text, start, end) {
+  const src = String(text || "");
+  const a = Math.max(0, Math.min(src.length, Number(start) || 0));
+  const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
+  if (b <= a) return false;
+  const slice = src.slice(a, b);
+  if (/\[\s*\d+/.test(slice)) return true;
+  return false;
+}
+
+function extendVisibleRangeToRepeatClose(text, start, end) {
+  const src = String(text || "");
+  const len = src.length;
+  const a = Math.max(0, Math.min(len, Number(start) || 0));
+  const b = Math.max(a, Math.min(len, Number(end) || len));
+  if (b <= a) return b;
+  const slice = src.slice(a, b);
+  const leftCount = (slice.match(/\|:/g) || []).length;
+  const rightCount = (slice.match(/:\|/g) || []).length;
+  if (leftCount <= rightCount) return b;
+  const closeIdx = src.indexOf(":|", b);
+  if (closeIdx < 0) return b;
+  if ((closeIdx - b) > 4096) return b;
+  return Math.max(b, Math.min(len, closeIdx + 2));
 }
 
 function normalizeFocusLoopBoundsForPlaybackState({ focusModeEnabled, fromMeasure, toMeasure }) {
@@ -719,18 +895,18 @@ function applyMutedVoicesToTuneRoot(firstSymbol, mutedVoiceIds) {
     guard += 1;
   }
   let changed = false;
+  const touchedVoices = new Set();
   guard = 0;
   while (s && guard < 400000) {
     const pv = s.p_v || null;
     const id = pv && pv.id != null ? String(pv.id) : "";
-    if (id && mutedSet.has(id)) {
-      s.noplay = true;
-      changed = true;
-      if (Array.isArray(s.notes)) {
-        for (const note of s.notes) {
-          if (note && typeof note === "object") note.noplay = true;
-        }
+    if (pv && id && mutedSet.has(id) && !touchedVoices.has(pv)) {
+      if (!Array.isArray(pv.midictl)) pv.midictl = [];
+      if (pv.midictl[7] !== 0) {
+        pv.midictl[7] = 0;
+        changed = true;
       }
+      touchedVoices.add(pv);
     }
     s = s.ts_next;
     guard += 1;
@@ -752,6 +928,30 @@ function countPlayableByVoice(firstSymbol) {
     if (playable) {
       const id = (s.p_v && s.p_v.id != null) ? String(s.p_v.id) : "";
       if (id) out.set(id, (out.get(id) || 0) + 1);
+    }
+    s = s.ts_next;
+    guard += 1;
+  }
+  return out;
+}
+
+function collectVoiceVolumeControls(firstSymbol) {
+  const out = new Map();
+  let s = firstSymbol;
+  let guard = 0;
+  while (s && s.ts_prev && guard < 200000) {
+    s = s.ts_prev;
+    guard += 1;
+  }
+  guard = 0;
+  while (s && guard < 400000) {
+    const pv = s.p_v || null;
+    const id = pv && pv.id != null ? String(pv.id) : "";
+    if (pv && id && !out.has(id)) {
+      const cc7 = (Array.isArray(pv.midictl) && Number.isFinite(Number(pv.midictl[7])))
+        ? Number(pv.midictl[7])
+        : null;
+      out.set(id, cc7);
     }
     s = s.ts_next;
     guard += 1;
@@ -1062,6 +1262,145 @@ async function main() {
     process.exitCode = 1;
   }
 
+  // Segment with balanced in-range repeats (no voltas) should be playable when suppress is OFF.
+  try {
+    const repeatText = [
+      "X:1",
+      "T:repeat-inside-range",
+      "M:4/4",
+      "L:1/8",
+      "K:C",
+      "|: C2 D2 E2 F2 | G2 A2 B2 c2 :|",
+    ].join("\n");
+    const repeatCtx = makeHarnessContext(repeatText, 0);
+    const okOff = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: repeatText,
+        barMap: repeatCtx.barMap,
+        byNumber: repeatCtx.byNumber,
+        firstMeasureOffset: repeatCtx.firstMeasureOffset,
+      },
+      focusState: { fromMeasure: 1, toMeasure: 2, loop: false, suppressRepeats: false, mutedVoices: [] },
+      visibleRange: repeatCtx.visibleRange,
+    });
+    assert(okOff && okOff.ok === true, "balanced in-range repeat should be playable with suppress OFF");
+    console.log("% PASS TEST 16: Balanced in-range repeats are allowed when suppress is OFF");
+  } catch (e) {
+    console.log("% FAIL TEST 16: Balanced in-range repeats are allowed when suppress is OFF");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // End boundary fallback: To at the last bar should stay inclusive even without explicit (To+1) start.
+  try {
+    const byNumber = new Map([
+      [1, [100]],
+      [2, [200]],
+      [3, [300]],
+    ]);
+    const parsedTune = {
+      text: "X:1\nT:boundary\nK:C\n| C D | E F | G A |",
+      barMap: [
+        { barNumber: 1, startRenderOffset: 100, endRenderOffset: 200, startOffset: 0, endOffset: 10 },
+        { barNumber: 2, startRenderOffset: 200, endRenderOffset: 300, startOffset: 10, endOffset: 20 },
+        { barNumber: 3, startRenderOffset: 300, endRenderOffset: null, startOffset: 20, endOffset: 30 },
+      ],
+      byNumber,
+      firstMeasureOffset: 0,
+    };
+    const result = buildFocusPlaybackPlan({
+      parsedTune,
+      focusState: { fromMeasure: 2, toMeasure: 3, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: { startRenderOffset: 100, endRenderOffset: 320 },
+    });
+    assert(result && result.ok, "last-bar boundary plan should be valid");
+    assert(result.plan.startOffset === 10, "expected startOffset at bar 2");
+    assert(result.plan.endOffset === 30, "expected endOffset at end of bar 3");
+    console.log("% PASS TEST 17: Last-bar end boundary fallback remains inclusive");
+  } catch (e) {
+    console.log("% FAIL TEST 17: Last-bar end boundary fallback remains inclusive");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Regression (dump 2026-02-27): Focus 27..35 with suppress OFF must execute in-range reprise.
+  try {
+    const repeatTune = readText(FOCUS_REPEAT_FIXTURE);
+    const repeatCtx = makeHarnessContext(repeatTune, 0);
+    const planResult = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: repeatTune,
+        barMap: repeatCtx.barMap,
+        byNumber: repeatCtx.byNumber,
+        firstMeasureOffset: repeatCtx.firstMeasureOffset,
+      },
+      focusState: { fromMeasure: 27, toMeasure: 35, loop: true, suppressRepeats: false, mutedVoices: ["1"] },
+      visibleRange: repeatCtx.visibleRange,
+    });
+    assert(planResult && planResult.ok, `x218 plan should be valid (${planResult ? planResult.reason : "no result"})`);
+    const plan = planResult.plan;
+    const first = parseTuneWithAbc2svg(repeatTune);
+    const voices = buildVoiceTableFromTuneRoot(first);
+    const sandbox = getAbcSandbox();
+    const toAudio = sandbox && typeof sandbox.ToAudio === "function" ? sandbox.ToAudio() : null;
+    assert(toAudio && typeof toAudio.add === "function", "ToAudio.add is unavailable");
+    toAudio.add(first, voices, first.fmt || {});
+
+    const startSym = findSymbolAtOrAfterInRoot(first, plan.startOffset);
+    assert(startSym && Number.isFinite(startSym.istart), "x218: start symbol is not resolvable");
+    const endSym = resolvePlaybackEndSymbolInRoot(first, startSym, plan.endOffset);
+    if (!endSym) {
+      assert(
+        Number(plan.endOffset) >= (repeatTune.length - 1),
+        `x218: unresolved end symbol is only valid at tune tail (endOffset=${plan.endOffset}, len=${repeatTune.length})`
+      );
+    }
+    const walk = collectVisitedBarNumbersUntilEnd(startSym, endSym);
+    const visits31 = walk.visited.filter((n) => n === 31).length;
+    const visits35 = walk.visited.filter((n) => n === 35).length;
+    assert(visits31 >= 2, `x218: expected bar 31 to be revisited via reprise, got ${visits31}`);
+    assert(visits35 >= 1, `x218: expected bar 35 to be reached, got ${visits35}`);
+    assert(walk.backwardJumps >= 1, `x218: expected at least one backward repeat jump, got ${walk.backwardJumps}`);
+    console.log("% PASS TEST 18: x218 Focus 27-35 (suppress OFF) executes in-range reprise before boundary");
+  } catch (e) {
+    console.log("% FAIL TEST 18: x218 Focus 27-35 (suppress OFF) executes in-range reprise before boundary");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Visible scope with suppress OFF: if scope ends before a needed :| close, endOffset should extend to include it.
+  try {
+    const text = "|: A2 B2 | c2 d2 | e2 f2 :| g2 a2 |";
+    const parsedTune = {
+      text,
+      barMap: [
+        { barNumber: 1, startRenderOffset: 0, endRenderOffset: 10, startOffset: 0, endOffset: 10 },
+        { barNumber: 2, startRenderOffset: 10, endRenderOffset: 20, startOffset: 10, endOffset: 20 },
+        { barNumber: 3, startRenderOffset: 20, endRenderOffset: 30, startOffset: 20, endOffset: 30 },
+        { barNumber: 4, startRenderOffset: 30, endRenderOffset: 40, startOffset: 30, endOffset: text.length },
+      ],
+      byNumber: new Map(),
+      firstMeasureOffset: 0,
+    };
+    const result = buildFocusPlaybackPlan({
+      parsedTune,
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: false, mutedVoices: [] },
+      visibleRange: { startRenderOffset: 0, endRenderOffset: 20 },
+    });
+    assert(result && result.ok, "visible repeat-close extension plan should be valid");
+    const closeIdx = text.indexOf(":|");
+    assert(closeIdx >= 0, "test text must include :|");
+    assert(
+      Number(result.plan.endOffset) >= (closeIdx + 2),
+      `visible range should extend to include :| close (endOffset=${result.plan.endOffset}, close=${closeIdx + 2})`
+    );
+    console.log("% PASS TEST 19: Visible scope extends to nearest :| when suppress is OFF");
+  } catch (e) {
+    console.log("% FAIL TEST 19: Visible scope extends to nearest :| when suppress is OFF");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
   // Muted voices parsing / symbol-level muting regression tests.
   try {
     const ids = parseMutedVoiceSetting("2, 3  2");
@@ -1071,6 +1410,9 @@ async function main() {
     const baseCounts = countPlayableByVoice(baseRoot);
     assert((baseCounts.get("1") || 0) > 0, "fixture must contain playable V:1 symbols");
     assert((baseCounts.get("2") || 0) > 0, "fixture must contain playable V:2 symbols");
+    const baseCtrls = collectVoiceVolumeControls(baseRoot);
+    assert(baseCtrls.get("1") !== 0, "fixture should not start with V:1 volume=0");
+    assert(baseCtrls.get("2") !== 0, "fixture should not start with V:2 volume=0");
 
     const mutedV1Root = parseTuneWithAbc2svg(tuneText);
     const firstId = getFirstPlayableVoiceIdFromTuneRoot(mutedV1Root);
@@ -1078,15 +1420,19 @@ async function main() {
     const changedV1 = applyMutedVoicesToTuneRoot(mutedV1Root, effectiveMuteV1);
     assert(changedV1, "muted V:1 should modify tune symbols");
     const afterV1 = countPlayableByVoice(mutedV1Root);
-    assert((afterV1.get("1") || 0) === 0, "muted V:1 must silence voice 1");
-    assert((afterV1.get("2") || 0) > 0, "muted V:1 must keep voice 2 playable");
+    const ctrlV1 = collectVoiceVolumeControls(mutedV1Root);
+    assert((afterV1.get("1") || 0) > 0, "muted V:1 must keep symbols/events for follow");
+    assert(ctrlV1.get("1") === 0, "muted V:1 must set CC7 volume=0 for voice 1");
+    assert(ctrlV1.get("2") !== 0, "muted V:1 must keep voice 2 volume intact");
 
     const mutedV2Root = parseTuneWithAbc2svg(tuneText);
     const changedV2 = applyMutedVoicesToTuneRoot(mutedV2Root, ["2"]);
     assert(changedV2, "muted V:2 should modify tune symbols");
     const afterV2 = countPlayableByVoice(mutedV2Root);
-    assert((afterV2.get("2") || 0) === 0, "muted V:2 must silence voice 2");
-    assert((afterV2.get("1") || 0) > 0, "muted V:2 must keep voice 1 playable");
+    const ctrlV2 = collectVoiceVolumeControls(mutedV2Root);
+    assert((afterV2.get("2") || 0) > 0, "muted V:2 must keep symbols/events for follow");
+    assert(ctrlV2.get("2") === 0, "muted V:2 must set CC7 volume=0 for voice 2");
+    assert(ctrlV2.get("1") !== 0, "muted V:2 must keep voice 1 volume intact");
 
     const implicitVoiceText = [
       "X:1",
@@ -1104,7 +1450,10 @@ async function main() {
     assert(implicitEffective.includes(implicitFirst), "implicit/malformed V:1 should map to de-facto first voice");
     applyMutedVoicesToTuneRoot(implicitRoot, implicitEffective);
     const implicitAfter = countPlayableByVoice(implicitRoot);
-    assert((implicitAfter.get("2") || 0) > 0, "implicit V:1 mute should keep explicit V:2 playable");
+    const implicitCtrl = collectVoiceVolumeControls(implicitRoot);
+    assert((implicitAfter.get("2") || 0) > 0, "implicit V:1 mute should keep explicit V:2 symbols/events");
+    assert(implicitCtrl.get(String(implicitFirst)) === 0, "implicit V:1 must map to de-facto first voice via CC7=0");
+    assert(implicitCtrl.get("2") !== 0, "implicit V:1 mute should keep explicit V:2 volume intact");
 
     const malformedVoiceText = [
       "X:1",
@@ -1123,7 +1472,10 @@ async function main() {
     assert(malformedEffective.includes(malformedFirst), "malformed V: should still map mute 1 to de-facto first voice");
     applyMutedVoicesToTuneRoot(malformedRoot, malformedEffective);
     const malformedAfter = countPlayableByVoice(malformedRoot);
-    assert((malformedAfter.get("2") || 0) > 0, "malformed V: mute should keep explicit V:2 playable");
+    const malformedCtrl = collectVoiceVolumeControls(malformedRoot);
+    assert((malformedAfter.get("2") || 0) > 0, "malformed V: mute should keep explicit V:2 symbols/events");
+    assert(malformedCtrl.get(String(malformedFirst)) === 0, "malformed V:1 mapping must mute de-facto first voice via CC7=0");
+    assert(malformedCtrl.get("2") !== 0, "malformed V: mute should keep explicit V:2 volume intact");
     console.log("% PASS TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
   } catch (e) {
     console.log("% FAIL TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");

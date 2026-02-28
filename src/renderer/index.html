@@ -77,25 +77,41 @@
 		              <option value="1.2">120%</option>
 		            </select>
 		          </label>
-          <label id="practiceLoopWrap" class="practice-loop" hidden>
-            <input id="practiceLoopEnabled" type="checkbox" />
-            <span>Loop</span>
-            <input id="practiceLoopFrom" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="from" title="Loop from measure (0 = first bar)" />
-            <span class="practice-loop-arrow">→</span>
-            <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
-          </label>
-          <label id="selectionSuppressWrap" class="practice-selection-suppress" title="Suppress repeats during scoped playback">
-            <input id="selectionSuppressEnabled" type="checkbox" />
-            <span>Suppress repeats</span>
-          </label>
-          <label id="selectionMutedWrap" class="practice-selection-muted" title="Mute voices for scoped playback (comma-separated voice IDs)">
-            <span>Mute voices</span>
-            <input id="selectionMutedVoices" class="practice-muted-voices" type="text" placeholder="e.g. 2,3" />
-          </label>
-          <label id="selectionLoopWrap" class="practice-selection-loop" title="Selection playback options live in Settings → Playback">
-            <input id="selectionLoopEnabled" type="checkbox" />
-            <span>Loop selection</span>
-          </label>
+          <div id="practiceFocusRangeGroup" class="practice-group" hidden>
+            <label id="practiceLoopWrap" class="practice-loop" hidden>
+              <input id="practiceLoopEnabled" type="checkbox" />
+              <span>Loop</span>
+              <input id="practiceLoopFrom" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="from" title="Loop from measure (0 = first bar)" />
+              <span class="practice-loop-arrow">→</span>
+              <input id="practiceLoopTo" class="practice-loop-num" type="number" inputmode="numeric" min="0" step="1" placeholder="to" title="Loop to measure (0 = end)" />
+            </label>
+          </div>
+          <div id="practiceFocusOptionsGroup" class="practice-group" hidden>
+            <label id="selectionSuppressWrap" class="practice-selection-suppress" title="Suppress repeats during scoped playback">
+              <input id="selectionSuppressEnabled" type="checkbox" />
+              <span>No repeats</span>
+            </label>
+            <label id="selectionGchordsWrap" class="practice-selection-gchords" title="Enable chord symbols during scoped playback">
+              <input id="selectionGchordsEnabled" type="checkbox" />
+              <span>Chords</span>
+            </label>
+            <label id="selectionDrumsWrap" class="practice-selection-drums" title="Enable MIDI drums during scoped playback (best-effort)">
+              <input id="selectionDrumsEnabled" type="checkbox" />
+              <span>Drums</span>
+            </label>
+          </div>
+          <div id="practiceFocusVoicesGroup" class="practice-group" hidden>
+            <label id="selectionMutedWrap" class="practice-selection-muted" title="Mute voices for scoped playback (comma-separated voice IDs)">
+              <span>Voices</span>
+              <input id="selectionMutedVoices" class="practice-muted-voices" type="text" placeholder="e.g. 2,3" />
+            </label>
+          </div>
+          <div id="practiceSelectionGroup" class="practice-group">
+            <label id="selectionLoopWrap" class="practice-selection-loop" title="Loop current text selection in the ABC editor (not score selection). Options also available in Settings → Playback">
+              <input id="selectionLoopEnabled" type="checkbox" />
+              <span>Loop selection</span>
+            </label>
+          </div>
         </div>
       </div>
 		      <div class="right-controls">

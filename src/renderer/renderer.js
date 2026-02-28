@@ -141,10 +141,18 @@ const $selectionLoopWrap = document.getElementById("selectionLoopWrap");
 const $selectionLoopEnabled = document.getElementById("selectionLoopEnabled");
 const $selectionSuppressWrap = document.getElementById("selectionSuppressWrap");
 const $selectionSuppressEnabled = document.getElementById("selectionSuppressEnabled");
+const $selectionGchordsWrap = document.getElementById("selectionGchordsWrap");
+const $selectionGchordsEnabled = document.getElementById("selectionGchordsEnabled");
+const $selectionDrumsWrap = document.getElementById("selectionDrumsWrap");
+const $selectionDrumsEnabled = document.getElementById("selectionDrumsEnabled");
 const $selectionMutedWrap = document.getElementById("selectionMutedWrap");
 const $selectionMutedVoices = document.getElementById("selectionMutedVoices");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
+const $practiceFocusRangeGroup = document.getElementById("practiceFocusRangeGroup");
+const $practiceFocusOptionsGroup = document.getElementById("practiceFocusOptionsGroup");
+const $practiceFocusVoicesGroup = document.getElementById("practiceFocusVoicesGroup");
+const $practiceSelectionGroup = document.getElementById("practiceSelectionGroup");
 const $practiceLoopWrap = document.getElementById("practiceLoopWrap");
 const $practiceLoopEnabled = document.getElementById("practiceLoopEnabled");
 const $practiceLoopFrom = document.getElementById("practiceLoopFrom");
@@ -1016,19 +1024,20 @@ function applyMutedVoicesToTuneRoot(firstSymbol, mutedVoiceIds) {
     guard += 1;
   }
   let changed = false;
+  const touchedVoices = new Set();
   guard = 0;
   while (s && guard < 400000) {
     const pv = s.p_v || null;
     const id = pv && pv.id != null ? String(pv.id) : "";
-    if (id && mutedSet.has(id)) {
-      // Skip muted voice events at scheduler level (not just note heads), so both sound and onnote highlights stay aligned.
-      s.noplay = true;
-      changed = true;
-      if (Array.isArray(s.notes)) {
-        for (const note of s.notes) {
-          if (note && typeof note === "object") note.noplay = true;
-        }
+    if (pv && id && mutedSet.has(id) && !touchedVoices.has(pv)) {
+      // Keep symbols intact (for follow/highlight determinism) and mute at MIDI voice level.
+      // abc2svg snd engine applies p_v.midictl at voice start via control events.
+      if (!Array.isArray(pv.midictl)) pv.midictl = [];
+      if (pv.midictl[7] !== 0) {
+        pv.midictl[7] = 0; // MIDI CC7 Channel Volume
+        changed = true;
       }
+      touchedVoices.add(pv);
     }
     s = s.ts_next;
     guard += 1;
@@ -1038,12 +1047,19 @@ function applyMutedVoicesToTuneRoot(firstSymbol, mutedVoiceIds) {
 
 function getSelectionPlaybackSettings() {
   const settings = latestSettingsSnapshot || {};
+  const loopFromUi = $selectionLoopEnabled ? Boolean($selectionLoopEnabled.checked) : null;
+  const suppressFromUi = $selectionSuppressEnabled ? Boolean($selectionSuppressEnabled.checked) : null;
+  const gchordsFromUi = $selectionGchordsEnabled ? Boolean($selectionGchordsEnabled.checked) : null;
+  const drumsFromUi = $selectionDrumsEnabled ? Boolean($selectionDrumsEnabled.checked) : null;
+  const mutedFromUi = $selectionMutedVoices
+    ? parseMutedVoiceSetting(String($selectionMutedVoices.value || ""))
+    : null;
   return {
-    loop: Boolean(settings.playbackSelectionLoopEnabled),
-    suppressRepeats: settings.playbackSelectionSuppressRepeats !== false,
-    muteGchords: Boolean(settings.playbackSelectionMuteGchords),
-    allowMidiDrums: Boolean(settings.playbackSelectionAllowMidiDrums),
-    mutedVoices: parseMutedVoiceSetting(settings.playbackSelectionMutedVoices),
+    loop: (loopFromUi != null) ? loopFromUi : Boolean(settings.playbackSelectionLoopEnabled),
+    suppressRepeats: (suppressFromUi != null) ? suppressFromUi : (settings.playbackSelectionSuppressRepeats !== false),
+    muteGchords: (gchordsFromUi != null) ? !gchordsFromUi : Boolean(settings.playbackSelectionMuteGchords),
+    allowMidiDrums: (drumsFromUi != null) ? drumsFromUi : Boolean(settings.playbackSelectionAllowMidiDrums),
+    mutedVoices: Array.isArray(mutedFromUi) ? mutedFromUi : parseMutedVoiceSetting(settings.playbackSelectionMutedVoices),
   };
 }
 
@@ -1053,6 +1069,34 @@ function hasRepeatTokensInSlice(text, start, end) {
   const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
   const slice = src.slice(a, b);
   return /(\|\:|:\||\[\d|\[1|\[2|repeat)/i.test(slice);
+}
+
+function focusRangeCrossesRepeats(text, start, end) {
+  const src = String(text || "");
+  const a = Math.max(0, Math.min(src.length, Number(start) || 0));
+  const b = Math.max(0, Math.min(src.length, Number(end) || src.length));
+  if (b <= a) return false;
+  const slice = src.slice(a, b);
+  // Voltas are branch-specific and ambiguous for bounded segment playback without flattening.
+  if (/\[\s*\d+/.test(slice)) return true;
+  return false;
+}
+
+function extendVisibleRangeToRepeatClose(text, start, end) {
+  const src = String(text || "");
+  const len = src.length;
+  const a = Math.max(0, Math.min(len, Number(start) || 0));
+  const b = Math.max(a, Math.min(len, Number(end) || len));
+  if (b <= a) return b;
+  const slice = src.slice(a, b);
+  const leftCount = (slice.match(/\|:/g) || []).length;
+  const rightCount = (slice.match(/:\|/g) || []).length;
+  if (leftCount <= rightCount) return b;
+  const closeIdx = src.indexOf(":|", b);
+  if (closeIdx < 0) return b;
+  // Keep extension local to the nearest close; avoid pulling large unrelated sections.
+  if ((closeIdx - b) > 4096) return b;
+  return Math.max(b, Math.min(len, closeIdx + 2));
 }
 
 function getSelectionPlaybackRange() {
@@ -24600,13 +24644,14 @@ function stopPlaybackFromGuard(message) {
 
 function clonePlaybackRange(r) {
   if (!r || typeof r !== "object") {
-    return { startOffset: 0, endOffset: null, origin: "cursor", loop: false };
+    return { startOffset: 0, endOffset: null, origin: "cursor", loop: false, suppressRepeats: null };
   }
   return {
     startOffset: Number(r.startOffset) || 0,
     endOffset: (r.endOffset == null) ? null : Number(r.endOffset),
     origin: r.origin || "cursor",
     loop: Boolean(r.loop),
+    suppressRepeats: (typeof r.suppressRepeats === "boolean") ? Boolean(r.suppressRepeats) : null,
   };
 }
 
@@ -24767,6 +24812,8 @@ function updatePlaybackInteractionLock() {
   disable($practiceLoopFrom);
   disable($practiceLoopTo);
   disable($selectionSuppressEnabled);
+  disable($selectionGchordsEnabled);
+  disable($selectionDrumsEnabled);
   disable($selectionMutedVoices);
 
   disable($btnFonts);
@@ -26397,20 +26444,27 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       const exactStart = Math.floor(Number(byNumberRange.startRenderOffset) - Number(renderOffset));
       startOffset = Math.max(0, Math.min(max, exactStart));
     }
-    const boundaryRender = Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))
-      ? Number(byNumberRange.endBoundaryRenderOffset)
-      : Number(byNumberRange.toStartRenderOffset);
+    let boundaryRender = null;
+    if (Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))) {
+      boundaryRender = Number(byNumberRange.endBoundaryRenderOffset);
+    } else if (Number.isFinite(Number(endBar.endRenderOffset))) {
+      boundaryRender = Number(endBar.endRenderOffset);
+    } else if (Number.isFinite(renderOffset) && Number.isFinite(Number(endBar.endOffset))) {
+      boundaryRender = Number(renderOffset) + Number(endBar.endOffset);
+    }
     if (Number.isFinite(renderOffset) && Number.isFinite(boundaryRender)) {
       const exactEnd = Math.floor(boundaryRender - Number(renderOffset));
       endOffset = Math.max(0, Math.min(max, exactEnd));
-    } else if (Number.isFinite(Number(byNumberRange.endBoundaryRenderOffset))) {
-      const boundaryIdx = findFocusBarIndexAtOrAfterStart(bars, Number(byNumberRange.endBoundaryRenderOffset));
+    } else if (Number.isFinite(boundaryRender)) {
+      const boundaryIdx = findFocusBarIndexAtOrAfterStart(bars, boundaryRender);
       if (boundaryIdx >= 0) {
         const boundaryBar = bars[boundaryIdx];
         if (boundaryBar && Number.isFinite(Number(boundaryBar.startOffset))) {
           endOffset = Number(boundaryBar.startOffset);
         }
       }
+    } else if (Number.isFinite(Number(endBar.endOffset))) {
+      endOffset = Number(endBar.endOffset);
     }
   }
   if (mode === "segment") {
@@ -26439,10 +26493,24 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
     && firstMeasureOffset < startOffset) {
     startOffset = firstMeasureOffset;
   }
+  if (
+    mode === "segment"
+    && byNumberRange
+    && Number.isFinite(Number(startBar.startOffset))
+    && Number.isFinite(Number(endBar.endOffset))
+    && (!Number.isFinite(endOffset) || endOffset <= startOffset)
+  ) {
+    startOffset = Number(startBar.startOffset);
+    endOffset = Number(endBar.endOffset);
+  }
   if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
     return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
   }
-  if (mode === "segment" && !Boolean(state.suppressRepeats) && hasRepeatTokensInSlice(tuneText, startOffset, endOffset)) {
+  if (mode === "visible" && !Boolean(state.suppressRepeats)) {
+    const extendedEnd = extendVisibleRangeToRepeatClose(tuneText, startOffset, endOffset);
+    if (Number.isFinite(extendedEnd) && extendedEnd > endOffset) endOffset = extendedEnd;
+  }
+  if (mode === "segment" && !Boolean(state.suppressRepeats) && focusRangeCrossesRepeats(tuneText, startOffset, endOffset)) {
     return { ok: false, reason: "Selection crosses repeats; enable 'Suppress repeats' or adjust range." };
   }
 
@@ -26577,6 +26645,10 @@ function computeFocusLoopPlaybackRange() {
 
 function updatePracticeUi() {
   if ($practiceTempoWrap) $practiceTempoWrap.hidden = !focusModeEnabled;
+  if ($practiceFocusRangeGroup) $practiceFocusRangeGroup.hidden = !focusModeEnabled;
+  if ($practiceFocusOptionsGroup) $practiceFocusOptionsGroup.hidden = !focusModeEnabled;
+  if ($practiceFocusVoicesGroup) $practiceFocusVoicesGroup.hidden = !focusModeEnabled;
+  if ($practiceSelectionGroup) $practiceSelectionGroup.hidden = Boolean(focusModeEnabled);
   if ($practiceTempo && focusModeEnabled && document.activeElement !== $practiceTempo) {
     const value = String(practiceTempoMultiplier);
     if ($practiceTempo.value !== value) $practiceTempo.value = value;
@@ -26597,6 +26669,16 @@ function updatePracticeUi() {
   if ($selectionSuppressEnabled && document.activeElement !== $selectionSuppressEnabled) {
     const enabled = Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionSuppressRepeats !== false);
     $selectionSuppressEnabled.checked = enabled;
+  }
+  if ($selectionGchordsWrap) $selectionGchordsWrap.hidden = !focusModeEnabled;
+  if ($selectionGchordsEnabled && document.activeElement !== $selectionGchordsEnabled) {
+    const enabled = Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionMuteGchords !== true);
+    $selectionGchordsEnabled.checked = enabled;
+  }
+  if ($selectionDrumsWrap) $selectionDrumsWrap.hidden = !focusModeEnabled;
+  if ($selectionDrumsEnabled && document.activeElement !== $selectionDrumsEnabled) {
+    const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionAllowMidiDrums);
+    $selectionDrumsEnabled.checked = enabled;
   }
   if ($selectionMutedWrap) $selectionMutedWrap.hidden = !focusModeEnabled;
   if ($selectionMutedVoices && document.activeElement !== $selectionMutedVoices) {
@@ -29415,23 +29497,22 @@ function startPlaybackFromPrepared(startIdx) {
   }, 0);
 }
 
-function resolvePlaybackEndAbcOffset(range, startAbcOffset) {
+function resolvePlaybackEndSymbol(range, startSymbol) {
   if (!range || range.endOffset == null) return null;
+  if (!startSymbol || !Number.isFinite(startSymbol.istart)) return null;
   const endOffset = Number(range.endOffset);
   if (!Number.isFinite(endOffset)) return null;
   const endAbcOffset = endOffset + playbackIndexOffset;
-  if (!Number.isFinite(endAbcOffset) || endAbcOffset <= startAbcOffset) return null;
-  // `endOffset` is an exclusive editor boundary; choose the last symbol strictly before it.
-  // Using at-or-after can include the first symbol of the next bar and overshoot segment end.
-  const before = findSymbolAtOrBefore(endAbcOffset - 1);
-  if (before && Number.isFinite(before.istart) && before.istart > startAbcOffset) {
-    return before.istart;
-  }
-  const atOrAfter = findSymbolAtOrAfter(endAbcOffset);
-  if (atOrAfter && Number.isFinite(atOrAfter.istart) && atOrAfter.istart > startAbcOffset) {
-    return atOrAfter.istart;
-  }
-  return null;
+  if (!Number.isFinite(endAbcOffset) || endAbcOffset <= startSymbol.istart) return null;
+
+  // Keep end boundary exclusive:
+  // - include every symbol whose istart is strictly before endAbcOffset
+  // - stop at the first symbol after that in time linkage (`lastInRange.ts_next`)
+  // This is robust for repeats/voltas because abc2svg evaluates repeat bars only when they are visited.
+  const lastInRange = findSymbolAtOrBefore(endAbcOffset - 1);
+  if (!lastInRange || !Number.isFinite(lastInRange.istart)) return null;
+  if (lastInRange.istart <= startSymbol.istart) return null;
+  return lastInRange.ts_next || null;
 }
 
 function findBoundaryAtOrAfter(sorted, target) {
@@ -29544,6 +29625,13 @@ async function startPlaybackFromRange(rangeOverride) {
   } else {
     playbackScopedOptions = null;
   }
+  if (range && typeof range === "object") {
+    if (playbackScopedOptions && typeof playbackScopedOptions.suppressRepeats === "boolean") {
+      range.suppressRepeats = Boolean(playbackScopedOptions.suppressRepeats);
+    } else if (typeof range.suppressRepeats !== "boolean") {
+      range.suppressRepeats = null;
+    }
+  }
   const sourceKey = selectionMode ? null : getPlaybackSourceKey();
   const canReuse = (
     !scopedMode
@@ -29609,9 +29697,9 @@ async function startPlaybackFromRange(rangeOverride) {
 
 		  // Switch semantics guard (Option B): playbackRange changes while playing are deferred; we also freeze loop start.
 		  activePlaybackRange = range;
-		  activePlaybackEndAbcOffset = resolvePlaybackEndAbcOffset(range, startSym.istart);
-		  activePlaybackEndSymbol = (activePlaybackEndAbcOffset != null && Number.isFinite(activePlaybackEndAbcOffset))
-		    ? findSymbolAtOrAfter(Number(activePlaybackEndAbcOffset))
+		  activePlaybackEndSymbol = resolvePlaybackEndSymbol(range, startSym);
+		  activePlaybackEndAbcOffset = (activePlaybackEndSymbol && Number.isFinite(activePlaybackEndSymbol.istart))
+		    ? Number(activePlaybackEndSymbol.istart)
 		    : null;
 		  if (activePlaybackEndSymbol && Number.isFinite(activePlaybackEndSymbol.istart) && activePlaybackEndSymbol.istart <= startSym.istart) {
 		    activePlaybackEndSymbol = null;
@@ -29807,6 +29895,24 @@ if ($selectionSuppressEnabled) {
     const next = Boolean($selectionSuppressEnabled.checked);
     if (window.api && typeof window.api.updateSettings === "function") {
       window.api.updateSettings({ playbackSelectionSuppressRepeats: next }).catch(() => {});
+    }
+  });
+}
+
+if ($selectionGchordsEnabled) {
+  $selectionGchordsEnabled.addEventListener("change", () => {
+    const next = Boolean($selectionGchordsEnabled.checked);
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackSelectionMuteGchords: !next }).catch(() => {});
+    }
+  });
+}
+
+if ($selectionDrumsEnabled) {
+  $selectionDrumsEnabled.addEventListener("change", () => {
+    const next = Boolean($selectionDrumsEnabled.checked);
+    if (window.api && typeof window.api.updateSettings === "function") {
+      window.api.updateSettings({ playbackSelectionAllowMidiDrums: next }).catch(() => {});
     }
   });
 }

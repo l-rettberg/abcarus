@@ -18,6 +18,7 @@ import {
   CompletionContext,
   hoverTooltip,
   acceptCompletion,
+  rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
 import { initSettings } from "./settings.js";
@@ -235,6 +236,7 @@ const abcCompletionCompartment = new Compartment();
 const abcHoverCompartment = new Compartment();
 const abcTuningModeCompartment = new Compartment();
 const abcPayloadReadOnlyCompartment = new Compartment();
+const UNTITLED_UNSAVED_LABEL = "Untitled (unsaved)";
 
 function buildAbcCompletionSource() {
   const keyOptions = [
@@ -4559,16 +4561,16 @@ function setFileNameMeta(name) {
   updateWindowTitle();
 }
 
-	function updateWindowTitle() {
-	  const tuneDirty = Boolean(currentDoc && currentDoc.dirty);
-	  const dirtyTag = (tuneDirty || headerDirty) ? "*" : "";
-	  const filePath = (currentDoc && currentDoc.path) ? String(currentDoc.path) : "";
-	  const fileNameWithExt = filePath ? safeBasename(filePath) : "Untitled.abc";
-	  const dirPath = filePath ? safeDirname(filePath) : (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : "");
-	  const dirShort = formatPathTail(dirPath, 3);
-	  const display = dirShort ? `${dirShort}/${fileNameWithExt}` : fileNameWithExt;
-	  document.title = `ABCarus — ${display}${dirtyTag}`;
-	}
+		function updateWindowTitle() {
+		  const tuneDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(isNewTuneDraft);
+		  const dirtyTag = (tuneDirty || headerDirty) ? "*" : "";
+		  const filePath = (currentDoc && currentDoc.path) ? String(currentDoc.path) : "";
+		  const fileNameWithExt = filePath ? safeBasename(filePath) : UNTITLED_UNSAVED_LABEL;
+		  const dirPath = filePath ? safeDirname(filePath) : (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : "");
+		  const dirShort = formatPathTail(dirPath, 3);
+		  const display = dirShort ? `${dirShort}/${fileNameWithExt}` : fileNameWithExt;
+		  document.title = `ABCarus — ${display}${dirtyTag}`;
+		}
 
 function buildTuneMetaLabel(metadata) {
   if (!metadata) return "Untitled";
@@ -11454,6 +11456,9 @@ function initEditor() {
 	  ]);
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
+      if (!suppressDirty && !payloadMode && !currentDoc) {
+        currentDoc = createBlankDocument();
+      }
       shouldHandleTypingPreviewChange(update);
       abRevision += 1;
       if (abPlan) clearAbPlan({ toast: true });
@@ -11524,6 +11529,7 @@ function initEditor() {
     doc: DEFAULT_ABC,
     extensions: [
       basicSetup,
+      createRectSelectionExtension(),
       abcHighlightCompartment.of([abcHighlight]),
       abcDiagnosticsCompartment.of([
         measureErrorPlugin,
@@ -11768,6 +11774,7 @@ function initHeaderEditor() {
     doc: "",
     extensions: [
       basicSetup,
+      createRectSelectionExtension(),
       abcHighlight,
       keymap.of([{ key: "Mod-/", run: toggleLineComments }]),
       updateListener,
@@ -11838,8 +11845,8 @@ function setActiveTuneText(text, metadata, options = {}) {
     activeFilePath = null;
     isNewTuneDraft = false;
     refreshHeaderLayers().catch(() => {});
-    setTuneMetaText("Untitled");
-    setFileNameMeta("Untitled");
+    setTuneMetaText(UNTITLED_UNSAVED_LABEL);
+    setFileNameMeta(UNTITLED_UNSAVED_LABEL);
     if (currentDoc) {
       currentDoc.path = null;
       currentDoc.content = text || "";
@@ -17595,8 +17602,8 @@ function showEmptyState() {
   activeFilePath = null;
   clearSaveSession();
   headerDirty = false;
-  setTuneMetaText("Untitled");
-  setFileNameMeta("Untitled");
+  setTuneMetaText(UNTITLED_UNSAVED_LABEL);
+  setFileNameMeta(UNTITLED_UNSAVED_LABEL);
   clearErrors();
   setStatus("Ready");
   updateFileHeaderPanel();
@@ -19639,10 +19646,9 @@ async function confirmAbandonIfDirty(contextLabel) {
   const choice = await confirmUnsavedChanges(contextLabel);
   if (choice === "cancel") return false;
   if (choice === "dont_save") {
-    if (hdrDirty) {
-      showToast("Header changes are unsaved. Save or cancel.", 2600);
-      return false;
-    }
+    // Explicit discard path: user chose not to save.
+    headerDirty = false;
+    updateHeaderStateUI();
     if (tuneDirty) {
       await discardWorkingCopyChangesForActiveFile();
     }
@@ -21825,45 +21831,9 @@ async function requestQuitApplication() {
 }
 
 async function fileClose() {
-  if (abandonFlowInProgress) return;
-  abandonFlowInProgress = true;
-  const currentPath = getCurrentNavFilePath();
-  try {
-    const ok = await confirmAbandonIfDirty("closing this file");
-    if (!ok) return;
-
-    // Close the working copy session (best-effort).
-    try {
-      if (window.api && typeof window.api.closeWorkingCopy === "function") {
-        await window.api.closeWorkingCopy();
-      }
-    } catch {}
-
-    clearCurrentDocument();
-    setActiveTuneText("", null);
-    setDirtyIndicator(false);
-    activeFilePath = null;
-
-    // Activate previous file in navigation history, if available; otherwise keep empty state.
-    if (!currentPath) return;
-    for (let i = navFileHistory.length - 1; i >= 0; i -= 1) {
-      const candidate = navFileHistory[i];
-      if (!candidate) continue;
-      if (pathsEqual(candidate, currentPath)) continue;
-      try {
-        if (typeof window.api?.fileExists === "function") {
-          const exists = await window.api.fileExists(candidate);
-          if (!exists) continue;
-        }
-      } catch {}
-      try {
-        const res = await loadLibraryFileIntoEditor(candidate);
-        if (res && res.ok) return;
-      } catch {}
-    }
-  } finally {
-    abandonFlowInProgress = false;
-  }
+  // Unified close behavior: close current file to empty state.
+  // Keep this wrapper for toolbar call sites.
+  await requestCloseDocument();
 }
 
 async function exportMusicXml() {
@@ -30296,3 +30266,17 @@ async function maybeRunDevAutoscrollDemo() {
 }
 
 maybeRunDevAutoscrollDemo().catch(() => {});
+function createRectSelectionExtension() {
+  return rectangularSelection({
+    // Linux WMs often reserve Alt+drag for window move/resize.
+    // Keep Alt+drag where available, and provide Ctrl+Shift+drag as a reliable fallback.
+    eventFilter: (event) => Boolean(
+      event
+      && event.button === 0
+      && (
+        event.altKey
+        || (event.ctrlKey && event.shiftKey)
+      )
+    ),
+  });
+}

@@ -85,11 +85,22 @@ import {
   EditorState,
   basicSetup,
   indentUnit,
+  rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { createSettingsStore } from "./settings_store.js";
 
 const ZOOM_STEP = 0.1;
 const SETTINGS_UI_STATE_KEY = "abcarus.settings.uiState.v1";
+const rectSelectionExt = rectangularSelection({
+  eventFilter: (event) => Boolean(
+    event
+    && event.button === 0
+    && (
+      event.altKey
+      || (event.ctrlKey && event.shiftKey)
+    )
+  ),
+});
 const SETTINGS_SECTION_HINTS = {
   general: "General application settings.",
   playback: "Playback behavior and visuals.",
@@ -1544,6 +1555,7 @@ export function initSettings(api) {
               doc: "",
               extensions: [
                 basicSetup,
+                rectSelectionExt,
                 updateListener,
                 EditorState.tabSize.of(2),
                 indentUnit.of("  "),

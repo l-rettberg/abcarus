@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Unified `Close` behavior: toolbar `Close` and `File -> Close` now use the same close-to-empty flow (no implicit auto-open of another file).
+- Empty-buffer flow: after closing to `Untitled (unsaved)`, typing now creates a working document state so `Save` works reliably (opens `Save As` when needed).
+- Window title in empty draft state now shows `Untitled (unsaved)` consistently and tracks draft dirty state.
+
+### Changed
+- Settings editor now supports rectangular selection (`Alt+drag`, with `Ctrl+Shift+drag` fallback where OS intercepts `Alt` drag).
 
 
 ## [0.34.3] - 2026-02-28

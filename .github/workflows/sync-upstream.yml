@@ -1,0 +1,50 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:     # Manual trigger button
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get upstream repo
+        id: upstream
+        run: |
+          UPSTREAM_URL=$(gh api repos/${{ github.repository }}/parent --jq '.clone_url')
+          echo "url=$UPSTREAM_URL" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync fork
+        run: |
+          git remote add upstream ${{ steps.upstream.outputs.url }}
+          git fetch upstream
+          
+          DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          
+          git merge upstream/$DEFAULT_BRANCH --ff-only || \
+          git merge upstream/$DEFAULT_BRANCH --no-edit
+          
+          git push origin $DEFAULT_BRANCH
+```
+
+### Step 5: Commit the File
+- Scroll down to the **"Commit new file"** section
+- In **"Commit message"**, type:
+```
+  Add: auto-sync upstream workflow

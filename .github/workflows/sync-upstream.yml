@@ -34,17 +34,6 @@ jobs:
         run: |
           git remote add upstream ${{ steps.upstream.outputs.url }}
           git fetch upstream
-          
           DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          
-          git merge upstream/$DEFAULT_BRANCH --ff-only || \
-          git merge upstream/$DEFAULT_BRANCH --no-edit
-          
+          git merge upstream/$DEFAULT_BRANCH --ff-only || git merge upstream/$DEFAULT_BRANCH --no-edit
           git push origin $DEFAULT_BRANCH
-```
-
-### Step 5: Commit the File
-- Scroll down to the **"Commit new file"** section
-- In **"Commit message"**, type:
-```
-  Add: auto-sync upstream workflow

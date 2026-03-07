@@ -24,7 +24,7 @@ jobs:
 
       - name: Sync fork
         run: |
-          git remote add upstream https://github.com/ORIGINAL-OWNER/ORIGINAL-REPO-NAME.git
+          git remote add upstream https://github.com/topchyan/abcarus.git
           git fetch upstream
           DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           git merge upstream/$DEFAULT_BRANCH --ff-only || git merge upstream/$DEFAULT_BRANCH --no-edit

@@ -3,7 +3,7 @@ name: Sync with Upstream
 on:
   schedule:
     - cron: '0 2 * * *'  # Daily at 2 AM UTC
-  workflow_dispatch:     # Manual trigger button
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -22,17 +22,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Get upstream repo
-        id: upstream
-        run: |
-          UPSTREAM_URL=$(gh api repos/${{ github.repository }}/parent --jq '.clone_url')
-          echo "url=$UPSTREAM_URL" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Sync fork
         run: |
-          git remote add upstream ${{ steps.upstream.outputs.url }}
+          git remote add upstream https://github.com/ORIGINAL-OWNER/ORIGINAL-REPO-NAME.git
           git fetch upstream
           DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           git merge upstream/$DEFAULT_BRANCH --ff-only || git merge upstream/$DEFAULT_BRANCH --no-edit

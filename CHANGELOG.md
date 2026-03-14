@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.34.5] - 2026-03-14
 ### Fixed
 - Print/Preview/PDF now preserve notation/text font overrides reliably by resolving bundled font URLs for the temporary print document.
 - Font assignment in Settings is now robust when users add/remove custom fonts across `Notation font` and `Text font` selectors:
@@ -17,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated bundled `abc2svg` engine files (`abc2svg-1.js`, `MIDI-1.js`) to the current integrated upstream state used in this tree.
-
-
 
 ## [0.34.4] - 2026-03-02
 ### Fixed

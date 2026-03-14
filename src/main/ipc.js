@@ -384,8 +384,10 @@ function classifyFontName(name) {
   const raw = String(name || "");
   if (!raw) return "notation";
   const stem = raw.replace(/\.(otf|ttf|woff2?)$/i, "");
-  if (/(text|script)$/i.test(stem)) return "text";
-  return /(?:^|[._\-\s])(text|script)(?:[._\-\s]|$)/i.test(stem) ? "text" : "notation";
+  // Treat text/script families as text fonts even when embedded in CamelCase names,
+  // e.g. "FinaleMaestroText-Regular.otf".
+  if (/(text|script)(?:[._\-\s]|$)/i.test(stem)) return "text";
+  return "notation";
 	}
 
 	function shouldReversePortalMultiSelection(settings) {
@@ -438,6 +440,7 @@ function registerIpcHandlers(ctx) {
 	    updateSettings,
 	    requestQuit,
 	    getLastRecent,
+      reportStartupStatus,
 	  } = ctx;
 
   const resolveTemplatesFolder = () => {
@@ -1688,6 +1691,15 @@ function registerIpcHandlers(ctx) {
   // Note: we intentionally do not expose attach/detach/reload controls in the UI.
   // The file-backed mode is activated by Export/Import and silently falls back to internal if the file disappears.
   ipcMain.handle("recent:last", async () => getLastRecent());
+  ipcMain.handle("app:startup-status", async (_event, text) => {
+    try {
+      if (typeof reportStartupStatus === "function") {
+        const label = String(text || "").trim().slice(0, 120);
+        if (label) reportStartupStatus(label);
+      }
+    } catch {}
+    return { ok: true };
+  });
   ipcMain.handle("shell:open-external", async (_event, url) => {
     try {
       if (!url) return { ok: false, error: "Missing URL." };

@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Print/Preview/PDF now preserve notation/text font overrides reliably by resolving bundled font URLs for the temporary print document.
+- Font assignment in Settings is now robust when users add/remove custom fonts across `Notation font` and `Text font` selectors:
+  text-family names such as `FinaleMaestroText-Regular` are classified correctly, selectors stay synchronized, and stale removed references are cleared.
+
+### Added
+- Startup splash status plumbing between renderer and main process (`app:startup-status`) for clearer startup-phase reporting.
+- Setting `Startup splash duration (s)` in `Settings -> General -> Startup` to control minimum splash visibility (0 disables splash).
+
+### Changed
+- Updated bundled `abc2svg` engine files (`abc2svg-1.js`, `MIDI-1.js`) to the current integrated upstream state used in this tree.
+
 
 
 ## [0.34.4] - 2026-03-02

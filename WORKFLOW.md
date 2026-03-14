@@ -195,6 +195,26 @@ To avoid spamming GitHub with WIP commits during rapid iteration:
 - If you need to share progress mid-way, prefer a **single “checkpoint” push** with a clear message (or open a Draft PR), rather than many small pushes.
 - Once the fix is confirmed, squash/clean up as needed, then push and open/update the PR.
 
+## Local Canary Branch (no push)
+
+For risky experiments (upstream `abc2svg` tip, partial rewrites, invasive refactors), use a local-only canary branch:
+
+- Branch naming (example): `canary-local-YYYYMMDD` (or similar local naming).
+- Purpose: validate behavior quickly with harnesses and manual smoke checks.
+- **Do not push** canary branches to GitHub.
+- **Do not create releases** from canary branches.
+- Treat canary work as disposable/staging: keep only proven minimal diffs and move them into normal working branches after validation.
+
+Suggested sequence:
+
+```bash
+git checkout -b canary-local-YYYYMMDD
+# apply experiment(s)
+npm run test:quick
+# run manual smoke checks
+# if validated: cherry-pick/squash minimal proven commits into target branch
+```
+
 ## Useful Environment Variables (Debug / Ops)
 
 **UI / platform diagnostics**

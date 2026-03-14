@@ -2198,6 +2198,14 @@ function logStartupPerf(label, data) {
   } catch {}
 }
 
+function reportStartupStatus(text) {
+  try {
+    if (window.api && typeof window.api.reportStartupStatus === "function") {
+      window.api.reportStartupStatus(String(text || "")).catch(() => {});
+    }
+  } catch {}
+}
+
 function abbreviatePathForLog(fullPath, tailSegments = 3) {
   if (!fullPath) return "";
   const raw = String(fullPath);
@@ -7547,19 +7555,23 @@ function refreshErrorsNow() {
 
 async function loadLastRecentEntry() {
   if (!window.api || typeof window.api.getLastRecent !== "function") return false;
+  reportStartupStatus("Checking recent files…");
   const res = await window.api.getLastRecent();
   if (!res || !res.entry) return false;
   if (res.type === "tune") {
+    reportStartupStatus("Opening recent tune…");
     startupRecentOpenStarted = true;
     await openRecentTune(res.entry);
     return true;
   }
   if (res.type === "file") {
+    reportStartupStatus("Opening recent file…");
     startupRecentOpenStarted = true;
     await openRecentFile(res.entry);
     return true;
   }
   if (res.type === "folder") {
+    reportStartupStatus("Opening recent folder…");
     startupRecentOpenStarted = true;
     await openRecentFolder(res.entry);
     return true;
@@ -12616,6 +12628,7 @@ async function refreshLibraryIndex() {
 
 async function loadLibraryFromFolder(folder) {
   if (!window.api || !folder) return;
+  reportStartupStatus("Scanning library…");
   startupAutoLoadStarted = true;
   renderUnifiedStatus();
   const perfOn = isStartupPerfEnabled();
@@ -12666,6 +12679,7 @@ async function loadLibraryFromFolder(folder) {
       // User switched again while discover ran.
       return;
     }
+    reportStartupStatus("Indexing tunes…");
     await ensureFullLibraryIndex({ reason: "library" });
     if (libraryIndex && libraryIndex.root && libraryIndex.root !== folder) return;
 
@@ -12695,6 +12709,7 @@ async function loadLibraryFromFolder(folder) {
         }
       }
       if (firstTuneId) {
+        reportStartupStatus("Opening first tune…");
         const tSel0 = perfOn ? perfNowMs() : 0;
         await selectTune(firstTuneId);
         if (perfOn) logStartupPerf("selectTune(first)", { ms: Math.round(perfNowMs() - tSel0) });

@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld("api", {
   getLastRecent: async () => ipcRenderer.invoke("recent:last"),
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
+  reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),
   pathJoin: (...parts) => path.join(...parts.map((part) => String(part || ""))),

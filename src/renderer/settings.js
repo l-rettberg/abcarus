@@ -151,6 +151,7 @@ const FALLBACK_SCHEMA = [
   { key: "globalHeaderEnabled", type: "boolean", default: true, section: "Header", label: "Enable global header", ui: { input: "checkbox" } },
   { key: "globalHeaderText", type: "string", default: "", section: "Header", label: "Global header", ui: { input: "code" } },
   { key: "usePortalFileDialogs", type: "boolean", default: true, section: "Dialogs", label: "Use portal file dialogs (Linux)", ui: { input: "checkbox" }, advanced: true },
+  { key: "startupSplashSeconds", type: "number", default: 0, section: "General", group: "Startup", groupOrder: 12, label: "Startup splash duration (s)", help: "Minimum time to keep the startup splash visible. Set 0 to disable splash.", ui: { input: "number", min: 0, max: 30, step: 1 } },
   { key: "libraryAutoRenumberAfterMove", type: "boolean", default: false, section: "Library", label: "Auto-renumber X after move", ui: { input: "checkbox" } },
 	  { key: "followHighlightColor", type: "string", default: "#1e90ff", section: "Playback", label: "Follow highlight color", ui: { input: "color" } },
 	  { key: "followMeasureColor", type: "string", default: "", section: "Playback", label: "Follow staff color", ui: { input: "color" }, advanced: true },
@@ -332,6 +333,37 @@ export function initSettings(api) {
     // Restore selection if possible.
     selectEl.value = prev;
     if (selectEl.value !== prev) selectEl.value = "";
+  }
+
+  function isFontRefInOptions(ref, optionsKey) {
+    const raw = String(ref || "");
+    if (!raw) return false;
+    const list = optionsKey === "textFonts"
+      ? (cachedFontLists && Array.isArray(cachedFontLists.text) ? cachedFontLists.text : [])
+      : (cachedFontLists && Array.isArray(cachedFontLists.notation) ? cachedFontLists.notation : []);
+    return list.includes(raw);
+  }
+
+  function classifyFontRef(ref) {
+    const raw = String(ref || "");
+    if (!raw) return "";
+    if (isFontRefInOptions(raw, "notationFonts")) return "notation";
+    if (isFontRefInOptions(raw, "textFonts")) return "text";
+    return "";
+  }
+
+  function refreshFontSelectControls() {
+    const effective = getEffectiveSettings();
+    for (const [key, meta] of controlByKey.entries()) {
+      if (!meta || !meta.entry || !meta.el) continue;
+      if (!meta.entry.ui || meta.entry.ui.input !== "select") continue;
+      const optionsKey = meta.entry.ui && meta.entry.ui.options ? String(meta.entry.ui.options) : "";
+      if (optionsKey !== "notationFonts" && optionsKey !== "textFonts") continue;
+      populateFontSelect(meta.el, optionsKey);
+      const v = String(effective[key] || "");
+      meta.el.value = v;
+      if (meta.el.value !== v) meta.el.value = "";
+    }
   }
 
   function safeBasename(value) {
@@ -1088,10 +1120,25 @@ export function initSettings(api) {
             ],
           };
         }
-        populateFontSelect(select, optionsKey);
         const newRef = `user:${String(res.name || "")}`;
-        select.value = newRef;
-        stageSetting(entry.key, newRef);
+        refreshFontSelectControls();
+
+        const category = classifyFontRef(newRef);
+        const keyByCategory = {
+          notation: "abc2svgNotationFontFile",
+          text: "abc2svgTextFontFile",
+        };
+        const targetKey = keyByCategory[category] || entry.key;
+
+        if (targetKey === entry.key && isFontRefInOptions(newRef, optionsKey)) {
+          select.value = newRef;
+          stageSetting(entry.key, newRef);
+          return;
+        }
+
+        // If user added a font via the "wrong" picker (e.g. text font in notation selector),
+        // route it to the matching setting to avoid ending up with an empty/invalid select value.
+        stageSetting(targetKey, newRef);
       });
 
       const removeBtn = document.createElement("button");
@@ -1151,9 +1198,15 @@ export function initSettings(api) {
             ],
           };
         }
-        populateFontSelect(select, optionsKey);
-        select.value = "";
-        stageSetting(entry.key, "");
+        refreshFontSelectControls();
+        const removedRef = `user:${fileName}`;
+        const effective = getEffectiveSettings();
+        if (String(effective.abc2svgNotationFontFile || "") === removedRef) {
+          stageSetting("abc2svgNotationFontFile", "");
+        }
+        if (String(effective.abc2svgTextFontFile || "") === removedRef) {
+          stageSetting("abc2svgTextFontFile", "");
+        }
       });
 
       const updateRemoveEnabled = () => {

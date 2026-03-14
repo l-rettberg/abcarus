@@ -43,10 +43,15 @@ After verifying the SHA256 sums, you can remove the quarantine attribute:
 Use a release build from GitHub Releases (recommended for normal use).
 
 - Linux: download the AppImage, make it executable, run it.
-- Windows: download Setup (`ABCarus-setup-x64.exe`) or Portable (`ABCarus-portable-x64.exe`), then launch.
+- Windows: download Setup (`ABCarus-setup-x64.exe`) or Portable (`ABCarus-portable-x64.exe`), then launch. For faster/steadier startup, prefer `ABCarus-win-unpacked-x64.zip`.
 - macOS: download the DMG for your CPU (arm64/x64), install, then launch.
 
 Release builds already bundle everything needed for normal use, including the Python runtime used by MusicXML import/export.
+
+## Known limitations
+
+- Windows single-file Portable (`ABCarus-portable-x64.exe`) may start slowly on some systems (for example due to pre-launch extraction and OS security scanning). In this period, app UI may not appear immediately.
+- If this affects your workflow, use `ABCarus-win-unpacked-x64.zip` (folder-based portable build), which typically starts faster and more predictably.
 
 ## Documentation
 

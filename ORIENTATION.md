@@ -20,6 +20,13 @@ ABCarus is a small Electron desktop app for working with ABC notation:
 - Maintain existing **menu action strings** and **IPC message names**.
 - Keep changes small and focused; avoid new dependencies unless necessary.
 
+## Decision principles (default)
+
+- Optimize for **simplicity, minimalism, efficiency, and maintainability**.
+- Prefer the most direct reliable solution over a complex “generic” architecture.
+- Add complexity only when a simpler approach is proven insufficient.
+- Avoid “engineering theater”: extra layers or abstractions that do not improve reliability, speed, or user value.
+
 ## “Where to look” (in order)
 
 1) [AGENTS.md](AGENTS.md) — repo-specific agent notes + constraints.

@@ -1,7 +1,7 @@
 // main.js
 const fs = require("fs");
 const path = require("path");
-const { fileURLToPath } = require("url");
+const { fileURLToPath, pathToFileURL } = require("url");
 const childProcess = require("child_process");
 const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen } = require("electron");
 const { applyMenu } = require("./menu");
@@ -12,7 +12,11 @@ const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
 
 let mainWindow = null;
+let splashWindow = null;
+let splashPendingStatus = "Starting…";
+let splashShownAtMs = 0;
 let isQuitting = false;
+let startupSplashMinVisibleMs = 3000;
 
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
 const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
@@ -132,6 +136,121 @@ function resolveWindowIconPath() {
   return resolveAppIconPath();
 }
 
+function escapeForInlineHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function getSplashLogoDataUrl() {
+  try {
+    const logoPath = path.join(app.getAppPath(), "assets", "icons", "abcarus_256.png");
+    const b64 = fs.readFileSync(logoPath).toString("base64");
+    if (!b64) return "";
+    return `data:image/png;base64,${b64}`;
+  } catch {
+    return "";
+  }
+}
+
+function createSplashWindow() {
+  if (startupSplashMinVisibleMs <= 0) return null;
+  if (splashWindow && !splashWindow.isDestroyed()) return splashWindow;
+  const logoUrl = getSplashLogoDataUrl();
+  const logoMarkup = logoUrl
+    ? `<img class="logo" src="${escapeForInlineHtml(logoUrl)}" alt="" />`
+    : "";
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ABCarus</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f3f4f6;
+      color: #1f2937;
+      display: grid;
+      place-items: center;
+    }
+    .wrap { text-align: center; user-select: none; }
+    .logo { width: 88px; height: 88px; object-fit: contain; margin-bottom: 14px; }
+    .title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .status { font-size: 13px; color: #4b5563; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    ${logoMarkup}
+    <div class="title">ABCarus</div>
+    <div id="status" class="status">Starting…</div>
+  </div>
+</body>
+</html>`;
+
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 250,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    alwaysOnTop: true,
+    autoHideMenuBar: true,
+    backgroundColor: "#f3f4f6",
+    icon: resolveWindowIconPath(),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  splashWindow.once("closed", () => { splashWindow = null; });
+  splashWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`).catch(() => {});
+  splashWindow.once("ready-to-show", () => {
+    splashShownAtMs = Date.now();
+    try { splashWindow.show(); } catch {}
+  });
+  return splashWindow;
+}
+
+function updateSplashStatus(text) {
+  splashPendingStatus = String(text || "Starting…");
+  const win = splashWindow;
+  if (!win || win.isDestroyed()) return;
+  const safe = JSON.stringify(splashPendingStatus);
+  win.webContents.executeJavaScript(
+    `(() => {
+      const el = document.getElementById("status");
+      if (el) el.textContent = ${safe};
+    })();`,
+    true
+  ).catch(() => {});
+}
+
+function closeSplashWindow() {
+  const win = splashWindow;
+  splashWindow = null;
+  if (!win || win.isDestroyed()) return;
+  const minVisible = Math.max(0, Number(startupSplashMinVisibleMs) || 0);
+  const shownAt = Number(splashShownAtMs) || 0;
+  splashShownAtMs = 0;
+  const elapsed = shownAt > 0 ? (Date.now() - shownAt) : minVisible;
+  const waitMs = Math.max(0, minVisible - elapsed);
+  if (waitMs > 0) {
+    setTimeout(() => {
+      try { if (!win.isDestroyed()) win.close(); } catch {}
+    }, waitMs);
+    return;
+  }
+  try { win.close(); } catch {}
+}
+
 function getDefaultSettings() {
   // Source of truth: `src/main/settings_schema.js`.
   return getDefaultSettingsFromSchema();
@@ -139,6 +258,22 @@ function getDefaultSettings() {
 
 function getStatePath() {
   return path.join(app.getPath("userData"), "state.json");
+}
+
+function readStartupSplashSecondsPreferenceSync() {
+  try {
+    const raw = fs.readFileSync(getStatePath(), "utf8");
+    const data = JSON.parse(raw);
+    const settings = data && data.settings ? data.settings : null;
+    const secsRaw = settings ? settings.startupSplashSeconds : undefined;
+    const secs = Number(secsRaw);
+    if (Number.isFinite(secs)) return Math.max(0, Math.min(30, secs));
+    // Backward compatibility: old boolean setting.
+    if (settings && typeof settings.startupSplashEnabled === "boolean") {
+      return settings.startupSplashEnabled ? 3 : 0;
+    }
+  } catch {}
+  return 0;
 }
 
 function getSettingsPaths() {
@@ -755,9 +890,37 @@ function injectFontIntoSvg(svgMarkup, fontBase64) {
   });
 }
 
+function normalizeSvgFontUrlsForPrint(svgMarkup) {
+  const raw = String(svgMarkup || "");
+  if (!raw) return raw;
+  const notationDir = path.join(app.getAppPath(), "assets", "fonts", "notation");
+  // Rewrite bundled relative font URLs to absolute file:// URLs so temp print HTML can resolve them.
+  return raw.replace(/url\((['"]?)(\.\.\/\.\.\/assets\/fonts\/notation\/([^)'"]+))\1\)/gi, (_m, quote, _fullRel, filePart) => {
+    const originalName = String(filePart || "").trim();
+    if (!originalName) return _m;
+    const decodeName = (value) => {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
+    let fileName = decodeName(originalName);
+    // Backward-compat with historical values like bundled:Leland.otf or user:*.otf leaked into bundled URL.
+    fileName = fileName.replace(/^(bundled|user):/i, "");
+    if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) return _m;
+    const absPath = path.join(notationDir, fileName);
+    if (!fs.existsSync(absPath)) return _m;
+    const absUrl = pathToFileURL(absPath).href;
+    const q = quote || '"';
+    return `url(${q}${absUrl}${q})`;
+  });
+}
+
 function buildPrintHtml(svgMarkup, fontBase64) {
   const rawMarkup = String(svgMarkup || "");
-  const safeSvg = injectFontIntoSvg(rawMarkup, fontBase64);
+  const normalizedMarkup = normalizeSvgFontUrlsForPrint(rawMarkup);
+  const safeSvg = injectFontIntoSvg(normalizedMarkup, fontBase64);
   const forceRaster = rawMarkup.includes("<!--abcarus:force-raster-->");
   const skipRaster = rawMarkup.includes("<!--abcarus:no-raster-->") || !forceRaster;
   return `<!doctype html>
@@ -2094,11 +2257,13 @@ async function scanLibrary(rootDir, sender, options = {}) {
 
 async function createWindow() {
   logStartupPerf("createWindow()");
+  updateSplashStatus("Creating window…");
   // Default to following the OS theme (also used for picking a visible window icon on Linux).
   nativeTheme.themeSource = "system";
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false,
     icon: resolveWindowIconPath(),
     webPreferences: {
       contextIsolation: true,
@@ -2169,11 +2334,14 @@ async function createWindow() {
   logStartupPerf("loadFile(index.html) queued");
   // Avoid maximizing before the renderer is ready: it can make the initial window paint feel sluggish.
   const shouldMaximize = process.env.ABCARUS_DEV_NO_MAXIMIZE !== "1";
-  if (shouldMaximize) {
-    win.once("ready-to-show", () => {
+  win.once("ready-to-show", () => {
+    updateSplashStatus("Opening main window…");
+    if (shouldMaximize) {
       try { win.maximize(); } catch {}
-    });
-  }
+    }
+    try { win.show(); } catch {}
+    closeSplashWindow();
+  });
   const shouldForwardConsole = (process.env.ABCARUS_DEV_FORWARD_CONSOLE === "1")
     || (process.env.NODE_ENV !== "production" && !app.isPackaged);
   if (shouldForwardConsole) {
@@ -2370,24 +2538,34 @@ async function runUiSmoke(win) {
 
 app.whenReady().then(async () => {
   logStartupPerf("app.whenReady()");
+  const startupSplashSeconds = readStartupSplashSecondsPreferenceSync();
+  startupSplashMinVisibleMs = Math.round(Math.max(0, startupSplashSeconds) * 1000);
+  if (startupSplashMinVisibleMs > 0) {
+    createSplashWindow();
+    updateSplashStatus("Initializing…");
+  }
   app.setName("ABCarus");
   if (process.platform === "win32") {
     app.setAppUserModelId("com.abcarus.app");
   }
   logStartupPerf("loadState() start");
+  updateSplashStatus("Loading settings…");
   await loadState();
   logStartupPerf("loadState() done");
   if (process.platform === "linux" && appState.settings && appState.settings.usePortalFileDialogs) {
     process.env.GTK_USE_PORTAL = "1";
   }
   logStartupPerf("migrateStatePaths() start");
+  updateSplashStatus("Migrating state…");
   await migrateStatePaths();
   logStartupPerf("migrateStatePaths() done");
   logStartupPerf("clearDevRuntimeCaches() start");
+  updateSplashStatus("Preparing runtime cache…");
   await clearDevRuntimeCaches();
   logStartupPerf("clearDevRuntimeCaches() done");
   cleanupTempPrintFiles().catch(() => {});
   logStartupPerf("cleanupTempPrintFiles() queued");
+  updateSplashStatus("Starting UI…");
   await createWindow();
   refreshMenu();
   logStartupPerf("refreshMenu() done");
@@ -2399,6 +2577,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  closeSplashWindow();
   if (process.platform !== "darwin") app.quit();
 });
 
@@ -2455,5 +2634,8 @@ registerIpcHandlers({
   requestQuit: () => {
     isQuitting = true;
     app.quit();
+  },
+  reportStartupStatus: (text) => {
+    updateSplashStatus(text);
   },
 });

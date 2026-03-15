@@ -37,6 +37,17 @@ function getSettingsSchema() {
       ui: { input: "percent", min: 50, max: 800, step: 5 },
     },
     {
+      key: "startupSplashSeconds",
+      type: "number",
+      default: 0,
+      section: "General",
+      group: "Startup",
+      groupOrder: 12,
+      label: "Startup splash duration (s)",
+      help: "Minimum time to keep the startup splash visible. Set 0 to disable splash.",
+      ui: { input: "number", min: 0, max: 30, step: 1 },
+    },
+    {
       key: "followPlayback",
       type: "boolean",
       default: true,

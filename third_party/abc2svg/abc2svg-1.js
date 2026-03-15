@@ -2412,7 +2412,7 @@ dy=staffsep;maxsep=fmt.maxstaffsep*.5
 if(dy>maxsep)
 dy=maxsep;return y+dy}
 function draw_systems(indent){var s,s2,st,x,x2,res,sy,xstaff=[],stl=[],bar_bot=[],bar_height=[],bar_ng=[],ba=[],sb="",thb=""
-function bar_set(){var st,sc,i,j,l,stlines,b,hlmap,dy=0
+function bar_set(tim){var st,sc,i,j,l,stlines,b,hlmap,dy=0
 for(st=0;st<=cur_sy.nstaff;st++){if(xstaff[st]<0){bar_bot[st]=bar_height[st]=0
 continue}
 sc=staff_tb[st].staffscale;stlines=cur_sy.staves[st].stafflines
@@ -2435,15 +2435,15 @@ i=ba.length
 if(!i)
 return
 while(--i>=0){b=ba[i]
+if(b[0].time!=tim)
+break
 st=b[0].st
 if(b[1]>bar_bot[st])
 b[1]=bar_bot[st]
 if(b[2]<bar_height[st])
 b[2]=bar_height[st]
 if(b[3]<bar_ng[st])
-b[3]=bar_ng[st]
-if(b[0].seqst)
-break}}
+b[3]=bar_ng[st]}}
 function draw_staff(st,x1,x2){var w,i,dy,ty,y=0,ln="",tycl={"|":"slW","[":"slthW","'":"sltnW",":":"sldW"},stafflines=cur_sy.staves[st].stafflines,l=stafflines.length,il=6*staff_tb[st].staffscale
 if(!/[\[|':]/.test(stafflines))
 return
@@ -2540,7 +2540,8 @@ return s.x
 return s.x-s.wl}
 for(st=0;st<=nstaff;st++){stl[st]=cur_sy.st_print[st]
 xstaff[st]=!stl[st]?-1:0}
-bar_set();draw_lstaff(0)
+bar_set(0)
+draw_lstaff(0)
 for(s=tsfirst;s;s=s.ts_next){switch(s.type){case C.STAVES:sy=s.sy
 for(st=0;st<=nstaff;st++){x=xstaff[st]
 if(x<0){if(sy.st_print[st]){xstaff[st]=st1(st,s)
@@ -2554,7 +2555,7 @@ x2-=s.ts_prev.wl-4}else{x2=(s.ts_prev.x+s.x)/2
 xstaff[st]=-1}
 draw_staff(st,x,x2)
 xstaff[st]=sy.st_print[st]?x2:-1}
-cur_sy=sy;bar_set()
+cur_sy=sy;bar_set(s.time)
 continue
 case C.BAR:if(s.invis||!s.bar_type||!cur_sy.st_print[s.st])
 break
@@ -3384,10 +3385,10 @@ break
 case"altchord":case"bstemdown":case"breakoneoln":case"cancelkey":case"checkbars":case"contbarnb":case"custos":case"decoerr":case"flatbeams":case"graceslurs":case"graceword":case"hyphencont":case"keywarn":case"linewarn":case"squarebreve":case"splittune":case"straightflags":case"stretchstaff":case"timewarn":case"titlecaps":case"titleleft":case"trimsvg":cfmt[cmd]=get_bool(param)
 break
 case"dblrepbar":param=":: "+param
-case"bardef":v=param.split(/\s+/)
-if(v.length!=2){syntax(1,errs.bad_val,"%%bardef")}else{if(parse.ufmt)
+case"bardef":v=/([^\s]+)\s*(.+)/.exec(param)
+if(!v){syntax(1,errs.bad_val,"%%bardef")}else{if(parse.ufmt)
 cfmt.bardef=Object.create(cfmt.bardef)
-cfmt.bardef[v[0]]=v[1]}
+cfmt.bardef[v[1]]=v[2]}
 break
 case"chordalias":v=param.split(/\s+/)
 if(!v.length)
@@ -4745,8 +4746,8 @@ if(s2.seqst){for(s=s2.ts_next;!s.seqst;s=s.ts_next);s2.shrink=s.shrink
 s.shrink=s2.wr+s.wl
 s2.space=s.space
 s.space=0}
-delete s2.part}
-s2.bar_type="||"}
+delete s2.part
+s2.bar_type="|"}}
 s=so
 while(s&&s.time==so.time){if(s.bar_type&&s.bar_type.slice(-1)==':'){s2=s
 break}
@@ -5661,7 +5662,11 @@ for(s=p_voice.sym;s;s=s.next){if(s.a_gch)
 self.gch_build(s)
 switch(s.type){case C.MREST:start_flag=true
 break
-case C.BAR:res=s.fmt.bardef[s.bar_type]
+case C.BAR:if(s.text){res=s.fmt.bardef[s.bar_type+s.text]
+if(res){res=/([|:[\]]+)(.*)/.exec(res)
+s.bar_type=res[1]
+s.text=res[2]}}
+res=s.fmt.bardef[s.bar_type]
 if(res)
 s.bar_type=res
 if(!s.beam_on)
@@ -9167,11 +9172,14 @@ if(curvoice.clone)
 do_cloning()
 s={type:C.STBRK,dur:0}
 if(param.slice(-1)=='f'){s.stbrk_forced=true
-param=param.replace(/\sf$/,'')}
+param=param.replace(/\s+f$/,'')}
 if(param){val=get_unit(param)
 if(isNaN(val)){syntax(1,errs.bad_val,"%%staffbreak")
 return}
-s.xmx=val}else{s.xmx=14}
+s.xmx=val}else{s.type=C.STAVES
+s.sy=clone(par_sy,2)
+par_sy.next=s.sy
+par_sy=s.sy}
 sym_link(s)
 return
 case"tacet":if(param[0]=='"')
@@ -9366,7 +9374,7 @@ if(p_voice.eoln){eoln=1
 delete p_voice.eoln}
 if(p_voice.time>maxtime)
 maxtime=p_voice.time}
-if(!maxtime){par_sy.staves=[]
+if(staves_found<0){par_sy.staves=[]
 par_sy.voices=[]}else{self.voice_adj(1)
 for(v=0;v<nv;v++){p_voice=voice_tb[v]
 if(maxtime-p_voice.time>=p_voice.meter.wmeasure)
@@ -10260,4 +10268,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.22.37";abc2svg.vdate="2026-02-22"
+abc2svg.version="v1.22.37";abc2svg.vdate="2026-03-11"

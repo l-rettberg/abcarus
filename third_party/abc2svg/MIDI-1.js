@@ -33,7 +33,6 @@ cfmt.chord.vol=v
 break
 case"drum":case"drumon":case"drumoff":case"drumbars":if(!curvoice){abc.syntax(1,"$1 must be in a voice","%%MIDI "+a[1])
 break}
-cfmt.drum=1
 s=abc.new_block("mididrum")
 s.play=s.invis=1
 switch(a[1].slice(4)){case"on":s.on=1
@@ -51,14 +50,29 @@ v=null
 if(v){n=s.txt[0].match(/d/g).length
 v=s.txt.slice(1).join(' ')
 v=v.match(/[^dz\s][0-9]+/g)
-if(v&&(v.length==n||v.length==2*n))
+if(!v||(v.length!=n&&v.length!=2*n))
+v=null}
+if(!v){q=1
 break}
-q=1
+s.seq=[]
+var i=0,j=3
+while(1){v=a[2][i++]
+if(!v)
+break
+if(v=='z')
+s.seq.push(null)
+else if(v>='2'&&v<'9')
+while(--v>0)
+s.seq.push(null)
+else
+s.seq.push([a[j++]])}
 break}
 if(q){abc.syntax(1,abc.errs.bad_val,"%%MIDI "+a[1])
 curvoice.last_sym=s.prev
 if(s.prev)
 s.prev.next=null}
+if(!cfmt.drum)
+cfmt.drum={}
 break
 case"gchord":case"gchordbars":case"gchordon":case"gchordoff":if(!cfmt.chord)
 cfmt.chord={}

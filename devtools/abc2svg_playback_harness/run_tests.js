@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+/* eslint-disable no-console */
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+
+const ROOT = path.resolve(__dirname, "../..");
+const ABC2SVG_PATH = path.join(ROOT, "third_party", "abc2svg", "abc2svg-1.js");
+const SND_PATH = path.join(ROOT, "third_party", "abc2svg", "snd-1.js");
+
+function fail(message) {
+  throw new Error(String(message || "Test failed"));
+}
+
+function assert(condition, message) {
+  if (!condition) fail(message);
+}
+
+function createSandbox() {
+  const sessionStorage = {
+    getItem() { return null; },
+    setItem() {},
+    removeItem() {},
+  };
+  const sandbox = {
+    console,
+    setTimeout,
+    clearTimeout,
+    navigator: {},
+    alert() {},
+    prompt() { return null; },
+    sessionStorage,
+    window: null,
+    exports: {},
+    module: { exports: {} },
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(ABC2SVG_PATH, "utf8"), sandbox, { filename: "abc2svg-1.js" });
+  vm.runInContext(fs.readFileSync(SND_PATH, "utf8"), sandbox, { filename: "snd-1.js" });
+  return sandbox;
+}
+
+function parseOnce(sandbox, abcText) {
+  const AbcCtor = sandbox.abc2svg && sandbox.abc2svg.Abc;
+  assert(typeof AbcCtor === "function", "abc2svg constructor unavailable");
+  const messages = [];
+  const user = {
+    img_out() {},
+    err(m) { messages.push(String(m || "")); },
+    errmsg(m) { messages.push(String(m || "")); },
+  };
+  const abc = new AbcCtor(user);
+  abc.tosvg("test", String(abcText || ""));
+  return { abc, messages };
+}
+
+function applyRendererCompatShim(sandbox) {
+  if (sandbox.abc2svg && sandbox.abc2svg.drum == null) {
+    sandbox.abc2svg.drum = () => {};
+  }
+}
+
+const DRUM_TUNE = `X:1
+T:Drum Hook Regression
+M:4/4
+L:1/8
+Q:1/4=120
+K:C
+%%MIDI drumon
+%%MIDI drum dddddddd 36 42 42 42 38 42 42 42
+V:1
+CDEF GABc|cBAG FEDC|]
+`;
+
+function main() {
+  const sandbox = createSandbox();
+  assert(sandbox.abc2svg && sandbox.abc2svg.drum, "snd-1.js did not register abc2svg.drum");
+  assert(typeof sandbox.abc2svg.drum === "object", "abc2svg.drum should remain an object in current upstream");
+  assert(typeof sandbox.abc2svg.drum.beg_end === "function", "abc2svg.drum.beg_end missing");
+
+  parseOnce(sandbox, DRUM_TUNE);
+  applyRendererCompatShim(sandbox);
+
+  assert(typeof sandbox.abc2svg.drum === "object", "renderer compat shim must not overwrite abc2svg.drum object");
+  assert(typeof sandbox.abc2svg.drum.beg_end === "function", "abc2svg.drum.beg_end missing after compat shim");
+
+  parseOnce(sandbox, DRUM_TUNE);
+  console.log("% PASS abc2svg playback harness: native drum hooks survive renderer compat shim");
+}
+
+try {
+  main();
+} catch (error) {
+  console.error("% FAIL abc2svg playback harness:", error && error.message ? error.message : String(error));
+  process.exit(1);
+}

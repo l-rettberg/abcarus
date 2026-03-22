@@ -7935,11 +7935,24 @@ async function enterRawMode() {
   if (!ok) return;
 
   try { stopPlaybackTransport(); } catch {}
+  try { await flushWorkingCopyTuneSync(); } catch {}
+  try { await flushWorkingCopyFullSync(); } catch {}
 
-  const readRes = await readFile(filePath);
-  if (!readRes || !readRes.ok) {
-    await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-    return;
+  let fullText = "";
+  let snapshot = null;
+  try {
+    await ensureWorkingCopyOpenForPath(filePath);
+    snapshot = await refreshWorkingCopySnapshot();
+  } catch {}
+  if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
+    fullText = String(snapshot.text || "");
+  } else {
+    const readRes = await readFile(filePath);
+    if (!readRes || !readRes.ok) {
+      await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+      return;
+    }
+    fullText = String(readRes.data || "");
   }
 
   activeFilePath = filePath;
@@ -7949,11 +7962,11 @@ async function enterRawMode() {
     targetTuneUid: "",
     source: "raw_mode",
   });
-  setFileContentInCache(filePath, readRes.data || "");
+  setFileContentInCache(filePath, fullText);
   const updatedFile = await refreshLibraryFile(filePath, { force: true });
   const entry = updatedFile || getActiveFileEntry();
-  const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset) ? Number(entry.headerEndOffset) : findHeaderEndOffset(readRes.data || "");
-  const bodyText = String(readRes.data || "").slice(headerEndOffset);
+  const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset) ? Number(entry.headerEndOffset) : findHeaderEndOffset(fullText);
+  const bodyText = String(fullText || "").slice(headerEndOffset);
 
   rawModeFilePath = filePath;
   rawModeHeaderEndOffset = headerEndOffset;
@@ -15283,6 +15296,12 @@ function hasGlobalUnsavedChanges() {
   return Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
 }
 
+function hasUnsavedChangesInActiveEditContext() {
+  const activePath = getActiveEditFilePath();
+  if (!activePath) return hasGlobalUnsavedChanges();
+  return hasUnsavedChangesForFile(activePath);
+}
+
 async function requireCleanForFileOp(targetPath, actionLabel) {
   const p = String(targetPath || "");
   const label = String(actionLabel || "this action");
@@ -19656,7 +19675,8 @@ function ensureCopyTitleInAbc(abcText) {
 async function confirmAbandonIfDirty(contextLabel) {
   const tuneDirty = Boolean(currentDoc && currentDoc.dirty);
   const hdrDirty = Boolean(headerDirty);
-  if (!tuneDirty && !hdrDirty) return true;
+  const fileDirty = hasUnsavedChangesInActiveEditContext();
+  if (!tuneDirty && !hdrDirty && !fileDirty) return true;
 
   const choice = await confirmUnsavedChanges(contextLabel);
   if (choice === "cancel") return false;
@@ -19757,7 +19777,15 @@ async function performSaveFlow() {
     || (activeTuneMeta && activeTuneMeta.path)
     || ""
   );
-  if (headerDirty && headerTargetPath) {
+  const combineHeaderWithWorkingCopySave = Boolean(
+    headerDirty
+    && headerTargetPath
+    && session.intent === SAVE_INTENT.REPLACE_TUNE
+    && activeTuneMeta
+    && activeTuneMeta.path
+    && pathsEqual(activeTuneMeta.path, headerTargetPath)
+  );
+  if (headerDirty && headerTargetPath && !combineHeaderWithWorkingCopySave) {
     try {
       const headerRes = await saveFileHeaderText(headerTargetPath, getHeaderEditorValue());
       if (headerRes && headerRes.ok) {
@@ -19860,6 +19888,20 @@ async function performSaveFlow() {
     try {
       await flushWorkingCopyTuneSync();
     } catch {}
+    if (combineHeaderWithWorkingCopySave && headerDirty && window.api && typeof window.api.applyWorkingCopyHeaderText === "function") {
+      try {
+        const headerRes = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue());
+        if (!headerRes || !headerRes.ok) {
+          await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to update header.");
+          return false;
+        }
+        headerDirty = false;
+        updateHeaderStateUI();
+      } catch (e) {
+        await showSaveError(e && e.message ? e.message : String(e));
+        return false;
+      }
+    }
     if (window.api && typeof window.api.commitWorkingCopyToDisk === "function") {
       const res = await window.api.commitWorkingCopyToDisk({ force: false });
       if (res && res.missingOnDisk) {
@@ -29320,10 +29362,10 @@ async function preparePlayback() {
     lastPlaybackTuneInfo = { count: tunes.length };
   }
 
-  // Compatibility: some upstream abc2svg builds expect abc2svg.drum() to exist when drum features are enabled.
-  // Our playback pipeline can inject/expand drums independently, so missing abc2svg.drum should not hard-fail playback.
+  // Compatibility: older upstream builds exposed `abc2svg.drum` as a function, while newer ones expose
+  // an object with hook methods (`beg_end`, `set_fmt`, `set_hooks`). Only stub when the property is absent.
   try {
-    if (window.abc2svg && typeof window.abc2svg.drum !== "function") {
+    if (window.abc2svg && window.abc2svg.drum == null) {
       window.abc2svg.drum = () => {};
       playbackSanitizeWarnings.push({ kind: "playback-abc2svg-drum-missing-stubbed" });
     }

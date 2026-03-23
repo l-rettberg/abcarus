@@ -886,6 +886,31 @@ function stripChordSymbolsForPlaybackSafe(text) {
   return out.join("\n");
 }
 
+function stripGchordDirectivesSafe(text) {
+  return String(text || "").replace(/^\s*%%\s*MIDI\s+gchord[^\r\n]*$/gim, "");
+}
+
+function neutralizeMidiDrumDirectivesSafe(text) {
+  const raw = String(text || "");
+  if (!/%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(raw)) return raw;
+  return raw.split(/\r\n|\n|\r/).map((line) => {
+    if (!/^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(line)) return line;
+    const idx = line.indexOf("%%");
+    if (idx < 0) return line;
+    return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
+  }).join("\n");
+}
+
+function deriveScopedSkipFlags(playbackSkipDrumsOnce, playbackSkipGchordsOnce, playbackScopedOptions) {
+  const scoped = playbackScopedOptions && typeof playbackScopedOptions === "object"
+    ? playbackScopedOptions
+    : null;
+  return {
+    skipDrums: Boolean(playbackSkipDrumsOnce) || (scoped ? !Boolean(scoped.allowMidiDrums) : false),
+    skipGchords: Boolean(playbackSkipGchordsOnce) || (scoped ? Boolean(scoped.muteGchords) : false),
+  };
+}
+
 function normalizeFocusLoopBoundsForPlaybackState({ focusModeEnabled, fromMeasure, toMeasure }) {
   const from = Math.max(0, Math.min(100000, Number.isFinite(Number(fromMeasure)) ? Math.floor(Number(fromMeasure)) : 0));
   const to = Math.max(0, Math.min(100000, Number.isFinite(Number(toMeasure)) ? Math.floor(Number(toMeasure)) : 0));
@@ -1611,6 +1636,59 @@ async function main() {
     console.log("% PASS TEST 24: Chord-only lines become placeholders and keep tune parseable");
   } catch (e) {
     console.log("% FAIL TEST 24: Chord-only lines become placeholders and keep tune parseable");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Focus-scoped options must be reflected in skip flags (regression for checkbox no-op behavior).
+  try {
+    const f1 = deriveScopedSkipFlags(false, false, { allowMidiDrums: false, muteGchords: true });
+    assert(f1.skipDrums === true, "allowMidiDrums=false must force skipDrums=true");
+    assert(f1.skipGchords === true, "muteGchords=true must force skipGchords=true");
+
+    const f2 = deriveScopedSkipFlags(false, false, { allowMidiDrums: true, muteGchords: false });
+    assert(f2.skipDrums === false, "allowMidiDrums=true should not force skipDrums");
+    assert(f2.skipGchords === false, "muteGchords=false should not force skipGchords");
+
+    const f3 = deriveScopedSkipFlags(true, false, { allowMidiDrums: true, muteGchords: false });
+    assert(f3.skipDrums === true, "one-shot skipDrums must win over scoped options");
+    console.log("% PASS TEST 25: Focus-scoped options map to skip flags deterministically");
+  } catch (e) {
+    console.log("% FAIL TEST 25: Focus-scoped options map to skip flags deterministically");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // When options are OFF in Focus, gchord/drum directives must be suppressed in payload text.
+  try {
+    const src = [
+      "X:1",
+      "T:scoped-controls",
+      "M:4/4",
+      "L:1/8",
+      "K:C",
+      "%%MIDI gchord fzcz",
+      "%%MIDI gchordbars 2",
+      "%%MIDI drumon",
+      "%%MIDI drum dddd 36 42 38 42",
+      "\"C\" C2 D2 | \"G\" E2 F2 |",
+    ].join("\n");
+    const scopedOff = { allowMidiDrums: false, muteGchords: true };
+    const flags = deriveScopedSkipFlags(false, false, scopedOff);
+    let transformed = src;
+    if (flags.skipGchords) {
+      transformed = stripGchordDirectivesSafe(transformed);
+      transformed = stripChordSymbolsForPlaybackSafe(transformed);
+    }
+    if (flags.skipDrums) transformed = neutralizeMidiDrumDirectivesSafe(transformed);
+    assert(!/^\s*%%\s*MIDI\s+gchord\b/im.test(transformed), "gchord directives must be stripped when Chords are OFF");
+    assert(!/^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/im.test(transformed), "drum directives must be neutralized when Drums are OFF");
+    assert(/^\s*%\s*MIDI\s+drum(on|off|bars)?\b/im.test(transformed), "neutralized drum directives should remain as comments");
+    const parsed = parseTuneWithAbc2svg(transformed);
+    assert(parsed, "transformed payload should remain parseable");
+    console.log("% PASS TEST 26: Focus OFF toggles suppress gchord/drum directives in payload");
+  } catch (e) {
+    console.log("% FAIL TEST 26: Focus OFF toggles suppress gchord/drum directives in payload");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

@@ -33,8 +33,6 @@ This comes up often (UI titles, GitHub issues, and JS RegExp):
 
 ## Release (3–5 commands)
 
-**Source of Truth:** docs/RELEASE_CHECKLIST.md
-
 1) Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` (make sure it’s not empty).
 2) Bump version + tag (pick one):
 

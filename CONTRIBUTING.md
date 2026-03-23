@@ -2,6 +2,9 @@
 
 ABCarus is a focused tool with a text-centric architecture. Contributions are welcome, provided they align with the project’s design goals.
 
+> **Important**: Before writing code, please read [ORIENTATION.md](ORIENTATION.md).
+> It acts as the "memory handoff" for the project, detailing invariants, decision principles, and debugging workflows.
+
 ## Scope
 
 Contributions should generally fall into one of the following areas:

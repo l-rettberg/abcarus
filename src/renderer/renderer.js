@@ -23977,6 +23977,7 @@ let lastPlaybackIdx = null;
 let lastRenderIdx = null;
 let lastStartPlaybackIdx = 0;
 let resumeStartIdx = null;
+let pausedSelectionSignature = null;
 let playbackState = null;
 let playbackIndexOffset = 0;
 let lastDrumPlaybackActive = false;
@@ -24863,6 +24864,19 @@ function updatePlaybackInteractionLock() {
 }
 
 function buildTransportPlaybackPlan() {
+  const editorStartOffset = (() => {
+    if (!editorView) return null;
+    try {
+      const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
+      if (!sel) return null;
+      const max = editorView.state.doc.length;
+      const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+      const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+      return Math.min(anchor, head);
+    } catch {
+      return null;
+    }
+  })();
   const tempoMultiplier = focusModeEnabled
     ? (Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : 1)
     : 1;
@@ -24895,11 +24909,49 @@ function buildTransportPlaybackPlan() {
     mode: "transport",
     invalid: false,
     invalidReason: "",
-    rangeStart: Math.max(0, Number(transportPlayheadOffset) || 0),
+    rangeStart: Number.isFinite(editorStartOffset)
+      ? Math.max(0, Number(editorStartOffset) || 0)
+      : Math.max(0, Number(transportPlayheadOffset) || 0),
     rangeEnd: null,
     loopEnabled: false,
     tempoMultiplier,
   };
+}
+
+function getEditorPlayStartOffset() {
+  if (!editorView) return 0;
+  const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
+  if (!sel) return 0;
+  const max = editorView.state.doc.length;
+  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+  return Math.min(anchor, head);
+}
+
+function getEditorSelectionSignature() {
+  if (!editorView) return "";
+  const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
+  if (!sel) return "";
+  const max = editorView.state.doc.length;
+  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+  return `${anchor}:${head}`;
+}
+
+function shouldResumeFromPause() {
+  if (!isPaused) return false;
+  if (focusModeEnabled) return true;
+  if (!pausedSelectionSignature) return true;
+  return getEditorSelectionSignature() === pausedSelectionSignature;
+}
+
+function resolveFocusResumeStartOffset(plan, fallbackStartOffset, candidateResumeOffset) {
+  const start = Math.max(0, Number(fallbackStartOffset) || 0);
+  const end = Number(plan && plan.rangeEnd);
+  const resume = Number(candidateResumeOffset);
+  if (!Number.isFinite(resume) || resume < start) return start;
+  if (Number.isFinite(end) && resume >= end) return start;
+  return resume;
 }
 
 function syncPendingPlaybackPlan() {
@@ -24915,6 +24967,17 @@ function applyPlaybackPlanSpeed(plan) {
 }
 
 async function togglePlayPauseEffective() {
+  // In Focus mode, route through transport controls so Play and Start Over
+  // use one deterministic playback pipeline.
+  if (focusModeEnabled) {
+    if (isPlaying) {
+      pausePlayback();
+      return;
+    }
+    await transportPlay();
+    return;
+  }
+
   if (isPlaying) {
     pausePlayback();
     return;
@@ -24929,8 +24992,12 @@ async function togglePlayPauseEffective() {
     }
     applyPlaybackPlanSpeed(plan);
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
+    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    if (focusModeEnabled) {
+      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
+    }
     await startPlaybackFromRange({
-      startOffset: resumeOffset,
+      startOffset,
       endOffset: plan.rangeEnd,
       origin: focusModeEnabled ? "focus" : "transport",
       loop: plan.loopEnabled,
@@ -24938,16 +25005,7 @@ async function togglePlayPauseEffective() {
     return;
   }
 
-  // Selection-first quick play (no extra UI)
-  if (!focusModeEnabled && !rawMode && !payloadMode) {
-    const played = await playSelectionOnce();
-    if (played) return;
-  }
-
-  if (focusModeEnabled) normalizeFocusLoopBoundsForPlayback();
-  const plan = focusModeEnabled
-    ? buildTransportPlaybackPlan()
-    : (pendingPlaybackPlan || buildTransportPlaybackPlan());
+  const plan = pendingPlaybackPlan || buildTransportPlaybackPlan();
   if (plan && plan.invalid) {
     pendingPlaybackPlan = null;
     showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
@@ -24965,10 +25023,28 @@ async function togglePlayPauseEffective() {
 }
 
 async function transportStartOver() {
-  // "Start Over" should always restart from the beginning, even while playing or paused.
-  // Use the transport stop to cancel any active run and reset the playhead deterministically.
+  // "Start Over" restarts the current playback scope from its beginning.
   if (isPlaying || isPaused || waitingForFirstNote || playbackStartArmed) {
     stopPlaybackTransport();
+  }
+  if (focusModeEnabled) {
+    normalizeFocusLoopBoundsForPlayback();
+    const plan = buildTransportPlaybackPlan();
+    if (plan && plan.invalid) {
+      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
+      return;
+    }
+    applyPlaybackPlanSpeed(plan);
+    await startPlaybackFromRange({
+      startOffset: plan.rangeStart,
+      endOffset: plan.rangeEnd,
+      origin: "focus",
+      loop: plan.loopEnabled,
+    });
+    return;
+  }
+  if (editorView) {
+    editorView.dispatch({ selection: { anchor: 0, head: 0 }, scrollIntoView: true });
   }
   await startPlaybackAtIndex(0);
 }
@@ -24985,15 +25061,19 @@ async function transportTogglePlayPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
+    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    if (focusModeEnabled) {
+      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
+    }
     await startPlaybackFromRange({
-      startOffset: resumeOffset,
+      startOffset,
       endOffset: plan.rangeEnd,
       origin: focusModeEnabled ? "focus" : "transport",
       loop: plan.loopEnabled,
     });
     return;
   }
-  const startOffset = Math.max(0, Number(transportPlayheadOffset) || 0);
+  const startOffset = getEditorPlayStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25007,8 +25087,12 @@ async function transportPlay() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
+    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    if (focusModeEnabled) {
+      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
+    }
     await startPlaybackFromRange({
-      startOffset: resumeOffset,
+      startOffset,
       endOffset: plan.rangeEnd,
       origin: focusModeEnabled ? "focus" : "transport",
       loop: plan.loopEnabled,
@@ -25030,7 +25114,7 @@ async function transportPlay() {
     });
     return;
   }
-  const startOffset = Math.max(0, Number(transportPlayheadOffset) || 0);
+  const startOffset = getEditorPlayStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25047,8 +25131,12 @@ async function transportPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
+    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    if (focusModeEnabled) {
+      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
+    }
     await startPlaybackFromRange({
-      startOffset: resumeOffset,
+      startOffset,
       endOffset: plan.rangeEnd,
       origin: focusModeEnabled ? "focus" : "transport",
       loop: plan.loopEnabled,
@@ -25069,6 +25157,7 @@ function resetPlaybackState() {
   lastRenderIdx = null;
   lastStartPlaybackIdx = 0;
   resumeStartIdx = null;
+  pausedSelectionSignature = null;
   playbackState = null;
   playbackIndexOffset = 0;
   lastPlaybackException = null;
@@ -25913,6 +26002,7 @@ function stopPlaybackTransport() {
   setPracticeBarHighlight(null);
   clearSvgPracticeBarHighlight();
   resumeStartIdx = null;
+  pausedSelectionSignature = null;
   activePlaybackRange = null;
   activePlaybackEndAbcOffset = null;
   activePlaybackEndSymbol = null;
@@ -25945,6 +26035,7 @@ function stopPlaybackTransport() {
       editorView.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: false });
     }
   }
+
 }
 
 function toDerivedOffset(editorOffset) {
@@ -26403,9 +26494,6 @@ function getFocusPlaybackState() {
 
 function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   const bars = parsedTune && Array.isArray(parsedTune.barMap) ? parsedTune.barMap : [];
-  if (!bars.length) {
-    return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
-  }
   const tuneText = String(parsedTune && parsedTune.text ? parsedTune.text : "");
   const byNumber = (parsedTune && parsedTune.byNumber && typeof parsedTune.byNumber.get === "function")
     ? parsedTune.byNumber
@@ -26415,6 +26503,26 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   const to = Number(state.toMeasure);
   const hasFrom = Number.isFinite(from) && from >= 1;
   const hasTo = Number.isFinite(to) && to >= 1;
+  if (!bars.length) {
+    if (hasFrom || hasTo) {
+      return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
+    }
+    const fullStart = Math.max(0, Number(parsedTune && parsedTune.firstMeasureOffset) || 0);
+    const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    return {
+      ok: true,
+      plan: {
+        mode: "visible",
+        startBarIndex: 0,
+        endBarIndex: 0,
+        startOffset: fullStart,
+        endOffset: fullEnd,
+        suppressRepeats: Boolean(state.suppressRepeats),
+        mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+        loop: Boolean(state.loop),
+      },
+    };
+  }
   let mode = "visible";
   let startBarIndex = null;
   let endBarIndex = null;
@@ -26451,10 +26559,14 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   } else {
     const visibleBars = resolveVisibleFocusBarRange(bars, visibleRange);
     if (!visibleBars) {
-      return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
+      // Fail-safe: if visible bar overlays are not currently measurable, keep Focus playable
+      // by using the full tune scope instead of rejecting Play.
+      startBarIndex = 0;
+      endBarIndex = bars.length - 1;
+    } else {
+      startBarIndex = visibleBars.startBarIndex;
+      endBarIndex = visibleBars.endBarIndex;
     }
-    startBarIndex = visibleBars.startBarIndex;
-    endBarIndex = visibleBars.endBarIndex;
   }
 
   const startBar = bars[startBarIndex];
@@ -26561,9 +26673,6 @@ function computeFocusPlaybackPlanFromCurrentState() {
   const tuneText = getEditorValue();
   const measureIndex = getRenderMeasureIndex();
   const barMap = buildFocusBarIndexMap(measureIndex, editorView.state.doc.length);
-  if (!barMap.length) {
-    return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
-  }
   const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);
   const focusState = getFocusPlaybackState();
   return buildFocusPlaybackPlan({
@@ -28709,9 +28818,21 @@ function stripChordSymbolsForPlayback(text) {
       out.push(rawLine);
       continue;
     }
+    // Do not touch header/directive-only lines (e.g. V:... nm="...").
+    // We only want to suppress inline chord symbols in music body lines.
+    if (/^\s*%%/.test(rawLine) || /^\s*[A-Za-z]:/.test(rawLine) || isInlineFieldOnlyLine(rawLine)) {
+      out.push(rawLine);
+      continue;
+    }
     // Remove chord symbols / annotations in quotes. Playback stability > chord display here.
     // Keep the rest of the line intact and preserve line length for Follow mapping.
-    out.push(rawLine.replace(/\"[^\"]*\"/g, (m) => " ".repeat(String(m || "").length)));
+    const stripped = rawLine.replace(/\"[^\"]*\"/g, (m) => " ".repeat(String(m || "").length));
+    if (stripped.trim() === "") {
+      const len = String(stripped || "").length;
+      out.push(len > 0 ? `%${" ".repeat(Math.max(0, len - 1))}` : "%");
+    } else {
+      out.push(stripped);
+    }
   }
   return out.join("\n");
 }
@@ -28818,8 +28939,11 @@ function getPlaybackPayload() {
   }
   const tuneText = getEditorValue();
   const lineOffsetBase = chordproMode ? 0 : null;
-  const skipDrums = playbackSkipDrumsOnce === true;
-  const skipGchords = playbackSkipGchordsOnce === true;
+  const scopedOptions = playbackScopedOptions && typeof playbackScopedOptions === "object"
+    ? playbackScopedOptions
+    : null;
+  const skipDrums = playbackSkipDrumsOnce === true || (scopedOptions ? !Boolean(scopedOptions.allowMidiDrums) : false);
+  const skipGchords = playbackSkipGchordsOnce === true || (scopedOptions ? Boolean(scopedOptions.muteGchords) : false);
   const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
   if (payloadMode) {
     if (payloadModeView === "playback") {
@@ -28925,11 +29049,6 @@ function getPlaybackPayload() {
   if (keyOrderWarn) {
     lastPlaybackKeyOrderWarning = keyOrderWarn;
     playbackSanitizeWarnings.push(keyOrderWarn);
-  }
-  const keyOrderNormalized = normalizeKeyFieldToBeLastBeforeBodyForPlayback(payload.text);
-  if (keyOrderNormalized && keyOrderNormalized.changed) {
-    payload = { text: keyOrderNormalized.text, offset: payload.offset };
-    playbackSanitizeWarnings.push({ kind: "playback-k-field-reordered" });
   }
 
   lastPlaybackMeterMismatchWarning = null;
@@ -29517,6 +29636,7 @@ function startPlaybackFromPrepared(startIdx) {
   player.play(start, endSym, 0);
   isPlaying = true;
   isPaused = false;
+  pausedSelectionSignature = null;
   if (!waitingForFirstNote) setStatus("Playing…");
   updatePlayButton();
   setTimeout(() => {
@@ -29710,14 +29830,36 @@ async function startPlaybackFromRange(rangeOverride) {
     abortStart("Playback range start is invalid.");
     return;
   }
-  const startSym = findSymbolAtOrAfter(startAbcOffset);
+  let startSym = findSymbolAtOrAfter(startAbcOffset);
+  if (!startSym || !Number.isFinite(startSym.istart)) {
+    if (!scopedMode && startAbcOffset > 0) {
+      const fallbackSym = findSymbolAtOrAfter(0);
+      if (fallbackSym && Number.isFinite(fallbackSym.istart)) {
+        range.startOffset = 0;
+        startSym = fallbackSym;
+      }
+    }
+  }
+  if (
+    startSym
+    && Number.isFinite(startSym.istart)
+    && !scopedMode
+    && startAbcOffset > 0
+    && startSym.istart !== startAbcOffset
+  ) {
+    const fallbackSym = findSymbolAtOrAfter(0);
+    if (fallbackSym && Number.isFinite(fallbackSym.istart)) {
+      range.startOffset = 0;
+      startSym = fallbackSym;
+    }
+  }
   if (!startSym || !Number.isFinite(startSym.istart)) {
     abortStart("Playback start is not mappable.");
     return;
   }
 
   // Guard: ensure we map startOffset deterministically (no fallback mapping).
-  if (startSym.istart < startAbcOffset) {
+  if (startSym.istart < startAbcOffset && range.startOffset !== 0) {
     stopPlaybackFromGuard("PlaybackRange.startOffset mapped to a symbol before startOffset.");
     return;
   }
@@ -29801,6 +29943,7 @@ function pausePlayback() {
     const idx = Math.max(0, Math.min(lastRenderIdx, max));
     editorView.dispatch({ selection: { anchor: idx, head: idx } });
   }
+  pausedSelectionSignature = getEditorSelectionSignature();
 }
 
 async function startPlaybackAtMeasureOffset(delta) {
@@ -30092,7 +30235,7 @@ if ($btnStop) {
 if ($btnRestart) {
   $btnRestart.addEventListener("click", async () => {
     try {
-      await startPlaybackAtIndex(0);
+      await transportStartOver();
     } catch (e) {
       logErr((e && e.stack) ? e.stack : String(e));
       setStatus("Error");

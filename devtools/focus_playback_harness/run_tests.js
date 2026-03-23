@@ -640,7 +640,6 @@ function getFocusBarMapRenderOffset(barMap) {
 
 function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   const bars = parsedTune && Array.isArray(parsedTune.barMap) ? parsedTune.barMap : [];
-  if (!bars.length) return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
   const tuneText = String(parsedTune && parsedTune.text ? parsedTune.text : "");
   const byNumber = (parsedTune && parsedTune.byNumber && typeof parsedTune.byNumber.get === "function")
     ? parsedTune.byNumber
@@ -650,6 +649,24 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   const to = Number(state.toMeasure);
   const hasFrom = Number.isFinite(from) && from >= 1;
   const hasTo = Number.isFinite(to) && to >= 1;
+  if (!bars.length) {
+    if (hasFrom || hasTo) return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
+    const fullStart = Math.max(0, Number(parsedTune && parsedTune.firstMeasureOffset) || 0);
+    const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    return {
+      ok: true,
+      plan: {
+        mode: "visible",
+        startBarIndex: 0,
+        endBarIndex: 0,
+        startOffset: fullStart,
+        endOffset: fullEnd,
+        suppressRepeats: Boolean(state.suppressRepeats),
+        mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+        loop: Boolean(state.loop),
+      },
+    };
+  }
   let mode = "visible";
   let startBarIndex = null;
   let endBarIndex = null;
@@ -685,9 +702,13 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
     }
   } else {
     const visibleBars = resolveVisibleFocusBarRange(bars, visibleRange);
-    if (!visibleBars) return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
-    startBarIndex = visibleBars.startBarIndex;
-    endBarIndex = visibleBars.endBarIndex;
+    if (!visibleBars) {
+      startBarIndex = 0;
+      endBarIndex = bars.length - 1;
+    } else {
+      startBarIndex = visibleBars.startBarIndex;
+      endBarIndex = visibleBars.endBarIndex;
+    }
   }
 
   const startBar = bars[startBarIndex];
@@ -783,6 +804,27 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   };
 }
 
+function computeFocusPlaybackPlanFromCurrentStateMock({
+  tuneText,
+  docLength,
+  measureIndex,
+  focusState,
+  visibleRange,
+}) {
+  const barMap = buildFocusBarIndexMap(measureIndex, docLength);
+  const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);
+  return buildFocusPlaybackPlan({
+    parsedTune: {
+      text: tuneText,
+      barMap,
+      byNumber: measureIndex && measureIndex.byNumber ? measureIndex.byNumber : null,
+      firstMeasureOffset: Number.isFinite(firstMeasureOffset) ? Number(firstMeasureOffset) : null,
+    },
+    focusState,
+    visibleRange,
+  });
+}
+
 function hasRepeatTokensInSlice(text, start, end) {
   const src = String(text || "");
   const a = Math.max(0, Math.min(src.length, Number(start) || 0));
@@ -815,6 +857,33 @@ function extendVisibleRangeToRepeatClose(text, start, end) {
   if (closeIdx < 0) return b;
   if ((closeIdx - b) > 4096) return b;
   return Math.max(b, Math.min(len, closeIdx + 2));
+}
+
+function stripChordSymbolsForPlaybackSafe(text) {
+  const src = String(text || "");
+  if (!src.includes("\"")) return src;
+  const lines = src.split(/\r\n|\n|\r/);
+  const out = [];
+  let inTextBlock = false;
+  const isInlineFieldOnlyLine = (line) => /^\s*\[\s*[A-Za-z]+\s*:/.test(String(line || "").trim()) && /\]\s*$/.test(String(line || "").trim());
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
+    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
+    if (inTextBlock) { out.push(rawLine); continue; }
+    if (/^\s*%%/.test(rawLine) || /^\s*[A-Za-z]:/.test(rawLine) || isInlineFieldOnlyLine(rawLine)) {
+      out.push(rawLine);
+      continue;
+    }
+    const stripped = rawLine.replace(/\"[^\"]*\"/g, (m) => " ".repeat(String(m || "").length));
+    if (stripped.trim() === "") {
+      const len = String(stripped || "").length;
+      out.push(len > 0 ? `%${" ".repeat(Math.max(0, len - 1))}` : "%");
+    } else {
+      out.push(stripped);
+    }
+  }
+  return out.join("\n");
 }
 
 function normalizeFocusLoopBoundsForPlaybackState({ focusModeEnabled, fromMeasure, toMeasure }) {
@@ -1397,6 +1466,151 @@ async function main() {
     console.log("% PASS TEST 19: Visible scope extends to nearest :| when suppress is OFF");
   } catch (e) {
     console.log("% FAIL TEST 19: Visible scope extends to nearest :| when suppress is OFF");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Visible scope fallback: if visible range metrics are unavailable, Focus plan stays playable
+  // by using full tune bounds.
+  try {
+    const baseCtx = contexts[0];
+    const result = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: tuneText,
+        barMap: baseCtx.barMap,
+        byNumber: baseCtx.byNumber,
+        firstMeasureOffset: baseCtx.firstMeasureOffset,
+      },
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(result && result.ok && result.plan, "Expected valid plan when visible range is unavailable");
+    assert(result.plan.mode === "visible", `Expected visible mode, got ${result.plan && result.plan.mode}`);
+    assert(Number(result.plan.startBarIndex) === 0, `Expected startBarIndex=0, got ${result.plan.startBarIndex}`);
+    assert(
+      Number(result.plan.endBarIndex) === (baseCtx.barMap.length - 1),
+      `Expected endBarIndex=${baseCtx.barMap.length - 1}, got ${result.plan.endBarIndex}`
+    );
+    assert(
+      Number.isFinite(Number(result.plan.startOffset))
+      && Number.isFinite(Number(result.plan.endOffset))
+      && Number(result.plan.endOffset) > Number(result.plan.startOffset),
+      "Expected valid playable offset range for visible fallback"
+    );
+    console.log("% PASS TEST 20: Visible mode falls back to full tune when visible range is unavailable");
+  } catch (e) {
+    console.log("% FAIL TEST 20: Visible mode falls back to full tune when visible range is unavailable");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Missing barMap fallback: visible mode (0->0) should remain playable; segment mode should fail closed.
+  try {
+    const noBarsVisible = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: tuneText,
+        barMap: [],
+        byNumber: new Map(),
+        firstMeasureOffset: 0,
+      },
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(noBarsVisible && noBarsVisible.ok && noBarsVisible.plan, "Expected visible fallback plan for missing barMap");
+    assert(noBarsVisible.plan.mode === "visible", "Expected visible mode for missing barMap fallback");
+    assert(Number(noBarsVisible.plan.startOffset) === 0, `Expected fallback startOffset=0, got ${noBarsVisible.plan.startOffset}`);
+    assert(Number(noBarsVisible.plan.endOffset) > 0, "Expected fallback endOffset > 0");
+
+    const noBarsSegment = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: tuneText,
+        barMap: [],
+        byNumber: new Map(),
+        firstMeasureOffset: 0,
+      },
+      focusState: { fromMeasure: 2, toMeasure: 4, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(!noBarsSegment.ok, "Expected segment mode with missing barMap to fail closed");
+    console.log("% PASS TEST 21: Missing barMap fallback works for visible mode and fails closed for segment mode");
+  } catch (e) {
+    console.log("% FAIL TEST 21: Missing barMap fallback works for visible mode and fails closed for segment mode");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Pipeline-level regression: compute* path must not short-circuit when barMap is empty.
+  try {
+    const noMeasures = {
+      istarts: [],
+      byNumber: new Map(),
+      offset: 0,
+    };
+    const computedVisible = computeFocusPlaybackPlanFromCurrentStateMock({
+      tuneText,
+      docLength: tuneText.length,
+      measureIndex: noMeasures,
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(computedVisible && computedVisible.ok && computedVisible.plan, "Expected compute* visible fallback to stay playable");
+
+    const computedSegment = computeFocusPlaybackPlanFromCurrentStateMock({
+      tuneText,
+      docLength: tuneText.length,
+      measureIndex: noMeasures,
+      focusState: { fromMeasure: 2, toMeasure: 3, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(!computedSegment.ok, "Expected compute* segment mode with empty barMap to fail closed");
+    console.log("% PASS TEST 22: compute* pipeline honors empty-barMap fallback in visible mode");
+  } catch (e) {
+    console.log("% FAIL TEST 22: compute* pipeline honors empty-barMap fallback in visible mode");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Chord suppression must not corrupt V: header attributes (e.g. nm="...").
+  try {
+    const text = [
+      "X:1",
+      "T:nm-safety",
+      "M:4/4",
+      "L:1/8",
+      "K:D",
+      "V:1 treble nm=\"Lead\"",
+      "\"D\" D2 E2 | \"A7\" F2 G2 |",
+    ].join("\n");
+    const stripped = stripChordSymbolsForPlaybackSafe(text);
+    assert(/V:1\s+treble\s+nm=\"Lead\"/.test(stripped), "V: nm attribute must remain intact after chord suppression");
+    const parsed = parseTuneWithAbc2svg(stripped);
+    assert(parsed, "abc2svg must parse stripped text with intact V: nm");
+    console.log("% PASS TEST 23: Chord suppression keeps V: nm header attributes intact");
+  } catch (e) {
+    console.log("% FAIL TEST 23: Chord suppression keeps V: nm header attributes intact");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Chord-only body lines must not become blank separators after chord suppression.
+  try {
+    const text = [
+      "X:1",
+      "T:chord-only-line",
+      "M:4/4",
+      "L:1/8",
+      "K:C",
+      "\"^Intro\"",
+      "C2 D2 | E2 F2 |",
+    ].join("\n");
+    const stripped = stripChordSymbolsForPlaybackSafe(text);
+    const lines = stripped.split(/\r\n|\n|\r/);
+    assert(/^%/.test(String(lines[5] || "")), "Chord-only line should become comment placeholder, not blank");
+    const parsed = parseTuneWithAbc2svg(stripped);
+    assert(parsed, "abc2svg must still parse after chord-only line suppression");
+    console.log("% PASS TEST 24: Chord-only lines become placeholders and keep tune parseable");
+  } catch (e) {
+    console.log("% FAIL TEST 24: Chord-only lines become placeholders and keep tune parseable");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

@@ -7938,22 +7938,22 @@ async function enterRawMode() {
   try { await flushWorkingCopyTuneSync(); } catch {}
   try { await flushWorkingCopyFullSync(); } catch {}
 
-  let fullText = "";
-  let snapshot = null;
+  // Raw mode must reflect what is saved on disk (source of truth after Save).
+  const readRes = await readFile(filePath);
+  if (!readRes || !readRes.ok) {
+    await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+    return;
+  }
+  const fullText = String(readRes.data || "");
+
+  // Keep working copy aligned with disk so subsequent operations don't reopen stale content.
   try {
     await ensureWorkingCopyOpenForPath(filePath);
-    snapshot = await refreshWorkingCopySnapshot();
-  } catch {}
-  if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-    fullText = String(snapshot.text || "");
-  } else {
-    const readRes = await readFile(filePath);
-    if (!readRes || !readRes.ok) {
-      await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-      return;
+    if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
+      await window.api.reloadWorkingCopyFromDisk();
     }
-    fullText = String(readRes.data || "");
-  }
+    await refreshWorkingCopySnapshot();
+  } catch {}
 
   activeFilePath = filePath;
   setSaveSession({

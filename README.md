@@ -5,11 +5,18 @@
 
 ABCarus is a desktop application for working with music encoded in ABC notation. It is designed for navigating, editing, rendering, and organizing large collections of `.abc` files. It treats each tune (from `X:` to the next `X:`) as an independent unit, which supports archival workflows and large libraries.
 
+## Highlights
+
+- Text-first ABC editing with tune-level navigation (`X:` blocks)
+- Fast rendering and playback for iterative editing
+- Focus/selection playback controls for targeted practice/debug
+- Print/PDF export for single tunes or full files
+- MusicXML import/export (bundled in release builds)
+- Error scanning and grouped diagnostics for large files
+
 ## Status
 
-Early-stage release. The app is actively developed; some workflows and UI details may still change. Keep backups of your data.
-
-See [CHANGELOG.md](CHANGELOG.md).
+ABCarus is in active development with regular updates. Behavior is kept stable, but selected UI/workflow details may be refined between releases.
 
 ## Downloads (latest)
 
@@ -38,25 +45,49 @@ After verifying the SHA256 sums, you can remove the quarantine attribute:
 [sha-mac-arm64]: https://github.com/topchyan/abcarus/releases/latest/download/SHA256SUMS-macos-arm64.txt
 [sha-mac-x64]: https://github.com/topchyan/abcarus/releases/latest/download/SHA256SUMS-macos-x64.txt
 
+## Choose your build
+
+| Platform | Artifact | Recommended for | Notes |
+|---|---|---|---|
+| Windows | `ABCarus-setup-x64.exe` | Most users | Easiest install/update path |
+| Windows | `ABCarus-win-unpacked-x64.zip` | Portable use with faster startup | No installer, folder-based |
+| Windows | `ABCarus-portable-x64.exe` | Single-file portability | May start slowly on some systems |
+| Linux | `ABCarus-x86_64.AppImage` | Most users | Single file, standard desktop flow |
+| Linux | `ABCarus-x86_64-portable.tar.gz` | Portable/folder deployment | No AppImage runtime dependency |
+| macOS (experimental) | `ABCarus-macos-*.dmg` | Manual install/testing | Not notarized yet |
+
 ## Quick install (end users)
 
-Use a release build from GitHub Releases (recommended for normal use).
-
-- Linux: download the AppImage, make it executable, run it.
-- Windows: download Setup (`ABCarus-setup-x64.exe`) or Portable (`ABCarus-portable-x64.exe`), then launch. For faster/steadier startup, prefer `ABCarus-win-unpacked-x64.zip`.
-- macOS: download the DMG for your CPU (arm64/x64), install, then launch.
+1. Open [GitHub Releases][releases-latest] and download the build for your OS.
+2. Verify SHA256 checksums for your platform.
+3. Install/launch:
+Linux: `chmod +x ABCarus-x86_64.AppImage && ./ABCarus-x86_64.AppImage`
+Windows: run Setup or unpack portable zip and launch `ABCarus.exe`
+macOS: mount DMG, move app to `/Applications`, launch
 
 Release builds already bundle everything needed for normal use, including the Python runtime used by MusicXML import/export.
 
 ## Known limitations
 
-- Windows single-file Portable (`ABCarus-portable-x64.exe`) may start slowly on some systems (for example due to pre-launch extraction and OS security scanning). In this period, app UI may not appear immediately.
+- Windows single-file portable (`ABCarus-portable-x64.exe`) may start slowly on some systems (for example due to pre-launch extraction and OS security scanning). In this period, app UI may not appear immediately.
 - If this affects your workflow, use `ABCarus-win-unpacked-x64.zip` (folder-based portable build), which typically starts faster and more predictably.
+
+## Troubleshooting
+
+- App does not appear immediately on Windows portable `.exe`:
+Use `ABCarus-win-unpacked-x64.zip` and launch from the extracted folder.
+- macOS reports app as “damaged”:
+Verify SHA256, then run `xattr -dr com.apple.quarantine /Applications/ABCarus.app`.
+- Playback seems inconsistent after many quick edits:
+Restart app and retest with a fresh playback run; if reproducible, capture a debug dump and report.
+- ChordPro preview unavailable:
+Check ChordPro CLI availability/settings (see User Guide).
 
 ## Documentation
 
 For users:
 - User Guide (how to use ABCarus): [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- Changelog (what changed): [CHANGELOG.md](CHANGELOG.md)
 
 For contributors:
 - Quick workflow (dev + release): [WORKFLOW.md](WORKFLOW.md)
@@ -64,14 +95,6 @@ For contributors:
 - Detailed release checklist: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
 - Product + engineering invariants: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - Methodology (chat-driven, docs-backed): [docs/METHODOLOGY.md](docs/METHODOLOGY.md)
-
-## Quick workflow
-
-See [WORKFLOW.md](WORKFLOW.md) for:
-- 3–5-command release flow (version → tag → push → verify)
-- What we commit / keep local (e.g. `scripts/local/**`)
-- Useful debug env vars (e.g. `ABCARUS_DEBUG_KEYS=1`)
-- Fast local checks: `npm run test:quick` and `npm run test:ui-smoke`
 
 ## Quick start (development)
 
@@ -103,6 +126,11 @@ Release builds bundle a local Python runtime (PBS) for MusicXML import/export. S
 - Print/export PDF for single tunes or full files
 - Playback for editing/reference (including Focus/selection controls and soundfont-based output)
 - Error scanning and grouped diagnostics
+
+## Scope / non-goals
+
+ABCarus is a text-first editor and workflow tool for ABC notation.
+It is not intended to replace DAWs, full engraving suites, or performance-grade interpretation engines.
 
 ## Design goals
 

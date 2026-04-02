@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.35.0] - 2026-03-23
+### Changed
+- Upgraded bundled `abc2svg` runtime to latest upstream tip (post-fix from Jef) and refreshed integrated playback assets:
+  `abc2svg-1.js`, `snd-1.js`, `MIDI-1.js`, `version.txt`.
+
 ## [0.34.5] - 2026-03-14
 ### Fixed
 - Print/Preview/PDF now preserve notation/text font overrides reliably by resolving bundled font URLs for the temporary print document.

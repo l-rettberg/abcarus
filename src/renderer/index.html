@@ -52,7 +52,7 @@
 	        </div>
         </div>
         <div class="center-controls controls">
-	        <div class="segmented" aria-label="Transport">
+        <div class="segmented" aria-label="Transport">
           <button id="btnPlayPause" type="button" title="Play / Pause (F5)">
             <svg class="btn-icon icon-play" aria-hidden="true"><use href="#ui-play"></use></svg>
             <svg class="btn-icon icon-pause" aria-hidden="true"><use href="#ui-pause"></use></svg>
@@ -61,6 +61,10 @@
           <button id="btnStop" type="button" title="Stop (Esc)">
             <svg class="btn-icon icon-stop" aria-hidden="true"><use href="#ui-stop"></use></svg>
             <span class="btn-text">Stop</span>
+          </button>
+          <button id="btnRestart" type="button" title="Start over (F4)">
+            <svg class="btn-icon icon-start-over" aria-hidden="true"><use href="#ui-start-over"></use></svg>
+            <span class="btn-text">Start over</span>
           </button>
         </div>
         <div class="practice-controls" aria-label="Playback controls">
@@ -184,6 +188,11 @@
       </symbol>
       <symbol id="ui-stop" viewBox="0 0 24 24">
         <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+      </symbol>
+      <symbol id="ui-start-over" viewBox="0 0 24 24">
+        <path d="M5 20V4"></path>
+        <path d="m14 18-6-6 6-6"></path>
+        <path d="m20 18-6-6 6-6"></path>
       </symbol>
       <symbol id="ui-reset" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>

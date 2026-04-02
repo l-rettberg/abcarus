@@ -2468,7 +2468,7 @@ else
 glyphs[i]='<g id="'+i+'">\n'+ln+'\n</g>';xygl(x1,y,i)
 return}
 out_XYAB('<g transform="translate(X, Y)">\n'+ln+'\n</g>\n',x1,y)}
-function draw_bar(s,bot,h,ng){var i,s2,yb,w,bar_type=s.bar_type,st=s.st,p_staff=staff_tb[st],top=ng>=3?6*ng:(4-ng)*6,x=s.x
+function draw_bar(s,bot,h,ng){var i,s2,yb,w,f,bar_type=s.bar_type,st=s.st,p_staff=staff_tb[st],top=ng>=3?6*ng:(4-ng)*6,x=s.x
 if(st!=0&&s.ts_prev&&s.ts_prev.type!=C.BAR)
 h=top*p_staff.staffscale
 s.ymx=s.ymn+h;set_sscale(-1)
@@ -2488,7 +2488,14 @@ out_XYAB('<path class="bW" stroke-dasharray="A,A" d="MX YvG"/>\n',x,bot,w*p_staf
 +' '+self.sy(bot).toFixed(1)
 +'v'+(-h).toFixed(1)}
 break
-default:x-=3;if(s.color)
+default:x-=3;if(cfmt.barwings&&(bar_type[0]==':'||bar_type.slice(-1)==':')&&(!st||(cur_sy.staves[st-1].flags&STOP_BAR)||st==cur_sy.nstaff||(cur_sy.staves[st].flags&STOP_BAR))){f=(!st||(cur_sy.staves[st-1].flags&STOP_BAR))?0:2
+f|=(st==cur_sy.nstaff||(cur_sy.staves[st].flags&STOP_BAR))?0:4
+if(bar_type[i]==']')
+out_wings(x+3,bot+h+2.5,h+3,f+1)
+else
+out_wings(x,bot+h+2.5,h+3,f)
+break}
+if(s.color)
 out_XYAB('<path class="bthW" d="MX YvF"/>\n',x+1.5,bot,-h)
 else
 thb+='M'+sx(x+1.5).toFixed(1)
@@ -3382,7 +3389,7 @@ cfmt[cmd]=f
 break
 case"annotationbox":case"gchordbox":case"measurebox":case"partsbox":param_set_font(cmd.replace("box","font"),"* * "+(get_bool(param)?"box":"nobox"))
 break
-case"altchord":case"bstemdown":case"breakoneoln":case"cancelkey":case"checkbars":case"contbarnb":case"custos":case"decoerr":case"flatbeams":case"graceslurs":case"graceword":case"hyphencont":case"keywarn":case"linewarn":case"squarebreve":case"splittune":case"straightflags":case"stretchstaff":case"timewarn":case"titlecaps":case"titleleft":case"trimsvg":cfmt[cmd]=get_bool(param)
+case"altchord":case"barwings":case"bstemdown":case"breakoneoln":case"cancelkey":case"checkbars":case"contbarnb":case"custos":case"decoerr":case"flatbeams":case"graceslurs":case"graceword":case"hyphencont":case"keywarn":case"linewarn":case"squarebreve":case"splittune":case"straightflags":case"stretchstaff":case"timewarn":case"titlecaps":case"titleleft":case"trimsvg":cfmt[cmd]=get_bool(param)
 break
 case"dblrepbar":param=":: "+param
 case"bardef":v=/([^\s]+)\s*(.+)/.exec(param)
@@ -8395,10 +8402,16 @@ function out_acciac(x,y,dx,dy,up){if(up){x-=1;y+=4}else{x-=5;y-=4}
 out_XYAB('<path class="stroke" d="mX YlF G"/>\n',x,y,dx,-dy)}
 function out_brace(x,y,h){x+=posx-6;y=posy-y;h/=24;output+='<text transform="translate('+
 x.toFixed(1)+','+y.toFixed(1)+') scale(2.5,'+h.toFixed(2)+')">'+tgls.brace.c+'</text>\n'}
-function out_bracket(x,y,h){x+=posx-5;y=posy-y-3;h+=2;output+='<path d="m'+x.toFixed(1)+' '+y.toFixed(1)+'\n\
- c10.5 1 12 -4.5 12 -3.5c0 1 -3.5 5.5 -8.5 5.5\n\
- v'+h.toFixed(1)+'\n\
- c5 0 8.5 4.5 8.5 5.5c0 1 -1.5 -4.5 -12 -3.5"/>\n'}
+function out_wings(x,y,h,f){x+=posx
+y=posy-y-1
+h+=2
+output+='<path d="m'+x.toFixed(1)+' '+y.toFixed(1)
+if(f&1){output+=(f&2)?'h-3\n v':'c-10.5 1 -12 -4.5 -12 -3.5c0 1 3.5 5.5 9 5.5\n v'
+output+=h.toFixed(1)
++((f&4)?'h3"/>\n':'c-5 0 -9 4.5 -8.5 5.5c0 1 1.5 -4.5 12 -3.5"/>\n')}else{output+=(f&2)?'h3\n v':'c10.5 1 12 -4.5 12 -3.5c0 1 -3.5 5.5 -9 5.5\n v'
+output+=h.toFixed(1)
++((f&4)?'h-3"/>\n':'c5 0 9 4.5 8.5 5.5c0 1 -1.5 -4.5 -12 -3.5"/>\n')}}
+function out_bracket(x,y,h){out_wings(x-5,y+2,h,0)}
 function out_hyph(x,y,w){var n,a_y,d=25+((w/20)|0)*3
 if(w>15.)
 n=((w-15)/d)|0
@@ -10268,4 +10281,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.22.37";abc2svg.vdate="2026-03-11"
+abc2svg.version="v1.23.0";abc2svg.vdate="2026-03-23"

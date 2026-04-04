@@ -17,6 +17,12 @@ let splashPendingStatus = "Starting…";
 let splashShownAtMs = 0;
 let isQuitting = false;
 let startupSplashMinVisibleMs = 3000;
+let pendingCliOpenFile = "";
+
+const DEFAULT_MAIN_WINDOW_BOUNDS = {
+  width: 1200,
+  height: 800,
+};
 
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
 const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
@@ -46,7 +52,118 @@ const appState = {
     showMessages: false,
     autoDump: false,
   },
+  windowState: {
+    bounds: null,
+    isMaximized: false,
+    isFullScreen: false,
+  },
 };
+
+function parseCliOptions(argv) {
+  let args = Array.isArray(argv) ? argv.slice(1) : [];
+  // Electron dev runs usually pass the app entry as the first arg (e.g. ".", "src/main/index.js", "app.asar").
+  // Drop that launcher path if present, then parse user-provided flags/positional args.
+  if (args.length) {
+    const first = String(args[0] || "");
+    if (first && !first.startsWith("-")) args = args.slice(1);
+  }
+  let inputPath = "";
+  let showVersion = false;
+  let factorySettings = false;
+  let enableLog = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = String(args[i] || "").trim();
+    if (!a) continue;
+    const lower = a.toLowerCase();
+    if (lower === "--version" || lower === "-version") {
+      showVersion = true;
+      continue;
+    }
+    if (lower === "--factorysettings" || lower === "-factorysettings") {
+      factorySettings = true;
+      continue;
+    }
+    if (lower === "--log" || lower === "-log") {
+      enableLog = true;
+      continue;
+    }
+    if (lower === "--input" || lower === "-input") {
+      const next = String(args[i + 1] || "").trim();
+      if (next && !next.startsWith("-")) {
+        inputPath = next;
+        i += 1;
+      }
+      continue;
+    }
+    if (!a.startsWith("-") && !inputPath) {
+      inputPath = a;
+    }
+  }
+  return { inputPath, showVersion, factorySettings, enableLog };
+}
+const CLI_OPTIONS = parseCliOptions(process.argv);
+
+async function resetFactoryStateOnDisk() {
+  try {
+    await fs.promises.rm(getStatePath(), { force: true });
+  } catch {}
+  try {
+    const settingsPaths = getSettingsPaths();
+    await fs.promises.rm(settingsPaths.userPath, { force: true });
+  } catch {}
+}
+
+function normalizeWindowState(raw) {
+  const out = {
+    bounds: null,
+    isMaximized: false,
+    isFullScreen: false,
+  };
+  if (!raw || typeof raw !== "object") return out;
+  const b = raw.bounds && typeof raw.bounds === "object" ? raw.bounds : null;
+  if (b) {
+    const x = Number(b.x);
+    const y = Number(b.y);
+    const width = Number(b.width);
+    const height = Number(b.height);
+    if (Number.isFinite(width) && Number.isFinite(height) && width >= 500 && height >= 350) {
+      out.bounds = {
+        x: Number.isFinite(x) ? Math.round(x) : undefined,
+        y: Number.isFinite(y) ? Math.round(y) : undefined,
+        width: Math.round(width),
+        height: Math.round(height),
+      };
+    }
+  }
+  out.isMaximized = Boolean(raw.isMaximized);
+  out.isFullScreen = Boolean(raw.isFullScreen);
+  return out;
+}
+
+function installSessionLogger(logPath) {
+  if (!logPath) return;
+  try {
+    const dir = path.dirname(logPath);
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+  const writeLine = (level, parts) => {
+    try {
+      const ts = new Date().toISOString();
+      const msg = parts.map((p) => {
+        if (typeof p === "string") return p;
+        try { return JSON.stringify(p); } catch { return String(p); }
+      }).join(" ");
+      fs.appendFileSync(logPath, `[${ts}] [${level}] ${msg}\n`, "utf8");
+    } catch {}
+  };
+  const origLog = console.log.bind(console);
+  const origWarn = console.warn.bind(console);
+  const origErr = console.error.bind(console);
+  console.log = (...parts) => { writeLine("INFO", parts); origLog(...parts); };
+  console.warn = (...parts) => { writeLine("WARN", parts); origWarn(...parts); };
+  console.error = (...parts) => { writeLine("ERROR", parts); origErr(...parts); };
+  writeLine("INFO", [`Session logger enabled: ${logPath}`]);
+}
 
 // Optional Linux portal file chooser, controlled via:
 // - env: `ABCARUS_USE_PORTAL=1` (preferred, effective immediately)
@@ -367,9 +484,11 @@ async function loadState() {
       } else {
         appState.settings = getDefaultSettings();
       }
+      appState.windowState = normalizeWindowState(data.windowState);
     }
   } catch {}
   if (!appState.settings) appState.settings = getDefaultSettings();
+  if (!appState.windowState) appState.windowState = normalizeWindowState(null);
   // If the user explicitly attached a properties file, prefer it as the source of truth.
   // Missing/unreadable file should not prevent startup.
   await loadSettingsFromAttachedFile();
@@ -476,12 +595,32 @@ async function saveState() {
         recentFolders: appState.recentFolders,
         settings: appState.settings,
         settingsFile: appState.settingsFile,
+        windowState: appState.windowState,
       },
       null,
       2
     );
     await fs.promises.writeFile(getStatePath(), payload, "utf8");
   } catch {}
+}
+
+function captureWindowState(win) {
+  if (!win || win.isDestroyed()) return;
+  let bounds = null;
+  let isMaximized = false;
+  let isFullScreen = false;
+  try { isMaximized = win.isMaximized(); } catch {}
+  try { isFullScreen = win.isFullScreen(); } catch {}
+  try {
+    if ((isMaximized || isFullScreen) && typeof win.getNormalBounds === "function") {
+      bounds = win.getNormalBounds();
+    } else {
+      bounds = win.getBounds();
+    }
+  } catch {}
+  const normalized = normalizeWindowState({ bounds, isMaximized, isFullScreen });
+  appState.windowState = normalized;
+  saveState();
 }
 
 function focusWindow(win) {
@@ -2260,9 +2399,13 @@ async function createWindow() {
   updateSplashStatus("Creating window…");
   // Default to following the OS theme (also used for picking a visible window icon on Linux).
   nativeTheme.themeSource = "system";
+  const ws = normalizeWindowState(appState.windowState);
+  const initialBounds = ws.bounds || DEFAULT_MAIN_WINDOW_BOUNDS;
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: Number(initialBounds.width) || DEFAULT_MAIN_WINDOW_BOUNDS.width,
+    height: Number(initialBounds.height) || DEFAULT_MAIN_WINDOW_BOUNDS.height,
+    ...(Number.isFinite(Number(initialBounds.x)) ? { x: Number(initialBounds.x) } : {}),
+    ...(Number.isFinite(Number(initialBounds.y)) ? { y: Number(initialBounds.y) } : {}),
     show: false,
     icon: resolveWindowIconPath(),
     webPreferences: {
@@ -2304,6 +2447,20 @@ async function createWindow() {
       try {
         win.webContents.send("menu:action", { type: "toggleAutoDump", value: Boolean(appState.debugFlags && appState.debugFlags.autoDump) });
       } catch {}
+      if (pendingCliOpenFile) {
+        const cliPath = pendingCliOpenFile;
+        setTimeout(() => {
+          try {
+            sendMenuAction({
+              type: "openRecentFile",
+              entry: {
+                path: cliPath,
+                basename: path.basename(cliPath),
+              },
+            });
+          } catch {}
+        }, 250);
+      }
       if (UI_SMOKE_ENABLED) {
         runUiSmoke(win).catch((err) => {
           try {
@@ -2333,15 +2490,44 @@ async function createWindow() {
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   logStartupPerf("loadFile(index.html) queued");
   // Avoid maximizing before the renderer is ready: it can make the initial window paint feel sluggish.
-  const shouldMaximize = process.env.ABCARUS_DEV_NO_MAXIMIZE !== "1";
+  const hasPersistedBounds = Boolean(
+    ws
+    && ws.bounds
+    && Number.isFinite(Number(ws.bounds.width))
+    && Number.isFinite(Number(ws.bounds.height))
+  );
+  const shouldMaximizeByDefault = !hasPersistedBounds && process.env.ABCARUS_DEV_NO_MAXIMIZE !== "1";
   win.once("ready-to-show", () => {
     updateSplashStatus("Opening main window…");
-    if (shouldMaximize) {
+    if (ws.isFullScreen) {
+      try { win.setFullScreen(true); } catch {}
+    } else if (ws.isMaximized || shouldMaximizeByDefault) {
       try { win.maximize(); } catch {}
     }
     try { win.show(); } catch {}
     closeSplashWindow();
   });
+  let windowStateTimer = null;
+  const scheduleWindowStateCapture = (immediate = false) => {
+    if (windowStateTimer) {
+      clearTimeout(windowStateTimer);
+      windowStateTimer = null;
+    }
+    if (immediate) {
+      captureWindowState(win);
+      return;
+    }
+    windowStateTimer = setTimeout(() => {
+      windowStateTimer = null;
+      captureWindowState(win);
+    }, 250);
+  };
+  win.on("move", () => scheduleWindowStateCapture(false));
+  win.on("resize", () => scheduleWindowStateCapture(false));
+  win.on("maximize", () => scheduleWindowStateCapture(true));
+  win.on("unmaximize", () => scheduleWindowStateCapture(true));
+  win.on("enter-full-screen", () => scheduleWindowStateCapture(true));
+  win.on("leave-full-screen", () => scheduleWindowStateCapture(true));
   const shouldForwardConsole = (process.env.ABCARUS_DEV_FORWARD_CONSOLE === "1")
     || (process.env.NODE_ENV !== "production" && !app.isPackaged);
   if (shouldForwardConsole) {
@@ -2416,6 +2602,7 @@ async function createWindow() {
     }
   });
   win.on("close", (e) => {
+    try { captureWindowState(win); } catch {}
     if (isQuitting) return;
     e.preventDefault();
     win.webContents.send("app:request-quit");
@@ -2537,7 +2724,30 @@ async function runUiSmoke(win) {
 }
 
 app.whenReady().then(async () => {
+  if (CLI_OPTIONS.showVersion) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(app.getVersion ? app.getVersion() : "");
+    } catch {}
+    app.exit(0);
+    return;
+  }
   logStartupPerf("app.whenReady()");
+  if (CLI_OPTIONS.enableLog) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const logPath = path.join(app.getPath("userData"), `abcarus-session-${stamp}.log`);
+    installSessionLogger(logPath);
+  }
+  if (CLI_OPTIONS.factorySettings) {
+    await resetFactoryStateOnDisk();
+  }
+  if (CLI_OPTIONS.inputPath) {
+    const abs = path.resolve(CLI_OPTIONS.inputPath);
+    pendingCliOpenFile = abs;
+    appState.recentTunes = [];
+    appState.recentFiles = [];
+    appState.recentFolders = [];
+  }
   const startupSplashSeconds = readStartupSplashSecondsPreferenceSync();
   startupSplashMinVisibleMs = Math.round(Math.max(0, startupSplashSeconds) * 1000);
   if (startupSplashMinVisibleMs > 0) {
@@ -2552,6 +2762,11 @@ app.whenReady().then(async () => {
   updateSplashStatus("Loading settings…");
   await loadState();
   logStartupPerf("loadState() done");
+  if (pendingCliOpenFile) {
+    appState.recentTunes = [];
+    appState.recentFiles = [];
+    appState.recentFolders = [];
+  }
   if (process.platform === "linux" && appState.settings && appState.settings.usePortalFileDialogs) {
     process.env.GTK_USE_PORTAL = "1";
   }

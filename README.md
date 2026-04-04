@@ -67,6 +67,27 @@ macOS: mount DMG, move app to `/Applications`, launch
 
 Release builds already bundle everything needed for normal use, including the Python runtime used by MusicXML import/export.
 
+## Command-line startup options
+
+You can pass startup options when launching ABCarus:
+
+- `--version` / `-version` — print app version and exit.
+- `--input <path>` / `-input <path>` — open the specified ABC file at startup.
+- positional file path (without `--input`) is also accepted.
+- `--factorysettings` / `-factorysettings` — reset saved app state/settings before startup.
+- `--log` / `-log` — write a session log file in userData while the app runs.
+
+Examples:
+
+- Linux AppImage:
+  - `./ABCarus-x86_64.AppImage --input "/path/to/tune.abc"`
+- Windows:
+  - `"C:\\Program Files\\ABCarus\\ABCarus.exe" --input "C:\\abc\\collection.abc"`
+- macOS:
+  - `open -a ABCarus --args --input "/Users/name/collection.abc"`
+- Development (npm):
+  - `npm start -- --input "/path/to/tune.abc"`
+
 ## Known limitations
 
 - Windows single-file portable (`ABCarus-portable-x64.exe`) may start slowly on some systems (for example due to pre-launch extraction and OS security scanning). In this period, app UI may not appear immediately.

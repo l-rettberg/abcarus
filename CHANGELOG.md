@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.36.0] - 2026-04-03
+### Added
+- Command-line startup options:
+  - `--version` / `-version` (print version and exit)
+  - `--input <path>` / `-input <path>` (open file at startup)
+  - positional file path support (open file at startup)
+  - `--factorysettings` / `-factorysettings` (reset persisted state/settings before startup)
+  - `--log` / `-log` (session log file under userData)
+- Documentation updates for CLI usage across Linux/Windows/macOS and development (`npm start -- ...`).
+
+### Changed
+- Main window startup behavior now restores persisted window geometry/state (bounds + maximized/fullscreen), instead of always defaulting to maximized.
+
+### Fixed
+- Raw mode now always loads the latest on-disk file state after Save (no stale working-copy snapshot when switching to Raw).
+
 ## [0.35.0] - 2026-03-23
 ### Changed
 - Upgraded bundled `abc2svg` runtime to latest upstream tip (post-fix from Jef) and refreshed integrated playback assets:

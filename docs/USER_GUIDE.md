@@ -247,3 +247,34 @@ These are the default menu shortcuts:
 - Start Over: `F4`
 - Play/Pause: `F5`
 - Fonts: `F9`
+
+## 15) Command-line startup options
+
+ABCarus can be launched with optional startup flags:
+
+- `--version` / `-version`  
+  Print app version and exit.
+
+- `--input <path>` / `-input <path>`  
+  Open a specific `.abc` file on startup.
+
+- positional file path (no `--input`)  
+  Also opens that file on startup.
+
+- `--factorysettings` / `-factorysettings`  
+  Reset persisted app state/settings before startup.
+
+- `--log` / `-log`  
+  Write a session log file in userData while the app runs.
+
+Examples:
+
+- Linux:
+  - `./ABCarus-x86_64.AppImage --input "/path/to/file.abc"`
+- Windows:
+  - `ABCarus-portable-x64.exe --input "C:\\abc\\file.abc"`
+- macOS:
+  - `open -a ABCarus --args --input "/Users/name/file.abc"`
+- Dev run:
+  - `npm start -- --version`
+  - `npm start -- --factorysettings --log --input "/path/to/file.abc"`

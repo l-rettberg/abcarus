@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.36.0] - 2026-04-03
 ### Added
 - Command-line startup options:
   - `--version` / `-version` (print version and exit)
@@ -20,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Raw mode now always loads the latest on-disk file state after Save (no stale working-copy snapshot when switching to Raw).
-
 
 ## [0.35.0] - 2026-03-23
 ### Changed

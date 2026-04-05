@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.36.1] - 2026-04-05
 ### Added
 - Help menu now includes a direct link to Jef Moine's `abc2svg / abcm2ps` directive reference:
   `Help -> abc2svg / abcm2ps Reference (Jef Moine)`.
@@ -13,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - README and User Guide now explicitly document that ABCarus rendering/playback is powered by bundled `abc2svg`, with a direct reference link for advanced directives.
-
 
 ## [0.36.0] - 2026-04-03
 ### Added

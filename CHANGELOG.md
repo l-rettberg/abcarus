@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Help menu now includes a direct link to Jef Moine's `abc2svg / abcm2ps` directive reference:
+  `Help -> abc2svg / abcm2ps Reference (Jef Moine)`.
+- User docs now include practical guidance for using Templates to apply `%%MIDI`-style playback overrides without manually rebuilding boilerplate.
+
+### Changed
+- README and User Guide now explicitly document that ABCarus rendering/playback is powered by bundled `abc2svg`, with a direct reference link for advanced directives.
 
 
 ## [0.36.0] - 2026-04-03

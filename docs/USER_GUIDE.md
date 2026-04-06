@@ -217,10 +217,40 @@ Soundfonts are managed separately (SF2), and can also be installed locally.
 
 - `Help → ABCarus User Guide` opens this guide.
 - `Help → ABC Guide (F1)` opens a general ABC notation guide.
+- `Help → abc2svg / abcm2ps Reference (Jef Moine)` opens directive/reference docs (including `%%MIDI` keywords).
 - `Help → Diagnostics → Save Debug Dump…` saves a JSON dump useful for bug reports.
 - `Help → Open Settings Folder` opens the folder that stores app settings and user-installed assets.
 
-## 13) Troubleshooting (common)
+## 13) Templates (quick practical use)
+
+Templates are reusable ABC snippets you can insert as a starting point (for example, playback directives) without manually rebuilding boilerplate each time.
+
+Where:
+- `Tools → Templates → Templates Library…`
+- or `File → New Tune From Template`
+
+Typical use for playback overrides:
+- Put your preferred `%%MIDI` lines in a template.
+- Start a new tune from that template, then paste/import the target tune body.
+- This keeps your original source file untouched while letting you test alternate playback behavior.
+
+Minimal template example:
+
+```abc
+X:1
+T:Template: Playback Overrides
+M:4/4
+L:1/8
+Q:1/4=120
+%%MIDI gchord f2c2
+%%MIDI program 1 73
+K:C
+```
+
+Reference for advanced directives:
+- `http://moinejf.free.fr/abcm2ps-doc/index.html`
+
+## 14) Troubleshooting (common)
 
 ### “My changes don’t show up in preview”
 - Ensure you are editing valid ABC (missing `K:` is a common cause of “nothing renders”).
@@ -234,7 +264,7 @@ Soundfonts are managed separately (SF2), and can also be installed locally.
 - Release builds include a bundled Python runtime; in development you may need to install it.
 - If system Python fallback is required, it is opt-in via `ABCARUS_ALLOW_SYSTEM_PYTHON=1`.
 
-## 14) Quick shortcuts (common)
+## 15) Quick shortcuts (common)
 
 These are the default menu shortcuts:
 
@@ -248,7 +278,7 @@ These are the default menu shortcuts:
 - Play/Pause: `F5`
 - Fonts: `F9`
 
-## 15) Command-line startup options
+## 16) Command-line startup options
 
 ABCarus can be launched with optional startup flags:
 

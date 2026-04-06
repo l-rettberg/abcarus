@@ -181,6 +181,10 @@ Playback and rendering are implemented to support reading and editing, not to re
 - ABC notation
 - abc2svg (rendering and basic playback)
 
+ABCarus rendering/playback behavior follows the bundled `abc2svg` engine by Jean-Francois Moine.
+For ABC/abcm2ps directive reference (including `%%MIDI` family), see:
+- http://moinejf.free.fr/abcm2ps-doc/index.html
+
 ### Import/Export prerequisites
 
 Import/Export uses external Python converters stored under `third_party/`:

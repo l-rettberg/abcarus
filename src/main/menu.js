@@ -362,6 +362,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
       { label: "ABCarus User Guide", click: () => sendMenuAction("helpUserGuide") },
       { type: "separator" },
       { label: "ABC Notation Homepage", click: () => sendMenuAction({ type: "helpLink", url: "https://abcnotation.com/" }) },
+      { label: "abc2svg / abcm2ps Reference (Jef Moine)", click: () => sendMenuAction({ type: "helpLink", url: "http://moinejf.free.fr/abcm2ps-doc/index.html" }) },
       { label: "ABCusers (Groups.io)", click: () => sendMenuAction({ type: "helpLink", url: "https://groups.io/g/abcusers/topics" }) },
       { label: "ABCNotation User Group (Facebook)", click: () => sendMenuAction({ type: "helpLink", url: "https://www.facebook.com/groups/498671610282070" }) },
       { type: "separator" },

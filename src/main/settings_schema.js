@@ -1028,6 +1028,7 @@ function getSettingsSchema() {
     { key: "libraryPaneWidth", type: "number", default: 280, section: "Advanced", advanced: true, legacy: true },
     { key: "libraryGroupBy", type: "string", default: "file", section: "Advanced", advanced: true, legacy: true },
     { key: "librarySortBy", type: "string", default: "update_desc", section: "Advanced", advanced: true, legacy: true },
+    { key: "libraryTuneSortBy", type: "string", default: "x_asc", section: "Advanced", advanced: true, legacy: true },
     { key: "libraryFilterText", type: "string", default: "", section: "Advanced", advanced: true, legacy: true },
     { key: "libraryUiStateByRoot", type: "object", default: {}, section: "Advanced", advanced: true, legacy: true },
   ];

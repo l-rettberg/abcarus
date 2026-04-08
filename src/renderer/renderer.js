@@ -124,6 +124,7 @@ const $printAllOptionsCancel = document.getElementById("printAllOptionsCancel");
 const $printAllOptionsOk = document.getElementById("printAllOptionsOk");
 const $groupBy = document.getElementById("groupBy");
 const $sortBy = document.getElementById("sortBy");
+const $sortTunesBy = document.getElementById("sortTunesBy");
 const $librarySearch = document.getElementById("librarySearch");
 const $btnLibraryRefresh = document.getElementById("btnLibraryRefresh");
 const $libraryRoot = document.getElementById("libraryRoot");
@@ -3271,6 +3272,7 @@ function setLibraryControlsDisabled(disabled) {
   disableIf($btnLibraryClearFilter, shouldDisable);
   disableIf($groupBy, shouldDisable);
   disableIf($sortBy, shouldDisable);
+  disableIf($sortTunesBy, shouldDisable);
   disableIf($librarySearch, shouldDisable);
   if ($libraryTree) $libraryTree.classList.toggle("disabled", shouldDisable);
 }
@@ -3971,11 +3973,12 @@ const collapsedFiles = new Set();
 const collapsedGroups = new Set();
 let groupMode = "file";
 let sortMode = "update_desc";
-let sortModeIsAuto = false;
+let tuneSortMode = "x_asc";
 let toolHealth = null;
 let toolHealthError = "";
 let toolWarningShown = false;
 const groupSortPrefs = new Map();
+const groupTuneSortPrefs = new Map();
 let renamingFilePath = null;
 let renameInFlight = false;
 let librarySearchTimer = null;
@@ -4459,6 +4462,7 @@ function applyLibraryPrefsFromSettings(settings) {
     libraryPaneWidth: Number.isFinite(Number(settings.libraryPaneWidth)) ? Math.round(Number(settings.libraryPaneWidth)) : null,
     libraryGroupBy: String(settings.libraryGroupBy || "").trim() || null,
     librarySortBy: String(settings.librarySortBy || "").trim() || null,
+    libraryTuneSortBy: String(settings.libraryTuneSortBy || "").trim() || null,
     libraryFilterText: String(settings.libraryFilterText || ""),
     libraryTitleKeyLength: Number.isFinite(Number(settings.libraryTitleKeyLength))
       ? Math.round(Number(settings.libraryTitleKeyLength))
@@ -4477,8 +4481,12 @@ function applyLibraryPrefsFromSettings(settings) {
     if (nextGroup && GROUP_LABELS[nextGroup]) groupMode = nextGroup;
     if ($groupBy) $groupBy.value = groupMode;
 
-    const nextSort = normalized.librarySortBy || "";
-    if (nextSort) setSortMode(nextSort, false);
+    const nextSort = normalizeGroupSortMode(normalized.librarySortBy) || getDefaultGroupSortMode(groupMode);
+    setSortMode(nextSort);
+    groupSortPrefs.set(groupMode, nextSort);
+    const nextTuneSort = normalizeTuneSortMode(normalized.libraryTuneSortBy) || getDefaultTuneSortMode(groupMode);
+    setTuneSortMode(nextTuneSort);
+    groupTuneSortPrefs.set(groupMode, nextTuneSort);
 
     const nextFilter = normalized.libraryFilterText;
     if ($librarySearch) $librarySearch.value = nextFilter;
@@ -7050,6 +7058,50 @@ function compareSortText(a, b) {
   return normalizeSortText(a).localeCompare(normalizeSortText(b), undefined, { numeric: true });
 }
 
+const GROUP_SORT_MODES = new Set([
+  "name_asc",
+  "name_desc",
+  "count_asc",
+  "count_desc",
+  "update_asc",
+  "update_desc",
+]);
+
+const TUNE_SORT_MODES = new Set([
+  "x_asc",
+  "x_desc",
+  "t_asc",
+  "t_desc",
+  "c_asc",
+  "c_desc",
+  "k_asc",
+  "k_desc",
+  "update_asc",
+  "update_desc",
+  "file_asc",
+  "file_desc",
+]);
+
+function getDefaultGroupSortMode(mode) {
+  return mode === "file" ? "update_desc" : "name_asc";
+}
+
+function getDefaultTuneSortMode(_mode) {
+  return "x_asc";
+}
+
+function normalizeGroupSortMode(mode) {
+  const v = String(mode || "").trim();
+  if (v === "file_asc") return "name_asc";
+  if (v === "file_desc") return "name_desc";
+  return GROUP_SORT_MODES.has(v) ? v : "";
+}
+
+function normalizeTuneSortMode(mode) {
+  const v = String(mode || "").trim();
+  return TUNE_SORT_MODES.has(v) ? v : "";
+}
+
 function getTuneSortValue(tune) {
   if (!tune) return null;
   const xNum = Number(tune.xNumber);
@@ -7072,10 +7124,67 @@ function getTuneLabel(tune) {
   return "";
 }
 
+function getTuneFilePath(tune) {
+  if (!tune) return "";
+  if (tune.filePath) return String(tune.filePath);
+  if (tune.path) return String(tune.path);
+  const id = String(tune.id || "");
+  const sep = id.indexOf("::");
+  if (sep > 0) return id.slice(0, sep);
+  return "";
+}
+
+function getTuneFileLabel(tune) {
+  return safeBasename(getTuneFilePath(tune));
+}
+
+function getTuneUpdatedAtMs(tune) {
+  if (!tune) return 0;
+  const direct = Number(tune.updatedAtMs);
+  if (Number.isFinite(direct)) return direct;
+  const fromFile = Number(tune.__fileUpdatedAtMs);
+  if (Number.isFinite(fromFile)) return fromFile;
+  return 0;
+}
+
 function getEntryTuneCount(entry) {
   if (!entry || !entry.tunes) return 0;
   if (Number.isFinite(entry.tuneCount)) return entry.tuneCount;
   return entry.tunes.length || 0;
+}
+
+function compareTunes(a, b, mode) {
+  const dir = mode.endsWith("desc") ? -1 : 1;
+  if (mode.startsWith("x_")) {
+    const aX = getTuneSortValue(a);
+    const bX = getTuneSortValue(b);
+    if (Number.isFinite(aX) && Number.isFinite(bX) && aX !== bX) return (aX - bX) * dir;
+    if (Number.isFinite(aX) && !Number.isFinite(bX)) return -1 * dir;
+    if (!Number.isFinite(aX) && Number.isFinite(bX)) return 1 * dir;
+  } else if (mode.startsWith("t_")) {
+    const diff = compareSortText(a && a.title ? a.title : "", b && b.title ? b.title : "") * dir;
+    if (diff) return diff;
+  } else if (mode.startsWith("c_")) {
+    const diff = compareSortText(a && a.composer ? a.composer : "", b && b.composer ? b.composer : "") * dir;
+    if (diff) return diff;
+  } else if (mode.startsWith("k_")) {
+    const diff = compareSortText(a && a.key ? a.key : "", b && b.key ? b.key : "") * dir;
+    if (diff) return diff;
+  } else if (mode.startsWith("update_")) {
+    const diff = (getTuneUpdatedAtMs(a) - getTuneUpdatedAtMs(b)) * dir;
+    if (diff) return diff;
+  } else if (mode.startsWith("file_")) {
+    const diff = compareSortText(getTuneFileLabel(a), getTuneFileLabel(b)) * dir;
+    if (diff) return diff;
+  }
+  return compareSortText(getTuneLabel(a), getTuneLabel(b)) * dir;
+}
+
+function sortTunes(list, mode) {
+  const sorted = Array.isArray(list) ? list.slice() : [];
+  const normalizedMode = normalizeTuneSortMode(mode) || getDefaultTuneSortMode(groupMode);
+  sorted.sort((a, b) => compareTunes(a, b, normalizedMode));
+  return sorted;
 }
 
 function sortLibraryFiles(files) {
@@ -7083,12 +7192,11 @@ function sortLibraryFiles(files) {
     ...file,
     tunes: Array.isArray(file.tunes) ? file.tunes.slice() : [],
   }));
-  const dir = sortMode.endsWith("desc") ? -1 : 1;
-  if (sortMode.startsWith("update_")) {
+  const mode = normalizeGroupSortMode(sortMode) || getDefaultGroupSortMode(groupMode);
+  const dir = mode.endsWith("desc") ? -1 : 1;
+  if (mode.startsWith("update_")) {
     list.sort((a, b) => ((a.updatedAtMs || 0) - (b.updatedAtMs || 0)) * dir);
-    return list;
-  }
-  if (sortMode.startsWith("count_")) {
+  } else if (mode.startsWith("count_")) {
     list.sort((a, b) => {
       const diff = (getEntryTuneCount(a) - getEntryTuneCount(b)) * dir;
       if (diff) return diff;
@@ -7099,21 +7207,7 @@ function sortLibraryFiles(files) {
   }
   for (const file of list) {
     if (file.tunes && file.tunes.length) {
-      if (groupMode === "file") {
-        const tuneDir = sortMode.startsWith("file_") ? dir : 1;
-        file.tunes.sort((a, b) => {
-          const aX = getTuneSortValue(a);
-          const bX = getTuneSortValue(b);
-          if (Number.isFinite(aX) && Number.isFinite(bX) && aX !== bX) {
-            return (aX - bX) * tuneDir;
-          }
-          if (Number.isFinite(aX) && !Number.isFinite(bX)) return -1 * tuneDir;
-          if (!Number.isFinite(aX) && Number.isFinite(bX)) return 1 * tuneDir;
-          return compareSortText(getTuneLabel(a), getTuneLabel(b)) * tuneDir;
-        });
-      } else {
-        file.tunes.sort((a, b) => compareSortText(getTuneLabel(a), getTuneLabel(b)) * dir);
-      }
+      file.tunes = sortTunes(file.tunes, tuneSortMode);
     }
   }
   return list;
@@ -7121,10 +7215,11 @@ function sortLibraryFiles(files) {
 
 function sortGroupEntries(entries) {
   const list = entries ? entries.slice() : [];
-  const dir = sortMode.endsWith("desc") ? -1 : 1;
-  if (sortMode.startsWith("update_")) {
+  const mode = normalizeGroupSortMode(sortMode) || getDefaultGroupSortMode(groupMode);
+  const dir = mode.endsWith("desc") ? -1 : 1;
+  if (mode.startsWith("update_")) {
     list.sort((a, b) => ((a.updatedAtMs || 0) - (b.updatedAtMs || 0)) * dir);
-  } else if (sortMode.startsWith("count_")) {
+  } else if (mode.startsWith("count_")) {
     list.sort((a, b) => {
       const diff = (getEntryTuneCount(a) - getEntryTuneCount(b)) * dir;
       if (diff) return diff;
@@ -7136,22 +7231,16 @@ function sortGroupEntries(entries) {
   return list;
 }
 
-function setSortMode(mode, isAuto = false) {
-  sortMode = mode;
-  sortModeIsAuto = isAuto;
-  if ($sortBy) $sortBy.value = mode;
+function setSortMode(mode) {
+  const normalized = normalizeGroupSortMode(mode) || getDefaultGroupSortMode(groupMode);
+  sortMode = normalized;
+  if ($sortBy) $sortBy.value = normalized;
 }
 
-function maybeAutoSortForGroup(mode) {
-  if (mode === "file") {
-    if (sortModeIsAuto && sortMode.startsWith("count_")) {
-      setSortMode("file_desc", true);
-    }
-    return;
-  }
-  if (sortMode.startsWith("file_")) {
-    setSortMode("count_desc", true);
-  }
+function setTuneSortMode(mode) {
+  const normalized = normalizeTuneSortMode(mode) || getDefaultTuneSortMode(groupMode);
+  tuneSortMode = normalized;
+  if ($sortTunesBy) $sortTunesBy.value = normalized;
 }
 
 function getVisibleLibraryFiles() {
@@ -7617,6 +7706,7 @@ function updatePayloadModeInteractionLock() {
   disable($btnLibraryClearFilter);
   disable($groupBy);
   disable($sortBy);
+  disable($sortTunesBy);
   disable($librarySearch);
   disable($fileTuneSelect);
 
@@ -11979,7 +12069,11 @@ function buildGroupEntries(files, mode) {
           updatedAtMs: 0,
         });
       }
-      entries.get(groupId).tunes.push(tune);
+      entries.get(groupId).tunes.push({
+        ...tune,
+        __fileUpdatedAtMs: file.updatedAtMs || 0,
+        filePath: file.path || "",
+      });
       const updatedAtMs = file.updatedAtMs || 0;
       const entry = entries.get(groupId);
       if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
@@ -12145,7 +12239,8 @@ function renderLibraryTree(files = null) {
     const children = document.createElement("div");
     children.className = "tree-children";
 
-    for (const tune of entry.tunes) {
+    const sortedEntryTunes = sortTunes(entry.tunes, tuneSortMode);
+    for (const tune of sortedEntryTunes) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "tree-label tune-label";
@@ -12971,13 +13066,19 @@ if ($groupBy) {
   $groupBy.addEventListener("change", () => {
     groupMode = $groupBy.value || "file";
     collapsedGroups.clear();
-    const savedSort = groupSortPrefs.get(groupMode);
-    if (savedSort) {
-      setSortMode(savedSort, false);
-    } else {
-      maybeAutoSortForGroup(groupMode);
-    }
-    scheduleSaveLibraryPrefs({ libraryGroupBy: groupMode, librarySortBy: sortMode });
+    const savedGroupSort = normalizeGroupSortMode(groupSortPrefs.get(groupMode))
+      || getDefaultGroupSortMode(groupMode);
+    setSortMode(savedGroupSort);
+    groupSortPrefs.set(groupMode, sortMode);
+    const savedTuneSort = normalizeTuneSortMode(groupTuneSortPrefs.get(groupMode))
+      || getDefaultTuneSortMode(groupMode);
+    setTuneSortMode(savedTuneSort);
+    groupTuneSortPrefs.set(groupMode, tuneSortMode);
+    scheduleSaveLibraryPrefs({
+      libraryGroupBy: groupMode,
+      librarySortBy: sortMode,
+      libraryTuneSortBy: tuneSortMode,
+    });
     if (groupMode !== "file" && !hasFullLibraryIndex()) {
       ensureFullLibraryIndex({ reason: `group by ${groupMode}` }).catch(() => {});
     }
@@ -12996,15 +13097,24 @@ if ($groupBy) {
 		}
 
 if ($sortBy) {
-  if ($sortBy.value) sortMode = $sortBy.value;
+  if ($sortBy.value) setSortMode($sortBy.value);
 		  $sortBy.addEventListener("change", () => {
-		    sortMode = $sortBy.value || "update_desc";
-		    sortModeIsAuto = false;
+		    setSortMode($sortBy.value || getDefaultGroupSortMode(groupMode));
 		    groupSortPrefs.set(groupMode, sortMode);
         scheduleSaveLibraryPrefs({ librarySortBy: sortMode });
 		    renderLibraryTree();
 		  });
 		}
+
+if ($sortTunesBy) {
+  if ($sortTunesBy.value) setTuneSortMode($sortTunesBy.value);
+  $sortTunesBy.addEventListener("change", () => {
+    setTuneSortMode($sortTunesBy.value || getDefaultTuneSortMode(groupMode));
+    groupTuneSortPrefs.set(groupMode, tuneSortMode);
+    scheduleSaveLibraryPrefs({ libraryTuneSortBy: tuneSortMode });
+    renderLibraryTree();
+  });
+}
 
 if ($librarySearch) {
   $librarySearch.addEventListener("input", () => {
@@ -24819,6 +24929,7 @@ function updatePlaybackInteractionLock() {
   disable($btnLibraryClearFilter);
   disable($groupBy);
   disable($sortBy);
+  disable($sortTunesBy);
   disable($librarySearch);
   disable($fileTuneSelect);
 

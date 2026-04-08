@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Library Tree sorting is now split into two independent controls:
+  - `Sort groups` (top-level file/group ordering),
+  - `Sort tunes` (ordering of tunes inside each file/group).
+- In grouped modes (`Group by` not `File`), default group ordering is now deterministic by name (`Name A→Z`) for clearer navigation.
+- Legacy library sort settings are migrated (`file_asc`/`file_desc` -> `name_asc`/`name_desc`) to keep existing user preferences compatible.
 
 
 ## [0.36.1] - 2026-04-05

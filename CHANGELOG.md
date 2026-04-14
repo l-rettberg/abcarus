@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.37.1] - 2026-04-14
+### Fixed
+- Improved responsive toolbar layout on narrow windows (Linux/Windows): top control rows now wrap predictably instead of visually overlapping or producing broken button text alignment.
+- Stabilized file-header control row wrapping (`New Tune`, `Templates`, `Errors`, `Follow`, `Globals`) so controls flow as coherent groups at reduced widths.
+
 ## [0.37.0] - 2026-04-08
 ### Changed
 - Library Tree sorting is now split into two independent controls:

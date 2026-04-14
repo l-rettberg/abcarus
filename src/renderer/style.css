@@ -419,6 +419,20 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.segmented button,
+.right-controls > button,
+.practice-controls > button,
+.practice-controls > label,
+.practice-controls > .practice-group {
+  flex: 0 0 auto;
+}
+
+.btn-text {
+  white-space: nowrap;
 }
 
 .controls button:hover,

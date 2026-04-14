@@ -162,16 +162,22 @@ header {
 .left-controls {
   flex: 1 1 0;
   min-width: 0;
+  display: flex;
+  align-items: center;
 }
 
 .center-controls {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
   justify-content: center;
 }
 
 .right-controls {
   flex: 1 1 0;
   min-width: 0;
+  display: flex;
+  align-items: center;
 }
 
 .practice-controls {
@@ -1003,12 +1009,15 @@ body.chordpro-mode #btnToggleGlobals {
 .file-header-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 6px;
   min-width: 0;
 }
 
 .file-header-toggles {
   margin-left: auto;
+  flex-wrap: nowrap;
 }
 
 .file-header-toggles.segmented {
@@ -3219,6 +3228,52 @@ button.primary:not(:disabled):hover,
   }
   .settings-row {
     grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+  }
+}
+
+@media (max-width: 1400px) {
+  .header-row-top {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .left-controls,
+  .center-controls,
+  .right-controls {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .left-controls .segmented,
+  .center-controls .controls,
+  .right-controls {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .file-header-toggles {
+    margin-left: 0;
+    order: 10;
+  }
+}
+
+@media (max-width: 1200px) {
+  #fileTuneSelect {
+    flex: 1 1 260px;
+    max-width: 100%;
+  }
+
+  .file-header-meta {
+    order: 11;
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .file-header-toggles {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 

@@ -18,6 +18,7 @@ let splashShownAtMs = 0;
 let isQuitting = false;
 let startupSplashMinVisibleMs = 3000;
 let pendingCliOpenFile = "";
+let singleInstanceOpenRequestedBeforeReady = false;
 
 const DEFAULT_MAIN_WINDOW_BOUNDS = {
   width: 1200,
@@ -61,16 +62,31 @@ const appState = {
 
 function parseCliOptions(argv) {
   let args = Array.isArray(argv) ? argv.slice(1) : [];
-  // Electron dev runs usually pass the app entry as the first arg (e.g. ".", "src/main/index.js", "app.asar").
-  // Drop that launcher path if present, then parse user-provided flags/positional args.
+  const isLikelyElectronLauncherArg = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw || raw.startsWith("-")) return false;
+    if (raw === ".") return true;
+    const normalized = raw.replace(/\\/g, "/").toLowerCase();
+    const base = path.posix.basename(normalized);
+    if (base === "electron" || base === "electron.exe") return true;
+    return (
+      normalized.endsWith(".asar")
+      || normalized.endsWith(".js")
+      || normalized.endsWith(".cjs")
+      || normalized.endsWith(".mjs")
+    );
+  };
+  // Electron dev runs often pass an app launcher path after the executable
+  // (e.g. ".", "src/main/index.js", "app.asar"). Drop only that known pattern.
   if (args.length) {
-    const first = String(args[0] || "");
-    if (first && !first.startsWith("-")) args = args.slice(1);
+    const first = args[0];
+    if (isLikelyElectronLauncherArg(first)) args = args.slice(1);
   }
   let inputPath = "";
   let showVersion = false;
   let factorySettings = false;
   let enableLog = false;
+  const positionals = [];
   for (let i = 0; i < args.length; i += 1) {
     const a = String(args[i] || "").trim();
     if (!a) continue;
@@ -95,13 +111,65 @@ function parseCliOptions(argv) {
       }
       continue;
     }
-    if (!a.startsWith("-") && !inputPath) {
-      inputPath = a;
-    }
+    if (!a.startsWith("-")) positionals.push(a);
   }
+  if (!inputPath && positionals.length) inputPath = positionals[positionals.length - 1];
   return { inputPath, showVersion, factorySettings, enableLog };
 }
 const CLI_OPTIONS = parseCliOptions(process.argv);
+
+function queueOrOpenCliInputPath(rawPath) {
+  const trimmed = String(rawPath || "").trim();
+  if (!trimmed) return false;
+  let resolved = trimmed;
+  if (/^file:\/\//i.test(resolved)) {
+    try { resolved = fileURLToPath(resolved); } catch {}
+  }
+  const abs = path.resolve(resolved);
+  pendingCliOpenFile = abs;
+  appState.recentTunes = [];
+  appState.recentFiles = [];
+  appState.recentFolders = [];
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+  } catch {}
+  try { mainWindow.show(); } catch {}
+  try { mainWindow.focus(); } catch {}
+  try {
+    sendMenuAction({
+      type: "openRecentFile",
+      entry: {
+        path: abs,
+        basename: path.basename(abs),
+      },
+    });
+    pendingCliOpenFile = "";
+    return true;
+  } catch {}
+  return false;
+}
+
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+}
+
+app.on("second-instance", (_event, argv) => {
+  const opts = parseCliOptions(Array.isArray(argv) ? argv : []);
+  if (opts && opts.inputPath) {
+    const opened = queueOrOpenCliInputPath(opts.inputPath);
+    if (!opened) singleInstanceOpenRequestedBeforeReady = true;
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+    } catch {}
+    try { mainWindow.show(); } catch {}
+    try { mainWindow.focus(); } catch {}
+  }
+});
 
 async function resetFactoryStateOnDisk() {
   try {
@@ -2732,6 +2800,7 @@ app.whenReady().then(async () => {
     app.exit(0);
     return;
   }
+  if (!singleInstanceLock) return;
   logStartupPerf("app.whenReady()");
   if (CLI_OPTIONS.enableLog) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -2741,13 +2810,7 @@ app.whenReady().then(async () => {
   if (CLI_OPTIONS.factorySettings) {
     await resetFactoryStateOnDisk();
   }
-  if (CLI_OPTIONS.inputPath) {
-    const abs = path.resolve(CLI_OPTIONS.inputPath);
-    pendingCliOpenFile = abs;
-    appState.recentTunes = [];
-    appState.recentFiles = [];
-    appState.recentFolders = [];
-  }
+  if (CLI_OPTIONS.inputPath) queueOrOpenCliInputPath(CLI_OPTIONS.inputPath);
   const startupSplashSeconds = readStartupSplashSecondsPreferenceSync();
   startupSplashMinVisibleMs = Math.round(Math.max(0, startupSplashSeconds) * 1000);
   if (startupSplashMinVisibleMs > 0) {
@@ -2789,6 +2852,10 @@ app.whenReady().then(async () => {
       createWindow().catch(() => {});
     }
   });
+  if (singleInstanceOpenRequestedBeforeReady && pendingCliOpenFile) {
+    singleInstanceOpenRequestedBeforeReady = false;
+    queueOrOpenCliInputPath(pendingCliOpenFile);
+  }
 });
 
 app.on("window-all-closed", () => {

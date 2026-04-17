@@ -91,6 +91,7 @@ Name=ABCarus
 Exec=${app_name}
 Icon=${app_name}
 Categories=AudioVideo;Audio;Music;
+MimeType=text/x-abc;application/x-abc;
 Terminal=false
 EOF
 

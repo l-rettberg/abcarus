@@ -121,3 +121,23 @@ If you see errors about FUSE (/dev/fuse) or runtime download:
 
 Some contributors keep optional convenience scripts under `scripts/local/` (gitignored).
 They are not required for the release process.
+
+## 7) Cross-platform file-open sanity checks (.abc association)
+
+Before publishing, quickly verify that opening an `.abc` file from the OS shell/file manager
+routes into ABCarus correctly (especially when one instance is already running).
+
+- Linux (AppImage / desktop entry):
+  - Double-click an `.abc` in file manager.
+  - Expected: ABCarus opens that file.
+  - If ABCarus is already open: no second UI instance; existing window focuses and opens the requested file.
+- Windows (portable / installer build):
+  - Use "Open with ABCarus" on a `.abc`.
+  - Expected: file opens directly; repeated open requests route to the same running instance.
+- macOS (`.dmg` app):
+  - Open `.abc` from Finder ("Open with ABCarus").
+  - Expected: existing app instance receives file-open event and opens requested file.
+
+Failure hints:
+- If app opens but wrong file is loaded, inspect startup argv handling in `src/main/index.js` (`parseCliOptions`, second-instance flow).
+- If file association exists but nothing opens, verify platform launcher metadata (`.desktop` on Linux, app registration on Windows/macOS).

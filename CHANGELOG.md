@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.37.2] - 2026-04-17
+### Added
+- Main-process CLI regression guard: new `npm run test:main-cli` (`scripts/check_main_cli_open.mjs`) validates single-instance + argv parsing cases used by OS file-open flows.
+- Packaging regression guard: new `npm run test:file-associations` (`scripts/check_file_associations.mjs`) validates `.abc` file-association metadata in `package.json` and AppImage desktop entry.
+- Release checklist now includes a cross-platform `.abc` file-open sanity section (Linux/Windows/macOS) to prevent silent association regressions before publishing.
+
+### Changed
+- `test:quick` now includes both new regression checks (`test:main-cli`, `test:file-associations`) so release smoke runs cover file-open/association paths.
+
+### Fixed
+- Linux desktop/AppImage metadata now advertises `.abc` MIME types (`text/x-abc`, `application/x-abc`).
+- Startup CLI file-open path is now single-instance safe and deterministic: second launch requests focus existing window and opens the requested file through the existing dirty-check flow.
+- CLI parsing for positional file arguments is now robust for launcher-style argv layouts and `file://...` paths.
+
 ## [0.37.1] - 2026-04-14
 ### Fixed
 - Improved responsive toolbar layout on narrow windows (Linux/Windows): top control rows now wrap predictably instead of visually overlapping or producing broken button text alignment.

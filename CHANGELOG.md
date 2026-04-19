@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+
+
+## [0.38.0] - 2026-04-19
 ### Added
 - Linux portable archive now includes an explicit top-level launcher `./ABCarus` (keeps `./AppRun` as legacy alias) for clearer end-user startup.
 - Regression guards extended:
@@ -22,7 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Focus drum payload handling stabilized:
   - safer suppression path for injected `V:DRUM`,
   - stricter drum bar mismatch detection to fail closed instead of producing broken playback.
-
 
 ## [0.37.2] - 2026-04-17
 ### Added

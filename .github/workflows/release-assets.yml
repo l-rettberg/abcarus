@@ -107,6 +107,13 @@ jobs:
 
       - name: Create portable tar.gz (AppDir)
         run: |
+          cat > dist/appimage/AppDir/ABCarus <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          exec "${HERE}/AppRun" "$@"
+          EOF
+          chmod 0755 dist/appimage/AppDir/ABCarus
           cat > dist/appimage/AppDir/README-PORTABLE.txt <<'EOF'
           ABCarus portable folder build (Linux)
           
@@ -115,8 +122,8 @@ jobs:
           Usage:
             1) Extract the entire tar.gz into a folder.
             2) Run:
-                 ./AppRun
-               (or: ./usr/bin/abcarus)
+                 ./ABCarus
+               (legacy launcher also works: ./AppRun)
           
           Notes:
             - Keep the folder structure intact.

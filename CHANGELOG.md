@@ -5,7 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Linux portable archive now includes an explicit top-level launcher `./ABCarus` (keeps `./AppRun` as legacy alias) for clearer end-user startup.
+- Regression guards extended:
+  - `test:main-cli` now checks forced reload routing for external file-open flow.
+  - `test:renderer-build` now checks same-path reopen reload path (`openRecentFile` force reload + metadata refresh).
 
+### Changed
+- External/CLI file-open actions now pass `forceReload` to renderer, so opening an already active file path re-reads current on-disk state deterministically.
+
+### Fixed
+- Reopening the same file path after external edits now reloads working copy + library metadata instead of silently keeping stale in-memory content.
+- Focus playback boundary handling hardened for problematic repeat/volta layouts:
+  - default `0 -> 0` in Focus resolves to full tune scope,
+  - end boundary fallback keeps selected/visible final bar inclusive.
+- Focus drum payload handling stabilized:
+  - safer suppression path for injected `V:DRUM`,
+  - stricter drum bar mismatch detection to fail closed instead of producing broken playback.
 
 
 ## [0.37.2] - 2026-04-17

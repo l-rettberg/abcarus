@@ -12666,6 +12666,36 @@ async function openRecentFile(entry) {
   if (!entry || !entry.path) return;
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent file");
   if (!ok) return;
+  const targetPath = String(entry.path || "");
+  const activePath = String(
+    (activeTuneMeta && activeTuneMeta.path)
+      || (currentDoc && currentDoc.path)
+      || ""
+  );
+  const shouldForceReload = Boolean(entry && entry.forceReload);
+  const reopeningActiveFile = Boolean(targetPath && activePath && pathsEqual(targetPath, activePath));
+  if (targetPath && (shouldForceReload || reopeningActiveFile)) {
+    try {
+      if (window.api && typeof window.api.getWorkingCopyMeta === "function") {
+        const metaRes = await window.api.getWorkingCopyMeta();
+        const openedPath = (metaRes && metaRes.ok && metaRes.meta && metaRes.meta.path)
+          ? String(metaRes.meta.path || "")
+          : "";
+        if (openedPath && pathsEqual(openedPath, targetPath)) {
+          if (typeof window.api.reloadWorkingCopyFromDisk === "function") {
+            await window.api.reloadWorkingCopyFromDisk();
+            await refreshWorkingCopySnapshot();
+          }
+        } else if (typeof window.api.openWorkingCopy === "function") {
+          await window.api.openWorkingCopy(targetPath);
+          await refreshWorkingCopySnapshot();
+        }
+      }
+    } catch {}
+    try {
+      await refreshLibraryFile(targetPath, { force: true });
+    } catch {}
+  }
   const readRes = await readFile(entry.path);
   if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(entry.path))) {
     await openChordProFile(entry.path, readRes.data, { suppressRecent: true });
@@ -16215,6 +16245,43 @@ function neutralizeMidiDrumDirectivesForPlayback(text) {
     if (idx < 0) return line;
     return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
   }).join("\n");
+}
+
+function neutralizeInjectedDrumVoiceForPlayback(text) {
+  const raw = String(text || "");
+  if (!/^\s*V:\s*DRUM\b/im.test(raw)) return raw;
+  const lines = raw.split(/\r\n|\n|\r/);
+  const isDrumHeaderLine = (line) => /^\s*V:\s*DRUM\b/i.test(String(line || ""));
+  const isVoiceHeaderLine = (line) => /^\s*V:\s*[^ \t\r\n]+/i.test(String(line || ""));
+  const toCommentPlaceholder = (line) => {
+    const src = String(line || "");
+    if (!src.length) return src;
+    return `%${" ".repeat(Math.max(0, src.length - 1))}`;
+  };
+  let inDrumVoice = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] || "";
+    if (!inDrumVoice && isDrumHeaderLine(line)) {
+      inDrumVoice = true;
+      lines[i] = toCommentPlaceholder(line);
+      continue;
+    }
+    if (!inDrumVoice) continue;
+    if (isVoiceHeaderLine(line) && !isDrumHeaderLine(line)) {
+      inDrumVoice = false;
+      continue;
+    }
+    lines[i] = toCommentPlaceholder(line);
+  }
+  return lines.join("\n");
+}
+
+function hasDrumBarMismatchParseError(parseErrors) {
+  if (!Array.isArray(parseErrors)) return false;
+  return parseErrors.some((e) => {
+    if (!e || e.inDrumBlock !== true) return false;
+    return /Different bars/i.test(String(e.message || ""));
+  });
 }
 
 function relocateMidiDrumDirectivesIntoBody(text) {
@@ -26739,6 +26806,29 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   let endBarIndex = null;
   let byNumberRange = null;
 
+  const noSegmentLimits = !hasFrom && !hasTo;
+  if (noSegmentLimits) {
+    const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
+    const firstBarStart = Number(bars[0] && bars[0].startOffset);
+    let fullStart = Number.isFinite(firstMeasureOffset) ? firstMeasureOffset : firstBarStart;
+    if (!Number.isFinite(fullStart)) fullStart = 0;
+    fullStart = Math.max(0, Math.min(tuneText.length, fullStart));
+    const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    return {
+      ok: true,
+      plan: {
+        mode: "visible",
+        startBarIndex: 0,
+        endBarIndex: bars.length - 1,
+        startOffset: fullStart,
+        endOffset: fullEnd,
+        suppressRepeats: Boolean(state.suppressRepeats),
+        mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+        loop: Boolean(state.loop),
+      },
+    };
+  }
+
   if (hasFrom && hasTo) {
     if (!Number.isInteger(from) || !Number.isInteger(to) || to < from) {
       return { ok: false, reason: "Invalid Focus range: set integer From/To with From <= To." };
@@ -26787,6 +26877,13 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   }
   let startOffset = Number(startBar.startOffset);
   let endOffset = Number(endBar.endOffset);
+  if (mode === "visible") {
+    const nextBar = bars[endBarIndex + 1] || null;
+    const nextStart = Number(nextBar && nextBar.startOffset);
+    if (Number.isFinite(nextStart) && nextStart > startOffset) {
+      endOffset = nextStart;
+    }
+  }
   if (mode === "segment" && byNumberRange) {
     const renderOffset = getFocusBarMapRenderOffset(bars);
     const max = Math.max(0, tuneText.length);
@@ -26829,14 +26926,22 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       endOffset = Number(textEndOffsetExclusive);
     }
   }
+  // Boundary hardening: Focus must include the selected end bar fully even when barMap carries
+  // a short/degenerate endOffset (observed on some layouts around repeats/voltas/anacrusis).
+  const endBarStart = Number(endBar.startOffset);
+  const nextBar = bars[endBarIndex + 1] || null;
+  const nextBarStart = Number(nextBar && nextBar.startOffset);
+  if (Number.isFinite(nextBarStart) && nextBarStart > endBarStart && (!Number.isFinite(endOffset) || endOffset < nextBarStart)) {
+    endOffset = nextBarStart;
+  }
+  if (Number.isFinite(endBarStart) && (!Number.isFinite(endOffset) || endOffset <= endBarStart)) {
+    const tuneLen = Math.max(0, tuneText.length);
+    endOffset = Math.max(endBarStart + 1, tuneLen);
+  }
   // abc2svg measure timelines can omit the very first bar boundary in some multi-voice/volta layouts.
   // Keep From=1 anchored to the real first measure start detected from source text.
   const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
-  const noSegmentLimits = !hasFrom && !hasTo;
-  const mustAnchorToFirstMeasure = (
-    (mode === "segment" && Number(state.fromMeasure) === 1)
-    || (mode === "visible" && noSegmentLimits)
-  );
+  const mustAnchorToFirstMeasure = (mode === "segment" && Number(state.fromMeasure) === 1);
   if (mustAnchorToFirstMeasure
     && Number.isFinite(firstMeasureOffset)
     && firstMeasureOffset >= 0
@@ -27820,6 +27925,7 @@ function extractDrumPlaybackBars(text) {
   let firstVoice = null;
   let pendingStartToken = null;
   let hasContent = false;
+  let barSourceText = "";
   let leadingToken = null;
   let inTextBlock = false;
   const bars = [];
@@ -28081,21 +28187,25 @@ function extractDrumPlaybackBars(text) {
               directives: pendingDirectives,
               startToken: pendingStartToken,
               endToken: token.token,
+              sourceText: barSourceText.trim(),
               srcLineIndex: lineIndex,
             });
             pendingDirectives = [];
             pendingStartToken = null;
             hasContent = false;
+            barSourceText = "";
           } else {
             pendingStartToken = token.token;
             if (!leadingToken && bars.length === 0) {
               leadingToken = token.token;
             }
+            barSourceText = "";
           }
           i += token.len;
           continue;
         }
         if (/[A-Ga-gz]/.test(ch)) hasContent = true;
+        barSourceText += ch;
       }
       i += 1;
     }
@@ -28127,21 +28237,29 @@ function buildDrumVoiceText(info) {
   out.push("V:DRUM clef=perc name=\"Drums\"");
   out.push("%%MIDI channel 10");
   out.push(...drummapLines);
-  const firstBarLineIndex = out.length;
 
   let patternKey = null;
   let patternBarIndex = 0;
   let wasOn = false;
   let resetPatternNext = false;
   let lineBuffer = "";
-  let sep = info.leadingToken || "";
-  const lineIndents = (info && info.lineIndents instanceof Map) ? info.lineIndents : null;
   let currentLineIndex = null;
 
   const flushLine = () => {
     if (lineBuffer) out.push(lineBuffer);
     lineBuffer = "";
     currentLineIndex = null;
+  };
+  const toDurationFraction = (units) => {
+    const u = Number(units);
+    if (!Number.isFinite(u) || u <= 0) return null;
+    const dens = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+    for (const den of dens) {
+      const num = Math.round(u * den);
+      if (num <= 0) continue;
+      if (Math.abs((num / den) - u) <= 1e-6) return { num, den };
+    }
+    return { num: Math.max(1, Math.round(u * 64)), den: 64 };
   };
 
   for (let barIndex = 0; barIndex < bars.length; barIndex += 1) {
@@ -28172,7 +28290,23 @@ function buildDrumVoiceText(info) {
       resetPatternNext = true;
     }
 
-    if (!bar.drumOn || !bar.pattern) {
+    const meterValue = Number(meter.num) / Number(meter.den);
+    const defaultLen = Number(unit.num) / Number(unit.den);
+    const isAnacrusisBar = (
+      barIndex === 0
+      && Number.isFinite(meterValue)
+      && Number.isFinite(defaultLen)
+      && isLikelyAnacrusis(String(bar.sourceText || ""), defaultLen, meterValue)
+    );
+    if (isAnacrusisBar) {
+      const actualLen = getBarLength(String(bar.sourceText || ""), defaultLen, meterValue);
+      const units = Number.isFinite(actualLen) && defaultLen > 0 ? (actualLen / defaultLen) : null;
+      const frac = toDurationFraction(units);
+      barText = frac ? `z${formatDuration(frac)}` : `z${formatDuration(barUnits)}`;
+      patternKey = null;
+      patternBarIndex = 0;
+      wasOn = false;
+    } else if (!bar.drumOn || !bar.pattern) {
       barText = `z${formatDuration(barUnits)}`;
       patternKey = null;
       patternBarIndex = 0;
@@ -28216,15 +28350,20 @@ function buildDrumVoiceText(info) {
       patternBarIndex += 1;
     }
 
-    if (bar.startToken) sep = bar.startToken;
+    // Strict bar-skeleton mapping:
+    // each emitted drum bar must keep exactly the same start/end bar tokens as the source bar.
+    // No inferred separators, no line-boundary injected bar tokens.
+    const startTokenOut = String(bar.startToken || "");
+    const endTokenOut = String(bar.endToken || "|");
+    const emittedBar = `${startTokenOut}${barText}${endTokenOut}`;
+
     if (!lineBuffer) {
       const lineKey = Number.isFinite(bar.srcLineIndex) ? bar.srcLineIndex : null;
       currentLineIndex = lineKey;
-      const indent = (lineIndents && lineKey != null) ? (lineIndents.get(lineKey) || "") : "";
-      lineBuffer = indent;
+      // Keep drum payload compact/readable for diagnostics: no inherited visual indentation.
+      lineBuffer = "";
     }
-    lineBuffer += `${sep}${barText}`;
-    sep = bar.endToken || "|";
+    lineBuffer += emittedBar;
 
     // If the tune ends explicitly with `|]`, stop emitting further drum bars.
     if (bar.endToken && /\|\]/.test(bar.endToken)) {
@@ -28234,25 +28373,11 @@ function buildDrumVoiceText(info) {
     const nextBar = bars[barIndex + 1] || null;
     const nextLineKey = nextBar && Number.isFinite(nextBar.srcLineIndex) ? nextBar.srcLineIndex : null;
     if (currentLineIndex != null && nextLineKey != null && nextLineKey !== currentLineIndex) {
-      // Preserve the original V:1 wrapping by ending the line at the same bar boundary.
-      // Emit the separator at end-of-line so the next line can start directly with bar content.
-      lineBuffer += sep;
-      sep = "";
+      // Preserve source wrapping only; do not invent additional bar separators on line breaks.
       flushLine();
     }
   }
-  if (lineBuffer) {
-    lineBuffer += sep;
-    flushLine();
-  } else if (sep && out.length > firstBarLineIndex) {
-    // If we flushed exactly on the last bar boundary, the final separator was never emitted.
-    // Append it to the last bar line for a stable barline signature.
-    const lastIdx = out.length - 1;
-    const lastLine = out[lastIdx] || "";
-    if (lastLine && !/[|:\]]\s*$/.test(lastLine)) {
-      out[lastIdx] = `${lastLine}${sep}`;
-    }
-  }
+  if (lineBuffer) flushLine();
   const trailing = Array.isArray(info.trailingDirectives) ? info.trailingDirectives : [];
   for (const directive of trailing) {
     if (directive) out.push(String(directive));
@@ -28415,13 +28540,9 @@ function injectDrumPlayback(text) {
       break;
     }
   }
-  let insertAt = lines.length;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (/^\s*%+sep\b/i.test(lines[i])) {
-      insertAt = i;
-      break;
-    }
-  }
+  // DRUM injection must depend only on MIDI drum directives and musical bar skeleton.
+  // Do not couple insertion point to visual/layout directives such as %%sep.
+  const insertAt = lines.length;
   for (let i = insertAt - 1; i >= 0; i -= 1) {
     if (lines[i].trim() === "") {
       lines[i] = "%";
@@ -29095,30 +29216,16 @@ function computeExpectedBarSignatureFromInfo(info) {
   const sig = [];
   if (!info || !Array.isArray(info.bars)) return sig;
   const bars = info.bars;
-  let sep = info.leadingToken || "";
   for (let i = 0; i < bars.length; i += 1) {
     const bar = bars[i];
-    if (bar && bar.startToken) sep = bar.startToken;
-    if (sep) sig.push(sep);
-    sep = (bar && bar.endToken) ? bar.endToken : "|";
-
-    // Mirror buildDrumVoiceText(): if the next bar starts on a new source line, the previous separator
-    // is emitted at end-of-line *before* the next bar's startToken. This affects signatures like:
-    //   ... :|2 ... ||\n|: ...
-    const next = bars[i + 1] || null;
-    const lineA = bar && Number.isFinite(bar.srcLineIndex) ? bar.srcLineIndex : null;
-    const lineB = next && Number.isFinite(next.srcLineIndex) ? next.srcLineIndex : null;
-    if (lineA != null && lineB != null && lineA !== lineB) {
-      if (sep) sig.push(sep);
-      sep = "";
-    }
+    if (bar && bar.startToken) sig.push(String(bar.startToken));
+    sig.push((bar && bar.endToken) ? String(bar.endToken) : "|");
   }
-  if (sep) sig.push(sep);
   return sig;
 }
 
 function diffSignatures(expected, actual) {
-  const clean = (arr) => (Array.isArray(arr) ? arr.filter((t) => t !== ":" && t != null) : []);
+  const clean = (arr) => (Array.isArray(arr) ? arr.filter((t) => t != null) : []);
   const a = clean(expected);
   const b = clean(actual);
   const len = Math.max(a.length, b.length);
@@ -29575,6 +29682,20 @@ async function preparePlayback() {
     abc3.tosvg("play", normalized);
     abc.tunes = abc3.tunes;
     showToast("Playback: barlines normalized (compat mode).", 3600);
+  }
+
+  // Hard guard for injected drums: if bar mismatch is reported inside V:DRUM, do not play that
+  // generated drum voice for this run. A partial/misaligned drum tail is worse than silent drums.
+  if (hasDrumBarMismatchParseError(playbackParseErrors)) {
+    playbackSanitizeWarnings.push({ kind: "playback-drums-disabled-on-bar-mismatch" });
+    const abcNoDrums = new AbcCtor(user);
+    const noDrumsText = neutralizeMidiDrumDirectivesForPlayback(
+      neutralizeInjectedDrumVoiceForPlayback(playbackText)
+    );
+    playbackParseErrors = [];
+    abcNoDrums.tosvg("play", noDrumsText);
+    abc.tunes = abcNoDrums.tunes;
+    showToast("Playback: drums disabled (bar mismatch in generated DRUM voice).", 3800);
   }
 
   // abc2svg playback is stricter than many MIDI engines (e.g. abcmidi) and rejects chord symbols placed on barlines.

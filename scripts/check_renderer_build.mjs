@@ -58,6 +58,15 @@ async function assertSaveIntentGuards() {
   if (!src.includes("!scopedMode")) {
     throw new Error("Playback reuse must be disabled for scoped (selection/ab/focus) modes.");
   }
+  if (!src.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
+    throw new Error("openRecentFile() must support forceReload flag.");
+  }
+  if (!src.includes("await window.api.reloadWorkingCopyFromDisk();")) {
+    throw new Error("openRecentFile() must reload existing working copy from disk.");
+  }
+  if (!src.includes("await refreshLibraryFile(targetPath, { force: true });")) {
+    throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
+  }
 
   const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
   const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);

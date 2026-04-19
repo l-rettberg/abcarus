@@ -74,6 +74,7 @@ git push origin v0.19.2
 4) Verify GitHub Actions produced the expected artifacts for the tag:
    - Tag push triggers GitHub Actions workflows, including `.github/workflows/release-assets.yml`.
    - Look for artifacts either on the GitHub Release page for `vX.Y.Z` and/or in Actions (run artifacts).
+   - Release body text is populated automatically from `CHANGELOG.md` section `## [X.Y.Z] - ...`.
 5) Sanity check the built app (start, open file, render, play; and import/export if Python is bundled).
 
 For the detailed checklist see [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).

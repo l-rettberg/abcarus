@@ -94,16 +94,19 @@ Tip: if you don’t want to use the browser, you can confirm the release and att
 - `git push origin master`
 - `git push origin vX.Y.Z`
 
-## 5) Create GitHub Release (manual)
+## 5) GitHub Release notes (automatic)
 
-You want a GitHub Release for human-readable notes (title/body). Assets are uploaded by CI for the tag.
+Release notes are now generated automatically from [CHANGELOG.md](../CHANGELOG.md):
+- workflow: `.github/workflows/release-assets.yml`
+- source: section `## [X.Y.Z] - ...` that matches the pushed tag `vX.Y.Z`
 
-1) Create (or edit) the GitHub Release for tag `vX.Y.Z`.
-2) Paste the release notes from [CHANGELOG.md](../CHANGELOG.md) section `## [X.Y.Z] - ...`.
+What this means:
+- Keep `## [Unreleased]` accurate before running `npm run release:*`.
+- After tag push, the workflow creates/updates the GitHub Release body from that changelog section.
+- Assets are uploaded by CI in the same workflow.
 
-Notes:
-- CI (`.github/workflows/release-assets.yml`) uploads platform artifacts on tag push.
-- If you need to rebuild/re-upload assets for an existing tag, run the workflow manually with:
+Manual rebuild/re-upload (if needed):
+- run workflow `release-assets.yml` with:
   - `ref: vX.Y.Z`
   - `publish: true`
 

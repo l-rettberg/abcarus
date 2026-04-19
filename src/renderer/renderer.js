@@ -77,7 +77,13 @@ const $midiInputGridCtl = document.getElementById("midiInputGridCtl");
 const $midiInputMacroCtl = document.getElementById("midiInputMacroCtl");
 const $midiInputMacroNote = document.getElementById("midiInputMacroNote");
 const $midiInputStateHint = document.getElementById("midiInputStateHint");
+const $midiInputEnabledDependent = document.getElementById("midiInputEnabledDependent");
 const $midiInputBeepCtl = document.getElementById("midiInputBeepCtl");
+const $midiInputBeepDurationWrap = document.getElementById("midiInputBeepDurationWrap");
+const $noteTypingPreviewCtl = document.getElementById("noteTypingPreviewCtl");
+const $noteTypingPreviewDependent = document.getElementById("noteTypingPreviewDependent");
+const $noteTypingPreviewTriggerCtl = document.getElementById("noteTypingPreviewTriggerCtl");
+const $midiPreviewSharedGroup = document.getElementById("midiPreviewSharedGroup");
 const $midiInputBeepVolumeCtl = document.getElementById("midiInputBeepVolumeCtl");
 const $midiInputBeepDurationCtl = document.getElementById("midiInputBeepDurationCtl");
 const $main = document.querySelector("main");
@@ -2036,18 +2042,9 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
     const wSetting = clampNumber(followPlayheadWidth, 1, 6, 2);
     const halfW = wSetting / 2;
     const shift = clampNumber(followPlayheadShift, -20, 20, 0);
-    const betweenWeight = clampNumber(followPlayheadBetweenNotesWeight, 0, 1, 1);
-    const firstBias = clampNumber(followPlayheadFirstBias, 0, 20, 6);
-
-    let xTarget = xCenter;
-    if (Number.isFinite(lastSvgPlayheadXCenter)) {
-      const midpoint = (lastSvgPlayheadXCenter + xCenter) / 2;
-      xTarget = xCenter * (1 - betweenWeight) + midpoint * betweenWeight;
-    } else {
-      const autoBias = Math.max(4, Math.min(10, width * 0.35));
-      xTarget = xCenter - (Number.isFinite(firstBias) ? firstBias : autoBias);
-    }
-    xTarget += shift;
+    // Keep rhythm accuracy, but offset slightly left so the current notehead remains clearly visible.
+    const leadGap = Math.max(3, Math.min(8, width * 0.28));
+    const xTarget = xCenter - leadGap + shift;
     lastSvgPlayheadXCenter = xCenter;
 
     lastSvgPlayheadEl.setAttribute("width", String(wSetting));
@@ -8489,6 +8486,13 @@ function formatMidiButtonLabel() {
   return "MIDI: on";
 }
 
+function setMidiCollapseState(el, expanded) {
+  if (!el) return;
+  const open = Boolean(expanded);
+  el.classList.toggle("is-collapsed", !open);
+  el.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
 function updateMidiInputUi() {
   if (!$midiInputStatus) return;
   const label = formatMidiButtonLabel();
@@ -8502,6 +8506,7 @@ function updateMidiInputUi() {
   $midiInputStatus.style.display = "";
 
   if ($midiInputEnabledCtl) $midiInputEnabledCtl.checked = midiInputEnabled;
+  setMidiCollapseState($midiInputEnabledDependent, midiInputEnabled);
   if ($midiInputMutedCtl) {
     $midiInputMutedCtl.checked = midiInputMuted;
     $midiInputMutedCtl.disabled = !midiInputEnabled;
@@ -8515,11 +8520,21 @@ function updateMidiInputUi() {
     $midiInputMacroNote.style.display = midiInputMacroEnabled ? "" : "none";
   }
   if ($midiInputBeepCtl) $midiInputBeepCtl.checked = midiInputBeepEnabled;
+  setMidiCollapseState($midiInputBeepDurationWrap, midiInputEnabled && midiInputBeepEnabled);
+  if ($noteTypingPreviewCtl) $noteTypingPreviewCtl.checked = noteTypingPreviewEnabled;
+  setMidiCollapseState($noteTypingPreviewDependent, noteTypingPreviewEnabled);
+  if ($noteTypingPreviewTriggerCtl) {
+    $noteTypingPreviewTriggerCtl.value = noteTypingPreviewTrigger === "note" ? "note" : "delimiter";
+    $noteTypingPreviewTriggerCtl.disabled = !noteTypingPreviewEnabled;
+    const triggerRow = $noteTypingPreviewTriggerCtl.closest(".midi-popover-row");
+    if (triggerRow) triggerRow.style.opacity = noteTypingPreviewEnabled ? "1" : "0.6";
+  }
   if ($midiInputBeepVolumeCtl) {
     const mergedPreviewVolume = Math.round(Math.max(0, Math.min(1, noteTypingPreviewVolume)) * 100);
     $midiInputBeepVolumeCtl.value = String(mergedPreviewVolume);
   }
   if ($midiInputBeepDurationCtl) $midiInputBeepDurationCtl.value = String(Math.round(midiInputBeepDurationMs));
+  setMidiCollapseState($midiPreviewSharedGroup, noteTypingPreviewEnabled || (midiInputEnabled && midiInputBeepEnabled));
   if ($midiInputStateHint) {
     let hint = "";
     if (!supportsMidiInput()) hint = "MIDI input is unsupported in this environment.";
@@ -8929,7 +8944,6 @@ function setMidiInputEnabled(next, { notify = true } = {}) {
   if (notify) {
     try { showToast(midiInputEnabled ? "MIDI input enabled." : "MIDI input disabled.", 2000); } catch {}
   }
-  if (!midiInputEnabled) closeMidiInputPopover();
   updateMidiInputUi();
   if (lastCursorStatus) refreshCursorStatus();
 }
@@ -12988,6 +13002,23 @@ if ($midiInputBeepCtl) {
   });
 }
 
+if ($noteTypingPreviewCtl) {
+  $noteTypingPreviewCtl.addEventListener("change", async () => {
+    const enabled = Boolean($noteTypingPreviewCtl.checked);
+    applyMidiSettingsPatch({ noteTypingPreviewEnabled: enabled });
+    if (enabled) {
+      await unlockMidiAudioContext();
+    }
+  });
+}
+
+if ($noteTypingPreviewTriggerCtl) {
+  $noteTypingPreviewTriggerCtl.addEventListener("change", () => {
+    const mode = String($noteTypingPreviewTriggerCtl.value || "") === "note" ? "note" : "delimiter";
+    applyMidiSettingsPatch({ noteTypingPreviewTrigger: mode });
+  });
+}
+
 if ($midiInputBeepVolumeCtl) {
   $midiInputBeepVolumeCtl.addEventListener("input", () => {
     const raw = Number($midiInputBeepVolumeCtl.value);
@@ -14668,6 +14699,7 @@ function analyzeBarMismatchesForGutter(abcText) {
   if (!Number.isFinite(defaultLen) && defaultLen !== "mcm_default") return [];
 
   let currentMetre = metre;
+  let currentDefaultLen = defaultLen;
   let currentMetreText = metreText;
   let currentDen = Number(metreMatch[2]) || 8;
   const metreUnit = () => 1 / Math.max(1, currentDen);
@@ -14704,11 +14736,29 @@ function analyzeBarMismatchesForGutter(abcText) {
     currentDen = d;
   };
 
+  const parseDefaultLenValue = (raw) => {
+    const token = String(raw || "").trim();
+    if (!token) return null;
+    if (/^mcm_default$/i.test(token)) return "mcm_default";
+    const m = token.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (!m) return null;
+    const num = Number(m[1]);
+    const den = Number(m[2]);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
+    return num / den;
+  };
+
+  const updateDefaultLen = (raw) => {
+    const parsed = parseDefaultLenValue(raw);
+    if (parsed == null) return;
+    currentDefaultLen = parsed;
+  };
+
   const flushBar = (endToken, endOffset, endLen, lineNo, colNo) => {
     const bar = buffer.trim();
     buffer = "";
     if (!bar) return;
-    const len = getBarLength(bar, defaultLen, currentMetre);
+    const len = getBarLength(bar, currentDefaultLen, currentMetre);
     if (!Number.isFinite(len) || len <= 0) return;
     barNumber += 1;
     const unit = metreUnit();
@@ -14770,6 +14820,11 @@ function analyzeBarMismatchesForGutter(abcText) {
       updateMetre(bodyMeterMatch[1], bodyMeterMatch[2]);
       continue;
     }
+    const bodyLenMatch = trimmed.match(/^L:\s*([^\s%]+)/i);
+    if (bodyLenMatch) {
+      updateDefaultLen(bodyLenMatch[1]);
+      continue;
+    }
     if (/^\s*[A-Za-z]:/.test(rawLine)) continue;
 
     let line = rawLine;
@@ -14796,6 +14851,11 @@ function analyzeBarMismatchesForGutter(abcText) {
       let mm;
       while ((mm = inlineMeterRe.exec(p)) !== null) {
         updateMetre(mm[1], mm[2]);
+      }
+      const inlineLenRe = /\[\s*L:\s*([^\]]+)\]/gi;
+      let ll;
+      while ((ll = inlineLenRe.exec(p)) !== null) {
+        updateDefaultLen(ll[1]);
       }
       buffer += ` ${p}`;
     }
@@ -23127,12 +23187,14 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Hidden debug shortcut:
-// - Cmd/Ctrl+Alt+Shift+D dumps a debug JSON snapshot
-// - Cmd/Ctrl+Shift+F9 dumps a debug JSON snapshot (avoids Alt+Shift conflicts on some DEs)
+// - Cmd/Ctrl+Shift+D dumps a debug JSON snapshot (primary)
+// - Cmd/Ctrl+Alt+Shift+D dumps a debug JSON snapshot (fallback for DE conflicts)
+// - Cmd/Ctrl+Shift+F9 dumps a debug JSON snapshot (alternate fallback)
 document.addEventListener("keydown", (e) => {
   const key = String(e.key || "").toLowerCase();
   const mod = e.ctrlKey || e.metaKey;
-  const isDumpChord = (mod && e.altKey && e.shiftKey && key === "d")
+  const isDumpChord = (mod && e.shiftKey && !e.altKey && key === "d")
+    || (mod && e.altKey && e.shiftKey && key === "d")
     || (mod && e.shiftKey && !e.altKey && key === "f9");
   if (!isDumpChord) return;
   const target = e.target;
@@ -24975,19 +25037,6 @@ function updatePlaybackInteractionLock() {
 }
 
 function buildTransportPlaybackPlan() {
-  const editorStartOffset = (() => {
-    if (!editorView) return null;
-    try {
-      const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
-      if (!sel) return null;
-      const max = editorView.state.doc.length;
-      const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
-      const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
-      return Math.min(anchor, head);
-    } catch {
-      return null;
-    }
-  })();
   const tempoMultiplier = focusModeEnabled
     ? (Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : 1)
     : 1;
@@ -25020,9 +25069,8 @@ function buildTransportPlaybackPlan() {
     mode: "transport",
     invalid: false,
     invalidReason: "",
-    rangeStart: Number.isFinite(editorStartOffset)
-      ? Math.max(0, Number(editorStartOffset) || 0)
-      : Math.max(0, Number(transportPlayheadOffset) || 0),
+    // Normal mode: start from the beginning of the bar under cursor.
+    rangeStart: getEditorMeasureStartOffset(),
     rangeEnd: null,
     loopEnabled: false,
     tempoMultiplier,
@@ -25037,6 +25085,50 @@ function getEditorPlayStartOffset() {
   const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
   const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
   return Math.min(anchor, head);
+}
+
+function getEditorMeasureStartOffset() {
+  if (!editorView) return 0;
+  const text = getEditorValue();
+  const max = editorView.state.doc.length;
+  if (!text || max <= 0) return 0;
+  const cursor = Math.max(0, Math.min(getEditorPlayStartOffset(), max));
+  const len = text.length;
+
+  // Deterministic textual rule:
+  // - current measure starts right after the nearest barline to the left of cursor
+  // - if cursor is exactly on a barline, this barline is the current measure boundary
+  // - for measure 1 (no previous barline), start at first detected measure start in body
+  // Do not cross section boundaries (e.g. [P:E]) when searching for the current bar start.
+  const leftText = text.slice(0, cursor + 1);
+  const partMatches = [...leftText.matchAll(/(?:^|\n)\s*\[P:[^\]\n]*\]\s*(?:\n|$)/g)];
+  const sectionStart = partMatches.length
+    ? Math.min(cursor, partMatches[partMatches.length - 1].index + partMatches[partMatches.length - 1][0].length)
+    : 0;
+
+  let bar = -1;
+  if (cursor < len && text[cursor] === "|") {
+    bar = cursor;
+  } else {
+    bar = text.lastIndexOf("|", Math.max(0, cursor - 1));
+  }
+  if (bar < sectionStart) bar = -1;
+
+  let start = 0;
+  if (bar >= 0) {
+    start = bar + 1;
+  } else {
+    const first = findMeasureStartOffsetByNumber(text.slice(sectionStart), 1);
+    if (Number.isFinite(first)) {
+      start = sectionStart + Number(first);
+    } else {
+      start = sectionStart;
+    }
+  }
+
+  // Skip only separators between barline and content.
+  while (start < len && /[\s|:\]]/.test(text[start] || "")) start += 1;
+  return Math.max(0, Math.min(start, max));
 }
 
 function getEditorSelectionSignature() {
@@ -25103,7 +25195,9 @@ async function togglePlayPauseEffective() {
     }
     applyPlaybackPlanSpeed(plan);
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25172,7 +25266,9 @@ async function transportTogglePlayPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25184,7 +25280,7 @@ async function transportTogglePlayPause() {
     });
     return;
   }
-  const startOffset = getEditorPlayStartOffset();
+  const startOffset = getEditorMeasureStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25198,7 +25294,9 @@ async function transportPlay() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25225,7 +25323,7 @@ async function transportPlay() {
     });
     return;
   }
-  const startOffset = getEditorPlayStartOffset();
+  const startOffset = getEditorMeasureStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25242,7 +25340,9 @@ async function transportPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -29942,6 +30042,34 @@ async function startPlaybackFromRange(rangeOverride) {
     return;
   }
   let startSym = findSymbolAtOrAfter(startAbcOffset);
+  // Cursor can land on inter-note whitespace (or be shifted there by UI timing).
+  // In normal transport mode, prefer the previous playable symbol when it is in the same bar segment.
+  // This avoids "start from second note" when the user places the cursor visually before a bar start note.
+  if (!scopedMode && Number.isFinite(startAbcOffset) && startAbcOffset > 0 && editorView) {
+    let ch = "";
+    try { ch = editorView.state.doc.sliceString(range.startOffset, range.startOffset + 1); } catch {}
+    if (/\s/.test(String(ch || ""))) {
+      const prevSym = findSymbolAtOrBefore(startAbcOffset - 1);
+      if (prevSym && Number.isFinite(prevSym.istart) && Number.isFinite(prevSym.dur) && prevSym.dur > 0 && !prevSym.noplay) {
+        const prevEditorOffset = toEditorOffset(prevSym.istart);
+        if (Number.isFinite(prevEditorOffset)) {
+          let between = "";
+          try {
+            const a = Math.max(0, Math.min(range.startOffset, prevEditorOffset));
+            const b = Math.max(a, Math.max(range.startOffset, prevEditorOffset));
+            between = editorView.state.doc.sliceString(a, b);
+          } catch {}
+          // Keep mid-score starts deterministic, but do not cross bar/line boundaries.
+          if (!/[\n|]/.test(String(between || ""))) {
+            if (!startSym || !Number.isFinite(startSym.istart) || prevSym.istart < startSym.istart) {
+              startSym = prevSym;
+              range.startOffset = Math.max(0, prevEditorOffset);
+            }
+          }
+        }
+      }
+    }
+  }
   if (!startSym || !Number.isFinite(startSym.istart)) {
     if (!scopedMode && startAbcOffset > 0) {
       const fallbackSym = findSymbolAtOrAfter(0);
@@ -29956,7 +30084,7 @@ async function startPlaybackFromRange(rangeOverride) {
     && Number.isFinite(startSym.istart)
     && !scopedMode
     && startAbcOffset > 0
-    && startSym.istart !== startAbcOffset
+    && startSym.istart < startAbcOffset
   ) {
     const fallbackSym = findSymbolAtOrAfter(0);
     if (fallbackSym && Number.isFinite(fallbackSym.istart)) {

@@ -1775,7 +1775,7 @@ svg {
   padding: 8px 10px 10px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
 }
 
@@ -1794,6 +1794,51 @@ svg {
 
 .midi-popover-row select{
   flex: 0 0 auto;
+}
+
+.midi-popover-group{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.midi-popover-subgroup{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.midi-collapse{
+  overflow: hidden;
+  max-height: 360px;
+  opacity: 1;
+  transition:
+    max-height 160ms ease,
+    opacity 130ms ease,
+    margin-top 160ms ease,
+    padding-top 160ms ease;
+}
+
+.midi-collapse.is-collapsed{
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  pointer-events: none;
+}
+
+.midi-popover-group + .midi-popover-group{
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+}
+
+.midi-popover-group-title{
+  color: #666;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
 }
 
 .midi-popover-note{

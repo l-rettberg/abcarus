@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Package/build metadata now consistently uses the `abcarus` / `ABCarus` naming across package manifests, AppImage guidance, and developer orientation notes.
+- Release publishing now syncs the version notes from `CHANGELOG.md` into the GitHub Release body automatically via `gh`.
+
+### Fixed
+- `Align Bars` no longer inserts a spurious leading gap when a tune contains section boundaries followed by inline meter/unit fields.
+- Bare `+:` continuation lines now inherit directive/header highlighting correctly in the editor.
+- `%%MIDI drum +:` continuation directives are collapsed consistently for render/playback compatibility, avoiding false abc2svg parse errors in normal rendering.
+- Directive-origin errors no longer show bogus `Beats:` diagnostics computed from header text.
+- Note highlight/follow/click mapping is restored after MIDI drum compatibility rewrites, so the cursor tracks individual notes again instead of snapping to the bar start.
 
 
 ## [0.38.0] - 2026-04-19

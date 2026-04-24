@@ -1,5 +1,5 @@
 {
-  "name": "abc-electron-proto",
+  "name": "abcarus",
   "version": "0.38.0",
   "description": "Desktop application for working with music in ABC notation.",
   "main": "src/main/index.js",

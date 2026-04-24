@@ -1964,8 +1964,8 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
   const measure = findMeasureRangeAt(editorText, editorOffset);
   const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
   if (measure && barEls.length) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     const hits = barEls.filter((el) => {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -2062,7 +2062,7 @@ function highlightSvgAtEditorOffset(editorOffset) {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = editorOffset + renderOffset;
+  const renderIdx = mapEditorOffsetToRenderIdx(editorOffset);
 
   // Prefer measure-wide highlighting when possible (easier to spot than a single glyph).
   if (editorView) {
@@ -2071,8 +2071,8 @@ function highlightSvgAtEditorOffset(editorOffset) {
       const measure = findMeasureRangeAt(editorText, editorOffset);
       const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
       if (measure && barEls.length) {
-        const start = measure.start + renderOffset;
-        const end = measure.end + renderOffset;
+        const start = mapEditorOffsetToRenderIdx(measure.start);
+        const end = mapEditorOffsetToRenderIdx(measure.end);
         const hits = barEls.filter((el) => {
           const s = Number(el.dataset && el.dataset.start);
           return Number.isFinite(s) && s >= start && s < end;
@@ -2598,8 +2598,8 @@ function buildAbcDecorations(state) {
       continue;
     }
 
-    // Field continuation marker (ABC 2.1/2.2).
-    // If it continues a directive line (e.g. `%%MIDI ...`), highlight it as a directive; otherwise as a header field.
+    // Field/directive continuation marker (ABC 2.1/2.2).
+    // Inherit the previous info-field style; bare `+:` after `%%MIDI ...` remains directive-colored.
     if (/^\s*\+:\s*/.test(text)) {
       const cls = lastNonEmptyKind === "directive" ? "cm-abc-directive" : "cm-abc-header";
       builder.add(line.from, line.to, Decoration.mark({ class: cls }));
@@ -2933,6 +2933,60 @@ let soundfontStatusTimer = null;
 const STREAMING_SF2 = new Set();
 const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
+
+function getRenderCompatMap() {
+  return lastRenderPayload && lastRenderPayload.compatMap ? lastRenderPayload.compatMap : null;
+}
+
+function mapSourceOffsetToRenderOffset(offset, compatMap = getRenderCompatMap()) {
+  const raw = Number(offset);
+  if (!Number.isFinite(raw)) return raw;
+  const map = compatMap;
+  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
+  let lo = 0;
+  let hi = map.shifts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((map.shifts[mid].srcPos || 0) <= raw) lo = mid + 1;
+    else hi = mid;
+  }
+  const shift = lo > 0 ? map.shifts[lo - 1] : null;
+  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
+  return raw + delta;
+}
+
+function mapRenderOffsetToSourceOffset(offset, compatMap = getRenderCompatMap()) {
+  const raw = Number(offset);
+  if (!Number.isFinite(raw)) return raw;
+  const map = compatMap;
+  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
+  let lo = 0;
+  let hi = map.shifts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((map.shifts[mid].outPos || 0) <= raw) lo = mid + 1;
+    else hi = mid;
+  }
+  const shift = lo > 0 ? map.shifts[lo - 1] : null;
+  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
+  return raw - delta;
+}
+
+function mapEditorOffsetToRenderIdx(editorOffset, payload = lastRenderPayload) {
+  const raw = Number(editorOffset);
+  if (!Number.isFinite(raw)) return raw;
+  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
+  const sourcePos = raw + renderOffset;
+  return mapSourceOffsetToRenderOffset(sourcePos, payload && payload.compatMap ? payload.compatMap : null);
+}
+
+function mapRenderIdxToEditorOffset(renderIdx, payload = lastRenderPayload) {
+  const raw = Number(renderIdx);
+  if (!Number.isFinite(raw)) return raw;
+  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
+  const sourcePos = mapRenderOffsetToSourceOffset(raw, payload && payload.compatMap ? payload.compatMap : null);
+  return Math.max(0, sourcePos - renderOffset);
+}
 
 function lruGet(map, key) {
   if (!map.has(key)) return undefined;
@@ -6450,8 +6504,8 @@ function highlightSvgIntonationBarsAtEditorOffsets(offsets) {
   }
   const hits = new Set();
   for (const measure of uniqMeasures) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     for (const el of barEls) {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -6486,7 +6540,7 @@ function highlightSvgIntonationNotesAtEditorOffsets(offsets) {
 
   for (const editorOffset of list) {
     if (hits.size >= maxHits) break;
-    const renderIdx = Number(editorOffset) + renderOffset;
+    const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
     if (!Number.isFinite(renderIdx)) continue;
     let els = $out.querySelectorAll("._" + renderIdx + "_");
     if ((!els || !els.length) && Number.isFinite(renderIdx)) {
@@ -7387,8 +7441,8 @@ function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
   const measure = findMeasureRangeAt(editorText, editorOffset);
   const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
   if (measure && barEls.length) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     const hits = barEls.filter((el) => {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -13524,6 +13578,7 @@ function formatMeterInfo(abc) {
 
 function computeMeasureStatsAt(editorText, anchorOffset) {
   if (!editorText || !Number.isFinite(anchorOffset)) return null;
+  if (!shouldComputeMeasureStatsAt(editorText, anchorOffset)) return null;
   const range = findMeasureRangeAt(editorText, anchorOffset);
   if (!range) return null;
   const defaultLen = getDefaultLen(editorText);
@@ -13549,6 +13604,22 @@ function computeMeasureStatsAt(editorText, anchorOffset) {
     actualUnits,
     expectedUnits,
   };
+}
+
+function shouldComputeMeasureStatsAt(editorText, anchorOffset) {
+  const text = String(editorText || "");
+  if (!text || !Number.isFinite(anchorOffset)) return false;
+  const idx = Math.max(0, Math.min(Math.floor(anchorOffset), Math.max(0, text.length - 1)));
+  const lineStart = Math.max(0, text.lastIndexOf("\n", idx - 1) + 1);
+  const nextNl = text.indexOf("\n", idx);
+  const lineEnd = nextNl >= 0 ? nextNl : text.length;
+  const line = text.slice(lineStart, lineEnd);
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("%")) return false;
+  if (/^[A-Za-z]:/.test(trimmed)) return false;
+  if (/^\[[A-Za-z]:[^\]]*\]\s*$/.test(trimmed)) return false;
+  return true;
 }
 
 function setErrorFocusMessage(entry, from) {
@@ -15052,11 +15123,18 @@ function alignBarsInTune(lines, tuneText) {
   const out = lines.slice();
   let inText = false;
   let headerEnded = false;
-  const candidates = [];
+  const groups = [];
+  let candidates = [];
+  const flushCandidates = () => {
+    if (!candidates.length) return;
+    groups.push(candidates);
+    candidates = [];
+  };
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (/^%%\s*begintext\b/i.test(line)) {
+      flushCandidates();
       inText = true;
       continue;
     }
@@ -15068,17 +15146,28 @@ function alignBarsInTune(lines, tuneText) {
       if (/^\s*K:/.test(line)) headerEnded = true;
       continue;
     }
-    if (inText) continue;
-    if (/^\s*%/.test(line)) continue;
-    if (/^\s*[A-Za-z]:/.test(line)) continue;
-    if (!BAR_SEP_NO_SPACE.test(line)) continue;
+    if (inText) {
+      flushCandidates();
+      continue;
+    }
+    if (
+      /^\s*%/.test(line)
+      || /^\s*[A-Za-z]:/.test(line)
+      || !BAR_SEP_NO_SPACE.test(line)
+    ) {
+      flushCandidates();
+      continue;
+    }
     candidates.push({ idx: i, line });
   }
+  flushCandidates();
 
-  if (!candidates.length) return out;
-  const aligned = alignLines(tuneText, candidates.map((c) => c.line), true);
-  for (let i = 0; i < candidates.length; i += 1) {
-    out[candidates[i].idx] = aligned[i];
+  if (!groups.length) return out;
+  for (const group of groups) {
+    const aligned = alignLines(tuneText, group.map((c) => c.line), true);
+    for (let i = 0; i < group.length; i += 1) {
+      out[group[i].idx] = aligned[i];
+    }
   }
   return out;
 }
@@ -16503,12 +16592,12 @@ async function goToMeasureFromMenu() {
     if (Array.isArray(list) && list.length) {
       const renderOffset = Number(measureIndex.offset) || 0;
       const cursor = editorView ? editorView.state.selection.main.anchor : 0;
-      const currentRenderIdx = (Number(cursor) || 0) + renderOffset;
+      const currentRenderIdx = mapEditorOffsetToRenderIdx(Number(cursor) || 0);
       let chosen = list[0];
       for (const v of list) {
         if (Number.isFinite(v) && v >= currentRenderIdx) { chosen = v; break; }
       }
-      if (Number.isFinite(chosen)) idx = Math.max(0, Math.floor(chosen - renderOffset));
+      if (Number.isFinite(chosen)) idx = Math.max(0, Math.floor(mapRenderIdxToEditorOffset(chosen)));
     }
   }
   if (idx == null && n >= 1 && measureIndex && Array.isArray(measureIndex.istarts) && measureIndex.istarts.length) {
@@ -16684,8 +16773,8 @@ function addError(message, locOverride, contextOverride) {
     if (Number.isFinite(renderIdx)) {
       const renderRange = findMeasureRangeAt(renderText, renderIdx);
       if (renderRange && renderRange.end > renderRange.start) {
-        const editorStart = renderRange.start - renderOffset;
-        const editorEnd = renderRange.end - renderOffset;
+        const editorStart = mapRenderIdxToEditorOffset(renderRange.start);
+        const editorEnd = mapRenderIdxToEditorOffset(renderRange.end);
         const editorRange = (editorStart >= 0 && editorEnd > editorStart)
           ? { start: editorStart, end: editorEnd }
           : null;
@@ -16939,7 +17028,7 @@ function highlightNoteAtIndex(idx) {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = Number.isFinite(idx) ? idx + renderOffset : idx;
+  const renderIdx = Number.isFinite(idx) ? mapEditorOffsetToRenderIdx(idx) : idx;
   const els = $out.querySelectorAll("._" + renderIdx + "_");
   if (!els.length) return;
   lastNoteSelection = Array.from(els);
@@ -17327,7 +17416,8 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
   try {
     ensureAbc2svgLoader();
     const normalized = normalizeHeaderNoneSpacing(abcText);
-    const baseText = normalized;
+    const drumCompat = collapseMidiDrumContinuationsForCompat(normalized);
+    const baseText = drumCompat && drumCompat.text ? drumCompat.text : normalized;
     const context = options && options.errorContext ? options.errorContext : null;
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
@@ -18384,12 +18474,14 @@ function renderNow() {
     return;
   }
   const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
-  let renderText = renderTextBase;
+  const drumCompat = collapseMidiDrumContinuationsForCompat(renderTextBase);
+  let renderText = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
   let sepFallbackUsed = false;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
     lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
+    compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
     errorLineOffset = renderPayload.lineOffset;
@@ -18481,11 +18573,15 @@ function renderNow() {
         break;
       } catch (e) {
         if (!sepFallbackUsed) {
-          const sepStrip = stripSepForRender(renderTextBase);
+          const sepStrip = stripSepForRender(renderText);
           if (sepStrip.replaced) {
             sepFallbackUsed = true;
             renderText = sepStrip.text;
-            lastRenderPayload = { text: renderText, offset: renderPayload.offset || 0 };
+            lastRenderPayload = {
+              text: renderText,
+              offset: renderPayload.offset || 0,
+              compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+            };
             continue;
           }
         }
@@ -23175,7 +23271,7 @@ function centerRenderPaneOnCurrentAnchor() {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = Number(editorOffset) + renderOffset;
+  const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
   if (!Number.isFinite(renderIdx)) return;
   let els = $out.querySelectorAll("._" + renderIdx + "_");
   if ((!els || !els.length) && Number.isFinite(renderIdx)) {
@@ -23627,9 +23723,9 @@ if ($out) {
       const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
         ? lastRenderPayload.offset
         : 0;
-      const editorStart = Math.max(0, start - renderOffset);
+      const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
       const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
-      const editorEnd = Math.max(editorStart, editorEndRaw - renderOffset);
+      const editorEnd = Math.max(editorStart, mapRenderIdxToEditorOffset(editorEndRaw));
       pendingPlaybackRangeOrigin = "svg";
       setEditorSelectionRange(editorStart, editorEnd);
       setPlaybackRange({
@@ -25571,7 +25667,7 @@ function schedulePlaybackUiUpdate(istart) {
     const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
       ? lastRenderPayload.offset
       : 0;
-    const renderIdx = editorIdx + renderOffset;
+    const renderIdx = mapEditorOffsetToRenderIdx(editorIdx);
 
 	    if (lastPlaybackUiEditorIdx === editorIdx && lastPlaybackUiRenderIdx === renderIdx) return;
 	    lastPlaybackUiEditorIdx = editorIdx;
@@ -25589,7 +25685,7 @@ function schedulePlaybackUiUpdate(istart) {
     if (chosen) {
       const chosenRenderIdx = extractRenderIdxFromElementClass(chosen);
       const chosenEditorIdx = Number.isFinite(chosenRenderIdx)
-        ? Math.max(0, chosenRenderIdx - renderOffset)
+        ? Math.max(0, mapRenderIdxToEditorOffset(chosenRenderIdx))
         : editorIdx;
       const nearestBar = findNearestBarElForNote(chosen);
       setSvgPlayheadFromElements(chosen, nearestBar);
@@ -26507,7 +26603,10 @@ function clampInt(value, min, max, fallback) {
 
 function buildFocusBarIndexMap(measureIndex, editorDocLength) {
   if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
-  const renderOffset = Number(measureIndex.offset) || 0;
+  const payload = {
+    offset: Number(measureIndex.offset) || 0,
+    compatMap: getRenderCompatMap(),
+  };
   const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
   const starts = measureIndex.istarts.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
   if (!starts.length) return [];
@@ -26515,9 +26614,9 @@ function buildFocusBarIndexMap(measureIndex, editorDocLength) {
   for (let i = 0; i < starts.length; i += 1) {
     const startRenderOffset = starts[i];
     const nextStart = (i + 1 < starts.length) ? starts[i + 1] : null;
-    const startOffset = Math.max(0, Math.min(max, Math.floor(startRenderOffset - renderOffset)));
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(startRenderOffset, payload))));
     const endOffset = Number.isFinite(nextStart)
-      ? Math.max(0, Math.min(max, Math.floor(nextStart - renderOffset)))
+      ? Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(nextStart, payload))))
       : max;
     if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
     bars.push({
@@ -26533,9 +26632,8 @@ function buildFocusBarIndexMap(measureIndex, editorDocLength) {
 
 function buildFocusBarIndexMapFromSvg(editorDocLength) {
   if (!$out) return [];
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? Number(lastRenderPayload.offset)
-    : 0;
+  const payload = lastRenderPayload || { offset: 0, compatMap: null };
+  const renderOffset = Number.isFinite(payload && payload.offset) ? Number(payload.offset) : 0;
   const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
   const barEls = Array.from($out.querySelectorAll(".bar-hl"));
   if (!barEls.length) return [];
@@ -26573,9 +26671,9 @@ function buildFocusBarIndexMapFromSvg(editorDocLength) {
     if (Number.isFinite(nextStart) && (!Number.isFinite(endRenderOffset) || endRenderOffset > nextStart)) {
       endRenderOffset = nextStart;
     }
-    if (!Number.isFinite(endRenderOffset)) endRenderOffset = renderOffset + max;
-    const startOffset = Math.max(0, Math.min(max, Math.floor(item.startRenderOffset - renderOffset)));
-    const endOffset = Math.max(0, Math.min(max, Math.floor(endRenderOffset - renderOffset)));
+    if (!Number.isFinite(endRenderOffset)) endRenderOffset = mapEditorOffsetToRenderIdx(max, payload);
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(item.startRenderOffset, payload))));
+    const endOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(endRenderOffset, payload))));
     if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
     bars.push({
       barNumber: bars.length + 1,
@@ -28713,55 +28811,44 @@ function normalizeBlankLinesForPlayback(text) {
   return out.join("\n");
 }
 
-function sanitizeAbcForPlayback(text, options = {}) {
-  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
+function collapseMidiDrumContinuationsForCompat(text) {
   const src = String(text || "");
   const lines = src.split(/\r\n|\n|\r/);
   const out = [];
   const warnings = [];
+  const shifts = [];
   let inTextBlock = false;
-  let inBody = false;
+  let srcPos = 0;
+  let outPos = 0;
+  let totalDelta = 0;
+  const splitComment = (s) => {
+    const idx = String(s || "").indexOf("%", 2); // allow leading "%%" as directive marker
+    if (idx < 0) return { code: String(s || ""), comment: "" };
+    return { code: String(s || "").slice(0, idx), comment: String(s || "").slice(idx) };
+  };
+
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const rawLine = lines[lineIndex];
     const trimmed = rawLine.trim();
     if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
     if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
-    if (!inBody && (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(trimmed))) inBody = true;
 
-    // Playback compat: ABC 2.2 supports `%%MIDI drum +:` continuation lines, but abc2svg-playback
-    // rejects `%%MIDI drum +:`. Collapse the 2.2 form into a single `%%MIDI drum ...` line:
-    //   %%MIDI drum     <rhythm>
-    //   %%MIDI drum +:  <pitches>
-    //   %%MIDI drum +:  <velocities>
-    // becomes:
-    //   %%MIDI drum <rhythm> <pitches> <velocities>
-    // For follow/mapping stability, we keep line-count stable by replacing consumed continuation
-    // lines with length-preserving comment lines.
-    // Note: keep this outside `inBody` so tune-header forms (before K:) are handled too.
-    if (!inTextBlock && collapseMidiDrumContinuations) {
+    // Compatibility: abc2svg rejects `%%MIDI drum +:` continuation lines.
+    // Keep line count stable for diagnostics by replacing consumed lines with comments.
+    if (!inTextBlock) {
       const main = rawLine.match(/^(\s*)%%MIDI\s+drum\s+(?!\+:)(.*)$/i);
       if (main) {
         const indent = main[1] || "";
         const restRaw = main[2] || "";
-        const splitComment = (s) => {
-          const idx = s.indexOf("%", 2); // allow leading "%%" as directive marker
-          if (idx < 0) return { code: s, comment: "" };
-          return { code: s.slice(0, idx), comment: s.slice(idx) };
-        };
         const mainParts = splitComment(rawLine);
-
         const consumed = [];
         let j = lineIndex + 1;
         while (j < lines.length) {
           const nextRaw = lines[j];
           const m = nextRaw.match(/^\s*%%MIDI\s+drum\s+\+:\s*(.*)$/i);
           if (!m) break;
-          const nextParts = splitComment(nextRaw);
-          // Extract only the continuation payload, excluding any trailing comment.
-          const tail = (m[1] || "");
-          // If there is a comment, keep the payload before it.
-          const payloadOnly = splitComment(tail).code;
-          consumed.push({ raw: nextRaw, payload: payloadOnly });
+          const tail = m[1] || "";
+          consumed.push({ raw: nextRaw, payload: splitComment(tail).code });
           j += 1;
         }
 
@@ -28777,22 +28864,65 @@ function sanitizeAbcForPlayback(text, options = {}) {
           const rhythm = rhythmTokens.join("");
           const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum));
           for (const c of consumed) {
-            const extra = String(c.payload || "").trim().split(/\s+/).filter(Boolean);
-            numbers.push(...extra);
+            numbers.push(...String(c.payload || "").trim().split(/\s+/).filter(Boolean));
           }
           const joined = [rhythm, numbers.join(" ")].filter(Boolean).join(" ").trim();
           const combinedLine = `${indent}%%MIDI drum ${joined}` + (mainParts.comment || "");
           out.push(combinedLine);
-          for (let k = 0; k < consumed.length; k += 1) {
-            const raw = consumed[k].raw;
-            out.push("%" + " ".repeat(Math.max(0, raw.length - 1)));
+          for (const consumedLine of consumed) {
+            out.push("%" + " ".repeat(Math.max(0, String(consumedLine.raw || "").length - 1)));
           }
           warnings.push({ kind: "midi-drum-continuation-collapsed", line: lineIndex + 1, lines: consumed.length + 1 });
+          let sourceBlockLen = 0;
+          let outputBlockLen = 0;
+          for (let k = 0; k <= consumed.length; k += 1) {
+            const isLast = (lineIndex + k) === lines.length - 1;
+            const sourceLine = k === 0 ? rawLine : String(consumed[k - 1].raw || "");
+            const outputLine = k === 0 ? combinedLine : "%" + " ".repeat(Math.max(0, String(consumed[k - 1].raw || "").length - 1));
+            sourceBlockLen += sourceLine.length + (isLast ? 0 : 1);
+            outputBlockLen += outputLine.length + (isLast ? 0 : 1);
+          }
+          srcPos += sourceBlockLen;
+          outPos += outputBlockLen;
+          const delta = outputBlockLen - sourceBlockLen;
+          if (delta !== 0) {
+            totalDelta += delta;
+            shifts.push({ srcPos, outPos, delta: totalDelta });
+          }
           lineIndex = j - 1;
           continue;
         }
       }
     }
+
+    out.push(rawLine);
+    const isLast = lineIndex === lines.length - 1;
+    const lineLen = rawLine.length + (isLast ? 0 : 1);
+    srcPos += lineLen;
+    outPos += lineLen;
+  }
+
+  return { text: out.join("\n"), warnings, compatMap: shifts.length ? { shifts, totalDelta } : null };
+}
+
+function sanitizeAbcForPlayback(text, options = {}) {
+  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
+  const initialText = String(text || "");
+  const drumCompat = collapseMidiDrumContinuations
+    ? collapseMidiDrumContinuationsForCompat(initialText)
+    : { text: initialText, warnings: [] };
+  const src = drumCompat && typeof drumCompat.text === "string" ? drumCompat.text : initialText;
+  const lines = src.split(/\r\n|\n|\r/);
+  const out = [];
+  const warnings = Array.isArray(drumCompat && drumCompat.warnings) ? drumCompat.warnings.slice() : [];
+  let inTextBlock = false;
+  let inBody = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
+    const trimmed = rawLine.trim();
+    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
+    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
+    if (!inBody && (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(trimmed))) inBody = true;
 
     if (inTextBlock || !inBody) {
       // Still remove line-continuation backslashes outside text blocks even before body;

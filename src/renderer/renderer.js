@@ -77,7 +77,13 @@ const $midiInputGridCtl = document.getElementById("midiInputGridCtl");
 const $midiInputMacroCtl = document.getElementById("midiInputMacroCtl");
 const $midiInputMacroNote = document.getElementById("midiInputMacroNote");
 const $midiInputStateHint = document.getElementById("midiInputStateHint");
+const $midiInputEnabledDependent = document.getElementById("midiInputEnabledDependent");
 const $midiInputBeepCtl = document.getElementById("midiInputBeepCtl");
+const $midiInputBeepDurationWrap = document.getElementById("midiInputBeepDurationWrap");
+const $noteTypingPreviewCtl = document.getElementById("noteTypingPreviewCtl");
+const $noteTypingPreviewDependent = document.getElementById("noteTypingPreviewDependent");
+const $noteTypingPreviewTriggerCtl = document.getElementById("noteTypingPreviewTriggerCtl");
+const $midiPreviewSharedGroup = document.getElementById("midiPreviewSharedGroup");
 const $midiInputBeepVolumeCtl = document.getElementById("midiInputBeepVolumeCtl");
 const $midiInputBeepDurationCtl = document.getElementById("midiInputBeepDurationCtl");
 const $main = document.querySelector("main");
@@ -1958,8 +1964,8 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
   const measure = findMeasureRangeAt(editorText, editorOffset);
   const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
   if (measure && barEls.length) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     const hits = barEls.filter((el) => {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -2036,18 +2042,9 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
     const wSetting = clampNumber(followPlayheadWidth, 1, 6, 2);
     const halfW = wSetting / 2;
     const shift = clampNumber(followPlayheadShift, -20, 20, 0);
-    const betweenWeight = clampNumber(followPlayheadBetweenNotesWeight, 0, 1, 1);
-    const firstBias = clampNumber(followPlayheadFirstBias, 0, 20, 6);
-
-    let xTarget = xCenter;
-    if (Number.isFinite(lastSvgPlayheadXCenter)) {
-      const midpoint = (lastSvgPlayheadXCenter + xCenter) / 2;
-      xTarget = xCenter * (1 - betweenWeight) + midpoint * betweenWeight;
-    } else {
-      const autoBias = Math.max(4, Math.min(10, width * 0.35));
-      xTarget = xCenter - (Number.isFinite(firstBias) ? firstBias : autoBias);
-    }
-    xTarget += shift;
+    // Keep rhythm accuracy, but offset slightly left so the current notehead remains clearly visible.
+    const leadGap = Math.max(3, Math.min(8, width * 0.28));
+    const xTarget = xCenter - leadGap + shift;
     lastSvgPlayheadXCenter = xCenter;
 
     lastSvgPlayheadEl.setAttribute("width", String(wSetting));
@@ -2065,7 +2062,7 @@ function highlightSvgAtEditorOffset(editorOffset) {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = editorOffset + renderOffset;
+  const renderIdx = mapEditorOffsetToRenderIdx(editorOffset);
 
   // Prefer measure-wide highlighting when possible (easier to spot than a single glyph).
   if (editorView) {
@@ -2074,8 +2071,8 @@ function highlightSvgAtEditorOffset(editorOffset) {
       const measure = findMeasureRangeAt(editorText, editorOffset);
       const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
       if (measure && barEls.length) {
-        const start = measure.start + renderOffset;
-        const end = measure.end + renderOffset;
+        const start = mapEditorOffsetToRenderIdx(measure.start);
+        const end = mapEditorOffsetToRenderIdx(measure.end);
         const hits = barEls.filter((el) => {
           const s = Number(el.dataset && el.dataset.start);
           return Number.isFinite(s) && s >= start && s < end;
@@ -2601,8 +2598,8 @@ function buildAbcDecorations(state) {
       continue;
     }
 
-    // Field continuation marker (ABC 2.1/2.2).
-    // If it continues a directive line (e.g. `%%MIDI ...`), highlight it as a directive; otherwise as a header field.
+    // Field/directive continuation marker (ABC 2.1/2.2).
+    // Inherit the previous info-field style; bare `+:` after `%%MIDI ...` remains directive-colored.
     if (/^\s*\+:\s*/.test(text)) {
       const cls = lastNonEmptyKind === "directive" ? "cm-abc-directive" : "cm-abc-header";
       builder.add(line.from, line.to, Decoration.mark({ class: cls }));
@@ -2936,6 +2933,60 @@ let soundfontStatusTimer = null;
 const STREAMING_SF2 = new Set();
 const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
+
+function getRenderCompatMap() {
+  return lastRenderPayload && lastRenderPayload.compatMap ? lastRenderPayload.compatMap : null;
+}
+
+function mapSourceOffsetToRenderOffset(offset, compatMap = getRenderCompatMap()) {
+  const raw = Number(offset);
+  if (!Number.isFinite(raw)) return raw;
+  const map = compatMap;
+  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
+  let lo = 0;
+  let hi = map.shifts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((map.shifts[mid].srcPos || 0) <= raw) lo = mid + 1;
+    else hi = mid;
+  }
+  const shift = lo > 0 ? map.shifts[lo - 1] : null;
+  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
+  return raw + delta;
+}
+
+function mapRenderOffsetToSourceOffset(offset, compatMap = getRenderCompatMap()) {
+  const raw = Number(offset);
+  if (!Number.isFinite(raw)) return raw;
+  const map = compatMap;
+  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
+  let lo = 0;
+  let hi = map.shifts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((map.shifts[mid].outPos || 0) <= raw) lo = mid + 1;
+    else hi = mid;
+  }
+  const shift = lo > 0 ? map.shifts[lo - 1] : null;
+  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
+  return raw - delta;
+}
+
+function mapEditorOffsetToRenderIdx(editorOffset, payload = lastRenderPayload) {
+  const raw = Number(editorOffset);
+  if (!Number.isFinite(raw)) return raw;
+  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
+  const sourcePos = raw + renderOffset;
+  return mapSourceOffsetToRenderOffset(sourcePos, payload && payload.compatMap ? payload.compatMap : null);
+}
+
+function mapRenderIdxToEditorOffset(renderIdx, payload = lastRenderPayload) {
+  const raw = Number(renderIdx);
+  if (!Number.isFinite(raw)) return raw;
+  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
+  const sourcePos = mapRenderOffsetToSourceOffset(raw, payload && payload.compatMap ? payload.compatMap : null);
+  return Math.max(0, sourcePos - renderOffset);
+}
 
 function lruGet(map, key) {
   if (!map.has(key)) return undefined;
@@ -6453,8 +6504,8 @@ function highlightSvgIntonationBarsAtEditorOffsets(offsets) {
   }
   const hits = new Set();
   for (const measure of uniqMeasures) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     for (const el of barEls) {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -6489,7 +6540,7 @@ function highlightSvgIntonationNotesAtEditorOffsets(offsets) {
 
   for (const editorOffset of list) {
     if (hits.size >= maxHits) break;
-    const renderIdx = Number(editorOffset) + renderOffset;
+    const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
     if (!Number.isFinite(renderIdx)) continue;
     let els = $out.querySelectorAll("._" + renderIdx + "_");
     if ((!els || !els.length) && Number.isFinite(renderIdx)) {
@@ -7390,8 +7441,8 @@ function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
   const measure = findMeasureRangeAt(editorText, editorOffset);
   const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
   if (measure && barEls.length) {
-    const start = measure.start + renderOffset;
-    const end = measure.end + renderOffset;
+    const start = mapEditorOffsetToRenderIdx(measure.start);
+    const end = mapEditorOffsetToRenderIdx(measure.end);
     const hits = barEls.filter((el) => {
       const s = Number(el.dataset && el.dataset.start);
       const e = Number(el.dataset && el.dataset.end);
@@ -8489,6 +8540,13 @@ function formatMidiButtonLabel() {
   return "MIDI: on";
 }
 
+function setMidiCollapseState(el, expanded) {
+  if (!el) return;
+  const open = Boolean(expanded);
+  el.classList.toggle("is-collapsed", !open);
+  el.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
 function updateMidiInputUi() {
   if (!$midiInputStatus) return;
   const label = formatMidiButtonLabel();
@@ -8502,6 +8560,7 @@ function updateMidiInputUi() {
   $midiInputStatus.style.display = "";
 
   if ($midiInputEnabledCtl) $midiInputEnabledCtl.checked = midiInputEnabled;
+  setMidiCollapseState($midiInputEnabledDependent, midiInputEnabled);
   if ($midiInputMutedCtl) {
     $midiInputMutedCtl.checked = midiInputMuted;
     $midiInputMutedCtl.disabled = !midiInputEnabled;
@@ -8515,11 +8574,21 @@ function updateMidiInputUi() {
     $midiInputMacroNote.style.display = midiInputMacroEnabled ? "" : "none";
   }
   if ($midiInputBeepCtl) $midiInputBeepCtl.checked = midiInputBeepEnabled;
+  setMidiCollapseState($midiInputBeepDurationWrap, midiInputEnabled && midiInputBeepEnabled);
+  if ($noteTypingPreviewCtl) $noteTypingPreviewCtl.checked = noteTypingPreviewEnabled;
+  setMidiCollapseState($noteTypingPreviewDependent, noteTypingPreviewEnabled);
+  if ($noteTypingPreviewTriggerCtl) {
+    $noteTypingPreviewTriggerCtl.value = noteTypingPreviewTrigger === "note" ? "note" : "delimiter";
+    $noteTypingPreviewTriggerCtl.disabled = !noteTypingPreviewEnabled;
+    const triggerRow = $noteTypingPreviewTriggerCtl.closest(".midi-popover-row");
+    if (triggerRow) triggerRow.style.opacity = noteTypingPreviewEnabled ? "1" : "0.6";
+  }
   if ($midiInputBeepVolumeCtl) {
     const mergedPreviewVolume = Math.round(Math.max(0, Math.min(1, noteTypingPreviewVolume)) * 100);
     $midiInputBeepVolumeCtl.value = String(mergedPreviewVolume);
   }
   if ($midiInputBeepDurationCtl) $midiInputBeepDurationCtl.value = String(Math.round(midiInputBeepDurationMs));
+  setMidiCollapseState($midiPreviewSharedGroup, noteTypingPreviewEnabled || (midiInputEnabled && midiInputBeepEnabled));
   if ($midiInputStateHint) {
     let hint = "";
     if (!supportsMidiInput()) hint = "MIDI input is unsupported in this environment.";
@@ -8929,7 +8998,6 @@ function setMidiInputEnabled(next, { notify = true } = {}) {
   if (notify) {
     try { showToast(midiInputEnabled ? "MIDI input enabled." : "MIDI input disabled.", 2000); } catch {}
   }
-  if (!midiInputEnabled) closeMidiInputPopover();
   updateMidiInputUi();
   if (lastCursorStatus) refreshCursorStatus();
 }
@@ -12652,6 +12720,36 @@ async function openRecentFile(entry) {
   if (!entry || !entry.path) return;
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent file");
   if (!ok) return;
+  const targetPath = String(entry.path || "");
+  const activePath = String(
+    (activeTuneMeta && activeTuneMeta.path)
+      || (currentDoc && currentDoc.path)
+      || ""
+  );
+  const shouldForceReload = Boolean(entry && entry.forceReload);
+  const reopeningActiveFile = Boolean(targetPath && activePath && pathsEqual(targetPath, activePath));
+  if (targetPath && (shouldForceReload || reopeningActiveFile)) {
+    try {
+      if (window.api && typeof window.api.getWorkingCopyMeta === "function") {
+        const metaRes = await window.api.getWorkingCopyMeta();
+        const openedPath = (metaRes && metaRes.ok && metaRes.meta && metaRes.meta.path)
+          ? String(metaRes.meta.path || "")
+          : "";
+        if (openedPath && pathsEqual(openedPath, targetPath)) {
+          if (typeof window.api.reloadWorkingCopyFromDisk === "function") {
+            await window.api.reloadWorkingCopyFromDisk();
+            await refreshWorkingCopySnapshot();
+          }
+        } else if (typeof window.api.openWorkingCopy === "function") {
+          await window.api.openWorkingCopy(targetPath);
+          await refreshWorkingCopySnapshot();
+        }
+      }
+    } catch {}
+    try {
+      await refreshLibraryFile(targetPath, { force: true });
+    } catch {}
+  }
   const readRes = await readFile(entry.path);
   if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(entry.path))) {
     await openChordProFile(entry.path, readRes.data, { suppressRecent: true });
@@ -12985,6 +13083,23 @@ if ($midiInputBeepCtl) {
     if (enabled) {
       await unlockMidiAudioContext();
     }
+  });
+}
+
+if ($noteTypingPreviewCtl) {
+  $noteTypingPreviewCtl.addEventListener("change", async () => {
+    const enabled = Boolean($noteTypingPreviewCtl.checked);
+    applyMidiSettingsPatch({ noteTypingPreviewEnabled: enabled });
+    if (enabled) {
+      await unlockMidiAudioContext();
+    }
+  });
+}
+
+if ($noteTypingPreviewTriggerCtl) {
+  $noteTypingPreviewTriggerCtl.addEventListener("change", () => {
+    const mode = String($noteTypingPreviewTriggerCtl.value || "") === "note" ? "note" : "delimiter";
+    applyMidiSettingsPatch({ noteTypingPreviewTrigger: mode });
   });
 }
 
@@ -13463,6 +13578,7 @@ function formatMeterInfo(abc) {
 
 function computeMeasureStatsAt(editorText, anchorOffset) {
   if (!editorText || !Number.isFinite(anchorOffset)) return null;
+  if (!shouldComputeMeasureStatsAt(editorText, anchorOffset)) return null;
   const range = findMeasureRangeAt(editorText, anchorOffset);
   if (!range) return null;
   const defaultLen = getDefaultLen(editorText);
@@ -13488,6 +13604,22 @@ function computeMeasureStatsAt(editorText, anchorOffset) {
     actualUnits,
     expectedUnits,
   };
+}
+
+function shouldComputeMeasureStatsAt(editorText, anchorOffset) {
+  const text = String(editorText || "");
+  if (!text || !Number.isFinite(anchorOffset)) return false;
+  const idx = Math.max(0, Math.min(Math.floor(anchorOffset), Math.max(0, text.length - 1)));
+  const lineStart = Math.max(0, text.lastIndexOf("\n", idx - 1) + 1);
+  const nextNl = text.indexOf("\n", idx);
+  const lineEnd = nextNl >= 0 ? nextNl : text.length;
+  const line = text.slice(lineStart, lineEnd);
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("%")) return false;
+  if (/^[A-Za-z]:/.test(trimmed)) return false;
+  if (/^\[[A-Za-z]:[^\]]*\]\s*$/.test(trimmed)) return false;
+  return true;
 }
 
 function setErrorFocusMessage(entry, from) {
@@ -14668,6 +14800,7 @@ function analyzeBarMismatchesForGutter(abcText) {
   if (!Number.isFinite(defaultLen) && defaultLen !== "mcm_default") return [];
 
   let currentMetre = metre;
+  let currentDefaultLen = defaultLen;
   let currentMetreText = metreText;
   let currentDen = Number(metreMatch[2]) || 8;
   const metreUnit = () => 1 / Math.max(1, currentDen);
@@ -14704,11 +14837,29 @@ function analyzeBarMismatchesForGutter(abcText) {
     currentDen = d;
   };
 
+  const parseDefaultLenValue = (raw) => {
+    const token = String(raw || "").trim();
+    if (!token) return null;
+    if (/^mcm_default$/i.test(token)) return "mcm_default";
+    const m = token.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (!m) return null;
+    const num = Number(m[1]);
+    const den = Number(m[2]);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
+    return num / den;
+  };
+
+  const updateDefaultLen = (raw) => {
+    const parsed = parseDefaultLenValue(raw);
+    if (parsed == null) return;
+    currentDefaultLen = parsed;
+  };
+
   const flushBar = (endToken, endOffset, endLen, lineNo, colNo) => {
     const bar = buffer.trim();
     buffer = "";
     if (!bar) return;
-    const len = getBarLength(bar, defaultLen, currentMetre);
+    const len = getBarLength(bar, currentDefaultLen, currentMetre);
     if (!Number.isFinite(len) || len <= 0) return;
     barNumber += 1;
     const unit = metreUnit();
@@ -14770,6 +14921,11 @@ function analyzeBarMismatchesForGutter(abcText) {
       updateMetre(bodyMeterMatch[1], bodyMeterMatch[2]);
       continue;
     }
+    const bodyLenMatch = trimmed.match(/^L:\s*([^\s%]+)/i);
+    if (bodyLenMatch) {
+      updateDefaultLen(bodyLenMatch[1]);
+      continue;
+    }
     if (/^\s*[A-Za-z]:/.test(rawLine)) continue;
 
     let line = rawLine;
@@ -14796,6 +14952,11 @@ function analyzeBarMismatchesForGutter(abcText) {
       let mm;
       while ((mm = inlineMeterRe.exec(p)) !== null) {
         updateMetre(mm[1], mm[2]);
+      }
+      const inlineLenRe = /\[\s*L:\s*([^\]]+)\]/gi;
+      let ll;
+      while ((ll = inlineLenRe.exec(p)) !== null) {
+        updateDefaultLen(ll[1]);
       }
       buffer += ` ${p}`;
     }
@@ -14962,11 +15123,18 @@ function alignBarsInTune(lines, tuneText) {
   const out = lines.slice();
   let inText = false;
   let headerEnded = false;
-  const candidates = [];
+  const groups = [];
+  let candidates = [];
+  const flushCandidates = () => {
+    if (!candidates.length) return;
+    groups.push(candidates);
+    candidates = [];
+  };
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (/^%%\s*begintext\b/i.test(line)) {
+      flushCandidates();
       inText = true;
       continue;
     }
@@ -14978,17 +15146,28 @@ function alignBarsInTune(lines, tuneText) {
       if (/^\s*K:/.test(line)) headerEnded = true;
       continue;
     }
-    if (inText) continue;
-    if (/^\s*%/.test(line)) continue;
-    if (/^\s*[A-Za-z]:/.test(line)) continue;
-    if (!BAR_SEP_NO_SPACE.test(line)) continue;
+    if (inText) {
+      flushCandidates();
+      continue;
+    }
+    if (
+      /^\s*%/.test(line)
+      || /^\s*[A-Za-z]:/.test(line)
+      || !BAR_SEP_NO_SPACE.test(line)
+    ) {
+      flushCandidates();
+      continue;
+    }
     candidates.push({ idx: i, line });
   }
+  flushCandidates();
 
-  if (!candidates.length) return out;
-  const aligned = alignLines(tuneText, candidates.map((c) => c.line), true);
-  for (let i = 0; i < candidates.length; i += 1) {
-    out[candidates[i].idx] = aligned[i];
+  if (!groups.length) return out;
+  for (const group of groups) {
+    const aligned = alignLines(tuneText, group.map((c) => c.line), true);
+    for (let i = 0; i < group.length; i += 1) {
+      out[group[i].idx] = aligned[i];
+    }
   }
   return out;
 }
@@ -16157,6 +16336,43 @@ function neutralizeMidiDrumDirectivesForPlayback(text) {
   }).join("\n");
 }
 
+function neutralizeInjectedDrumVoiceForPlayback(text) {
+  const raw = String(text || "");
+  if (!/^\s*V:\s*DRUM\b/im.test(raw)) return raw;
+  const lines = raw.split(/\r\n|\n|\r/);
+  const isDrumHeaderLine = (line) => /^\s*V:\s*DRUM\b/i.test(String(line || ""));
+  const isVoiceHeaderLine = (line) => /^\s*V:\s*[^ \t\r\n]+/i.test(String(line || ""));
+  const toCommentPlaceholder = (line) => {
+    const src = String(line || "");
+    if (!src.length) return src;
+    return `%${" ".repeat(Math.max(0, src.length - 1))}`;
+  };
+  let inDrumVoice = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] || "";
+    if (!inDrumVoice && isDrumHeaderLine(line)) {
+      inDrumVoice = true;
+      lines[i] = toCommentPlaceholder(line);
+      continue;
+    }
+    if (!inDrumVoice) continue;
+    if (isVoiceHeaderLine(line) && !isDrumHeaderLine(line)) {
+      inDrumVoice = false;
+      continue;
+    }
+    lines[i] = toCommentPlaceholder(line);
+  }
+  return lines.join("\n");
+}
+
+function hasDrumBarMismatchParseError(parseErrors) {
+  if (!Array.isArray(parseErrors)) return false;
+  return parseErrors.some((e) => {
+    if (!e || e.inDrumBlock !== true) return false;
+    return /Different bars/i.test(String(e.message || ""));
+  });
+}
+
 function relocateMidiDrumDirectivesIntoBody(text) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   const drumLineRe = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i;
@@ -16376,12 +16592,12 @@ async function goToMeasureFromMenu() {
     if (Array.isArray(list) && list.length) {
       const renderOffset = Number(measureIndex.offset) || 0;
       const cursor = editorView ? editorView.state.selection.main.anchor : 0;
-      const currentRenderIdx = (Number(cursor) || 0) + renderOffset;
+      const currentRenderIdx = mapEditorOffsetToRenderIdx(Number(cursor) || 0);
       let chosen = list[0];
       for (const v of list) {
         if (Number.isFinite(v) && v >= currentRenderIdx) { chosen = v; break; }
       }
-      if (Number.isFinite(chosen)) idx = Math.max(0, Math.floor(chosen - renderOffset));
+      if (Number.isFinite(chosen)) idx = Math.max(0, Math.floor(mapRenderIdxToEditorOffset(chosen)));
     }
   }
   if (idx == null && n >= 1 && measureIndex && Array.isArray(measureIndex.istarts) && measureIndex.istarts.length) {
@@ -16557,8 +16773,8 @@ function addError(message, locOverride, contextOverride) {
     if (Number.isFinite(renderIdx)) {
       const renderRange = findMeasureRangeAt(renderText, renderIdx);
       if (renderRange && renderRange.end > renderRange.start) {
-        const editorStart = renderRange.start - renderOffset;
-        const editorEnd = renderRange.end - renderOffset;
+        const editorStart = mapRenderIdxToEditorOffset(renderRange.start);
+        const editorEnd = mapRenderIdxToEditorOffset(renderRange.end);
         const editorRange = (editorStart >= 0 && editorEnd > editorStart)
           ? { start: editorStart, end: editorEnd }
           : null;
@@ -16812,7 +17028,7 @@ function highlightNoteAtIndex(idx) {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = Number.isFinite(idx) ? idx + renderOffset : idx;
+  const renderIdx = Number.isFinite(idx) ? mapEditorOffsetToRenderIdx(idx) : idx;
   const els = $out.querySelectorAll("._" + renderIdx + "_");
   if (!els.length) return;
   lastNoteSelection = Array.from(els);
@@ -17200,7 +17416,8 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
   try {
     ensureAbc2svgLoader();
     const normalized = normalizeHeaderNoneSpacing(abcText);
-    const baseText = normalized;
+    const drumCompat = collapseMidiDrumContinuationsForCompat(normalized);
+    const baseText = drumCompat && drumCompat.text ? drumCompat.text : normalized;
     const context = options && options.errorContext ? options.errorContext : null;
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
@@ -18257,12 +18474,14 @@ function renderNow() {
     return;
   }
   const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
-  let renderText = renderTextBase;
+  const drumCompat = collapseMidiDrumContinuationsForCompat(renderTextBase);
+  let renderText = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
   let sepFallbackUsed = false;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
     lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
+    compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
     errorLineOffset = renderPayload.lineOffset;
@@ -18354,11 +18573,15 @@ function renderNow() {
         break;
       } catch (e) {
         if (!sepFallbackUsed) {
-          const sepStrip = stripSepForRender(renderTextBase);
+          const sepStrip = stripSepForRender(renderText);
           if (sepStrip.replaced) {
             sepFallbackUsed = true;
             renderText = sepStrip.text;
-            lastRenderPayload = { text: renderText, offset: renderPayload.offset || 0 };
+            lastRenderPayload = {
+              text: renderText,
+              offset: renderPayload.offset || 0,
+              compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+            };
             continue;
           }
         }
@@ -23048,7 +23271,7 @@ function centerRenderPaneOnCurrentAnchor() {
   const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
     ? lastRenderPayload.offset
     : 0;
-  const renderIdx = Number(editorOffset) + renderOffset;
+  const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
   if (!Number.isFinite(renderIdx)) return;
   let els = $out.querySelectorAll("._" + renderIdx + "_");
   if ((!els || !els.length) && Number.isFinite(renderIdx)) {
@@ -23127,12 +23350,14 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Hidden debug shortcut:
-// - Cmd/Ctrl+Alt+Shift+D dumps a debug JSON snapshot
-// - Cmd/Ctrl+Shift+F9 dumps a debug JSON snapshot (avoids Alt+Shift conflicts on some DEs)
+// - Cmd/Ctrl+Shift+D dumps a debug JSON snapshot (primary)
+// - Cmd/Ctrl+Alt+Shift+D dumps a debug JSON snapshot (fallback for DE conflicts)
+// - Cmd/Ctrl+Shift+F9 dumps a debug JSON snapshot (alternate fallback)
 document.addEventListener("keydown", (e) => {
   const key = String(e.key || "").toLowerCase();
   const mod = e.ctrlKey || e.metaKey;
-  const isDumpChord = (mod && e.altKey && e.shiftKey && key === "d")
+  const isDumpChord = (mod && e.shiftKey && !e.altKey && key === "d")
+    || (mod && e.altKey && e.shiftKey && key === "d")
     || (mod && e.shiftKey && !e.altKey && key === "f9");
   if (!isDumpChord) return;
   const target = e.target;
@@ -23498,9 +23723,9 @@ if ($out) {
       const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
         ? lastRenderPayload.offset
         : 0;
-      const editorStart = Math.max(0, start - renderOffset);
+      const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
       const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
-      const editorEnd = Math.max(editorStart, editorEndRaw - renderOffset);
+      const editorEnd = Math.max(editorStart, mapRenderIdxToEditorOffset(editorEndRaw));
       pendingPlaybackRangeOrigin = "svg";
       setEditorSelectionRange(editorStart, editorEnd);
       setPlaybackRange({
@@ -24975,19 +25200,6 @@ function updatePlaybackInteractionLock() {
 }
 
 function buildTransportPlaybackPlan() {
-  const editorStartOffset = (() => {
-    if (!editorView) return null;
-    try {
-      const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
-      if (!sel) return null;
-      const max = editorView.state.doc.length;
-      const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
-      const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
-      return Math.min(anchor, head);
-    } catch {
-      return null;
-    }
-  })();
   const tempoMultiplier = focusModeEnabled
     ? (Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : 1)
     : 1;
@@ -25020,9 +25232,8 @@ function buildTransportPlaybackPlan() {
     mode: "transport",
     invalid: false,
     invalidReason: "",
-    rangeStart: Number.isFinite(editorStartOffset)
-      ? Math.max(0, Number(editorStartOffset) || 0)
-      : Math.max(0, Number(transportPlayheadOffset) || 0),
+    // Normal mode: start from the beginning of the bar under cursor.
+    rangeStart: getEditorMeasureStartOffset(),
     rangeEnd: null,
     loopEnabled: false,
     tempoMultiplier,
@@ -25037,6 +25248,50 @@ function getEditorPlayStartOffset() {
   const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
   const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
   return Math.min(anchor, head);
+}
+
+function getEditorMeasureStartOffset() {
+  if (!editorView) return 0;
+  const text = getEditorValue();
+  const max = editorView.state.doc.length;
+  if (!text || max <= 0) return 0;
+  const cursor = Math.max(0, Math.min(getEditorPlayStartOffset(), max));
+  const len = text.length;
+
+  // Deterministic textual rule:
+  // - current measure starts right after the nearest barline to the left of cursor
+  // - if cursor is exactly on a barline, this barline is the current measure boundary
+  // - for measure 1 (no previous barline), start at first detected measure start in body
+  // Do not cross section boundaries (e.g. [P:E]) when searching for the current bar start.
+  const leftText = text.slice(0, cursor + 1);
+  const partMatches = [...leftText.matchAll(/(?:^|\n)\s*\[P:[^\]\n]*\]\s*(?:\n|$)/g)];
+  const sectionStart = partMatches.length
+    ? Math.min(cursor, partMatches[partMatches.length - 1].index + partMatches[partMatches.length - 1][0].length)
+    : 0;
+
+  let bar = -1;
+  if (cursor < len && text[cursor] === "|") {
+    bar = cursor;
+  } else {
+    bar = text.lastIndexOf("|", Math.max(0, cursor - 1));
+  }
+  if (bar < sectionStart) bar = -1;
+
+  let start = 0;
+  if (bar >= 0) {
+    start = bar + 1;
+  } else {
+    const first = findMeasureStartOffsetByNumber(text.slice(sectionStart), 1);
+    if (Number.isFinite(first)) {
+      start = sectionStart + Number(first);
+    } else {
+      start = sectionStart;
+    }
+  }
+
+  // Skip only separators between barline and content.
+  while (start < len && /[\s|:\]]/.test(text[start] || "")) start += 1;
+  return Math.max(0, Math.min(start, max));
 }
 
 function getEditorSelectionSignature() {
@@ -25103,7 +25358,9 @@ async function togglePlayPauseEffective() {
     }
     applyPlaybackPlanSpeed(plan);
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25172,7 +25429,9 @@ async function transportTogglePlayPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25184,7 +25443,7 @@ async function transportTogglePlayPause() {
     });
     return;
   }
-  const startOffset = getEditorPlayStartOffset();
+  const startOffset = getEditorMeasureStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25198,7 +25457,9 @@ async function transportPlay() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25225,7 +25486,7 @@ async function transportPlay() {
     });
     return;
   }
-  const startOffset = getEditorPlayStartOffset();
+  const startOffset = getEditorMeasureStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }
 
@@ -25242,7 +25503,9 @@ async function transportPause() {
       return;
     }
     const resumeOffset = playbackRange ? Math.max(0, Number(playbackRange.startOffset) || 0) : 0;
-    let startOffset = shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset();
+    let startOffset = focusModeEnabled
+      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
+      : getEditorMeasureStartOffset();
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }
@@ -25404,7 +25667,7 @@ function schedulePlaybackUiUpdate(istart) {
     const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
       ? lastRenderPayload.offset
       : 0;
-    const renderIdx = editorIdx + renderOffset;
+    const renderIdx = mapEditorOffsetToRenderIdx(editorIdx);
 
 	    if (lastPlaybackUiEditorIdx === editorIdx && lastPlaybackUiRenderIdx === renderIdx) return;
 	    lastPlaybackUiEditorIdx = editorIdx;
@@ -25422,7 +25685,7 @@ function schedulePlaybackUiUpdate(istart) {
     if (chosen) {
       const chosenRenderIdx = extractRenderIdxFromElementClass(chosen);
       const chosenEditorIdx = Number.isFinite(chosenRenderIdx)
-        ? Math.max(0, chosenRenderIdx - renderOffset)
+        ? Math.max(0, mapRenderIdxToEditorOffset(chosenRenderIdx))
         : editorIdx;
       const nearestBar = findNearestBarElForNote(chosen);
       setSvgPlayheadFromElements(chosen, nearestBar);
@@ -26340,7 +26603,10 @@ function clampInt(value, min, max, fallback) {
 
 function buildFocusBarIndexMap(measureIndex, editorDocLength) {
   if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
-  const renderOffset = Number(measureIndex.offset) || 0;
+  const payload = {
+    offset: Number(measureIndex.offset) || 0,
+    compatMap: getRenderCompatMap(),
+  };
   const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
   const starts = measureIndex.istarts.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
   if (!starts.length) return [];
@@ -26348,9 +26614,9 @@ function buildFocusBarIndexMap(measureIndex, editorDocLength) {
   for (let i = 0; i < starts.length; i += 1) {
     const startRenderOffset = starts[i];
     const nextStart = (i + 1 < starts.length) ? starts[i + 1] : null;
-    const startOffset = Math.max(0, Math.min(max, Math.floor(startRenderOffset - renderOffset)));
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(startRenderOffset, payload))));
     const endOffset = Number.isFinite(nextStart)
-      ? Math.max(0, Math.min(max, Math.floor(nextStart - renderOffset)))
+      ? Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(nextStart, payload))))
       : max;
     if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
     bars.push({
@@ -26366,9 +26632,8 @@ function buildFocusBarIndexMap(measureIndex, editorDocLength) {
 
 function buildFocusBarIndexMapFromSvg(editorDocLength) {
   if (!$out) return [];
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? Number(lastRenderPayload.offset)
-    : 0;
+  const payload = lastRenderPayload || { offset: 0, compatMap: null };
+  const renderOffset = Number.isFinite(payload && payload.offset) ? Number(payload.offset) : 0;
   const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
   const barEls = Array.from($out.querySelectorAll(".bar-hl"));
   if (!barEls.length) return [];
@@ -26406,9 +26671,9 @@ function buildFocusBarIndexMapFromSvg(editorDocLength) {
     if (Number.isFinite(nextStart) && (!Number.isFinite(endRenderOffset) || endRenderOffset > nextStart)) {
       endRenderOffset = nextStart;
     }
-    if (!Number.isFinite(endRenderOffset)) endRenderOffset = renderOffset + max;
-    const startOffset = Math.max(0, Math.min(max, Math.floor(item.startRenderOffset - renderOffset)));
-    const endOffset = Math.max(0, Math.min(max, Math.floor(endRenderOffset - renderOffset)));
+    if (!Number.isFinite(endRenderOffset)) endRenderOffset = mapEditorOffsetToRenderIdx(max, payload);
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(item.startRenderOffset, payload))));
+    const endOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(endRenderOffset, payload))));
     if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
     bars.push({
       barNumber: bars.length + 1,
@@ -26639,6 +26904,29 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   let endBarIndex = null;
   let byNumberRange = null;
 
+  const noSegmentLimits = !hasFrom && !hasTo;
+  if (noSegmentLimits) {
+    const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
+    const firstBarStart = Number(bars[0] && bars[0].startOffset);
+    let fullStart = Number.isFinite(firstMeasureOffset) ? firstMeasureOffset : firstBarStart;
+    if (!Number.isFinite(fullStart)) fullStart = 0;
+    fullStart = Math.max(0, Math.min(tuneText.length, fullStart));
+    const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    return {
+      ok: true,
+      plan: {
+        mode: "visible",
+        startBarIndex: 0,
+        endBarIndex: bars.length - 1,
+        startOffset: fullStart,
+        endOffset: fullEnd,
+        suppressRepeats: Boolean(state.suppressRepeats),
+        mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+        loop: Boolean(state.loop),
+      },
+    };
+  }
+
   if (hasFrom && hasTo) {
     if (!Number.isInteger(from) || !Number.isInteger(to) || to < from) {
       return { ok: false, reason: "Invalid Focus range: set integer From/To with From <= To." };
@@ -26687,6 +26975,13 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   }
   let startOffset = Number(startBar.startOffset);
   let endOffset = Number(endBar.endOffset);
+  if (mode === "visible") {
+    const nextBar = bars[endBarIndex + 1] || null;
+    const nextStart = Number(nextBar && nextBar.startOffset);
+    if (Number.isFinite(nextStart) && nextStart > startOffset) {
+      endOffset = nextStart;
+    }
+  }
   if (mode === "segment" && byNumberRange) {
     const renderOffset = getFocusBarMapRenderOffset(bars);
     const max = Math.max(0, tuneText.length);
@@ -26729,14 +27024,22 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       endOffset = Number(textEndOffsetExclusive);
     }
   }
+  // Boundary hardening: Focus must include the selected end bar fully even when barMap carries
+  // a short/degenerate endOffset (observed on some layouts around repeats/voltas/anacrusis).
+  const endBarStart = Number(endBar.startOffset);
+  const nextBar = bars[endBarIndex + 1] || null;
+  const nextBarStart = Number(nextBar && nextBar.startOffset);
+  if (Number.isFinite(nextBarStart) && nextBarStart > endBarStart && (!Number.isFinite(endOffset) || endOffset < nextBarStart)) {
+    endOffset = nextBarStart;
+  }
+  if (Number.isFinite(endBarStart) && (!Number.isFinite(endOffset) || endOffset <= endBarStart)) {
+    const tuneLen = Math.max(0, tuneText.length);
+    endOffset = Math.max(endBarStart + 1, tuneLen);
+  }
   // abc2svg measure timelines can omit the very first bar boundary in some multi-voice/volta layouts.
   // Keep From=1 anchored to the real first measure start detected from source text.
   const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
-  const noSegmentLimits = !hasFrom && !hasTo;
-  const mustAnchorToFirstMeasure = (
-    (mode === "segment" && Number(state.fromMeasure) === 1)
-    || (mode === "visible" && noSegmentLimits)
-  );
+  const mustAnchorToFirstMeasure = (mode === "segment" && Number(state.fromMeasure) === 1);
   if (mustAnchorToFirstMeasure
     && Number.isFinite(firstMeasureOffset)
     && firstMeasureOffset >= 0
@@ -27720,6 +28023,7 @@ function extractDrumPlaybackBars(text) {
   let firstVoice = null;
   let pendingStartToken = null;
   let hasContent = false;
+  let barSourceText = "";
   let leadingToken = null;
   let inTextBlock = false;
   const bars = [];
@@ -27981,21 +28285,25 @@ function extractDrumPlaybackBars(text) {
               directives: pendingDirectives,
               startToken: pendingStartToken,
               endToken: token.token,
+              sourceText: barSourceText.trim(),
               srcLineIndex: lineIndex,
             });
             pendingDirectives = [];
             pendingStartToken = null;
             hasContent = false;
+            barSourceText = "";
           } else {
             pendingStartToken = token.token;
             if (!leadingToken && bars.length === 0) {
               leadingToken = token.token;
             }
+            barSourceText = "";
           }
           i += token.len;
           continue;
         }
         if (/[A-Ga-gz]/.test(ch)) hasContent = true;
+        barSourceText += ch;
       }
       i += 1;
     }
@@ -28027,21 +28335,29 @@ function buildDrumVoiceText(info) {
   out.push("V:DRUM clef=perc name=\"Drums\"");
   out.push("%%MIDI channel 10");
   out.push(...drummapLines);
-  const firstBarLineIndex = out.length;
 
   let patternKey = null;
   let patternBarIndex = 0;
   let wasOn = false;
   let resetPatternNext = false;
   let lineBuffer = "";
-  let sep = info.leadingToken || "";
-  const lineIndents = (info && info.lineIndents instanceof Map) ? info.lineIndents : null;
   let currentLineIndex = null;
 
   const flushLine = () => {
     if (lineBuffer) out.push(lineBuffer);
     lineBuffer = "";
     currentLineIndex = null;
+  };
+  const toDurationFraction = (units) => {
+    const u = Number(units);
+    if (!Number.isFinite(u) || u <= 0) return null;
+    const dens = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+    for (const den of dens) {
+      const num = Math.round(u * den);
+      if (num <= 0) continue;
+      if (Math.abs((num / den) - u) <= 1e-6) return { num, den };
+    }
+    return { num: Math.max(1, Math.round(u * 64)), den: 64 };
   };
 
   for (let barIndex = 0; barIndex < bars.length; barIndex += 1) {
@@ -28072,7 +28388,23 @@ function buildDrumVoiceText(info) {
       resetPatternNext = true;
     }
 
-    if (!bar.drumOn || !bar.pattern) {
+    const meterValue = Number(meter.num) / Number(meter.den);
+    const defaultLen = Number(unit.num) / Number(unit.den);
+    const isAnacrusisBar = (
+      barIndex === 0
+      && Number.isFinite(meterValue)
+      && Number.isFinite(defaultLen)
+      && isLikelyAnacrusis(String(bar.sourceText || ""), defaultLen, meterValue)
+    );
+    if (isAnacrusisBar) {
+      const actualLen = getBarLength(String(bar.sourceText || ""), defaultLen, meterValue);
+      const units = Number.isFinite(actualLen) && defaultLen > 0 ? (actualLen / defaultLen) : null;
+      const frac = toDurationFraction(units);
+      barText = frac ? `z${formatDuration(frac)}` : `z${formatDuration(barUnits)}`;
+      patternKey = null;
+      patternBarIndex = 0;
+      wasOn = false;
+    } else if (!bar.drumOn || !bar.pattern) {
       barText = `z${formatDuration(barUnits)}`;
       patternKey = null;
       patternBarIndex = 0;
@@ -28116,15 +28448,20 @@ function buildDrumVoiceText(info) {
       patternBarIndex += 1;
     }
 
-    if (bar.startToken) sep = bar.startToken;
+    // Strict bar-skeleton mapping:
+    // each emitted drum bar must keep exactly the same start/end bar tokens as the source bar.
+    // No inferred separators, no line-boundary injected bar tokens.
+    const startTokenOut = String(bar.startToken || "");
+    const endTokenOut = String(bar.endToken || "|");
+    const emittedBar = `${startTokenOut}${barText}${endTokenOut}`;
+
     if (!lineBuffer) {
       const lineKey = Number.isFinite(bar.srcLineIndex) ? bar.srcLineIndex : null;
       currentLineIndex = lineKey;
-      const indent = (lineIndents && lineKey != null) ? (lineIndents.get(lineKey) || "") : "";
-      lineBuffer = indent;
+      // Keep drum payload compact/readable for diagnostics: no inherited visual indentation.
+      lineBuffer = "";
     }
-    lineBuffer += `${sep}${barText}`;
-    sep = bar.endToken || "|";
+    lineBuffer += emittedBar;
 
     // If the tune ends explicitly with `|]`, stop emitting further drum bars.
     if (bar.endToken && /\|\]/.test(bar.endToken)) {
@@ -28134,25 +28471,11 @@ function buildDrumVoiceText(info) {
     const nextBar = bars[barIndex + 1] || null;
     const nextLineKey = nextBar && Number.isFinite(nextBar.srcLineIndex) ? nextBar.srcLineIndex : null;
     if (currentLineIndex != null && nextLineKey != null && nextLineKey !== currentLineIndex) {
-      // Preserve the original V:1 wrapping by ending the line at the same bar boundary.
-      // Emit the separator at end-of-line so the next line can start directly with bar content.
-      lineBuffer += sep;
-      sep = "";
+      // Preserve source wrapping only; do not invent additional bar separators on line breaks.
       flushLine();
     }
   }
-  if (lineBuffer) {
-    lineBuffer += sep;
-    flushLine();
-  } else if (sep && out.length > firstBarLineIndex) {
-    // If we flushed exactly on the last bar boundary, the final separator was never emitted.
-    // Append it to the last bar line for a stable barline signature.
-    const lastIdx = out.length - 1;
-    const lastLine = out[lastIdx] || "";
-    if (lastLine && !/[|:\]]\s*$/.test(lastLine)) {
-      out[lastIdx] = `${lastLine}${sep}`;
-    }
-  }
+  if (lineBuffer) flushLine();
   const trailing = Array.isArray(info.trailingDirectives) ? info.trailingDirectives : [];
   for (const directive of trailing) {
     if (directive) out.push(String(directive));
@@ -28315,13 +28638,9 @@ function injectDrumPlayback(text) {
       break;
     }
   }
-  let insertAt = lines.length;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (/^\s*%+sep\b/i.test(lines[i])) {
-      insertAt = i;
-      break;
-    }
-  }
+  // DRUM injection must depend only on MIDI drum directives and musical bar skeleton.
+  // Do not couple insertion point to visual/layout directives such as %%sep.
+  const insertAt = lines.length;
   for (let i = insertAt - 1; i >= 0; i -= 1) {
     if (lines[i].trim() === "") {
       lines[i] = "%";
@@ -28492,55 +28811,44 @@ function normalizeBlankLinesForPlayback(text) {
   return out.join("\n");
 }
 
-function sanitizeAbcForPlayback(text, options = {}) {
-  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
+function collapseMidiDrumContinuationsForCompat(text) {
   const src = String(text || "");
   const lines = src.split(/\r\n|\n|\r/);
   const out = [];
   const warnings = [];
+  const shifts = [];
   let inTextBlock = false;
-  let inBody = false;
+  let srcPos = 0;
+  let outPos = 0;
+  let totalDelta = 0;
+  const splitComment = (s) => {
+    const idx = String(s || "").indexOf("%", 2); // allow leading "%%" as directive marker
+    if (idx < 0) return { code: String(s || ""), comment: "" };
+    return { code: String(s || "").slice(0, idx), comment: String(s || "").slice(idx) };
+  };
+
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const rawLine = lines[lineIndex];
     const trimmed = rawLine.trim();
     if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
     if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
-    if (!inBody && (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(trimmed))) inBody = true;
 
-    // Playback compat: ABC 2.2 supports `%%MIDI drum +:` continuation lines, but abc2svg-playback
-    // rejects `%%MIDI drum +:`. Collapse the 2.2 form into a single `%%MIDI drum ...` line:
-    //   %%MIDI drum     <rhythm>
-    //   %%MIDI drum +:  <pitches>
-    //   %%MIDI drum +:  <velocities>
-    // becomes:
-    //   %%MIDI drum <rhythm> <pitches> <velocities>
-    // For follow/mapping stability, we keep line-count stable by replacing consumed continuation
-    // lines with length-preserving comment lines.
-    // Note: keep this outside `inBody` so tune-header forms (before K:) are handled too.
-    if (!inTextBlock && collapseMidiDrumContinuations) {
+    // Compatibility: abc2svg rejects `%%MIDI drum +:` continuation lines.
+    // Keep line count stable for diagnostics by replacing consumed lines with comments.
+    if (!inTextBlock) {
       const main = rawLine.match(/^(\s*)%%MIDI\s+drum\s+(?!\+:)(.*)$/i);
       if (main) {
         const indent = main[1] || "";
         const restRaw = main[2] || "";
-        const splitComment = (s) => {
-          const idx = s.indexOf("%", 2); // allow leading "%%" as directive marker
-          if (idx < 0) return { code: s, comment: "" };
-          return { code: s.slice(0, idx), comment: s.slice(idx) };
-        };
         const mainParts = splitComment(rawLine);
-
         const consumed = [];
         let j = lineIndex + 1;
         while (j < lines.length) {
           const nextRaw = lines[j];
           const m = nextRaw.match(/^\s*%%MIDI\s+drum\s+\+:\s*(.*)$/i);
           if (!m) break;
-          const nextParts = splitComment(nextRaw);
-          // Extract only the continuation payload, excluding any trailing comment.
-          const tail = (m[1] || "");
-          // If there is a comment, keep the payload before it.
-          const payloadOnly = splitComment(tail).code;
-          consumed.push({ raw: nextRaw, payload: payloadOnly });
+          const tail = m[1] || "";
+          consumed.push({ raw: nextRaw, payload: splitComment(tail).code });
           j += 1;
         }
 
@@ -28556,22 +28864,65 @@ function sanitizeAbcForPlayback(text, options = {}) {
           const rhythm = rhythmTokens.join("");
           const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum));
           for (const c of consumed) {
-            const extra = String(c.payload || "").trim().split(/\s+/).filter(Boolean);
-            numbers.push(...extra);
+            numbers.push(...String(c.payload || "").trim().split(/\s+/).filter(Boolean));
           }
           const joined = [rhythm, numbers.join(" ")].filter(Boolean).join(" ").trim();
           const combinedLine = `${indent}%%MIDI drum ${joined}` + (mainParts.comment || "");
           out.push(combinedLine);
-          for (let k = 0; k < consumed.length; k += 1) {
-            const raw = consumed[k].raw;
-            out.push("%" + " ".repeat(Math.max(0, raw.length - 1)));
+          for (const consumedLine of consumed) {
+            out.push("%" + " ".repeat(Math.max(0, String(consumedLine.raw || "").length - 1)));
           }
           warnings.push({ kind: "midi-drum-continuation-collapsed", line: lineIndex + 1, lines: consumed.length + 1 });
+          let sourceBlockLen = 0;
+          let outputBlockLen = 0;
+          for (let k = 0; k <= consumed.length; k += 1) {
+            const isLast = (lineIndex + k) === lines.length - 1;
+            const sourceLine = k === 0 ? rawLine : String(consumed[k - 1].raw || "");
+            const outputLine = k === 0 ? combinedLine : "%" + " ".repeat(Math.max(0, String(consumed[k - 1].raw || "").length - 1));
+            sourceBlockLen += sourceLine.length + (isLast ? 0 : 1);
+            outputBlockLen += outputLine.length + (isLast ? 0 : 1);
+          }
+          srcPos += sourceBlockLen;
+          outPos += outputBlockLen;
+          const delta = outputBlockLen - sourceBlockLen;
+          if (delta !== 0) {
+            totalDelta += delta;
+            shifts.push({ srcPos, outPos, delta: totalDelta });
+          }
           lineIndex = j - 1;
           continue;
         }
       }
     }
+
+    out.push(rawLine);
+    const isLast = lineIndex === lines.length - 1;
+    const lineLen = rawLine.length + (isLast ? 0 : 1);
+    srcPos += lineLen;
+    outPos += lineLen;
+  }
+
+  return { text: out.join("\n"), warnings, compatMap: shifts.length ? { shifts, totalDelta } : null };
+}
+
+function sanitizeAbcForPlayback(text, options = {}) {
+  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
+  const initialText = String(text || "");
+  const drumCompat = collapseMidiDrumContinuations
+    ? collapseMidiDrumContinuationsForCompat(initialText)
+    : { text: initialText, warnings: [] };
+  const src = drumCompat && typeof drumCompat.text === "string" ? drumCompat.text : initialText;
+  const lines = src.split(/\r\n|\n|\r/);
+  const out = [];
+  const warnings = Array.isArray(drumCompat && drumCompat.warnings) ? drumCompat.warnings.slice() : [];
+  let inTextBlock = false;
+  let inBody = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
+    const trimmed = rawLine.trim();
+    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
+    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
+    if (!inBody && (/^\s*K:/.test(rawLine) || /^\s*\[\s*K:/.test(trimmed))) inBody = true;
 
     if (inTextBlock || !inBody) {
       // Still remove line-continuation backslashes outside text blocks even before body;
@@ -28995,30 +29346,16 @@ function computeExpectedBarSignatureFromInfo(info) {
   const sig = [];
   if (!info || !Array.isArray(info.bars)) return sig;
   const bars = info.bars;
-  let sep = info.leadingToken || "";
   for (let i = 0; i < bars.length; i += 1) {
     const bar = bars[i];
-    if (bar && bar.startToken) sep = bar.startToken;
-    if (sep) sig.push(sep);
-    sep = (bar && bar.endToken) ? bar.endToken : "|";
-
-    // Mirror buildDrumVoiceText(): if the next bar starts on a new source line, the previous separator
-    // is emitted at end-of-line *before* the next bar's startToken. This affects signatures like:
-    //   ... :|2 ... ||\n|: ...
-    const next = bars[i + 1] || null;
-    const lineA = bar && Number.isFinite(bar.srcLineIndex) ? bar.srcLineIndex : null;
-    const lineB = next && Number.isFinite(next.srcLineIndex) ? next.srcLineIndex : null;
-    if (lineA != null && lineB != null && lineA !== lineB) {
-      if (sep) sig.push(sep);
-      sep = "";
-    }
+    if (bar && bar.startToken) sig.push(String(bar.startToken));
+    sig.push((bar && bar.endToken) ? String(bar.endToken) : "|");
   }
-  if (sep) sig.push(sep);
   return sig;
 }
 
 function diffSignatures(expected, actual) {
-  const clean = (arr) => (Array.isArray(arr) ? arr.filter((t) => t !== ":" && t != null) : []);
+  const clean = (arr) => (Array.isArray(arr) ? arr.filter((t) => t != null) : []);
   const a = clean(expected);
   const b = clean(actual);
   const len = Math.max(a.length, b.length);
@@ -29475,6 +29812,20 @@ async function preparePlayback() {
     abc3.tosvg("play", normalized);
     abc.tunes = abc3.tunes;
     showToast("Playback: barlines normalized (compat mode).", 3600);
+  }
+
+  // Hard guard for injected drums: if bar mismatch is reported inside V:DRUM, do not play that
+  // generated drum voice for this run. A partial/misaligned drum tail is worse than silent drums.
+  if (hasDrumBarMismatchParseError(playbackParseErrors)) {
+    playbackSanitizeWarnings.push({ kind: "playback-drums-disabled-on-bar-mismatch" });
+    const abcNoDrums = new AbcCtor(user);
+    const noDrumsText = neutralizeMidiDrumDirectivesForPlayback(
+      neutralizeInjectedDrumVoiceForPlayback(playbackText)
+    );
+    playbackParseErrors = [];
+    abcNoDrums.tosvg("play", noDrumsText);
+    abc.tunes = abcNoDrums.tunes;
+    showToast("Playback: drums disabled (bar mismatch in generated DRUM voice).", 3800);
   }
 
   // abc2svg playback is stricter than many MIDI engines (e.g. abcmidi) and rejects chord symbols placed on barlines.
@@ -29942,6 +30293,34 @@ async function startPlaybackFromRange(rangeOverride) {
     return;
   }
   let startSym = findSymbolAtOrAfter(startAbcOffset);
+  // Cursor can land on inter-note whitespace (or be shifted there by UI timing).
+  // In normal transport mode, prefer the previous playable symbol when it is in the same bar segment.
+  // This avoids "start from second note" when the user places the cursor visually before a bar start note.
+  if (!scopedMode && Number.isFinite(startAbcOffset) && startAbcOffset > 0 && editorView) {
+    let ch = "";
+    try { ch = editorView.state.doc.sliceString(range.startOffset, range.startOffset + 1); } catch {}
+    if (/\s/.test(String(ch || ""))) {
+      const prevSym = findSymbolAtOrBefore(startAbcOffset - 1);
+      if (prevSym && Number.isFinite(prevSym.istart) && Number.isFinite(prevSym.dur) && prevSym.dur > 0 && !prevSym.noplay) {
+        const prevEditorOffset = toEditorOffset(prevSym.istart);
+        if (Number.isFinite(prevEditorOffset)) {
+          let between = "";
+          try {
+            const a = Math.max(0, Math.min(range.startOffset, prevEditorOffset));
+            const b = Math.max(a, Math.max(range.startOffset, prevEditorOffset));
+            between = editorView.state.doc.sliceString(a, b);
+          } catch {}
+          // Keep mid-score starts deterministic, but do not cross bar/line boundaries.
+          if (!/[\n|]/.test(String(between || ""))) {
+            if (!startSym || !Number.isFinite(startSym.istart) || prevSym.istart < startSym.istart) {
+              startSym = prevSym;
+              range.startOffset = Math.max(0, prevEditorOffset);
+            }
+          }
+        }
+      }
+    }
+  }
   if (!startSym || !Number.isFinite(startSym.istart)) {
     if (!scopedMode && startAbcOffset > 0) {
       const fallbackSym = findSymbolAtOrAfter(0);
@@ -29956,7 +30335,7 @@ async function startPlaybackFromRange(rangeOverride) {
     && Number.isFinite(startSym.istart)
     && !scopedMode
     && startAbcOffset > 0
-    && startSym.istart !== startAbcOffset
+    && startSym.istart < startAbcOffset
   ) {
     const fallbackSym = findSymbolAtOrAfter(0);
     if (fallbackSym && Number.isFinite(fallbackSym.istart)) {

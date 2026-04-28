@@ -37,6 +37,7 @@ async function main() {
   assert(src.includes("app.on(\"second-instance\""), "second-instance handler is missing");
   assert(src.includes("queueOrOpenCliInputPath"), "CLI open helper is missing");
   assert(src.includes("type: \"openRecentFile\""), "second instance must route through openRecentFile action");
+  assert(src.includes("forceReload: true"), "CLI/open-file routing must force renderer reload for same-path reopen");
 
   const parseCliOptions = compileParseCliOptions(src);
 
@@ -67,4 +68,3 @@ main().catch((err) => {
   process.stderr.write(`check_main_cli_open.mjs failed: ${err?.stack || err}\n`);
   process.exitCode = 1;
 });
-

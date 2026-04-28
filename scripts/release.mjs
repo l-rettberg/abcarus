@@ -81,4 +81,4 @@ console.log(`Release prepared: v${next}`);
 console.log("Next steps:");
 console.log("  git push");
 console.log(`  git push origin v${next}`);
-console.log("  Create GitHub Release using the CHANGELOG entry.");
+console.log("  Run the publish script to sync CHANGELOG notes into the GitHub Release body.");

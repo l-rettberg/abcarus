@@ -142,6 +142,7 @@ function queueOrOpenCliInputPath(rawPath) {
       entry: {
         path: abs,
         basename: path.basename(abs),
+        forceReload: true,
       },
     });
     pendingCliOpenFile = "";
@@ -2524,6 +2525,7 @@ async function createWindow() {
               entry: {
                 path: cliPath,
                 basename: path.basename(cliPath),
+                forceReload: true,
               },
             });
           } catch {}

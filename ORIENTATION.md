@@ -67,7 +67,7 @@ Alternative (terminal): while the app is running, find `--user-data-dir=...`:
 - `pgrep -af electron | head -n 50`
 
 In dev, this repo’s Electron profile commonly ends up at:
-- `~/.config/abc-electron-proto`
+- `~/.config/ABCarus`
 
 ### 2) Symptom to recognize
 

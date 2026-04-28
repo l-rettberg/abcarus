@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -39,9 +41,24 @@ function fail(message) {
   process.exit(1);
 }
 
+function ensureGhAvailable() {
+  try {
+    runCapture("gh", ["--version"]);
+  } catch {
+    fail("GitHub CLI (`gh`) is required to publish release notes to the GitHub Release body.");
+  }
+}
+
 function getVersion() {
   const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
   return pkg && pkg.version ? String(pkg.version) : null;
+}
+
+function getOriginRepoSlug() {
+  const url = runCapture("git", ["remote", "get-url", "origin"]);
+  const sshMatch = url.match(/github\.com[:/]([^/]+\/[^/.]+)(?:\.git)?$/i);
+  if (sshMatch) return sshMatch[1];
+  fail(`Could not derive GitHub repository slug from origin URL: ${url}`);
 }
 
 function assertOnMaster() {
@@ -80,6 +97,37 @@ function assertUnreleasedNotEmpty() {
   if (!m) fail("Could not parse CHANGELOG.md Unreleased section.");
   const body = String(m[1] || "").trim();
   if (!body) fail("CHANGELOG.md Unreleased section is empty. Add release notes first.");
+}
+
+function extractReleaseNotes(version) {
+  const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+  const escapedVersion = String(version).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^## \\[${escapedVersion}\\] - .*$([\\s\\S]*?)(?=^## \\[|\\Z)`, "m");
+  const match = changelog.match(re);
+  if (!match) fail(`Could not find CHANGELOG entry for ${version}.`);
+  const notes = String(match[1] || "").trim();
+  if (!notes) fail(`CHANGELOG entry for ${version} is empty.`);
+  return `${notes}\n`;
+}
+
+function upsertGitHubRelease(tag, version) {
+  ensureGhAvailable();
+  const repo = getOriginRepoSlug();
+  const notes = extractReleaseNotes(version);
+  const notesFile = path.join(os.tmpdir(), `abcarus-release-notes-${process.pid}-${version}.md`);
+  fs.writeFileSync(notesFile, notes, "utf8");
+  try {
+    try {
+      runCapture("gh", ["release", "view", tag, "-R", repo]);
+      run("gh", ["release", "edit", tag, "-R", repo, "--title", tag, "--notes-file", notesFile]);
+      console.log(`[publish] Updated GitHub Release notes for ${tag}`);
+      return;
+    } catch {}
+    run("gh", ["release", "create", tag, "-R", repo, "--title", tag, "--notes-file", notesFile]);
+    console.log(`[publish] Created GitHub Release with notes for ${tag}`);
+  } finally {
+    try { fs.unlinkSync(notesFile); } catch {}
+  }
 }
 
 function usage() {
@@ -123,6 +171,7 @@ function main() {
 
   run("git", ["push", "origin", "master"]);
   run("git", ["push", "origin", tag]);
+  upsertGitHubRelease(tag, after);
 
   console.log(`[publish] Done: ${tag}`);
 }

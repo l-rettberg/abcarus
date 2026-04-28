@@ -129,4 +129,4 @@ fi
 node "${repo_root}/scripts/bundle_python_appimage.mjs" --appdir "${appdir}" --python-root "${python_root}"
 
 echo "AppDir prepared at: ${appdir}"
-echo "Next: appimagetool ${appdir} Abcarus-x86_64.AppImage"
+echo "Next: appimagetool ${appdir} ABCarus-x86_64.AppImage"

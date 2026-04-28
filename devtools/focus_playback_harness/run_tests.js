@@ -129,6 +129,61 @@ function resolvePlaybackEndSymbolInRoot(firstSymbol, startSymbol, endOffset) {
   return lastInRange.ts_next || null;
 }
 
+function resolvePlaybackEndSymbolByTimelineForTest({ symbols, startSymbol, endAbcOffset }) {
+  if (!Array.isArray(symbols) || !symbols.length) return null;
+  if (!startSymbol || !Number.isFinite(startSymbol.istart)) return null;
+  if (!Number.isFinite(endAbcOffset) || endAbcOffset <= Number(startSymbol.istart)) return null;
+  const sorted = symbols.slice().sort((a, b) => Number(a.istart) - Number(b.istart));
+  let lastInRange = null;
+  for (const sym of sorted) {
+    if (!sym || !Number.isFinite(Number(sym.istart))) continue;
+    if (Number(sym.istart) < endAbcOffset) lastInRange = sym;
+    else break;
+  }
+  if (!lastInRange || !Number.isFinite(Number(lastInRange.istart))) return null;
+  if (Number(lastInRange.istart) <= Number(startSymbol.istart)) return null;
+  let endSym = lastInRange.ts_next || null;
+
+  let maxAudibleEndTime = null;
+  for (const sym of sorted) {
+    if (!sym) continue;
+    const istart = Number(sym.istart);
+    const time = Number(sym.time);
+    const dur = Number(sym.dur);
+    if (!Number.isFinite(istart) || istart >= endAbcOffset) continue;
+    if (!Number.isFinite(time) || !Number.isFinite(dur) || dur <= 0) continue;
+    const endTime = time + dur;
+    if (!Number.isFinite(endTime)) continue;
+    if (!Number.isFinite(maxAudibleEndTime) || endTime > maxAudibleEndTime) {
+      maxAudibleEndTime = endTime;
+    }
+  }
+  if (Number.isFinite(maxAudibleEndTime)) {
+    let s = startSymbol;
+    let guard = 0;
+    let byTime = null;
+    while (s && guard < 10000) {
+      const t = Number(s.time);
+      if (Number.isFinite(t) && t >= maxAudibleEndTime) {
+        byTime = s;
+        break;
+      }
+      s = s.ts_next || null;
+      guard += 1;
+    }
+    if (byTime) {
+      const curTime = Number(endSym && endSym.time);
+      const nextTime = Number(byTime.time);
+      if (!Number.isFinite(curTime) || (Number.isFinite(nextTime) && nextTime > curTime)) {
+        endSym = byTime;
+      }
+    } else {
+      endSym = null;
+    }
+  }
+  return endSym;
+}
+
 function collectVisitedBarNumbersUntilEnd(startSymbol, endSymbol) {
   const repeatState = { repv: 1, repn: false };
   let s = startSymbol || null;
@@ -475,6 +530,51 @@ function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber) {
   return null;
 }
 
+function resolveEditorMeasureStartOffsetAtCursor(text, cursorOffset) {
+  const src = String(text || "");
+  const max = src.length;
+  if (!src || max <= 0) return 0;
+  const cursor = Math.max(0, Math.min(Number(cursorOffset) || 0, max));
+  const len = src.length;
+
+  const leftText = src.slice(0, cursor + 1);
+  const partMatches = [...leftText.matchAll(/(?:^|\n)\s*\[P:[^\]\n]*\]\s*(?:\n|$)/g)];
+  const sectionStart = partMatches.length
+    ? Math.min(cursor, partMatches[partMatches.length - 1].index + partMatches[partMatches.length - 1][0].length)
+    : 0;
+
+  let bar = -1;
+  if (cursor < len && src[cursor] === "|") {
+    bar = cursor;
+  } else {
+    bar = src.lastIndexOf("|", Math.max(0, cursor - 1));
+  }
+  if (bar < sectionStart) bar = -1;
+
+  let start = 0;
+  if (bar >= 0) {
+    start = bar + 1;
+  } else {
+    const first = findMeasureStartOffsetByNumber(src.slice(sectionStart), 1);
+    if (Number.isFinite(first)) {
+      start = sectionStart + Number(first);
+    } else {
+      start = sectionStart;
+    }
+  }
+
+  while (start < len && /[\s|:\]]/.test(src[start] || "")) start += 1;
+  return Math.max(0, Math.min(start, max));
+}
+
+function normalizeBarStartOffset(text, offset) {
+  const src = String(text || "");
+  const len = src.length;
+  let start = Math.max(0, Math.min(Number(offset) || 0, len));
+  while (start < len && /[\s|:\]]/.test(src[start] || "")) start += 1;
+  return Math.max(0, Math.min(start, len));
+}
+
 function buildFocusBarIndexMap(measureIndex, editorDocLength) {
   if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
   const renderOffset = Number(measureIndex.offset) || 0;
@@ -672,6 +772,29 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   let endBarIndex = null;
   let byNumberRange = null;
 
+  const noSegmentLimits = !hasFrom && !hasTo;
+  if (noSegmentLimits) {
+    const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
+    const firstBarStart = Number(bars[0] && bars[0].startOffset);
+    let fullStart = Number.isFinite(firstMeasureOffset) ? firstMeasureOffset : firstBarStart;
+    if (!Number.isFinite(fullStart)) fullStart = 0;
+    fullStart = Math.max(0, Math.min(tuneText.length, fullStart));
+    const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    return {
+      ok: true,
+      plan: {
+        mode: "visible",
+        startBarIndex: 0,
+        endBarIndex: bars.length - 1,
+        startOffset: fullStart,
+        endOffset: fullEnd,
+        suppressRepeats: Boolean(state.suppressRepeats),
+        mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
+        loop: Boolean(state.loop),
+      },
+    };
+  }
+
   if (hasFrom && hasTo) {
     if (!Number.isInteger(from) || !Number.isInteger(to) || to < from) {
       return { ok: false, reason: "Invalid Focus range: set integer From/To with From <= To." };
@@ -716,6 +839,13 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
   if (!startBar || !endBar) return { ok: false, reason: "Cannot resolve Focus playback boundaries." };
   let startOffset = Number(startBar.startOffset);
   let endOffset = Number(endBar.endOffset);
+  if (mode === "visible") {
+    const nextBar = bars[endBarIndex + 1] || null;
+    const nextStart = Number(nextBar && nextBar.startOffset);
+    if (Number.isFinite(nextStart) && nextStart > startOffset) {
+      endOffset = nextStart;
+    }
+  }
   if (mode === "segment" && byNumberRange) {
     const renderOffset = getFocusBarMapRenderOffset(bars);
     const max = Math.max(0, tuneText.length);
@@ -757,6 +887,16 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
       && Number(textEndOffsetExclusive) > startOffset) {
       endOffset = Number(textEndOffsetExclusive);
     }
+  }
+  const endBarStart = Number(endBar.startOffset);
+  const nextBarForBoundary = bars[endBarIndex + 1] || null;
+  const nextBarStart = Number(nextBarForBoundary && nextBarForBoundary.startOffset);
+  if (Number.isFinite(nextBarStart) && nextBarStart > endBarStart && (!Number.isFinite(endOffset) || endOffset < nextBarStart)) {
+    endOffset = nextBarStart;
+  }
+  if (Number.isFinite(endBarStart) && (!Number.isFinite(endOffset) || endOffset <= endBarStart)) {
+    const tuneLen = Math.max(0, tuneText.length);
+    endOffset = Math.max(endBarStart + 1, tuneLen);
   }
   const firstMeasureOffset = Number(parsedTune && parsedTune.firstMeasureOffset);
   if (
@@ -1564,6 +1704,37 @@ async function main() {
     process.exitCode = 1;
   }
 
+  // Focus default (0->0) must play the full tune regardless of viewport range.
+  try {
+    const parsedTune = {
+      text: "X:1\nT:visible-end-boundary\nK:C\n| C D E F | G A B c | d e f g |",
+      barMap: [
+        { barNumber: 1, startRenderOffset: 0, endRenderOffset: 100, startOffset: 0, endOffset: 40 },
+        { barNumber: 2, startRenderOffset: 100, endRenderOffset: 200, startOffset: 40, endOffset: 65 }, // intentionally short
+        { barNumber: 3, startRenderOffset: 200, endRenderOffset: 300, startOffset: 80, endOffset: 120 },
+      ],
+      byNumber: new Map(),
+      firstMeasureOffset: 0,
+    };
+    const result = buildFocusPlaybackPlan({
+      parsedTune,
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: { startRenderOffset: 0, endRenderOffset: 180 }, // intersects bars 1..2
+    });
+    assert(result && result.ok && result.plan, "visible boundary plan should be valid");
+    assert(result.plan.mode === "visible", "expected visible mode");
+    assert(Number(result.plan.startOffset) === 0, `expected startOffset=0, got ${result.plan.startOffset}`);
+    assert(
+      Number(result.plan.endOffset) === parsedTune.text.length,
+      `full-tune default should end at tune length (${parsedTune.text.length}), got ${result.plan.endOffset}`
+    );
+    console.log("% PASS TEST 28: Focus default 0->0 plays full tune (ignores viewport)");
+  } catch (e) {
+    console.log("% FAIL TEST 28: Focus default 0->0 plays full tune (ignores viewport)");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
   // Pipeline-level regression: compute* path must not short-circuit when barMap is empty.
   try {
     const noMeasures = {
@@ -1591,6 +1762,26 @@ async function main() {
     console.log("% PASS TEST 22: compute* pipeline honors empty-barMap fallback in visible mode");
   } catch (e) {
     console.log("% FAIL TEST 22: compute* pipeline honors empty-barMap fallback in visible mode");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // End-boundary regression: sustain before boundary must not be cut early.
+  try {
+    const s0 = { istart: 100, time: 0, dur: 0 };
+    const s1 = { istart: 110, time: 100, dur: 300 }; // rings until t=400 (crosses boundary)
+    const s2 = { istart: 120, time: 300, dur: 100 }; // first symbol at boundary bar
+    const s3 = { istart: 130, time: 400, dur: 100 }; // first symbol at/after note-off
+    s0.ts_next = s1; s1.ts_next = s2; s2.ts_next = s3; s3.ts_next = null;
+    const out = resolvePlaybackEndSymbolByTimelineForTest({
+      symbols: [s0, s1, s2, s3],
+      startSymbol: s0,
+      endAbcOffset: 120,
+    });
+    assert(out === s3, `expected end symbol at note-off boundary (s3), got ${out === s2 ? "s2" : "other"}`);
+    console.log("% PASS TEST 29: End boundary keeps sustained in-range notes audible");
+  } catch (e) {
+    console.log("% FAIL TEST 29: End boundary keeps sustained in-range notes audible");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }
@@ -1771,6 +1962,45 @@ async function main() {
     console.log("% PASS TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
   } catch (e) {
     console.log("% FAIL TEST 16: Muted voices (including V:1 and implicit/malformed V:1) behave correctly");
+    String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
+    process.exitCode = 1;
+  }
+
+  // Normal mode regression: cursor start must never drift to the previous bar.
+  try {
+    const text = [
+      "X:1",
+      "T:cursor-start-from-bar",
+      "M:4/4",
+      "L:1/4",
+      "K:C",
+      "[P:A]",
+      "C  | D  | E  | F  |",
+      "G  | A  | B  | c  |",
+      "d  | e  | f  | g  |",
+      "a  | b  | c' | d' |",
+      "[P:E]",
+      "  e' | f' | g' | a' |",
+    ].join("\n");
+    const probeBars = [1, 2, 8, 16, 17, 18, 20];
+    for (const barNo of probeBars) {
+      const expectedStartRaw = findMeasureStartOffsetByNumber(text, barNo);
+      assert(Number.isFinite(expectedStartRaw), `bar ${barNo}: expected start must be resolvable`);
+      const expectedStart = normalizeBarStartOffset(text, expectedStartRaw);
+
+      const cursorPositions = [expectedStart, expectedStart + 1, expectedStart + 2]
+        .filter((v) => Number.isFinite(v) && v >= 0 && v <= text.length);
+      for (const cursorPos of cursorPositions) {
+        const resolvedStart = resolveEditorMeasureStartOffsetAtCursor(text, cursorPos);
+        assert(
+          Number(resolvedStart) === Number(expectedStart),
+          `bar ${barNo}, cursor=${cursorPos}: expected ${expectedStart}, got ${resolvedStart}`
+        );
+      }
+    }
+    console.log("% PASS TEST 27: Normal mode cursor start is bar-stable across section boundaries");
+  } catch (e) {
+    console.log("% FAIL TEST 27: Normal mode cursor start is bar-stable across section boundaries");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

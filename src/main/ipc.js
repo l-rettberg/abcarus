@@ -29,6 +29,18 @@ const {
   writeWorkingCopyToPathAndSwitch,
 } = require("./workingCopyStore");
 
+function sanitizeSuggestedFileBaseName(value, fallback) {
+  const cleaned = String(value || "")
+    .normalize("NFKC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, " ")
+    .replace(/\p{Control}+/gu, " ")
+    .replace(/[. ]+$/g, "")
+    .replace(/^[. ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || fallback || "tune").slice(0, 120);
+}
+
 async function readOsRelease(fs) {
   try {
     const raw = await fs.promises.readFile("/etc/os-release", "utf8");
@@ -1308,10 +1320,11 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle("print:preview", async (_event, svgMarkup) => {
+  ipcMain.handle("print:preview", async (_event, svgMarkup, suggestedName) => {
     if (!svgMarkup) return { ok: false, error: "No notation to print." };
-    if (typeof previewPdf === "function") return previewPdf(svgMarkup);
-    const tmpName = `abc-preview-${Date.now()}.pdf`;
+    const safeName = sanitizeSuggestedFileBaseName(suggestedName, "abc-preview");
+    if (typeof previewPdf === "function") return previewPdf(svgMarkup, safeName);
+    const tmpName = `${safeName}-${Date.now()}.pdf`;
     const tmpPath = path.join(app.getPath("temp"), tmpName);
     const res = await withMainPrintMode(async (contents) => {
       const pdfData = await contents.printToPDF({ printBackground: true, marginsType: 0 });
@@ -1321,12 +1334,13 @@ function registerIpcHandlers(ctx) {
     if (res.ok && res.path) await shell.openPath(res.path);
     return res;
   });
-  ipcMain.handle("print:dialog", async (_event, svgMarkup) => {
+  ipcMain.handle("print:dialog", async (_event, svgMarkup, suggestedName) => {
     if (!svgMarkup) return { ok: false, error: "No notation to print." };
+    const safeName = sanitizeSuggestedFileBaseName(suggestedName, "abc-print");
     if (os.platform() === "linux") {
-      return printViaPdf(svgMarkup);
+      return printViaPdf(svgMarkup, safeName);
     }
-    if (typeof printWithDialog === "function") return printWithDialog(svgMarkup);
+    if (typeof printWithDialog === "function") return printWithDialog(svgMarkup, safeName);
     return withMainPrintMode((contents) =>
       new Promise((resolve) => {
         contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
@@ -1338,9 +1352,7 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("print:pdf", async (event, svgMarkup, suggestedName) => {
     if (!svgMarkup) return { ok: false, error: "No notation to export." };
-    const safeName = suggestedName && String(suggestedName).trim()
-      ? String(suggestedName).trim()
-      : "tune";
+    const safeName = sanitizeSuggestedFileBaseName(suggestedName, "tune");
     const parent = getParentForDialog(event, "print:pdf");
     const filePath = dialog.showSaveDialogSync(parent || undefined, {
       title: "Export PDF",

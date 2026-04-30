@@ -1,3 +1,6 @@
+import { BUILTIN_MAKAM_K_SIGNATURES } from "./makam_dna/makam_k_signatures.mjs";
+import { resolvePerdeNamesFromAbcToken } from "./perde_by_abc.mjs";
+
 export const NOTE_BASES = {
   C: 0,
   D: 2,
@@ -10,6 +13,11 @@ export const NOTE_BASES = {
 
 const STEPS_PER_SEMITONE = 2;
 const STEPS_PER_OCTAVE = 24;
+const LETTER_ORDER = ["C", "D", "E", "F", "G", "A", "B"];
+const SHARP_SIGNATURE_ORDER = ["F", "C", "G", "D", "A", "E", "B"];
+const FLAT_SIGNATURE_ORDER = ["B", "E", "A", "D", "G", "C", "F"];
+const SHARP_SIGNATURE_DISPLAY_LETTERS = { F: "f", C: "c", G: "g", D: "d", A: "A", E: "e", B: "B" };
+const FLAT_SIGNATURE_DISPLAY_LETTERS = { B: "B", E: "e", A: "A", D: "d", G: "G", C: "c", F: "F" };
 
 function mod(n, m) {
   const r = n % m;
@@ -168,6 +176,78 @@ function chooseKeyName(pitchClass, isMinor, prefer) {
   return { name: best.name, accCount: best.acc, pref: best.pref };
 }
 
+function classifyDefaultTransposeKeyToken(token) {
+  if (!token) return { ok: false, reason: "missing key token" };
+  const raw = String(token).trim();
+  if (!raw) return { ok: false, reason: "missing key token" };
+  if (/^none$/i.test(raw)) return { ok: true, kind: "none" };
+  const match = raw.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if (!match) return { ok: false, reason: `unsupported key token "${raw}"` };
+  const modeSuffix = (match[3] || "").trim().toLowerCase();
+  if (!modeSuffix || modeSuffix === "maj" || modeSuffix === "major") {
+    return { ok: true, kind: "major" };
+  }
+  if (modeSuffix === "m" || modeSuffix === "min" || modeSuffix === "minor") {
+    return { ok: true, kind: "minor" };
+  }
+  return { ok: false, reason: `modal or nonstandard key "${raw}"` };
+}
+
+export function getDefaultTransposeSupport(text, options = {}) {
+  const headerText = options && options.headerText ? String(options.headerText) : "";
+  const combined = headerText ? `${headerText}\n${String(text || "")}` : String(text || "");
+  const edo = detectEdoStepsPerOctave(combined);
+  if (edo !== 12) {
+    return {
+      ok: false,
+      reason: `Default transpose currently supports only 12-EDO major/minor/K:none. This tune uses %%MIDI temperamentequal ${edo}.`,
+      edo,
+    };
+  }
+
+  const keyTokenRe = /^\s*K:\s*(\S+)/gm;
+  let match;
+  while ((match = keyTokenRe.exec(String(text || ""))) !== null) {
+    const keyToken = match[1];
+    const info = classifyDefaultTransposeKeyToken(keyToken);
+    if (!info.ok) {
+      return {
+        ok: false,
+        reason: `Default transpose currently supports only major, minor, or K:none. Found ${info.reason}.`,
+        edo,
+      };
+    }
+  }
+
+  const inlineKeyRe = /\[K:\s*([^\]\s]+)/g;
+  while ((match = inlineKeyRe.exec(String(text || ""))) !== null) {
+    const keyToken = match[1];
+    const info = classifyDefaultTransposeKeyToken(keyToken);
+    if (!info.ok) {
+      return {
+        ok: false,
+        reason: `Default transpose currently supports only major, minor, or K:none. Found ${info.reason}.`,
+        edo,
+      };
+    }
+  }
+
+  return { ok: true, edo };
+}
+
+export function getNativeTransposeSupport(text, options = {}) {
+  const headerText = options && options.headerText ? String(options.headerText) : "";
+  const combined = headerText ? `${headerText}\n${String(text || "")}` : String(text || "");
+  const edo = detectEdoStepsPerOctave(combined);
+  if (edo === 53) return { ok: true, edo };
+  if (edo === 12) return getDefaultTransposeSupport(text, options);
+  return {
+    ok: false,
+    reason: `Native transpose currently supports only 12-EDO major/minor/K:none and 53-TET. This tune uses %%MIDI temperamentequal ${edo}.`,
+    edo,
+  };
+}
+
 function parseNoteToken(line, index) {
   const accMatch = line
     .slice(index)
@@ -231,7 +311,7 @@ function mergeKeyAccidentals(baseSteps, extraSteps) {
   const merged = { ...baseSteps };
   if (extraSteps) {
     for (const [letter, steps] of Object.entries(extraSteps)) {
-      merged[letter] = steps;
+      merged[letter] = steps / STEPS_PER_SEMITONE;
     }
   }
   return merged;
@@ -272,6 +352,28 @@ function baseId53ForNaturalLetter(letterUpper) {
   return SEMITONE_POS_53_BMODE_BY_PC12[pc] || 0;
 }
 
+function nearestPc12ForId53(id53) {
+  const id = mod(Number(id53) || 0, 53);
+  let bestPc = 0;
+  let bestDist = Infinity;
+  for (let pc = 0; pc < 12; pc += 1) {
+    const dist = Math.abs(normalizeSigned53(id - SEMITONE_POS_53_BMODE_BY_PC12[pc]));
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestPc = pc;
+    }
+  }
+  return bestPc;
+}
+
+function exactPc12ForId53(id53) {
+  const id = mod(Number(id53) || 0, 53);
+  for (let pc = 0; pc < 12; pc += 1) {
+    if (SEMITONE_POS_53_BMODE_BY_PC12[pc] === id) return pc;
+  }
+  return null;
+}
+
 function pairRank53(micro) {
   if (micro === 4 || micro === -5) return 0;
   if (micro === -4 || micro === 5) return 1;
@@ -302,6 +404,28 @@ function microPrefixFor53(micro, { explicit } = {}) {
   return m > 0 ? `^${m}` : `_${-m}`;
 }
 
+function abcTokenFor53Candidate(letterUpper, micro, octave) {
+  let letter = String(letterUpper || "").toUpperCase();
+  const oct = Number(octave);
+  if (Number.isFinite(oct)) {
+    if (oct >= 6) {
+      letter = letter.toLowerCase() + "'".repeat(Math.max(0, oct - 6));
+    } else {
+      letter = letter.toUpperCase() + ",".repeat(Math.max(0, 5 - oct));
+    }
+  }
+  const prefix = Number(micro) === 0 ? "" : microPrefixFor53(micro, { explicit: true });
+  return `${prefix}${letter}`;
+}
+
+function sharedPerdeNameScore53(aToken, bToken) {
+  const a = resolvePerdeNamesFromAbcToken(aToken);
+  const b = resolvePerdeNamesFromAbcToken(bToken);
+  if (!a.length || !b.length) return 1;
+  const bs = new Set(b);
+  return a.some((name) => bs.has(name)) ? 0 : 1;
+}
+
 function chooseSpelling53ForId({ id53, preferFlats, preferSharps }) {
   const letters = ["C", "D", "E", "F", "G", "A", "B"];
   let best = null;
@@ -312,7 +436,9 @@ function chooseSpelling53ForId({ id53, preferFlats, preferSharps }) {
     const micro = normalizeSigned53(Number(id53) - base);
     if (!isAllowedMicro53(micro)) continue;
     const sideScore = preferFlats ? (micro < 0 ? 0 : 1) : (preferSharps ? (micro > 0 ? 0 : 1) : 0);
-    const score = [pairRank53(micro), sideScore, Math.abs(micro), idx];
+    // Keep accidental size small first; directional preference should only break ties
+    // between similarly readable spellings.
+    const score = [pairRank53(micro), Math.abs(micro), sideScore, idx];
     if (!best) best = { letterUpper: L, micro, score };
     else {
       for (let i = 0; i < score.length; i += 1) {
@@ -338,6 +464,42 @@ function parseKLineBodyForRewrite(body) {
   return { leading: m[1], firstToken: m[2], rest: m[3] };
 }
 
+function tonicSideFromKeyToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw || /^none$/i.test(raw)) return "neutral";
+  const match = raw.match(/^([A-Ga-g])([#b]?)/);
+  if (!match) return "neutral";
+  if (match[2] === "b") return "flat";
+  if (match[2] === "#") return "sharp";
+  return "neutral";
+}
+
+function tonicLetterFromKeyToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw || /^none$/i.test(raw)) return null;
+  const match = raw.match(/^([A-Ga-g])/);
+  return match ? match[1].toUpperCase() : null;
+}
+
+function computeLetterShiftBetweenTonics(sourceToken, targetToken) {
+  const src = tonicLetterFromKeyToken(sourceToken);
+  const dst = tonicLetterFromKeyToken(targetToken);
+  if (!src || !dst) return 0;
+  const srcIdx = LETTER_ORDER.indexOf(src);
+  const dstIdx = LETTER_ORDER.indexOf(dst);
+  if (srcIdx < 0 || dstIdx < 0) return 0;
+  let diff = dstIdx - srcIdx;
+  while (diff > 3) diff -= 7;
+  while (diff < -3) diff += 7;
+  return diff;
+}
+
+function shiftLetterFamily(letterUpper, shift) {
+  const idx = LETTER_ORDER.indexOf(String(letterUpper || "").toUpperCase());
+  if (idx < 0) return String(letterUpper || "").toUpperCase();
+  return LETTER_ORDER[mod(idx + (Number(shift) || 0), 7)];
+}
+
 function parseKFirstTokenTonicPc12(body) {
   const { head } = splitComment(body);
   const m = String(head || "").match(/^\s*(\S+)/);
@@ -349,6 +511,47 @@ function parseKFirstTokenTonicPc12(body) {
   const base = PC_NAT_12[t[1].toUpperCase()];
   const a = t[2] === "#" ? 1 : t[2] === "b" ? -1 : 0;
   return base == null ? 0 : mod(base + a, 12);
+}
+
+function mapsEqual53(a, b) {
+  const aa = a || {};
+  const bb = b || {};
+  const keys = new Set([...Object.keys(aa), ...Object.keys(bb)]);
+  for (const key of keys) {
+    if ((aa[key] ?? null) !== (bb[key] ?? null)) return false;
+  }
+  return true;
+}
+
+function normalizeKBody53ToC(kBody) {
+  const tonicPc12 = parseKFirstTokenTonicPc12(kBody);
+  if (!tonicPc12) return String(kBody || "");
+  let out = String(kBody || "");
+  const step = tonicPc12 > 6 ? 1 : -1;
+  const count = tonicPc12 > 6 ? 12 - tonicPc12 : tonicPc12;
+  for (let i = 0; i < count; i += 1) {
+    out = transposeKBody53Raw(out, step, { detectProfile: false }).text;
+  }
+  return out;
+}
+
+export function detectKnownMakamKeyProfile53(kBody) {
+  const normalized = normalizeKBody53ToC(kBody);
+  const normalizedMap = buildEffectiveKeyMicroMap53FromKBody(normalized);
+  for (const entry of BUILTIN_MAKAM_K_SIGNATURES) {
+    const canonicalBody = entry && typeof entry.k === "string" ? entry.k : "";
+    if (!canonicalBody) continue;
+    const canonicalMap = buildEffectiveKeyMicroMap53FromKBody(canonicalBody);
+    if (mapsEqual53(normalizedMap, canonicalMap)) {
+      return {
+        id: String(entry.makam || "").trim(),
+        label: String(entry.makam || "").trim(),
+        canonicalBodyC: canonicalBody,
+        canonicalMapC: canonicalMap,
+      };
+    }
+  }
+  return null;
 }
 
 function semitoneUpCommasByPc12(pc) {
@@ -470,6 +673,28 @@ function chooseTonicNameByPc(pc, { deltaSteps, originalSide } = {}) {
   return flat;
 }
 
+function chooseTonicNameByPcForMakam53(pc, options = {}) {
+  const sharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][mod(pc, 12)];
+  const flat = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"][mod(pc, 12)];
+  if (sharp === flat) return sharp;
+  return flat;
+}
+
+function shiftKBody53ByPc(body, targetPc12) {
+  const target = mod(Number(targetPc12) || 0, 12);
+  let out = String(body || "");
+  let cur = parseKFirstTokenTonicPc12(out);
+  let guard = 0;
+  while (cur !== target && guard < 24) {
+    const up = mod(target - cur, 12);
+    const step = up <= 6 ? 1 : -1;
+    out = transposeKBody53Raw(out, step, { detectProfile: false, preferMakamTonic: true }).text;
+    cur = parseKFirstTokenTonicPc12(out);
+    guard += 1;
+  }
+  return out;
+}
+
 function parseExplicitKeyAccTokens53(body) {
   const { head } = splitComment(body);
   const tokens = [];
@@ -508,13 +733,24 @@ function buildKeyMicroMapFromKBody53(body, { allowMicro = true } = {}) {
   return map;
 }
 
+function shouldInferWesternKeySignature53(kBody) {
+  const { head } = splitComment(kBody);
+  const { firstToken } = parseKLineBodyForRewrite(head);
+  const keyInfo = parseKeyToken(firstToken) || { isNone: true, modeSuffix: "" };
+  if (!keyInfo || keyInfo.isNone) return false;
+  const explicit = parseExplicitKeyAccTokens53(head);
+  if (explicit.length > 0) return false;
+  const suffix = String(keyInfo.modeSuffix || "").trim().toLowerCase();
+  return !suffix || suffix === "maj" || suffix === "major" || suffix === "m" || suffix === "min" || suffix === "minor";
+}
+
 export function buildEffectiveKeyMicroMap53FromKBody(kBody, { allowMicro = true } = {}) {
   const { head } = splitComment(kBody);
   const { firstToken } = parseKLineBodyForRewrite(head);
   const keyInfo = parseKeyToken(firstToken) || { isNone: true, pref: "flat", accCount: 0 };
 
   const out = {};
-  if (!keyInfo.isNone) {
+  if (!keyInfo.isNone && shouldInferWesternKeySignature53(head)) {
     const sig = buildKeySignature(keyInfo.accCount || 0, keyInfo.pref || "flat");
     for (const [letter, semi] of Object.entries(sig)) {
       if (!semi) continue;
@@ -535,13 +771,32 @@ export function buildEffectiveKeyMicroMap53FromKBody(kBody, { allowMicro = true 
   return out;
 }
 
-function transposeKBody53(body, deltaSteps) {
+function transposeKBody53Raw(body, deltaSteps, options = {}) {
   const { head, comment } = splitComment(body);
-  const readTonicPc12 = parseKFirstTokenTonicPc12(head);
-  const deltaCommas = euroSemitoneDeltaCommas53({ tonicPc12: readTonicPc12, deltaSteps });
-  const readKeyMicroMap = buildKeyMicroMapFromKBody53(head);
-
   const { leading, firstToken } = parseKLineBodyForRewrite(head);
+  const readTonicPc12 = parseKFirstTokenTonicPc12(head);
+  const deltaCommas = Number.isFinite(options.deltaCommasOverride)
+    ? options.deltaCommasOverride
+    : euroSemitoneDeltaCommas53({ tonicPc12: readTonicPc12, deltaSteps });
+  const readKeyMicroMap = buildEffectiveKeyMicroMap53FromKBody(head);
+  const sourceMakamProfile53 = options.detectProfile === false ? null : detectKnownMakamKeyProfile53(head);
+  const targetTonicPc12 = mod(readTonicPc12 + deltaSteps, 12);
+
+  if (sourceMakamProfile53 && options.fromCanonicalProfile !== false) {
+    const rendered = shiftKBody53ByPc(sourceMakamProfile53.canonicalBodyC, targetTonicPc12);
+    const tonicToken = parseKLineBodyForRewrite(rendered).firstToken || "";
+    return {
+      text: rendered + comment,
+      tonicToken,
+      letterShift53: computeLetterShiftBetweenTonics(firstToken, tonicToken),
+      readTonicPc12,
+      deltaCommas,
+      readKeyMicroMap,
+      writeKeyMicroMap: buildEffectiveKeyMicroMap53FromKBody(rendered),
+      makamProfile53: sourceMakamProfile53.id,
+    };
+  }
+
   const isNone = /^none$/i.test(firstToken || "");
   let newFirstToken = String(firstToken || "");
   if (!isNone) {
@@ -555,7 +810,9 @@ function transposeKBody53(body, deltaSteps) {
     const pc0 = mod(PC_NAT_12[tonicLetter] + (tonicAcc === "#" ? 1 : tonicAcc === "b" ? -1 : 0), 12);
     const pc1 = mod(pc0 + deltaSteps, 12);
     const originalSide = tonicAcc === "#" ? "sharp" : tonicAcc === "b" ? "flat" : "neutral";
-    const tonic1Name = chooseTonicNameByPc(pc1, { deltaSteps, originalSide });
+    const tonic1Name = (sourceMakamProfile53 || options.preferMakamTonic)
+      ? chooseTonicNameByPcForMakam53(pc1, { deltaSteps, originalSide })
+      : chooseTonicNameByPc(pc1, { deltaSteps, originalSide });
     newFirstToken = `${tonic1Name}${modeInline}`;
   }
 
@@ -578,31 +835,26 @@ function transposeKBody53(body, deltaSteps) {
     outTokens.push(`${microPrefixFor53(chosen.micro, { explicit: true })}${outLetter}`);
   }
 
-  const writeKeyMicroMap = {};
-  for (const tok of outTokens) {
-    const mEq = tok.match(/^=([A-Ga-g])$/);
-    if (mEq) {
-      writeKeyMicroMap[mEq[1].toUpperCase()] = 0;
-      continue;
-    }
-    const mSlash = tok.match(/^(\^\/|_\/)([A-Ga-g])$/);
-    if (mSlash) {
-      writeKeyMicroMap[mSlash[2].toUpperCase()] = mSlash[1] === "^/" ? 2 : -2;
-      continue;
-    }
-    const m2 = tok.match(/^(\^|_)(\d+)([A-Ga-g])$/);
-    if (!m2) continue;
-    const dir = m2[1] === "^" ? 1 : -1;
-    writeKeyMicroMap[m2[3].toUpperCase()] = dir * Number(m2[2]);
-  }
-
   const suffix = outTokens.length ? ` ${outTokens.join(" ")}` : "";
+  const text = `${leading}${newFirstToken}${suffix}${comment}`;
   return {
-    text: `${leading}${newFirstToken}${suffix}${comment}`,
+    text,
+    tonicToken: newFirstToken,
+    letterShift53: computeLetterShiftBetweenTonics(firstToken, newFirstToken),
     readTonicPc12,
     deltaCommas,
     readKeyMicroMap,
-    writeKeyMicroMap,
+    writeKeyMicroMap: buildEffectiveKeyMicroMap53FromKBody(text),
+  };
+}
+
+function transposeKBody53(body, deltaSteps, options = {}) {
+  const profile = detectKnownMakamKeyProfile53(body);
+  const info = transposeKBody53Raw(body, deltaSteps, options);
+  if (!profile) return info;
+  return {
+    ...info,
+    makamProfile53: profile.id,
   };
 }
 
@@ -629,23 +881,551 @@ function isFieldLine(line) {
   return /^[\t ]*[A-Za-z]:/.test(s) || /^[\t ]*%/.test(s);
 }
 
-function transposeMusicLine53Western(line, deltaSteps, ctx, preferDefault) {
-  const src = String(line || "");
+function isTopLevelKLine53(line) {
+  return /^\s*K:/.test(String(line || ""));
+}
+
+function parseTopLevelKLine53(line) {
+  const m = String(line || "").match(/^([\t ]*K:\s*)([\s\S]*)$/);
+  if (!m) return null;
+  return { prefix: m[1], body: m[2] || "" };
+}
+
+function formatSurrogateKBody53(microMap) {
+  const tokens = [];
+  const entries = [];
+  for (const letter of LETTER_ORDER) {
+    const micro = microMap && Object.prototype.hasOwnProperty.call(microMap, letter)
+      ? microMap[letter]
+      : null;
+    if (micro == null || micro === 0) continue;
+    entries.push({ letter, micro });
+  }
+  const positiveCount = entries.filter((entry) => entry.micro > 0).length;
+  const negativeCount = entries.filter((entry) => entry.micro < 0).length;
+  const primaryOrder = positiveCount > negativeCount ? SHARP_SIGNATURE_ORDER : FLAT_SIGNATURE_ORDER;
+  const secondaryOrder = primaryOrder === SHARP_SIGNATURE_ORDER ? FLAT_SIGNATURE_ORDER : SHARP_SIGNATURE_ORDER;
+  const orderIndex = (entry) => {
+    const order = entry.micro > 0 ? SHARP_SIGNATURE_ORDER : FLAT_SIGNATURE_ORDER;
+    const group = order === primaryOrder ? 0 : 1;
+    const idx = (order === primaryOrder ? primaryOrder : secondaryOrder).indexOf(entry.letter);
+    return group * 10 + (idx === -1 ? 9 : idx);
+  };
+  entries.sort((a, b) => orderIndex(a) - orderIndex(b));
+  for (const { letter, micro } of entries) {
+    const displayMap = micro > 0 ? SHARP_SIGNATURE_DISPLAY_LETTERS : FLAT_SIGNATURE_DISPLAY_LETTERS;
+    const displayLetter = displayMap[letter] || letter;
+    tokens.push(`${microPrefixFor53(micro, { explicit: true })}${displayLetter}`);
+  }
+  return tokens.length ? `none ${tokens.join(" ")}` : "none";
+}
+
+function barAccidentalKey53(letterUpper, octave) {
+  return `${String(letterUpper || "").toUpperCase()}:${Number.isFinite(octave) ? octave : 5}`;
+}
+
+function collectSegmentLetterStats53(lines, keyMap) {
+  const stats = {};
+  for (const letter of LETTER_ORDER) {
+    stats[letter] = { total: 0, byMicro: new Map(), barsByMicro: new Map() };
+  }
+  let barMicroRead = {};
+  let barIndex = 0;
+
+  const register = (letter, micro) => {
+    const entry = stats[letter];
+    entry.total += 1;
+    entry.byMicro.set(micro, (entry.byMicro.get(micro) || 0) + 1);
+    const set = entry.barsByMicro.get(micro) || new Set();
+    set.add(barIndex);
+    entry.barsByMicro.set(micro, set);
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "");
+    if (isFieldLine(line)) continue;
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === "\"") {
+        const close = line.indexOf("\"", i + 1);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "!") {
+        const close = line.indexOf("!", i + 1);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "[" && /[A-Za-z]:/.test(line.slice(i + 1, i + 3))) {
+        const close = line.indexOf("]", i);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "%") break;
+      if (ch === "|") {
+        barMicroRead = {};
+        barIndex += 1;
+        i += 1;
+        continue;
+      }
+      const note = parseNoteTokenAt53(line, i);
+      if (!note) {
+        i += 1;
+        continue;
+      }
+      const upper = note.letter.toUpperCase();
+      const pc = PC_NAT_12[upper];
+      const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
+      const octave = computeOctave(note.letter, note.octaveMarks);
+      const barKey = barAccidentalKey53(upper, octave);
+      let micro = 0;
+      if (explicit.explicit) {
+        micro = explicit.micro;
+        barMicroRead[barKey] = micro;
+      } else if (Object.prototype.hasOwnProperty.call(barMicroRead, barKey)) {
+        micro = barMicroRead[barKey];
+      } else if (keyMap && Object.prototype.hasOwnProperty.call(keyMap, upper)) {
+        micro = keyMap[upper];
+      }
+      register(upper, micro);
+      i = note.end;
+    }
+  }
+
+  return stats;
+}
+
+function detectFinalisPc12For53(text) {
+  const parts = splitLinesWithNewlines(text);
+  let keyMap = {};
+  let barMicroRead = {};
+  let lastPc12 = null;
+
+  for (const part of parts) {
+    const line = String(part.line || "");
+    const kMatch = line.match(/^\s*K:([\s\S]*)$/);
+    if (kMatch) {
+      keyMap = buildEffectiveKeyMicroMap53FromKBody(kMatch[1] || "");
+      barMicroRead = {};
+      continue;
+    }
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === "\"") {
+        const close = line.indexOf("\"", i + 1);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "!") {
+        const close = line.indexOf("!", i + 1);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "[" && /[A-Za-z]:/.test(line.slice(i + 1, i + 3))) {
+        const close = line.indexOf("]", i);
+        i = close !== -1 ? close + 1 : i + 1;
+        continue;
+      }
+      if (ch === "%") break;
+      if (ch === "|") {
+        barMicroRead = {};
+        i += 1;
+        continue;
+      }
+      const note = parseNoteTokenAt53(line, i);
+      if (!note) {
+        i += 1;
+        continue;
+      }
+      const upper = note.letter.toUpperCase();
+      const pc = PC_NAT_12[upper];
+      if (pc == null) {
+        i = note.end;
+        continue;
+      }
+      const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
+      const octave = computeOctave(note.letter, note.octaveMarks);
+      const barKey = barAccidentalKey53(upper, octave);
+      let micro = 0;
+      if (explicit.explicit) {
+        micro = explicit.micro;
+        barMicroRead[barKey] = micro;
+      } else if (Object.prototype.hasOwnProperty.call(barMicroRead, barKey)) {
+        micro = barMicroRead[barKey];
+      } else if (keyMap && Object.prototype.hasOwnProperty.call(keyMap, upper)) {
+        micro = keyMap[upper];
+      }
+      const exactPc12 = exactPc12ForId53(baseId53ForNaturalLetter(upper) + micro);
+      if (exactPc12 != null) lastPc12 = exactPc12;
+      i = note.end;
+    }
+  }
+
+  return lastPc12;
+}
+
+function buildSurrogateKeyMap53FromStats(stats, options = {}) {
+  const minTotal = Number.isFinite(options.minTotal) ? options.minTotal : 3;
+  const minBars = Number.isFinite(options.minBars) ? options.minBars : 2;
+  const dominance = Number.isFinite(options.dominance) ? options.dominance : 0.65;
+  const minMargin = Number.isFinite(options.minMargin) ? options.minMargin : 2;
+  const out = {};
+
+  for (const letter of LETTER_ORDER) {
+    const entry = stats[letter];
+    if (!entry || entry.total < minTotal) continue;
+    const ranked = Array.from(entry.byMicro.entries()).sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) continue;
+    const [m1, c1] = ranked[0];
+    const c2 = ranked[1] ? ranked[1][1] : 0;
+    const bars = entry.barsByMicro.get(m1) ? entry.barsByMicro.get(m1).size : 0;
+    if (c1 / entry.total < dominance) continue;
+    if (bars < minBars) continue;
+    if (c1 - c2 < minMargin) continue;
+    if (Number(m1) !== 0) out[letter] = Number(m1);
+  }
+
+  return out;
+}
+
+function rewriteBarSegmentAgainstSurrogateKey53(segment, sourceKeyMap, surrogateKeyMap, ctx) {
+  const src = String(segment || "");
+  const pieces = [];
+  const events = [];
+  let barMicroRead = {};
+  let i = 0;
+
+  const sourceDefaultFor = (letterUpper, octave) => {
+    const barKey = barAccidentalKey53(letterUpper, octave);
+    return Object.prototype.hasOwnProperty.call(barMicroRead, barKey)
+      ? barMicroRead[barKey]
+      : (sourceKeyMap && Object.prototype.hasOwnProperty.call(sourceKeyMap, letterUpper)
+        ? sourceKeyMap[letterUpper]
+        : 0);
+  };
+
+  const pushText = (text) => {
+    if (!text) return;
+    pieces.push({ type: "text", text });
+  };
+
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "\"") {
+      const close = src.indexOf("\"", i + 1);
+      if (close !== -1) {
+        pushText(src.slice(i, close + 1));
+        i = close + 1;
+        continue;
+      }
+      pushText(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === "!") {
+      const close = src.indexOf("!", i + 1);
+      if (close !== -1) {
+        pushText(src.slice(i, close + 1));
+        i = close + 1;
+        continue;
+      }
+      pushText(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === "[" && /[A-Za-z]:/.test(src.slice(i + 1, i + 3))) {
+      const close = src.indexOf("]", i);
+      if (close !== -1) {
+        pushText(src.slice(i, close + 1));
+        i = close + 1;
+        continue;
+      }
+    }
+
+    const note = parseNoteTokenAt53(src, i);
+    if (!note) {
+      pushText(ch);
+      i += 1;
+      continue;
+    }
+
+    const upper = note.letter.toUpperCase();
+    const pc = PC_NAT_12[upper];
+    if (pc == null) {
+      pushText(src.slice(i, note.end));
+      i = note.end;
+      continue;
+    }
+    const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
+    const octave = computeOctave(note.letter, note.octaveMarks);
+    const barKey = barAccidentalKey53(upper, octave);
+    let micro = sourceDefaultFor(upper, octave);
+    if (explicit.explicit) {
+      micro = explicit.micro;
+      barMicroRead[barKey] = micro;
+    }
+    const abs53 = octave * 53 + baseId53ForNaturalLetter(upper) + micro;
+    const octBase = Math.trunc(Math.floor(abs53 / 53));
+    const id53 = mod(abs53, 53);
+    const candidates = [];
+    const seen = new Set();
+    const addCandidate = (letterUpperCand) => {
+      const base = baseId53ForNaturalLetter(letterUpperCand);
+      const microCand = normalizeSigned53(id53 - base);
+      if (!isAllowedMicro53(microCand)) return;
+      const absCand = octBase * 53 + base + microCand;
+      const deltaOct = (abs53 - absCand) / 53;
+      if (!Number.isFinite(deltaOct) || !Number.isInteger(deltaOct)) return;
+      const cand = { letterUpper: letterUpperCand, micro: microCand, octave: octBase + deltaOct };
+      const key = `${cand.letterUpper}:${cand.micro}:${cand.octave}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push(cand);
+    };
+
+    addCandidate(upper);
+    for (const letterUpperCand of LETTER_ORDER) addCandidate(letterUpperCand);
+
+    const eventIndex = events.length;
+    pieces.push({ type: "note", index: eventIndex });
+    events.push({
+      sourceUpper: upper,
+      sourceMicro: micro,
+      sourceOctave: octave,
+      explicit,
+      duration: note.duration || "",
+      candidates,
+    });
+    i = note.end;
+  }
+
+  if (!events.length) return pieces.map((piece) => piece.text || "").join("");
+
+  let states = new Map();
+  states.set("[]", {
+    score: [],
+    writeMap: {},
+    lastSourceUpper: ctx.lastSourceUpper || null,
+    lastOutputUpper: ctx.lastOutputUpper || null,
+    path: [],
+  });
+
+  for (const event of events) {
+    const nextStates = new Map();
+    for (const state of states.values()) {
+      for (const cand of event.candidates) {
+        const writeBarKey = barAccidentalKey53(cand.letterUpper, cand.octave);
+        const writeDefault = Object.prototype.hasOwnProperty.call(state.writeMap, writeBarKey)
+          ? state.writeMap[writeBarKey]
+          : (surrogateKeyMap && Object.prototype.hasOwnProperty.call(surrogateKeyMap, cand.letterUpper)
+            ? surrogateKeyMap[cand.letterUpper]
+            : 0);
+        const needsExplicit = cand.micro !== writeDefault;
+        const contourCollapse = state.lastSourceUpper
+          && state.lastSourceUpper !== event.sourceUpper
+          && state.lastOutputUpper === cand.letterUpper
+          ? 1
+          : 0;
+        const sameSourceSplit = state.lastSourceUpper
+          && state.lastSourceUpper === event.sourceUpper
+          && state.lastOutputUpper !== cand.letterUpper
+          ? 1
+          : 0;
+        const letterChange = cand.letterUpper === event.sourceUpper ? 0 : 1;
+        const nonMicroScore = (!event.explicit.explicit && cand.micro === 0) ? 0 : 1;
+        const octaveShift = Math.abs(cand.octave - event.sourceOctave);
+        const localScore = [
+          contourCollapse,
+          sameSourceSplit,
+          needsExplicit ? 1 : 0,
+          letterChange,
+          nonMicroScore,
+          octaveShift,
+          pairRank53(cand.micro),
+          Math.abs(cand.micro),
+        ];
+        const prefix = needsExplicit
+          ? (cand.micro === 0 ? "=" : microPrefixFor53(cand.micro, { explicit: event.explicit.explicit }))
+          : "";
+        const writeMap = { ...state.writeMap };
+        if (needsExplicit) writeMap[writeBarKey] = cand.micro;
+        const score = addScoreArrays(state.score, localScore);
+        const pathCand = { ...cand, prefix, duration: event.duration };
+        const key = `${stateKeyForBarWriteMap53(writeMap)}|${event.sourceUpper}|${cand.letterUpper}`;
+        const existing = nextStates.get(key);
+        if (!existing || compareScoreArrays(score, existing.score) < 0) {
+          nextStates.set(key, {
+            score,
+            writeMap,
+            lastSourceUpper: event.sourceUpper,
+            lastOutputUpper: cand.letterUpper,
+            path: state.path.concat([pathCand]),
+          });
+        }
+      }
+    }
+    states = nextStates;
+  }
+
+  let best = null;
+  for (const state of states.values()) {
+    if (!best || compareScoreArrays(state.score, best.score) < 0) best = state;
+  }
+  if (!best) return src;
+  ctx.lastSourceUpper = best.lastSourceUpper || ctx.lastSourceUpper || null;
+  ctx.lastOutputUpper = best.lastOutputUpper || ctx.lastOutputUpper || null;
+
+  return pieces.map((piece) => {
+    if (piece.type !== "note") return piece.text || "";
+    return serializeCandidate53(best.path[piece.index]);
+  }).join("");
+}
+
+function rewriteSegmentAgainstSurrogateKey53(lines, sourceKeyMap, surrogateKeyMap) {
+  const outLines = [];
+  const ctx = { lastSourceUpper: null, lastOutputUpper: null };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "");
+    if (isFieldLine(line)) {
+      outLines.push(line);
+      continue;
+    }
+    const out = [];
+    let i = 0;
+    let segmentStart = 0;
+    const flushBar = (end) => {
+      if (end <= segmentStart) return "";
+      const text = line.slice(segmentStart, end);
+      segmentStart = end;
+      return rewriteBarSegmentAgainstSurrogateKey53(text, sourceKeyMap, surrogateKeyMap, ctx);
+    };
+
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === "%") {
+        out.push(flushBar(i));
+        out.push(line.slice(i));
+        segmentStart = line.length;
+        break;
+      }
+      if (ch === "|") {
+        out.push(flushBar(i));
+        out.push(ch);
+        i += 1;
+        segmentStart = i;
+        continue;
+      }
+      i += 1;
+    }
+    out.push(flushBar(line.length));
+    outLines.push(out.join(""));
+  }
+
+  return outLines;
+}
+
+function simplify53DisplayKeyText(text, options = {}) {
+  const parts = splitLinesWithNewlines(text);
   const out = [];
   let i = 0;
-  let barMicroRead = {};
-  let barMicroWrite = {};
-  const deltaCommas = Number(ctx.deltaCommas) || 0;
-  const preferSharps = deltaSteps > 0;
-  const preferFlats = deltaSteps < 0;
+  while (i < parts.length) {
+    const part = parts[i];
+    if (!isTopLevelKLine53(part.line)) {
+      out.push(part.line + part.nl);
+      i += 1;
+      continue;
+    }
+    const parsed = parseTopLevelKLine53(part.line);
+    if (!parsed) {
+      out.push(part.line + part.nl);
+      i += 1;
+      continue;
+    }
+    const sourceKeyMap = buildEffectiveKeyMicroMap53FromKBody(parsed.body);
+    const segmentParts = [];
+    let j = i + 1;
+    let unsupported = false;
+    while (j < parts.length && !isTopLevelKLine53(parts[j].line)) {
+      if (parts[j].line.includes("[K:")) unsupported = true;
+      segmentParts.push(parts[j]);
+      j += 1;
+    }
+    if (unsupported) {
+      out.push(part.line + part.nl);
+      for (const segPart of segmentParts) out.push(segPart.line + segPart.nl);
+      i = j;
+      continue;
+    }
+    const segmentLines = segmentParts.map((p) => p.line);
+    const stats = collectSegmentLetterStats53(segmentLines, sourceKeyMap);
+    const surrogateKeyMap = buildSurrogateKeyMap53FromStats(stats, options);
+    const newKBody = formatSurrogateKBody53(surrogateKeyMap);
+    out.push(parsed.prefix + newKBody + part.nl);
+    const rewrittenLines = rewriteSegmentAgainstSurrogateKey53(segmentLines, sourceKeyMap, surrogateKeyMap);
+    for (let k = 0; k < segmentParts.length; k += 1) {
+      out.push(rewrittenLines[k] + segmentParts[k].nl);
+    }
+    i = j;
+  }
+  return out.join("");
+}
 
-  const defaultWriteFor = (letterUpper) => (
-    Object.prototype.hasOwnProperty.call(barMicroWrite, letterUpper)
-      ? barMicroWrite[letterUpper]
-      : (ctx.writeKeyMicroMap && Object.prototype.hasOwnProperty.call(ctx.writeKeyMicroMap, letterUpper)
-        ? ctx.writeKeyMicroMap[letterUpper]
-        : 0)
-  );
+function compareScoreArrays(a, b) {
+  const aa = Array.isArray(a) ? a : [];
+  const bb = Array.isArray(b) ? b : [];
+  const n = Math.max(aa.length, bb.length);
+  for (let i = 0; i < n; i += 1) {
+    const av = Number.isFinite(aa[i]) ? aa[i] : 0;
+    const bv = Number.isFinite(bb[i]) ? bb[i] : 0;
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+  }
+  return 0;
+}
+
+function addScoreArrays(a, b) {
+  const n = Math.max(a ? a.length : 0, b ? b.length : 0);
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    out[i] = (Number.isFinite(a && a[i]) ? a[i] : 0) + (Number.isFinite(b && b[i]) ? b[i] : 0);
+  }
+  return out;
+}
+
+function stateKeyForBarWriteMap53(map) {
+  const entries = Object.entries(map || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  return JSON.stringify(entries);
+}
+
+function serializeCandidate53(cand) {
+  let letterOut = cand.letterUpper;
+  let marks = "";
+  const outOct = Number.isFinite(cand.octave) ? cand.octave : 6;
+  if (outOct >= 6) {
+    letterOut = letterOut.toLowerCase();
+    marks = "'".repeat(Math.max(0, outOct - 6));
+  } else {
+    letterOut = letterOut.toUpperCase();
+    marks = ",".repeat(Math.max(0, 5 - outOct));
+  }
+  return `${cand.prefix || ""}${letterOut}${marks}${cand.duration || ""}`;
+}
+
+function transposeBarSegment53Western(segment, deltaSteps, ctx, preferDefault, preferFlats, preferSharps) {
+  const src = String(segment || "");
+  const deltaCommas = Number(ctx.deltaCommas) || 0;
+  const pieces = [];
+  const events = [];
+  let i = 0;
+  let readBar = {};
+
+  const pushText = (text) => {
+    if (!text) return;
+    pieces.push({ type: "text", text });
+  };
 
   while (i < src.length) {
     const ch = src[i];
@@ -653,166 +1433,287 @@ function transposeMusicLine53Western(line, deltaSteps, ctx, preferDefault) {
       const close = src.indexOf("\"", i + 1);
       if (close !== -1) {
         const inner = src.slice(i + 1, close);
-        const transposed = transposeChordText(inner, deltaSteps, preferDefault);
-        out.push(`"${transposed}"`);
+        pushText(`"${transposeChordText(inner, deltaSteps, preferDefault)}"`);
         i = close + 1;
         continue;
       }
-      out.push(ch);
+      pushText(ch);
       i += 1;
       continue;
     }
-    // Decorations like !courtesy! must not be treated as notes.
     if (ch === "!") {
       const close = src.indexOf("!", i + 1);
       if (close !== -1) {
-        out.push(src.slice(i, close + 1));
+        pushText(src.slice(i, close + 1));
         i = close + 1;
         continue;
       }
-      out.push(ch);
+      pushText(ch);
       i += 1;
       continue;
     }
-    // Bracketed fields like [P:...], [V:...], [I:...], [K:...] should be preserved.
-    // Only [K:...] is rewritten, others are copied verbatim to avoid corrupting text.
+    if (ch === "[" && /[A-Za-z]:/.test(src.slice(i + 1, i + 3))) {
+      const close = src.indexOf("]", i);
+      if (close !== -1) {
+        pushText(src.slice(i, close + 1));
+        i = close + 1;
+        continue;
+      }
+    }
+
+    const note = parseNoteTokenAt53(src, i);
+    if (!note) {
+      pushText(ch);
+      i += 1;
+      continue;
+    }
+
+    const upper = note.letter.toUpperCase();
+    const pc = PC_NAT_12[upper];
+    if (pc == null) {
+      pushText(src.slice(i, note.end));
+      i = note.end;
+      continue;
+    }
+
+    const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
+    const oct = computeOctave(note.letter, note.octaveMarks);
+    const readBarKey = barAccidentalKey53(upper, oct);
+    let micro = 0;
+    if (explicit.explicit) {
+      micro = explicit.micro;
+      readBar[readBarKey] = micro;
+    } else if (Object.prototype.hasOwnProperty.call(readBar, readBarKey)) {
+      micro = readBar[readBarKey];
+    } else if (ctx.readKeyMicroMap && Object.prototype.hasOwnProperty.call(ctx.readKeyMicroMap, upper)) {
+      micro = ctx.readKeyMicroMap[upper];
+    }
+
+    const abs53 = oct * 53 + baseId53ForNaturalLetter(upper) + micro;
+    const abs53New = abs53 + deltaCommas;
+    const oct2 = Math.trunc(Math.floor(abs53New / 53));
+    const id2 = mod(abs53New, 53);
+    const candidates = [];
+    const seenCandidates = new Set();
+    const toCandidate = (letterUpperCand) => {
+      const b = baseId53ForNaturalLetter(letterUpperCand);
+      const microNorm = normalizeSigned53(Number(id2) - b);
+      if (!isAllowedMicro53(microNorm)) return null;
+      const absCand = oct2 * 53 + b + microNorm;
+      const deltaOct = (abs53New - absCand) / 53;
+      if (!Number.isFinite(deltaOct) || !Number.isInteger(deltaOct)) return null;
+      return { letterUpper: letterUpperCand, micro: microNorm, octave: oct2 + deltaOct };
+    };
+    const addCandidate = (cand) => {
+      if (!cand) return;
+      const key = `${cand.letterUpper}:${cand.micro}:${cand.octave}`;
+      if (seenCandidates.has(key)) return;
+      seenCandidates.add(key);
+      candidates.push(cand);
+    };
+
+    addCandidate(toCandidate(upper));
+    const bestSpell = chooseSpelling53ForId({ id53: id2, preferFlats, preferSharps });
+    if (bestSpell && bestSpell.letterUpper) addCandidate(toCandidate(bestSpell.letterUpper));
+    if (ctx.makamProfile53) {
+      for (const letterUpperCand of LETTER_ORDER) addCandidate(toCandidate(letterUpperCand));
+    }
+
+    const eventIndex = events.length;
+    pieces.push({ type: "note", index: eventIndex });
+    events.push({
+      sourceUpper: upper,
+      sourceMicro: micro,
+      sourceOctave: oct,
+      explicit,
+      duration: note.duration || "",
+      oct2,
+      candidates,
+      preferredFamily: shiftLetterFamily(upper, ctx.letterShift53),
+      sourcePerdeToken: abcTokenFor53Candidate(upper, micro, oct),
+    });
+    i = note.end;
+  }
+
+  if (!events.length) return pieces.map((piece) => piece.text || "").join("");
+
+  let states = new Map();
+  states.set("[]", {
+    score: [],
+    writeMap: {},
+    lastSourceUpper: ctx.lastSourceUpper53 || null,
+    lastOutputUpper: ctx.lastOutputUpper53 || null,
+    path: [],
+  });
+
+  for (const event of events) {
+    const nextStates = new Map();
+    for (const state of states.values()) {
+      for (const cand of event.candidates) {
+        const writeBarKey = barAccidentalKey53(cand.letterUpper, cand.octave ?? event.oct2);
+        const writeDefault = Object.prototype.hasOwnProperty.call(state.writeMap, writeBarKey)
+          ? state.writeMap[writeBarKey]
+          : (ctx.writeKeyMicroMap && Object.prototype.hasOwnProperty.call(ctx.writeKeyMicroMap, cand.letterUpper)
+            ? ctx.writeKeyMicroMap[cand.letterUpper]
+            : 0);
+        const needsExplicit = cand.micro !== writeDefault;
+        const makamDistance = ctx.makamProfile53 ? Math.abs(cand.micro - writeDefault) : 0;
+        const familyMismatch = cand.letterUpper === event.preferredFamily ? 0 : 1;
+        const sideScore = preferFlats ? (cand.micro < 0 ? 0 : 1) : (preferSharps ? (cand.micro > 0 ? 0 : 1) : 0);
+        const letterChange = cand.letterUpper === event.sourceUpper ? 0 : 1;
+        const octaveShift = Math.abs((cand.octave ?? event.oct2) - event.oct2);
+        const nonMicroScore = (!event.explicit.explicit && cand.micro === 0) ? 0 : 1;
+        const candidatePerdeToken = abcTokenFor53Candidate(cand.letterUpper, cand.micro, cand.octave ?? event.oct2);
+        const perdeFamilyScore = sharedPerdeNameScore53(event.sourcePerdeToken, candidatePerdeToken);
+        const contourCollapse = state.lastSourceUpper
+          && state.lastSourceUpper !== event.sourceUpper
+          && state.lastOutputUpper === cand.letterUpper
+          ? 1
+          : 0;
+        const sameSourceSplit = state.lastSourceUpper
+          && state.lastSourceUpper === event.sourceUpper
+          && state.lastOutputUpper !== cand.letterUpper
+          ? 1
+          : 0;
+        const localScore = [
+          contourCollapse,
+          sameSourceSplit,
+          needsExplicit ? 1 : 0,
+          nonMicroScore,
+          familyMismatch,
+          makamDistance,
+          perdeFamilyScore,
+          octaveShift,
+          pairRank53(cand.micro),
+          Math.abs(cand.micro),
+          letterChange,
+          sideScore,
+        ];
+        const prefix = needsExplicit
+          ? (cand.micro === 0 ? "=" : microPrefixFor53(cand.micro, { explicit: event.explicit.explicit }))
+          : "";
+        const writeMap = { ...state.writeMap };
+        if (needsExplicit) writeMap[writeBarKey] = cand.micro;
+        const score = addScoreArrays(state.score, localScore);
+        const pathCand = { ...cand, prefix, duration: event.duration };
+        const key = `${stateKeyForBarWriteMap53(writeMap)}|${event.sourceUpper}|${cand.letterUpper}`;
+        const existing = nextStates.get(key);
+        if (!existing || compareScoreArrays(score, existing.score) < 0) {
+          nextStates.set(key, {
+            score,
+            writeMap,
+            lastSourceUpper: event.sourceUpper,
+            lastOutputUpper: cand.letterUpper,
+            path: state.path.concat([pathCand]),
+          });
+        }
+      }
+    }
+    states = nextStates;
+  }
+
+  let best = null;
+  for (const state of states.values()) {
+    if (!best || compareScoreArrays(state.score, best.score) < 0) best = state;
+  }
+  if (!best) return src;
+  ctx.lastSourceUpper53 = best.lastSourceUpper || ctx.lastSourceUpper53 || null;
+  ctx.lastOutputUpper53 = best.lastOutputUpper || ctx.lastOutputUpper53 || null;
+
+  return pieces.map((piece) => {
+    if (piece.type !== "note") return piece.text || "";
+    return serializeCandidate53(best.path[piece.index]);
+  }).join("");
+}
+
+function transposeMusicLine53Western(line, deltaSteps, ctx, preferDefault) {
+  const src = String(line || "");
+  const out = [];
+  let i = 0;
+  let segmentStart = 0;
+  const tonicSide = tonicSideFromKeyToken(ctx.tonicToken53);
+  const preferSharps = tonicSide === "sharp" ? true : (tonicSide === "flat" ? false : deltaSteps > 0);
+  const preferFlats = tonicSide === "flat" ? true : (tonicSide === "sharp" ? false : deltaSteps < 0);
+
+  const flushBar = (end) => {
+    if (end <= segmentStart) return "";
+    const text = src.slice(segmentStart, end);
+    segmentStart = end;
+    return transposeBarSegment53Western(text, deltaSteps, ctx, preferDefault, preferFlats, preferSharps);
+  };
+
+  while (i < src.length) {
+    const ch = src[i];
     if (ch === "[" && /[A-Za-z]:/.test(src.slice(i + 1, i + 3))) {
       const close = src.indexOf("]", i);
       if (close !== -1) {
         const tag = src[i + 1].toUpperCase();
+        out.push(flushBar(i));
         if (tag === "K") {
           const inner = src.slice(i + 3, close);
-          const info = transposeKBody53(inner, deltaSteps);
+          const info = transposeKBody53(inner, deltaSteps, { deltaCommasOverride: ctx.globalDeltaCommas });
           ctx.deltaCommas = info.deltaCommas;
           ctx.readKeyMicroMap = info.readKeyMicroMap;
           ctx.writeKeyMicroMap = info.writeKeyMicroMap;
+          ctx.makamProfile53 = info.makamProfile53 || null;
+          ctx.tonicToken53 = info.tonicToken || null;
+          ctx.letterShift53 = Number.isFinite(info.letterShift53) ? info.letterShift53 : 0;
+          ctx.lastSourceUpper53 = null;
+          ctx.lastOutputUpper53 = null;
           out.push("[K:" + info.text + "]");
         } else {
           out.push(src.slice(i, close + 1));
         }
         i = close + 1;
+        segmentStart = i;
         continue;
       }
     }
     if (ch === "%") {
+      out.push(flushBar(i));
       out.push(src.slice(i));
+      segmentStart = src.length;
       break;
     }
     if (ch === "|") {
-      barMicroRead = {};
-      barMicroWrite = {};
+      out.push(flushBar(i));
       out.push(ch);
       i += 1;
+      segmentStart = i;
       continue;
     }
-
-    const note = parseNoteTokenAt53(src, i);
-    if (note) {
-      const upper = note.letter.toUpperCase();
-      const pc = PC_NAT_12[upper];
-      if (pc == null) {
-        out.push(src.slice(i, note.end));
-        i = note.end;
-        continue;
-      }
-
-      const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
-      let micro = 0;
-      if (explicit.explicit) {
-        micro = explicit.micro;
-        barMicroRead[upper] = micro;
-      } else if (Object.prototype.hasOwnProperty.call(barMicroRead, upper)) {
-        micro = barMicroRead[upper];
-      } else if (ctx.readKeyMicroMap && Object.prototype.hasOwnProperty.call(ctx.readKeyMicroMap, upper)) {
-        micro = ctx.readKeyMicroMap[upper];
-      }
-
-      const oct = computeOctave(note.letter, note.octaveMarks);
-      const baseId = baseId53ForNaturalLetter(upper);
-      const abs53 = oct * 53 + baseId + micro;
-      const abs53New = abs53 + deltaCommas;
-      const oct2 = Math.trunc(Math.floor(abs53New / 53));
-      const id2 = mod(abs53New, 53);
-
-      const candidates = [];
-      const toCandidate = (letterUpperCand) => {
-        const b = baseId53ForNaturalLetter(letterUpperCand);
-        const microNorm = normalizeSigned53(Number(id2) - b);
-        if (!isAllowedMicro53(microNorm)) return null;
-        const absCand = oct2 * 53 + b + microNorm;
-        const deltaOct = (abs53New - absCand) / 53;
-        if (!Number.isFinite(deltaOct) || !Number.isInteger(deltaOct)) return null;
-        return { letterUpper: letterUpperCand, micro: microNorm, octave: oct2 + deltaOct };
-      };
-
-      const keep = toCandidate(upper);
-      if (keep) candidates.push(keep);
-      const bestSpell = chooseSpelling53ForId({ id53: id2, preferFlats, preferSharps });
-      if (bestSpell && bestSpell.letterUpper) {
-        const spelled = toCandidate(bestSpell.letterUpper);
-        if (spelled && spelled.letterUpper !== upper) candidates.push(spelled);
-      }
-
-      let chosen = null;
-      for (const cand of candidates) {
-        const def = defaultWriteFor(cand.letterUpper);
-        const needsExplicit = explicit.explicit || cand.micro !== def;
-        const sideScore = preferFlats ? (cand.micro < 0 ? 0 : 1) : (preferSharps ? (cand.micro > 0 ? 0 : 1) : 0);
-        const letterChange = cand.letterUpper === upper ? 0 : 1;
-        const octaveShift = Math.abs((cand.octave ?? oct2) - oct2);
-        // Prefer “readable” micro spellings over preserving the original letter.
-        // This avoids outputs like `_10B` when `_1A` (same pitch) exists.
-        const score = [needsExplicit ? 1 : 0, octaveShift, pairRank53(cand.micro), Math.abs(cand.micro), letterChange, sideScore];
-        const prefix = needsExplicit ? microPrefixFor53(cand.micro, { explicit: explicit.explicit }) : "";
-        if (!chosen) chosen = { ...cand, needsExplicit, prefix, score };
-        else {
-          for (let s = 0; s < score.length; s += 1) {
-            if (score[s] < chosen.score[s]) { chosen = { ...cand, needsExplicit, prefix, score }; break; }
-            if (score[s] > chosen.score[s]) break;
-          }
-        }
-      }
-
-      if (!chosen) {
-        out.push(src.slice(i, note.end));
-        i = note.end;
-        continue;
-      }
-      if (chosen.needsExplicit) barMicroWrite[chosen.letterUpper] = chosen.micro;
-
-      let letterOut = chosen.letterUpper;
-      let marks = "";
-      const outOct = Number.isFinite(chosen.octave) ? chosen.octave : oct2;
-      if (outOct >= 6) {
-        letterOut = letterOut.toLowerCase();
-        marks = "'".repeat(Math.max(0, outOct - 6));
-      } else {
-        letterOut = letterOut.toUpperCase();
-        marks = ",".repeat(Math.max(0, 5 - outOct));
-      }
-
-      out.push(`${chosen.prefix}${letterOut}${marks}${note.duration || ""}`);
-      i = note.end;
-      continue;
-    }
-
-    out.push(ch);
     i += 1;
   }
+  out.push(flushBar(src.length));
 
   return out.join("");
 }
 
-function transformTranspose53(text, deltaSteps, options = {}) {
+function transformTranspose53SingleStep(text, deltaSteps, options = {}) {
   const delta = Number(deltaSteps);
   if (!Number.isFinite(delta) || delta === 0) return String(text || "");
   if (Math.abs(delta) !== 1) {
-    throw new Error(`53-EDO transpose supports only ±1 semitone (got ${deltaSteps}).`);
+    throw new Error(`53-EDO single-step transpose supports only ±1 semitone (got ${deltaSteps}).`);
   }
   const prefer = options.prefer || "flat";
+  const anchorPc12 = detectFinalisPc12For53(text);
+  const globalDeltaCommas = euroSemitoneDeltaCommas53({
+    tonicPc12: anchorPc12 == null ? 0 : anchorPc12,
+    deltaSteps: delta,
+  });
   const parts = splitLinesWithNewlines(text);
   const out = [];
-  const ctx = { readKeyMicroMap: {}, writeKeyMicroMap: {}, deltaCommas: euroSemitoneDeltaCommas53({ tonicPc12: 0, deltaSteps: delta }) };
+  const ctx = {
+    readKeyMicroMap: {},
+    writeKeyMicroMap: {},
+    makamProfile53: null,
+    tonicToken53: null,
+    letterShift53: 0,
+    lastSourceUpper53: null,
+    lastOutputUpper53: null,
+    globalDeltaCommas,
+    deltaCommas: globalDeltaCommas,
+  };
   for (const part of parts) {
     const line = part.line;
     const nl = part.nl;
@@ -821,10 +1722,15 @@ function transformTranspose53(text, deltaSteps, options = {}) {
       if (m) {
         const prefix = m[1];
         const body = m[2] || "";
-        const info = transposeKBody53(body, delta);
+        const info = transposeKBody53(body, delta, { deltaCommasOverride: globalDeltaCommas });
         ctx.deltaCommas = info.deltaCommas;
         ctx.readKeyMicroMap = info.readKeyMicroMap;
         ctx.writeKeyMicroMap = info.writeKeyMicroMap;
+        ctx.makamProfile53 = info.makamProfile53 || null;
+        ctx.tonicToken53 = info.tonicToken || null;
+        ctx.letterShift53 = Number.isFinite(info.letterShift53) ? info.letterShift53 : 0;
+        ctx.lastSourceUpper53 = null;
+        ctx.lastOutputUpper53 = null;
         out.push(prefix + info.text + nl);
       } else {
         out.push(line + nl);
@@ -836,6 +1742,19 @@ function transformTranspose53(text, deltaSteps, options = {}) {
   return out.join("");
 }
 
+function transformTranspose53(text, deltaSteps, options = {}) {
+  const delta = Number(deltaSteps);
+  if (!Number.isFinite(delta) || delta === 0) return String(text || "");
+  let out = String(text || "");
+  const step = delta > 0 ? 1 : -1;
+  const count = Math.abs(Math.trunc(delta));
+  for (let i = 0; i < count; i += 1) {
+    out = transformTranspose53SingleStep(out, step, options);
+    out = simplify53DisplayKeyText(out, options && options.displayKey53 ? options.displayKey53 : {});
+  }
+  return out;
+}
+
 function candidatePenalty(letter, accSteps, prefer) {
   let penalty = 0;
   if (prefer === "flat" && accSteps > 0) penalty += 0.5;
@@ -845,9 +1764,12 @@ function candidatePenalty(letter, accSteps, prefer) {
   return penalty;
 }
 
-function buildPitchToken(absoluteSteps, prefer, keySig, barAccidentals) {
+function buildPitchToken(absoluteSteps, prefer, keySig, barAccidentals, options = {}) {
   const stepInOctave = ((absoluteSteps % STEPS_PER_OCTAVE) + STEPS_PER_OCTAVE) % STEPS_PER_OCTAVE;
   const keySigSteps = buildKeySigSteps(keySig);
+  const preferredLetter = options && options.preferredLetter
+    ? String(options.preferredLetter).toUpperCase()
+    : "";
   const candidates = [];
 
   for (const letter of Object.keys(NOTE_BASES)) {
@@ -864,7 +1786,8 @@ function buildPitchToken(absoluteSteps, prefer, keySig, barAccidentals) {
       if (barAccidentals && barAccidentals.has(letterKey)) {
         delta = accSteps - barAccidentals.get(letterKey);
       }
-      const score = Math.abs(delta) * 10 + candidatePenalty(letter, accSteps, prefer);
+      const preferredPenalty = preferredLetter && letter !== preferredLetter ? 100 : 0;
+      const score = preferredPenalty + Math.abs(delta) * 10 + candidatePenalty(letter, accSteps, prefer);
       candidates.push({
         letter,
         accSteps,
@@ -925,14 +1848,46 @@ function buildPitchToken(absoluteSteps, prefer, keySig, barAccidentals) {
   };
 }
 
-function pickKeyAccidental(stepInOctave, prefer) {
+const DIATONIC_SHIFT_BY_SEMITONE = {
+  0: 0,
+  1: 0,
+  2: 1,
+  3: 2,
+  4: 2,
+  5: 3,
+  6: 3,
+  7: 4,
+  8: 5,
+  9: 5,
+  10: 6,
+  11: 6,
+};
+
+function shiftLetterForTranspose(letter, semitones) {
+  const upper = String(letter || "").toUpperCase();
+  const idx = LETTER_ORDER.indexOf(upper);
+  if (idx < 0) return upper;
+  const delta = Math.trunc(Number(semitones) || 0);
+  if (!delta) return upper;
+  const abs = Math.abs(delta) % 12;
+  const octaves = Math.floor(Math.abs(delta) / 12) * 7;
+  const shift = (DIATONIC_SHIFT_BY_SEMITONE[abs] || 0) + octaves;
+  const signed = delta > 0 ? shift : -shift;
+  return LETTER_ORDER[mod(idx + signed, LETTER_ORDER.length)];
+}
+
+function pickKeyAccidental(stepInOctave, prefer, options = {}) {
+  const preferredLetter = options && options.preferredLetter
+    ? String(options.preferredLetter).toUpperCase()
+    : "";
   const candidates = [];
   for (const letter of Object.keys(NOTE_BASES)) {
     const naturalSteps = NOTE_BASES[letter] * STEPS_PER_SEMITONE;
     for (const accSteps of [-2, -1, 0, 1, 2]) {
       const step = (naturalSteps + accSteps + STEPS_PER_OCTAVE) % STEPS_PER_OCTAVE;
       if (step !== stepInOctave) continue;
-      const score = Math.abs(accSteps) * 10 + candidatePenalty(letter, accSteps, prefer);
+      const preferredPenalty = preferredLetter && letter !== preferredLetter ? 100 : 0;
+      const score = preferredPenalty + Math.abs(accSteps) * 10 + candidatePenalty(letter, accSteps, prefer);
       candidates.push({ letter, accSteps, score });
     }
   }
@@ -950,6 +1905,89 @@ function formatKeyAccidentalToken(accSteps, letter, lowerCase, options = {}) {
   else if (accSteps < 0) accidentalOut = "_";
   const outLetter = lowerCase ? letter.toLowerCase() : letter.toUpperCase();
   return `${accidentalOut}${outLetter}`;
+}
+
+function noteAccStepsFromToken(token) {
+  const raw = String(token || "");
+  if (!raw) return null;
+  if (raw.startsWith("^^")) return 4;
+  if (raw.startsWith("__")) return -4;
+  if (raw.startsWith("^/")) return 1;
+  if (raw.startsWith("_/")) return -1;
+  if (raw.startsWith("^")) return 2;
+  if (raw.startsWith("_")) return -2;
+  if (raw.startsWith("=")) return 0;
+  return null;
+}
+
+function parseRespeltNoteToken(token) {
+  const m = String(token || "").match(/^(\^\^|__|\^\/|_\/|\^|_|=)?([A-Ga-g])/);
+  if (!m) return null;
+  const accSteps = noteAccStepsFromToken(m[1] || "");
+  return {
+    letter: m[2].toUpperCase(),
+    accSteps,
+  };
+}
+
+function inferPromotableExtraKeyAccidentals(respellReplacements, keyInfos) {
+  const countsByKey = new Map();
+  const totalsByKey = new Map();
+  for (const rep of respellReplacements || []) {
+    if (!rep || !Number.isFinite(rep.keyIndex)) continue;
+    const info = keyInfos[rep.keyIndex] || null;
+    if (!info || !info.extraAccSteps || Object.keys(info.extraAccSteps).length === 0) continue;
+    const parsed = rep.letter
+      ? { letter: String(rep.letter).toUpperCase(), accSteps: rep.desiredAcc }
+      : parseRespeltNoteToken(rep.text);
+    if (!parsed) continue;
+    const totals = totalsByKey.get(rep.keyIndex) || {};
+    totals[parsed.letter] = (totals[parsed.letter] || 0) + 1;
+    totalsByKey.set(rep.keyIndex, totals);
+    if (parsed.accSteps == null || parsed.accSteps === 0 || Math.abs(parsed.accSteps) > STEPS_PER_SEMITONE) continue;
+    const key = `${parsed.letter}:${parsed.accSteps}`;
+    const counts = countsByKey.get(rep.keyIndex) || {};
+    counts[key] = (counts[key] || 0) + 1;
+    countsByKey.set(rep.keyIndex, counts);
+  }
+
+  const out = new Map();
+  for (const [keyIndex, counts] of countsByKey.entries()) {
+    const totals = totalsByKey.get(keyIndex) || {};
+    const additions = {};
+    for (const [key, count] of Object.entries(counts)) {
+      const [letter, stepsText] = key.split(":");
+      const total = totals[letter] || 0;
+      if (count < 3) continue;
+      if (count / Math.max(1, total) < 0.6) continue;
+      const alreadyInKey = Object.prototype.hasOwnProperty.call(keyInfos[keyIndex].extraAccSteps || {}, letter);
+      if (!alreadyInKey && count <= (total - count) + 1) continue;
+      additions[letter] = Number(stepsText);
+    }
+    if (Object.keys(additions).length) out.set(keyIndex, additions);
+  }
+  return out;
+}
+
+function appendExtraKeyAccidentalsToTail(tail, additions) {
+  const entries = Object.entries(additions || {});
+  if (!entries.length) return tail || "";
+  const existing = parseKeyAccidentals(tail || "", 0).reduce((set, event) => {
+    set.add(event.letter.toUpperCase());
+    return set;
+  }, new Set());
+  const tokens = [];
+  for (const [letter, steps] of entries) {
+    if (existing.has(String(letter).toUpperCase())) continue;
+    tokens.push(formatKeyAccidentalToken(steps, letter, false));
+  }
+  if (!tokens.length) return tail || "";
+  const raw = String(tail || "");
+  const commentIdx = raw.indexOf("%");
+  const before = commentIdx >= 0 ? raw.slice(0, commentIdx).replace(/\s+$/, "") : raw.replace(/\s+$/, "");
+  const after = commentIdx >= 0 ? raw.slice(commentIdx) : "";
+  const spacer = before.trim() ? " " : " ";
+  return `${before}${spacer}${tokens.join(" ")}${after ? ` ${after}` : ""}`;
 }
 
 function parseKeyAccidentals(tail, baseOffset) {
@@ -988,7 +2026,9 @@ function transposeKeyAccidentals(keyAccEvents, semitones, keyInfos, preferDefaul
     const baseSteps = NOTE_BASES[event.letter.toUpperCase()] * STEPS_PER_SEMITONE + event.accSteps;
     const transposedSteps = baseSteps + semitones * STEPS_PER_SEMITONE;
     const stepInOctave = ((transposedSteps % STEPS_PER_OCTAVE) + STEPS_PER_OCTAVE) % STEPS_PER_OCTAVE;
-    const chosen = pickKeyAccidental(stepInOctave, prefer);
+    const chosen = pickKeyAccidental(stepInOctave, prefer, {
+      preferredLetter: shiftLetterForTranspose(event.letter, semitones),
+    });
     const text = formatKeyAccidentalToken(chosen.accSteps, chosen.letter, event.lowerCase, {
       preferFractional: event.preferFractional === true,
     });
@@ -1204,6 +2244,7 @@ export function transposePitchEvents(events, semitones) {
   return events.map((event) => ({
     ...event,
     absolutePitch: event.absolutePitch + semitones * STEPS_PER_SEMITONE,
+    preferredLetter: shiftLetterForTranspose(event.letter, semitones),
   }));
 }
 
@@ -1230,8 +2271,11 @@ export function respellPitchEvents(events, options) {
       ? buildKeySignature(0, "flat")
       : buildKeySignature(keyInfo.accCount || 0, keyInfo.pref || "flat");
     const keySig = mergeKeyAccidentals(baseSig, keyInfo.extraAccSteps);
+    const hasExtraKeyAccidentals = keyInfo.extraAccSteps && Object.keys(keyInfo.extraAccSteps).length > 0;
 
-    const base = buildPitchToken(event.absolutePitch, prefer, keySig, barAccidentals);
+    const base = buildPitchToken(event.absolutePitch, prefer, keySig, barAccidentals, {
+      preferredLetter: hasExtraKeyAccidentals ? event.preferredLetter : "",
+    });
     if (base.token.startsWith("=") || base.token.startsWith("^") || base.token.startsWith("_")) {
       barAccidentals.set(base.letterKey, base.desiredAcc);
     }
@@ -1239,6 +2283,9 @@ export function respellPitchEvents(events, options) {
       start: event.start,
       end: event.end,
       text: `${base.token}${event.durationToken || ""}`,
+      keyIndex: event.keyIndex,
+      letter: base.letterKey ? String(base.letterKey).split(":")[0] : "",
+      desiredAcc: base.desiredAcc,
     });
   }
 
@@ -1384,9 +2431,29 @@ export function transformTranspose(text, semitones, options = {}) {
     prefer,
     keyInfos: outKeyInfosWithAcc,
   });
+  const promotedExtraAcc = inferPromotableExtraKeyAccidentals(replacements, outKeyInfosWithAcc);
+  const finalKeyInfos = outKeyInfosWithAcc.map((info, index) => {
+    if (!info) return info;
+    const additions = promotedExtraAcc.get(index);
+    if (!additions) return info;
+    return {
+      ...info,
+      extraAccSteps: {
+        ...(info.extraAccSteps || {}),
+        ...additions,
+      },
+    };
+  });
+  const finalPitchReplacements = promotedExtraAcc.size
+    ? respellPitchEvents(transposedEvents, {
+      mode,
+      prefer,
+      keyInfos: finalKeyInfos,
+    })
+    : replacements;
 
   const keyReplacements = parsed.keyEvents.map((event) => {
-    const info = outKeyInfosWithAcc[event.keyIndex];
+    const info = finalKeyInfos[event.keyIndex];
     if (!info || info.isNone || /^none$/i.test(info.raw || "")) {
       return { start: event.start, end: event.end, text: "none" };
     }
@@ -1394,13 +2461,44 @@ export function transformTranspose(text, semitones, options = {}) {
     return { start: event.start, end: event.end, text: `${info.name}${suffix}` };
   });
 
+  const promotedKeyAccReplacements = (parsed.keyEvents || []).map((event) => {
+    const additions = promotedExtraAcc.get(event.keyIndex);
+    if (!additions) return null;
+    const tailStart = event.end;
+    const lineEnd = String(text || "").indexOf("\n", tailStart);
+    const end = lineEnd >= 0 ? lineEnd : String(text || "").length;
+    let tail = String(text || "").slice(tailStart, end);
+    const localKeyAccReplacements = keyAccReplacements
+      .filter((rep) => rep.start >= tailStart && rep.end <= end)
+      .map((rep) => ({ ...rep, start: rep.start - tailStart, end: rep.end - tailStart }));
+    tail = applyReplacements(tail, localKeyAccReplacements);
+    return {
+      start: tailStart,
+      end,
+      text: appendExtraKeyAccidentalsToTail(tail, additions),
+      keyIndex: event.keyIndex,
+    };
+  }).filter(Boolean);
+  const promotedKeyIndexes = new Set(promotedKeyAccReplacements.map((rep) => rep.keyIndex));
+  const finalKeyAccReplacements = promotedKeyIndexes.size
+    ? keyAccReplacements.filter((rep) => {
+      const event = (parsed.keyAccEvents || []).find((acc) => acc.start === rep.start && acc.end === rep.end);
+      return !event || !promotedKeyIndexes.has(event.keyIndex);
+    })
+    : keyAccReplacements;
+
   const chordReplacements = (parsed.chordEvents || []).map((event) => ({
     start: event.start,
     end: event.end,
     text: transposeChordText(event.chordText, semitones, prefer),
   })).filter((rep) => rep.text !== null);
 
-  const allReplacements = replacements.concat(keyReplacements, keyAccReplacements, chordReplacements);
+  const allReplacements = finalPitchReplacements.concat(
+    keyReplacements,
+    finalKeyAccReplacements,
+    promotedKeyAccReplacements,
+    chordReplacements
+  );
   return applyReplacements(text, allReplacements);
 }
 

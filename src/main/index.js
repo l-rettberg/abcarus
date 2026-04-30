@@ -1125,17 +1125,37 @@ function normalizeSvgFontUrlsForPrint(svgMarkup) {
   });
 }
 
-function buildPrintHtml(svgMarkup, fontBase64) {
+function sanitizePrintFileBaseName(value, fallback = "tune") {
+  const cleaned = String(value || "")
+    .normalize("NFKC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, " ")
+    .replace(/\p{Control}+/gu, " ")
+    .replace(/[. ]+$/g, "")
+    .replace(/^[. ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || fallback).slice(0, 120);
+}
+
+function escapeHtmlText(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
   const rawMarkup = String(svgMarkup || "");
   const normalizedMarkup = normalizeSvgFontUrlsForPrint(rawMarkup);
   const safeSvg = injectFontIntoSvg(normalizedMarkup, fontBase64);
   const forceRaster = rawMarkup.includes("<!--abcarus:force-raster-->");
   const skipRaster = rawMarkup.includes("<!--abcarus:no-raster-->") || !forceRaster;
+  const title = sanitizePrintFileBaseName(suggestedName, "Print");
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Print</title>
+    <title>${escapeHtmlText(title)}</title>
     <style>
       html, body { margin: 0; padding: 0; }
       body { padding: 24px; font-family: sans-serif; }
@@ -1253,8 +1273,9 @@ async function withPrintWindow(svgMarkup, action, options) {
   win.setMenuBarVisibility(false);
   win.setMenu(null);
   const fontBase64 = await getMusicFontBase64().catch(() => null);
-  const html = buildPrintHtml(svgMarkup, fontBase64);
-  const tmpName = `abc-print-${Date.now()}.html`;
+  const suggestedName = sanitizePrintFileBaseName(options && options.suggestedName, "abc-print");
+  const html = buildPrintHtml(svgMarkup, fontBase64, suggestedName);
+  const tmpName = `${suggestedName}-${Date.now()}.html`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   await fs.promises.writeFile(tmpPath, html);
   await win.loadFile(tmpPath);
@@ -1275,7 +1296,7 @@ async function withPrintWindow(svgMarkup, action, options) {
   return result;
 }
 
-async function printWithDialog(svgMarkup) {
+async function printWithDialog(svgMarkup, suggestedName) {
   return withPrintWindow(svgMarkup, (contents) =>
     new Promise((resolve) => {
       contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
@@ -1283,7 +1304,7 @@ async function printWithDialog(svgMarkup) {
         resolve({ ok: true });
       });
     })
-  , { show: true });
+  , { show: true, suggestedName });
 }
 
 async function exportPdf(svgMarkup, filePath) {
@@ -1292,33 +1313,35 @@ async function exportPdf(svgMarkup, filePath) {
     const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
     await fs.promises.writeFile(filePath, pdfData);
     return { ok: true, path: filePath };
-  }, { show: false });
+  }, { show: false, suggestedName: filePath ? path.basename(filePath, path.extname(filePath)) : "" });
 }
 
-async function previewPdf(svgMarkup) {
-  const tmpName = `abc-preview-${Date.now()}.pdf`;
+async function previewPdf(svgMarkup, suggestedName) {
+  const safeName = sanitizePrintFileBaseName(suggestedName, "abc-preview");
+  const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
     const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
     const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
-  }, { show: false });
+  }, { show: false, suggestedName: safeName });
   if (res && res.ok && res.path) {
     await shell.openPath(res.path);
   }
   return res;
 }
 
-async function printViaPdf(svgMarkup) {
-  const tmpName = `abc-print-${Date.now()}.pdf`;
+async function printViaPdf(svgMarkup, suggestedName) {
+  const safeName = sanitizePrintFileBaseName(suggestedName, "abc-print");
+  const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
     const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
     const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
-  }, { show: false });
+  }, { show: false, suggestedName: safeName });
   if (res.ok && res.path) await shell.openPath(res.path);
   return res;
 }

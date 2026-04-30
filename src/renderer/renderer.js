@@ -24,6 +24,7 @@ import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
 import { initSettings } from "./settings.js";
 import {
   transformTranspose,
+  getNativeTransposeSupport,
   parseNoteTokenAt53,
   parseAccidentalPrefix53,
   buildEffectiveKeyMicroMap53FromKBody,
@@ -697,6 +698,36 @@ const GM_PROGRAM_NAMES = [
 
 let currentDoc = null;
 let suppressDirty = false;
+let transposePreviewBaseText = null;
+let transposePreviewHeaderText = null;
+let transposePreviewDelta = 0;
+
+function resetTransposePreviewState() {
+  transposePreviewBaseText = null;
+  transposePreviewHeaderText = null;
+  transposePreviewDelta = 0;
+}
+
+function getAccumulatedTransposePreview(options = {}) {
+  const currentText = String(options.currentText != null ? options.currentText : getEditorValue());
+  const currentHeaderText = String(options.currentHeaderText != null ? options.currentHeaderText : getHeaderEditorValue());
+  if (transposePreviewBaseText == null) {
+    transposePreviewBaseText = currentText;
+    transposePreviewHeaderText = currentHeaderText;
+    transposePreviewDelta = 0;
+  }
+  return {
+    baseText: String(transposePreviewBaseText || ""),
+    headerText: String(transposePreviewHeaderText || ""),
+    delta: Number(transposePreviewDelta) || 0,
+  };
+}
+
+function setAccumulatedTransposePreview(baseText, headerText, delta) {
+  transposePreviewBaseText = String(baseText || "");
+  transposePreviewHeaderText = String(headerText || "");
+  transposePreviewDelta = Number(delta) || 0;
+}
 let editorView = null;
 let headerEditorView = null;
 let headerCollapsed = true;
@@ -11976,6 +12007,7 @@ function setActiveTuneText(text, metadata, options = {}) {
   if (activeErrorHighlight) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
   resetPlaybackState();
+  resetTransposePreviewState();
   suppressDirty = true;
   setEditorValue(text);
   suppressDirty = false;
@@ -14310,8 +14342,9 @@ function refreshCursorStatus() {
   setCursorStatus(line, col, offset, totalLines, totalChars);
 }
 
-function applyTransformedText(text) {
+function applyTransformedText(text, options = {}) {
   if (!currentDoc) currentDoc = createBlankDocument();
+  if (options.resetTransposePreview !== false) resetTransposePreviewState();
   let nextText = text || "";
   if (chordproMode && chordproFullView) {
     if (!nextText.endsWith("\n\n")) {
@@ -15119,6 +15152,46 @@ function alignLines(wholeAbc, lines, alignInsideBarsToo) {
   return out;
 }
 
+function getBarSeparatorColumns(line) {
+  const parts = splitLineIntoParts(String(line || ""));
+  const cols = [];
+  let offset = 0;
+  for (const part of parts) {
+    const m = String(part || "").match(BAR_SEP_NO_SPACE);
+    if (m) cols.push(offset + m.index);
+    offset += String(part || "").length;
+  }
+  return cols;
+}
+
+function alignLyricLineToMusicLine(lyricLine, alignedMusicLine) {
+  const m = String(lyricLine || "").match(/^(\s*w:\s*)([\s\S]*)$/);
+  if (!m) return lyricLine;
+  const prefix = m[1] || "";
+  const body = m[2] || "";
+  const parts = splitLineIntoParts(body);
+  const lyricSepCount = parts.filter((p) => BAR_SEP_NO_SPACE.test(p || "")).length;
+  const musicCols = getBarSeparatorColumns(alignedMusicLine);
+  if (!lyricSepCount || !musicCols.length) return lyricLine;
+  if (lyricSepCount < musicCols.length - 1 || lyricSepCount > musicCols.length) return lyricLine;
+
+  let out = prefix;
+  let sepIndex = 0;
+  for (const part of parts) {
+    if (BAR_SEP_NO_SPACE.test(part || "")) {
+      const target = musicCols[sepIndex];
+      if (!Number.isFinite(target)) return lyricLine;
+      if (out.length < target) out += " ".repeat(target - out.length);
+      out += String(part || "").trim();
+      if (/\s$/.test(String(part || ""))) out += " ";
+      sepIndex += 1;
+    } else {
+      out += part;
+    }
+  }
+  return out;
+}
+
 function alignBarsInTune(lines, tuneText) {
   const out = lines.slice();
   let inText = false;
@@ -15150,6 +15223,9 @@ function alignBarsInTune(lines, tuneText) {
       flushCandidates();
       continue;
     }
+    if (/^\s*w:/.test(line)) {
+      continue;
+    }
     if (
       /^\s*%/.test(line)
       || /^\s*[A-Za-z]:/.test(line)
@@ -15167,6 +15243,10 @@ function alignBarsInTune(lines, tuneText) {
     const aligned = alignLines(tuneText, group.map((c) => c.line), true);
     for (let i = 0; i < group.length; i += 1) {
       out[group[i].idx] = aligned[i];
+      const lyricIdx = group[i].idx + 1;
+      if (lyricIdx < out.length && /^\s*w:/.test(out[lyricIdx] || "")) {
+        out[lyricIdx] = alignLyricLineToMusicLine(out[lyricIdx], aligned[i]);
+      }
     }
   }
   return out;
@@ -17103,12 +17183,16 @@ function latinize(text) {
 }
 
 function sanitizeFileBaseName(text) {
-  const cleaned = latinize(text)
-    .replace(/[^A-Za-z0-9._ -]+/g, " ")
+  const cleaned = String(text || "")
+    .normalize("NFKC")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, " ")
+    .replace(/\p{Control}+/gu, " ")
+    .replace(/[. ]+$/g, "")
+    .replace(/^[. ]+/g, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return "untitled";
-  return cleaned.replace(/\s+/g, "-").slice(0, 80);
+  return cleaned.slice(0, 120);
 }
 
 function pickPreferredLatinText(candidates) {
@@ -17131,11 +17215,6 @@ function pickPreferredLatinText(candidates) {
   return best || fallback || "";
 }
 
-function hasAsciiAlnum(text) {
-  const latin = latinize(String(text || "")).trim();
-  return /[A-Za-z0-9]/.test(latin);
-}
-
 function parseAbcHeaderFields(text) {
   const fields = { titles: [], title: "", composer: "", key: "" };
   const lines = String(text || "").split(/\r\n|\n|\r/);
@@ -17154,6 +17233,14 @@ function parseAbcHeaderFields(text) {
   const preferred = pickPreferredLatinText(fields.titles);
   if (preferred) fields.title = preferred;
   return fields;
+}
+
+function normalizeSuggestedKeyName(key) {
+  const raw = String(key || "").trim();
+  if (!raw) return "";
+  const first = raw.split(/\s+/)[0] || "";
+  if (!first || /^none$/i.test(first) || /^HP$/i.test(first) || /^Hp$/i.test(first)) return "";
+  return first;
 }
 
 function parseTuneIdentityFields(text) {
@@ -17175,13 +17262,24 @@ function parseTuneIdentityFields(text) {
   return out;
 }
 
-function getSuggestedBaseName() {
+function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
   const parsed = parseAbcHeaderFields(getEditorValue());
   const title = parsed.title || (activeTuneMeta && activeTuneMeta.title) || "untitled";
   const composerCandidate = parsed.composer || (activeTuneMeta && activeTuneMeta.composer) || "";
-  const composer = hasAsciiAlnum(composerCandidate) ? composerCandidate : "";
-  const parts = composer ? [title, composer] : [title];
-  return sanitizeFileBaseName(parts.join("_"));
+  const composer = String(composerCandidate || "").trim();
+  const key = normalizeSuggestedKeyName(parsed.key || (activeTuneMeta && activeTuneMeta.key) || "");
+  const parts = [title];
+  if (composer) parts.push(composer);
+  if (includeKey && key) parts.push(key);
+  return sanitizeFileBaseName(parts.join(" - "));
+}
+
+function getSuggestedBaseName() {
+  return buildSuggestedTuneBaseName({ includeKey: false });
+}
+
+function getSuggestedPrintBaseName() {
+  return buildSuggestedTuneBaseName({ includeKey: true });
 }
 
 function getPlaybackText() {
@@ -17229,12 +17327,13 @@ async function runPrintAction(type) {
   }
   const svgMarkup = applyPrintDebugMarkup(renderRes.svg);
   let res = null;
+  const suggestedName = getSuggestedPrintBaseName();
   if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup);
+    res = await window.api.printPreview(svgMarkup, suggestedName);
   } else if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup);
+    res = await window.api.printDialog(svgMarkup, suggestedName);
   } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, getSuggestedBaseName());
+    res = await window.api.exportPdf(svgMarkup, suggestedName);
   }
   if (res && res.ok) {
     setStatus("OK");
@@ -17422,8 +17521,9 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
 
-    let renderText = baseText;
-    let sepFallbackUsed = false;
+    const sepStripInitial = stripSepForRender(baseText);
+    let renderText = sepStripInitial.replaced ? sepStripInitial.text : baseText;
+    let sepFallbackUsed = sepStripInitial.replaced;
     let attempts = 0;
     while (attempts < 2) {
       attempts += 1;
@@ -17762,12 +17862,13 @@ async function runPrintAllAction(type) {
   const svgMarkup = applyPrintDebugMarkup(renderRes.svg);
 
   let res = null;
+  const suggestedName = getSongbookSuggestedBaseName();
   if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup);
+    res = await window.api.printPreview(svgMarkup, suggestedName);
   } else if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup);
+    res = await window.api.printDialog(svgMarkup, suggestedName);
   } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, getSongbookSuggestedBaseName());
+    res = await window.api.exportPdf(svgMarkup, suggestedName);
   }
 
   if (res && res.ok) {
@@ -17900,12 +18001,13 @@ async function runPrintSetListAction(type) {
     svgMarkup = `<style>body{padding:12px !important}</style>\n${svgMarkup}`;
   }
   let res = null;
+  const suggestedName = getSetListSuggestedBaseName();
   if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup);
+    res = await window.api.printDialog(svgMarkup, suggestedName);
   } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, getSetListSuggestedBaseName());
+    res = await window.api.exportPdf(svgMarkup, suggestedName);
   } else if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup);
+    res = await window.api.printPreview(svgMarkup, suggestedName);
   }
 
   if (res && res.ok) {
@@ -18475,8 +18577,10 @@ function renderNow() {
   }
   const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
   const drumCompat = collapseMidiDrumContinuationsForCompat(renderTextBase);
-  let renderText = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
-  let sepFallbackUsed = false;
+  const renderTextCompat = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
+  const sepStripInitial = stripSepForRender(renderTextCompat);
+  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextCompat;
+  let sepFallbackUsed = sepStripInitial.replaced;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
@@ -18580,6 +18684,7 @@ function renderNow() {
             lastRenderPayload = {
               text: renderText,
               offset: renderPayload.offset || 0,
+              lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
               compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
             };
             continue;
@@ -19936,15 +20041,24 @@ async function applyAbc2abcTransform(options) {
   if (hasOnlyTranspose) {
     const preferNative = !latestSettingsSnapshot || latestSettingsSnapshot.useNativeTranspose !== false;
     if (preferNative) {
+      const preview = getAccumulatedTransposePreview({ currentText: abcText, currentHeaderText: getHeaderEditorValue() });
+      const nextDelta = preview.delta + Number(options.transposeSemitones || 0);
+      const headerText = preview.headerText;
+      const support = getNativeTransposeSupport(preview.baseText, { headerText });
+      if (!support.ok) {
+        await showSaveError(support.reason || "Default transpose is not supported for this tune.");
+        setStatus("Error");
+        return;
+      }
       try {
-        // NOTE: Detect temperament from the tune text only.
-        // File-level headers may include %%MIDI temperamentequal 53 for unrelated tunes; using them here
-        // can force microtonal respelling (e.g. ^4C) when the user expects standard semitone transpose.
-        const transformed = transformTranspose(abcText, Number(options.transposeSemitones), { headerText: "" });
+        const transformed = nextDelta === 0
+          ? preview.baseText
+          : transformTranspose(preview.baseText, nextDelta, { headerText });
         const aligned = (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms)
           ? alignBarsInText(transformed)
           : transformed;
-        applyTransformedText(aligned);
+        setAccumulatedTransposePreview(preview.baseText, headerText, nextDelta);
+        applyTransformedText(aligned, { resetTransposePreview: false });
         setStatus("OK");
         return;
       } catch (e) {
@@ -20031,19 +20145,20 @@ async function ensureSafeToAbandonCurrentDoc(actionLabel) {
   return confirmAbandonIfDirty(actionLabel);
 }
 
-	async function finalizeWorkingCopySave(filePath) {
-	  const normalized = String(filePath || "");
-	  if (!normalized) return false;
+		async function finalizeWorkingCopySave(filePath) {
+		  const normalized = String(filePath || "");
+		  if (!normalized) return false;
 
-	  markDiskConflictPath(normalized, false);
-	  if (currentDoc) {
-	    currentDoc.dirty = false;
+		  markDiskConflictPath(normalized, false);
+		  if (currentDoc) {
+		    currentDoc.dirty = false;
 	    // Do not rewrite the editor buffer on Save.
 	    // Replacing the entire doc (even with identical text) resets the selection/cursor to the start,
-	    // which is disruptive while typing (Ctrl+S). The working copy snapshot/renderer already uses
-	    // the live editor buffer; Save should only clear the dirty state.
-	  }
-	  setDirtyIndicator(false);
+		    // which is disruptive while typing (Ctrl+S). The working copy snapshot/renderer already uses
+		    // the live editor buffer; Save should only clear the dirty state.
+		  }
+		  resetTransposePreviewState();
+		  setDirtyIndicator(false);
 
   try {
     const snapshot = await refreshWorkingCopySnapshot();
@@ -20280,6 +20395,7 @@ async function performSaveFlow() {
       if (res.ok) {
         setFileContentInCache(filePath, content);
         currentDoc.dirty = false;
+        resetTransposePreviewState();
         setDirtyIndicator(false);
         setFileNameMeta(stripFileExtension(safeBasename(filePath)));
         updateFileHeaderPanel();
@@ -20329,9 +20445,10 @@ async function performSaveAsFlow() {
       const content = String((chordproFullView ? getEditorValue() : chordproFullText) || "");
       const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
       if (!saved) return false;
-      currentDoc.path = filePath;
-      currentDoc.dirty = false;
-      activeFilePath = filePath;
+	      currentDoc.path = filePath;
+	      currentDoc.dirty = false;
+	      resetTransposePreviewState();
+	      activeFilePath = filePath;
       recordNavFilePath(filePath);
       setFileNameMeta(stripFileExtension(safeBasename(filePath)));
       updateWindowTitle();
@@ -20351,9 +20468,10 @@ async function performSaveAsFlow() {
     if (snap && snap.path && pathsEqual(snap.path, filePath)) {
       setFileContentInCache(filePath, snap.text);
     }
-    currentDoc.path = filePath;
-    currentDoc.dirty = false;
-    activeFilePath = filePath;
+	    currentDoc.path = filePath;
+	    currentDoc.dirty = false;
+	    resetTransposePreviewState();
+	    activeFilePath = filePath;
     recordNavFilePath(filePath);
     setDirtyIndicator(false);
     setFileNameMeta(stripFileExtension(safeBasename(filePath)));

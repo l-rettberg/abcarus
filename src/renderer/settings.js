@@ -1412,8 +1412,12 @@ export function initSettings(api) {
 
             const familyRow = createRow(familyEntry);
             const sizeRow = createRow(sizeEntry);
-            const familyControl = familyRow ? familyRow.querySelector("input, select, textarea") : null;
-            const sizeControl = sizeRow ? sizeRow.querySelector("input, select, textarea") : null;
+            const familyControl = familyRow
+              ? (familyRow.querySelector(".settings-select-row") || familyRow.querySelector("input, select, textarea"))
+              : null;
+            const sizeControl = sizeRow
+              ? (sizeRow.querySelector(".settings-select-row") || sizeRow.querySelector("input, select, textarea"))
+              : null;
             if (!familyControl || !sizeControl) return null;
 
             const block = document.createElement("div");

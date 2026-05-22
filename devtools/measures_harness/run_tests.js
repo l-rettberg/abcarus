@@ -94,47 +94,65 @@ async function runLinebreakMarkerCase({ name, fixture, expected }) {
 }
 
 async function main() {
-	  const cases = [
-	    {
-	      name: "TEST 1: Hasapia measures-per-line=1 (no blank lines)",
-	      fixture: "hasapia-mandilatos.abc",
-	      expected: "hasapia-mandilatos_mpl1.abc",
-	      measuresPerLine: 1,
-	    },
-	    {
-	      name: "TEST 2: begintext preserves blank lines (no blank lines outside)",
-	      fixture: "begintext-blank-lines.abc",
-	      expected: "begintext-blank-lines_mpl1.abc",
-	      measuresPerLine: 1,
-	    },
-	    {
-	      name: "TEST 3: leading |: is not treated as a full measure",
-	      fixture: "repeat-start.abc",
-	      expected: "repeat-start_mpl2.abc",
-	      measuresPerLine: 2,
-	    },
-      {
-        name: "TEST 4: inline [K:..] is preserved when reflowing measures",
-        fixture: "inline-key-change.abc",
-        expected: "inline-key-change_mpl2.abc",
-        measuresPerLine: 2,
-      },
-      {
-        name: "TEST 5: reflow by I:linebreak marker keeps marker comments",
-        fixture: "linebreak-marker.abc",
-        expected: "linebreak-marker_reflow.abc",
-      },
-      {
-        name: "TEST 6: marker comment line merges with pending music",
-        fixture: "linebreak-marker-comment-merge.abc",
-        expected: "linebreak-marker-comment-merge_reflow.abc",
-      },
-      {
-        name: "TEST 7: middle inline comment does not break marker merge",
-        fixture: "linebreak-marker-middle-comment.abc",
-        expected: "linebreak-marker-middle-comment_reflow.abc",
-      },
-	  ];
+  const cases = [
+    {
+      name: "TEST 1: Hasapia measures-per-line=1 (no blank lines)",
+      fixture: "hasapia-mandilatos.abc",
+      expected: "hasapia-mandilatos_mpl1.abc",
+      measuresPerLine: 1,
+    },
+    {
+      name: "TEST 2: begintext preserves blank lines (no blank lines outside)",
+      fixture: "begintext-blank-lines.abc",
+      expected: "begintext-blank-lines_mpl1.abc",
+      measuresPerLine: 1,
+    },
+    {
+      name: "TEST 3: leading |: is not treated as a full measure",
+      fixture: "repeat-start.abc",
+      expected: "repeat-start_mpl2.abc",
+      measuresPerLine: 2,
+    },
+    {
+      name: "TEST 4: inline [K:..] is preserved when reflowing measures",
+      fixture: "inline-key-change.abc",
+      expected: "inline-key-change_mpl2.abc",
+      measuresPerLine: 2,
+    },
+    {
+      name: "TEST 5: reflow by I:linebreak marker keeps marker comments",
+      fixture: "linebreak-marker.abc",
+      expected: "linebreak-marker_reflow.abc",
+    },
+    {
+      name: "TEST 6: marker comment line merges with pending music",
+      fixture: "linebreak-marker-comment-merge.abc",
+      expected: "linebreak-marker-comment-merge_reflow.abc",
+    },
+    {
+      name: "TEST 7: middle inline comment does not break marker merge",
+      fixture: "linebreak-marker-middle-comment.abc",
+      expected: "linebreak-marker-middle-comment_reflow.abc",
+    },
+    {
+      name: "TEST 8: explicit lyric bars follow measures-per-line",
+      fixture: "lyrics-explicit-bars.abc",
+      expected: "lyrics-explicit-bars_mpl1.abc",
+      measuresPerLine: 1,
+    },
+    {
+      name: "TEST 9: lyric bars can be inferred from note anchors",
+      fixture: "lyrics-inferred-bars.abc",
+      expected: "lyrics-inferred-bars_mpl1.abc",
+      measuresPerLine: 1,
+    },
+    {
+      name: "TEST 10: mismatched lyrics fail closed",
+      fixture: "lyrics-mismatch.abc",
+      expected: "lyrics-mismatch_mpl1.abc",
+      measuresPerLine: 1,
+    },
+  ];
 
   for (const c of cases) {
     try {
@@ -152,20 +170,37 @@ async function main() {
     }
   }
 
-	  try {
-	    await runReflowRoundtripCase({
-	      name: "TEST 8: reflow 1 bar/line -> 2 bars/line changes output",
-	      fixture: "hasapia-mandilatos.abc",
-	      measuresPerLineA: 1,
-	      measuresPerLineB: 2,
-	    });
-	    console.log("% PASS TEST 8: reflow 1 bar/line -> 2 bars/line changes output");
-	  } catch (e) {
-	    console.log("% FAIL TEST 8: reflow 1 bar/line -> 2 bars/line changes output");
-	    const msg = String(e && e.message ? e.message : e);
-	    for (const line of msg.split(/\r\n|\n|\r/)) {
-	      console.log(`% ${line}`);
-	    }
+  try {
+    await runReflowRoundtripCase({
+      name: "TEST 11: reflow 1 bar/line -> 2 bars/line changes output",
+      fixture: "hasapia-mandilatos.abc",
+      measuresPerLineA: 1,
+      measuresPerLineB: 2,
+    });
+    console.log("% PASS TEST 11: reflow 1 bar/line -> 2 bars/line changes output");
+  } catch (e) {
+    console.log("% FAIL TEST 11: reflow 1 bar/line -> 2 bars/line changes output");
+    const msg = String(e && e.message ? e.message : e);
+    for (const line of msg.split(/\r\n|\n|\r/)) {
+      console.log(`% ${line}`);
+    }
+    process.exitCode = 1;
+  }
+
+  try {
+    await runReflowRoundtripCase({
+      name: "TEST 12: lyric-aware reflow 1 bar/line -> 2 bars/line is stable",
+      fixture: "lyrics-explicit-bars.abc",
+      measuresPerLineA: 1,
+      measuresPerLineB: 2,
+    });
+    console.log("% PASS TEST 12: lyric-aware reflow 1 bar/line -> 2 bars/line is stable");
+  } catch (e) {
+    console.log("% FAIL TEST 12: lyric-aware reflow 1 bar/line -> 2 bars/line is stable");
+    const msg = String(e && e.message ? e.message : e);
+    for (const line of msg.split(/\r\n|\n|\r/)) {
+      console.log(`% ${line}`);
+    }
     process.exitCode = 1;
   }
 }

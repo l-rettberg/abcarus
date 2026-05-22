@@ -142,11 +142,12 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
   if (start < 0 || end < 0) throw new Error("Unable to isolate Align Bars helpers.");
 
   const module = { exports: {} };
-  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText };\n`;
+  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText, getBarSeparatorColumns };\n`;
   const load = new Function("module", "exports", helpers);
   load(module, module.exports);
-  const { alignBarsInText } = module.exports;
+  const { alignBarsInText, getBarSeparatorColumns } = module.exports;
   if (typeof alignBarsInText !== "function") throw new Error("alignBarsInText() is unavailable.");
+  if (typeof getBarSeparatorColumns !== "function") throw new Error("getBarSeparatorColumns() is unavailable.");
 
   const input = [
     "X:1",
@@ -197,6 +198,30 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
   }
   if (lyricMusicLine.indexOf("|") !== alignedLyricLine.indexOf("|")) {
     throw new Error("Align Bars did not align compatible w: separators to the preceding music line.");
+  }
+
+  const lyricLeadingRepeat = [
+    "X:3",
+    "M:2/4",
+    "L:1/4",
+    "K:C",
+    "|: C D E F G A B c | d e f g a b c d |",
+    "w:first words | second words |",
+  ].join("\n");
+  const leadingRepeatOut = alignBarsInText(lyricLeadingRepeat);
+  const leadingRepeatLines = String(leadingRepeatOut || "").split(/\r\n|\n|\r/);
+  const leadingRepeatMusic = leadingRepeatLines.find((line) => line.includes("|: C"));
+  const leadingRepeatLyric = leadingRepeatLines.find((line) => line.startsWith("w:first"));
+  if (!leadingRepeatMusic || !leadingRepeatLyric) {
+    throw new Error("Align Bars lost leading-repeat lyric regression lines.");
+  }
+  const musicSepCols = getBarSeparatorColumns(leadingRepeatMusic);
+  const lyricSepCols = getBarSeparatorColumns(leadingRepeatLyric);
+  if (musicSepCols.length !== 3 || lyricSepCols.length !== 2) {
+    throw new Error("Align Bars leading-repeat lyric regression fixture has unexpected separator counts.");
+  }
+  if (lyricSepCols[0] !== musicSepCols[1] || lyricSepCols[1] !== musicSepCols[2]) {
+    throw new Error("Align Bars did not skip the leading repeat separator when aligning w: separators.");
   }
 }
 

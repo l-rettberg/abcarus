@@ -15174,16 +15174,21 @@ function alignLyricLineToMusicLine(lyricLine, alignedMusicLine) {
   const musicCols = getBarSeparatorColumns(alignedMusicLine);
   if (!lyricSepCount || !musicCols.length) return lyricLine;
   if (lyricSepCount < musicCols.length - 1 || lyricSepCount > musicCols.length) return lyricLine;
+  const leadingSpaces = String(alignedMusicLine || "").match(/^\s*/)?.[0]?.length || 0;
+  const firstMusicSepIsLeading = musicCols[0] === leadingSpaces
+    && BAR_SEP_NO_SPACE.test(String(alignedMusicLine || "").slice(leadingSpaces));
+  const musicColOffset = lyricSepCount === musicCols.length - 1 && firstMusicSepIsLeading ? 1 : 0;
 
   let out = prefix;
   let sepIndex = 0;
   for (const part of parts) {
     if (BAR_SEP_NO_SPACE.test(part || "")) {
-      const target = musicCols[sepIndex];
+      const target = musicCols[sepIndex + musicColOffset];
       if (!Number.isFinite(target)) return lyricLine;
       if (out.length < target) out += " ".repeat(target - out.length);
+      else if (/\S$/.test(out)) out += " ";
       out += String(part || "").trim();
-      if (/\s$/.test(String(part || ""))) out += " ";
+      if (/\s$/.test(String(part || "")) || sepIndex < lyricSepCount - 1) out += " ";
       sepIndex += 1;
     } else {
       out += part;
@@ -20005,10 +20010,8 @@ async function applyAbc2abcTransform(options) {
   if (hasOnlyMeasuresPerLine) {
     let transformed = transformMeasuresPerLine(abcText, options.measuresPerLine);
     transformed = normalizeMeasuresLineBreaks(transformed);
-    if (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms) {
-      transformed = alignBarsInText(transformed);
-      transformed = normalizeMeasuresLineBreaks(transformed);
-    }
+    transformed = alignBarsInText(transformed);
+    transformed = normalizeMeasuresLineBreaks(transformed);
     applyTransformedText(transformed);
     setStatus("OK");
     return;

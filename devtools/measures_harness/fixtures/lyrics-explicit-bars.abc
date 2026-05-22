@@ -1,0 +1,12 @@
+X:1
+T:Lyric explicit bars
+M:2/4
+L:1/4
+K:C
+C D | \
+E F | $
+G A | \
+B c |
+w:one two| three four| five six| seven eight|
+G A | F E | D C | C2 |]
+w:nine ten| eleven twelve| thirteen fourteen| fifteen sixteen|

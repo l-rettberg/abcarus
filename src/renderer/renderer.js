@@ -26339,6 +26339,7 @@ function buildPlaybackState(firstSymbol) {
     if (playable) startSymbol = playable.symbol;
   }
   return {
+    rootSymbol: firstSymbol || null,
     startSymbol,
     preferredVoiceId,
     preferredVoiceIndex,
@@ -30216,7 +30217,35 @@ function startPlaybackFromPrepared(startIdx) {
     } catch {}
   }
 
-  player.play(start, endSym, 0);
+  let engineStart = start;
+  const rangeForStart = activePlaybackRange || playbackRange;
+  const startsAtTuneHead = playbackState
+    && playbackState.startSymbol
+    && start === playbackState.startSymbol;
+  const isFullPartOrderStart = rangeForStart
+    && (
+      Number(rangeForStart.startOffset) === 0
+      || (
+        startsAtTuneHead
+        && (rangeForStart.origin === "cursor" || rangeForStart.origin === "transport")
+      )
+    );
+  if (
+    isFullPartOrderStart
+    && playbackState
+    && playbackState.rootSymbol
+  ) {
+    let hasPartsOrder = false;
+    for (let probe = start, guard = 0; probe && guard < 200000; probe = probe.ts_prev, guard += 1) {
+      if (probe.parts || (probe.part1 && Array.isArray(probe.part1.p_s))) {
+        hasPartsOrder = true;
+        break;
+      }
+    }
+    if (hasPartsOrder) engineStart = playbackState.rootSymbol;
+  }
+
+  player.play(engineStart, endSym, 0);
   isPlaying = true;
   isPaused = false;
   pausedSelectionSignature = null;

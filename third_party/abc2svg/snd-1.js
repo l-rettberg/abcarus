@@ -393,7 +393,9 @@ t=po.stim+s.ptim/po.conf.speed}else{if(s.p_dur)
 t+=s.pdur/po.conf.speed
 s=null}
 continue}
-if(s.rep_p){if(s.rep_v){n=s.rep_v.length}else{n=s.bar_type.match(/(:+)[|[\]]/)
+if(s.rep_p){if(s.rep_p!=po.repp){po.repv=1
+po.repp=s.rep_p}
+if(s.rep_v){n=s.rep_v.length}else{n=s.bar_type.match(/(:+)[|[\]]/)
 n=(n?n[1].length:1)+2}
 if(++po.repv<n){po.repn=true
 s2=s.rep_p
@@ -401,7 +403,10 @@ continue}
 po.repn=false
 po.repv=1}
 if(s.rep_s){s2=s.rep_s[po.repv]
-if(s2){po.repn=false
+if(s2){if(s2.rep_p&&s2.rep_p!=po.repp){po.repv=1
+po.repp=s2.rep_p
+s2=s.rep_s[po.repv]}
+po.repn=false
 if(s2!=s)
 continue
 s2=null}else{s2=var_end(s)
@@ -417,8 +422,8 @@ return}
 s_p=s.part1
 if(!s_p||!s_p.p_s)
 continue
-for(i=0;i<s_p.p_s.length;i++){if(s_p.p_s[i]==s){po.i_p=i
-po.ps=s.p_s
+for(i=0;i<s_p.p_s.length;i++){if(s_p.p_s[i]==s){po.i_p=i-1
+po.ps=s_p.p_s
 return}}}}
 if(po.stop){if(po.onend)
 po.onend(po.repv)

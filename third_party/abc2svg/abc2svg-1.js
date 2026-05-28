@@ -1,6 +1,6 @@
 // abc2svg - ABC to SVG translator
 // @source: https://chiselapp.com/user/moinejf/repository/abc2svg
-// Copyright (C) 2014-2025 Jean-François Moine - LGPL3+
+// Copyright (C) 2014-2026 Jean-François Moine - LGPL3+
 
 if(typeof abc2svg=="undefined")
 var abc2svg={};abc2svg.C={BLEN:1536,BAR:0,CLEF:1,CUSTOS:2,SM:3,GRACE:4,KEY:5,METER:6,MREST:7,NOTE:8,PART:9,REST:10,SPACE:11,STAVES:12,STBRK:13,TEMPO:14,BLOCK:16,REMARK:17,FULL:0,EMPTY:1,OVAL:2,OVALBARS:3,SQUARE:4,SL_ABOVE:0x01,SL_BELOW:0x02,SL_AUTO:0x03,SL_HIDDEN:0x04,SL_DOTTED:0x08,SL_ALI_MSK:0x70,SL_ALIGN:0x10,SL_CENTER:0x20,SL_CLOSE:0x40};abc2svg.sym_name=['bar','clef','custos','smark','grace','key','meter','Zrest','note','part','rest','yspace','staves','Break','tempo','','block','remark']
@@ -2275,7 +2275,7 @@ switch(s.type){case C.GRACE:for(g=s.extra;g;g=g.next){y_set(s.st,true,g.x-2,4,g.
 continue
 case C.MREST:y_set(s.st,true,s.x+16,32,s.ymx+2)
 continue
-default:y_set(s.st,true,s.x-s.wl,s.wl+s.wr,s.ymx+2);y_set(s.st,false,s.x-s.wl,s.wl+s.wr,s.ymn-2)
+default:y_set(s.st,true,s.x-s.wl+2,s.wl+s.wr-4,s.ymx+2);y_set(s.st,false,s.x-s.wl+2,s.wl+s.wr-4,s.ymn-2)
 case C.PART:case C.TEMPO:case C.STAVES:continue
 case C.NOTE:break}
 if(s.stem>0){if(s.stemless){dx=-5;w=10}else if(s.beam_st){dx=3;w=s.beam_end?4:10}else{dx=-8;w=s.beam_end?11:16}
@@ -5314,7 +5314,7 @@ mid[st]=(sy.staves[st].stafflines.length-1)*3
 for(v=0;v<voice_tb.length;v++){if(!sy.voices[v]||sy.voices[v].second)
 continue
 p_voice=voice_tb[v];st=sy.voices[v].st;s2=p_voice.clef
-if(v<voice_tb.length-1&&sy.voices[v+1].st==st){if((voice_tb[v+1].clef.clef_octave&&!voice_tb[v+1].clef.clef_oct_transp)||(s2.clef_octave&&!s2.clef_oct_transp))
+if(sy.voices[v+1]&&sy.voices[v+1].st==st){if((voice_tb[v+1].clef.clef_octave&&!voice_tb[v+1].clef.clef_oct_transp)||(s2.clef_octave&&!s2.clef_oct_transp))
 adjoct(s2)
 if(voice_tb[v+1].clef.clef_type
 !=s2.clef_type)
@@ -9911,7 +9911,8 @@ shift=14}
 ly.shift=shift
 if(shift>wl)
 wl=shift
-w+=spw*1.5
+if(ly.ln!=1)
+w+=spw
 w-=shift
 if(w>wx)
 wx=w}
@@ -9950,7 +9951,8 @@ gene.curfont=ly.font
 p=ly.t;ln=ly.ln||0
 w=p.wh[0]
 shift=ly.shift
-if(hyflag){if(ln==3){ln=2}else if(ln<2){out_hyph(lastx,y,s.x-shift-lastx);hyflag=false;lastx=s.x+s.wr}}
+if(hyflag){if(ln==3){ln=2}else if(ln<2){if(s.x-shift-lastx>gene.curfont.swfac*.4)
+out_hyph(lastx,y,s.x-shift-lastx);hyflag=false;lastx=s.x+s.wr}}
 if(lflag&&ln!=3){out_wln(lastx+3,y,x0-lastx+3);lflag=false;lastx=s.x+s.wr}
 if(ln>=2){if(x0==0&&lastx>s.x-18)
 lastx=s.x-18
@@ -10339,4 +10341,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.23.2";abc2svg.vdate="2026-05-22"
+abc2svg.version="v1.23.2";abc2svg.vdate="2026-05-28"

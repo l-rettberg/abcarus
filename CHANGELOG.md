@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.39.0] - 2026-05-28
 ### Changed
 - Updated bundled `abc2svg` to Jef Moine's 2026-05-28 tip with the upstream `P:` selection playback fix.
 

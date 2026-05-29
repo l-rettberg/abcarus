@@ -316,6 +316,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
                 const value = index + 1;
                 return {
                   label: String(value),
+                  accelerator: `CmdOrCtrl+Alt+${value}`,
                   click: () => sendMenuAction({ type: "transformMeasures", value }),
                 };
               }),

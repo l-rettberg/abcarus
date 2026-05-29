@@ -16,6 +16,10 @@ function isAbcFieldLine(line) {
   return /^[\t ]*[A-Za-z]:/.test(s) || /^[\t ]*%/.test(s);
 }
 
+function isLyricLine(line) {
+  return /^[\t ]*w:/.test(String(line || ""));
+}
+
 function isInlineFieldOnlyLine(line) {
   const s = String(line || "").trim();
   if (!s.startsWith("[")) return false;
@@ -44,6 +48,11 @@ function consumeBarlineToken(src, start) {
   if (s[i] === ":" && (s[i + 1] === ":" || s[i + 1] === "|")) {
     let j = i;
     while (j < s.length && (s[j] === ":" || s[j] === "|")) j += 1;
+    if (s[j] === "]" && !/[0-9]/.test(s[j + 1] || "")) j += 1;
+    if (s[j] === "[" && /[0-9|:\]]/.test(s[j + 1] || "")) {
+      j += 1;
+      if (/[0-9|:\]]/.test(s[j] || "")) j += 1;
+    }
     return { text: s.slice(i, j), end: j };
   }
   // Standard barlines contain at least one '|'
@@ -71,31 +80,37 @@ function consumeBarlineToken(src, start) {
   return null;
 }
 
-function reflowMeasuresInMusicLine(line, measuresPerLine) {
-  const n = Math.max(1, Math.trunc(Number(measuresPerLine) || 0));
-  if (!Number.isFinite(n) || n <= 0) return String(line || "");
-
+function splitMusicLineIntoMeasureChunks(line) {
   const { head, comment } = splitInlineComment(line);
   const src = String(head || "");
-  const out = [];
+  const chunks = [];
+  let current = "";
 
-  let count = 0;
   let i = 0;
   let inQuote = false;
   let inDecoration = false;
   let hasBarContent = false;
 
+  const append = (value) => {
+    current += String(value || "");
+  };
+  const pushChunk = () => {
+    const text = current.trim();
+    if (text) chunks.push(text);
+    current = "";
+  };
+
   while (i < src.length) {
     const ch = src[i];
 
     if (inQuote) {
-      out.push(ch);
+      append(ch);
       if (ch === "\"") inQuote = false;
       i += 1;
       continue;
     }
     if (inDecoration) {
-      out.push(ch);
+      append(ch);
       if (ch === "!") inDecoration = false;
       i += 1;
       continue;
@@ -103,13 +118,13 @@ function reflowMeasuresInMusicLine(line, measuresPerLine) {
 
     if (ch === "\"") {
       inQuote = true;
-      out.push(ch);
+      append(ch);
       i += 1;
       continue;
     }
     if (ch === "!") {
       inDecoration = true;
-      out.push(ch);
+      append(ch);
       i += 1;
       continue;
     }
@@ -118,7 +133,7 @@ function reflowMeasuresInMusicLine(line, measuresPerLine) {
     if (ch === "[" && /[A-Za-z]:/.test(src.slice(i + 1, i + 3))) {
       const close = src.indexOf("]", i);
       if (close !== -1) {
-        out.push(src.slice(i, close + 1));
+        append(src.slice(i, close + 1));
         i = close + 1;
         continue;
       }
@@ -126,53 +141,296 @@ function reflowMeasuresInMusicLine(line, measuresPerLine) {
 
     const bar = consumeBarlineToken(src, i);
     if (bar) {
-      out.push(bar.text);
+      append(bar.text);
       i = bar.end;
-      let didCount = false;
       if (hasBarContent) {
-        count += 1;
-        didCount = true;
+        pushChunk();
       }
-      const shouldBreak = didCount && (count % n === 0);
       hasBarContent = false;
-      // Canonicalize whitespace after barlines so repeated reflows converge:
-      // - if we don't break: collapse any horizontal whitespace to a single space (when there is remainder)
-      // - if we break: drop leading whitespace on the next segment
       let k = i;
       while (k < src.length && (src[k] === " " || src[k] === "\t")) k += 1;
-      if (k < src.length) {
-        if (shouldBreak) {
-          const beforeBreak = out[out.length - 1] || "";
-          if (!/\n$/.test(beforeBreak)) out.push("\n");
-          i = k;
-        } else if (k > i) {
-          out.push(" ");
-          i = k;
-        } else {
-          // No whitespace after the barline. Insert a single space in common cases so
-          // that repeated reflows converge to the same formatting.
-          const nextCh = src[i];
-          if (nextCh && !/\s/.test(nextCh) && !/[|:\]\[0-9]/.test(nextCh)) {
-            out.push(" ");
-          }
-        }
-      } else {
-        i = k;
-      }
+      if (k > i && current.trim() === String(bar.text || "").trim()) append(" ");
+      i = k;
       continue;
     }
 
     // Count a bar only when there was some musical content since the previous barline.
     // Include common rest tokens: z (rest), x (invisible rest), Z (multi-measure rest).
     if (/[A-Ga-gzxZ]/.test(ch)) hasBarContent = true;
-    out.push(ch);
+    append(ch);
     i += 1;
   }
 
-  // Never end with a newline: it would create an empty line after outer joins.
-  if (out.length && out[out.length - 1] === "\n") out.pop();
-  const rebuilt = out.join("");
-  return rebuilt + (comment || "");
+  if (current.trim()) pushChunk();
+  if (comment && chunks.length) {
+    chunks[chunks.length - 1] = `${chunks[chunks.length - 1]} ${comment.trim()}`;
+  } else if (comment) {
+    chunks.push(comment.trim());
+  }
+  return chunks;
+}
+
+function groupChunksIntoLines(chunks, measuresPerLine) {
+  const n = Math.max(1, Math.trunc(Number(measuresPerLine) || 0));
+  const src = Array.isArray(chunks) ? chunks.filter((chunk) => String(chunk || "").trim()) : [];
+  if (!src.length) return [];
+  const lines = [];
+  for (let i = 0; i < src.length; i += n) {
+    const group = src.slice(i, i + n).map((chunk) => String(chunk || "").trim());
+    let line = "";
+    for (const chunk of group) {
+      if (!line) {
+        line = chunk;
+        continue;
+      }
+      if (/^\[[A-Za-z]:/.test(chunk) || /^[0-9]/.test(chunk)) {
+        line += chunk;
+      } else {
+        line += ` ${chunk}`;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function reflowMeasuresInMusicLine(line, measuresPerLine) {
+  return groupChunksIntoLines(splitMusicLineIntoMeasureChunks(line), measuresPerLine).join("\n");
+}
+
+function stripMusicLineJoinMarkers(text) {
+  let out = String(text || "").trim();
+  out = out.replace(/\\\s*$/, "").trimEnd();
+  if (/(^|[^\\])\$\s*$/.test(out)) out = out.replace(/\$\s*$/, "").trimEnd();
+  return out;
+}
+
+function joinPendingMusicLine(pendingMusic, line) {
+  const prefix = String(pendingMusic || "").match(/^\s*/)?.[0] || "";
+  const left = stripMusicLineJoinMarkers(pendingMusic);
+  const right = stripMusicLineJoinMarkers(String(line || "").trimStart());
+  // Preserve common first/second ending syntax when it lands on a line boundary: `|1` / `|2`.
+  if (left.endsWith("|") && /^[0-9]/.test(right)) {
+    return `${prefix}${left.trim()}${right}`;
+  }
+  return `${prefix}${left.trim()} ${right}`;
+}
+
+function stripLyricLineJoinMarkers(text) {
+  let out = String(text || "").trim();
+  out = out.replace(/\\\s*$/, "").trimEnd();
+  if (/(^|[^\\])\$\s*$/.test(out)) out = out.replace(/\$\s*$/, "").trimEnd();
+  return out;
+}
+
+function countLyricNoteAnchors(musicChunk) {
+  const src = String(musicChunk || "");
+  let count = 0;
+  let i = 0;
+  let inQuote = false;
+  let inDecoration = false;
+  let inChord = false;
+  while (i < src.length) {
+    const ch = src[i];
+    if (inQuote) {
+      if (ch === "\"") inQuote = false;
+      i += 1;
+      continue;
+    }
+    if (inDecoration) {
+      if (ch === "!") inDecoration = false;
+      i += 1;
+      continue;
+    }
+    if (ch === "\"") {
+      inQuote = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "!") {
+      inDecoration = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[" && /[A-Za-z]:/.test(src.slice(i + 1, i + 3))) {
+      const close = src.indexOf("]", i);
+      if (close !== -1) {
+        i = close + 1;
+        continue;
+      }
+    }
+    const bar = consumeBarlineToken(src, i);
+    if (bar) {
+      i = bar.end;
+      continue;
+    }
+    if (ch === "{") {
+      const close = src.indexOf("}", i + 1);
+      if (close !== -1) {
+        i = close + 1;
+        continue;
+      }
+    }
+    if (ch === "[") {
+      inChord = true;
+      i += 1;
+      continue;
+    }
+    if (inChord) {
+      if (/[A-Ga-g]/.test(ch)) {
+        count += 1;
+        while (i < src.length && src[i] !== "]") i += 1;
+        inChord = false;
+        if (src[i] === "]") i += 1;
+        continue;
+      }
+      if (ch === "]") inChord = false;
+      i += 1;
+      continue;
+    }
+    if (/[A-Ga-g]/.test(ch)) {
+      count += 1;
+      i += 1;
+      while (/[',0-9/]/.test(src[i] || "")) i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return count;
+}
+
+function splitLyricBodyOnExplicitBars(body) {
+  const src = String(body || "");
+  const chunks = [];
+  let current = "";
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    current += ch;
+    if (ch === "|" && src[i - 1] !== "\\") {
+      const text = formatLyricChunk(current);
+      if (text) chunks.push(text);
+      current = "";
+    }
+  }
+  const tail = formatLyricChunk(current);
+  if (tail) chunks.push(tail);
+  return chunks;
+}
+
+function formatLyricChunk(text) {
+  const src = String(text || "").trim();
+  if (!src) return "";
+  let out = "";
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === "|" && src[i - 1] !== "\\") {
+      const left = out.trimEnd();
+      out = left ? `${left} |` : "|";
+      continue;
+    }
+    out += ch;
+  }
+  return out.trim();
+}
+
+function getLyricAdvanceTokenEnds(body) {
+  const src = String(body || "");
+  const ends = [];
+  let i = 0;
+  while (i < src.length) {
+    while (src[i] === " " || src[i] === "\t") i += 1;
+    if (!src[i]) break;
+    const start = i;
+    const ch = src[i];
+    if (ch === "|" && src[i - 1] !== "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "*" || ch === "_" || ch === "-") {
+      i += 1;
+      ends.push(i);
+      continue;
+    }
+    while (i < src.length) {
+      const c = src[i];
+      if (!c || c === " " || c === "\t") break;
+      if ((c === "|" || c === "*" || c === "_") && src[i - 1] !== "\\") break;
+      if (c === "\\") {
+        i += 2;
+        continue;
+      }
+      i += 1;
+    }
+    if (i > start) ends.push(i);
+  }
+  return ends;
+}
+
+function splitLyricBodyByNoteCounts(body, noteCounts) {
+  const src = String(body || "");
+  const counts = Array.isArray(noteCounts) ? noteCounts.map((n) => Math.max(0, Number(n) || 0)) : [];
+  const tokenEnds = getLyricAdvanceTokenEnds(src);
+  if (!tokenEnds.length || !counts.length) return null;
+  const chunks = [];
+  let tokenIndex = 0;
+  let start = 0;
+  for (let i = 0; i < counts.length; i += 1) {
+    const n = counts[i];
+    tokenIndex += n;
+    const end = tokenIndex > 0 ? tokenEnds[Math.min(tokenIndex, tokenEnds.length) - 1] : start;
+    if (!Number.isFinite(end)) break;
+    let text = src.slice(start, end).trim();
+    if (text && !/[|]$/.test(text)) text = `${text} |`;
+    text = formatLyricChunk(text);
+    if (text) chunks.push(text);
+    start = end;
+    while (src[start] === " " || src[start] === "\t") start += 1;
+    if (tokenIndex >= tokenEnds.length) break;
+  }
+  const tail = src.slice(start).trim();
+  if (tail) chunks.push(tail);
+  return chunks.length ? chunks : null;
+}
+
+function splitLyricLineIntoChunks(line, musicChunks) {
+  const m = String(line || "").match(/^(\s*w:\s*)([\s\S]*)$/);
+  if (!m) return null;
+  const prefix = m[1] || "w:";
+  const body = stripLyricLineJoinMarkers(m[2] || "");
+  const hasExplicitBars = /(^|[^\\])\|/.test(body);
+  const chunks = hasExplicitBars
+    ? splitLyricBodyOnExplicitBars(body)
+    : splitLyricBodyByNoteCounts(body, (musicChunks || []).map(countLyricNoteAnchors));
+  if (!chunks || !chunks.length) return null;
+  return { prefix, chunks };
+}
+
+function groupLyricChunksIntoLines(lyric, measuresPerLine) {
+  if (!lyric || !Array.isArray(lyric.chunks) || !lyric.chunks.length) return null;
+  const grouped = groupChunksIntoLines(lyric.chunks, measuresPerLine);
+  return grouped.map((line) => `${lyric.prefix}${line}`);
+}
+
+function reflowMusicWithLyrics(musicText, lyricLines, measuresPerLine) {
+  const musicChunks = splitMusicLineIntoMeasureChunks(musicText);
+  if (!musicChunks.length) return [reflowMeasuresInMusicLine(musicText, measuresPerLine), ...lyricLines];
+  const lyricChunks = lyricLines.map((line) => splitLyricLineIntoChunks(line, musicChunks));
+  if (lyricChunks.some((lyric) => !lyric)) {
+    return [groupChunksIntoLines(musicChunks, measuresPerLine).join("\n"), ...lyricLines];
+  }
+
+  const musicGroups = groupChunksIntoLines(musicChunks, measuresPerLine);
+  const lyricGroups = lyricChunks.map((lyric) => groupLyricChunksIntoLines(lyric, measuresPerLine));
+  if (lyricGroups.some((group) => !group || group.length !== musicGroups.length)) {
+    return [musicGroups.join("\n"), ...lyricLines];
+  }
+
+  const out = [];
+  for (let i = 0; i < musicGroups.length; i += 1) {
+    out.push(musicGroups[i]);
+    for (const group of lyricGroups) out.push(group[i]);
+  }
+  return out;
 }
 
 function parseLinebreakMarkerFromDirective(line) {
@@ -303,11 +561,37 @@ export function transformMeasuresPerLine(abcText, measuresPerLine) {
   const out = [];
   let inTextBlock = false;
   let pendingMusic = null;
+  let pendingLyrics = [];
+  let pendingLyricIndex = 0;
+
+  const appendPendingLyric = (line) => {
+    const m = String(line || "").match(/^(\s*w:\s*)([\s\S]*)$/);
+    if (!m) return false;
+    if (pendingLyricIndex < pendingLyrics.length) {
+      const prev = pendingLyrics[pendingLyricIndex];
+      const pm = String(prev || "").match(/^(\s*w:\s*)([\s\S]*)$/);
+      if (!pm) return false;
+      const prefix = pm[1] || "w:";
+      const left = stripLyricLineJoinMarkers(pm[2] || "");
+      const right = stripLyricLineJoinMarkers(m[2] || "");
+      pendingLyrics[pendingLyricIndex] = `${prefix}${left}${left && right ? " " : ""}${right}`;
+    } else {
+      pendingLyrics.push(line);
+    }
+    pendingLyricIndex += 1;
+    return true;
+  };
 
   const flushPending = () => {
     if (!pendingMusic) return;
-    out.push(reflowMeasuresInMusicLine(pendingMusic, n));
+    if (pendingLyrics.length) {
+      out.push(...reflowMusicWithLyrics(pendingMusic, pendingLyrics, n));
+    } else {
+      out.push(reflowMeasuresInMusicLine(pendingMusic, n));
+    }
     pendingMusic = null;
+    pendingLyrics = [];
+    pendingLyricIndex = 0;
   };
 
   for (const line of lines) {
@@ -321,6 +605,10 @@ export function transformMeasuresPerLine(abcText, measuresPerLine) {
     if (!line) {
       flushPending();
       out.push(line);
+      continue;
+    }
+    if (isLyricLine(line) && pendingMusic) {
+      appendPendingLyric(line);
       continue;
     }
     if (isAbcFieldLine(line)) {
@@ -343,16 +631,9 @@ export function transformMeasuresPerLine(abcText, measuresPerLine) {
     if (!pendingMusic) {
       pendingMusic = line;
     } else {
-      const prefix = pendingMusic.match(/^\s*/)?.[0] || "";
-      const left = pendingMusic.trimEnd();
-      const right = line.trimStart();
-      // Preserve common first/second ending syntax when it lands on a line boundary: `|1` / `|2`.
-      if (left.endsWith("|") && /^[0-9]/.test(right)) {
-        pendingMusic = `${prefix}${left.trim()}${right}`;
-      } else {
-        pendingMusic = `${prefix}${left.trim()} ${right}`;
-      }
+      pendingMusic = joinPendingMusicLine(pendingMusic, line);
     }
+    pendingLyricIndex = 0;
   }
   flushPending();
   return out.join("\n");

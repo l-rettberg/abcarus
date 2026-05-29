@@ -1,6 +1,6 @@
 // abc2svg - ABC to SVG translator
 // @source: https://chiselapp.com/user/moinejf/repository/abc2svg
-// Copyright (C) 2014-2025 Jean-François Moine - LGPL3+
+// Copyright (C) 2014-2026 Jean-François Moine - LGPL3+
 
 if(typeof abc2svg=="undefined")
 var abc2svg={};abc2svg.C={BLEN:1536,BAR:0,CLEF:1,CUSTOS:2,SM:3,GRACE:4,KEY:5,METER:6,MREST:7,NOTE:8,PART:9,REST:10,SPACE:11,STAVES:12,STBRK:13,TEMPO:14,BLOCK:16,REMARK:17,FULL:0,EMPTY:1,OVAL:2,OVALBARS:3,SQUARE:4,SL_ABOVE:0x01,SL_BELOW:0x02,SL_AUTO:0x03,SL_HIDDEN:0x04,SL_DOTTED:0x08,SL_ALI_MSK:0x70,SL_ALIGN:0x10,SL_CENTER:0x20,SL_CLOSE:0x40};abc2svg.sym_name=['bar','clef','custos','smark','grace','key','meter','Zrest','note','part','rest','yspace','staves','Break','tempo','','block','remark']
@@ -103,7 +103,7 @@ function syntax(sev,msg,a1,a2,a3,a4){var s={fname:parse.fname,istart:parse.istar
 error(sev,s,msg,a1,a2,a3,a4)}
 function js_inject(js){eval('"use strict";\n'+js)}
 var dd_tb={},a_de,cross
-var decos={dot:"0 stc 6 .7 1",tenuto:"0 emb 6 4 3",slide:"1 sld 5,5 7 1",arpeggio:"2 arp 12 10 3",roll:"3 roll 5,4 5 6",lowermordent:"3 lmrd 6,5 4 6",uppermordent:"3 umrd 6,5 4 6",trill:"3 trl 14 5 8",upbow:"3 upb 12,2 3 7",downbow:"3 dnb 8,2 4 6",gmark:"3 grm 7 4 6",wedge:"0 wedge 8 1.5 1",longphrase:"5 lphr 0 1 16",mediumphrase:"5 mphr 0 1 16",shortphrase:"5 sphr 0 1 16",turnx:"3 turnx 7,2.5 5 6",invertedturn:"3 turn 7,2 5 6",plus:"3 dplus 8,2 2 4","+":"3 dplus 8,2 2 4",">":"3 accent 3.5,3.5 4 4",accent:"3 accent 3.5,3.5 4 4",emphasis:"3 accent 3.5,3.5 4 4",marcato:"3 marcato 9 5 5","^":"3 marcato 9 5 5",mordent:"3 lmrd 6,5 4 6",open:"3 opend 8 3 3",snap:"3 snap 10 3 3",thumb:"3 thumb 10 3 3",turn:"3 turn 7,2.5 5 6","trill(":"5 ltr 8 0 0","trill)":"5 ltr 8 0 0","8va(":"5 8va 12 6 6","8va)":"5 8va 12 6 6","8vb(":"4 8vb 10,5 6 6","8vb)":"4 8vb 10,5 6 6","15ma(":"5 15ma 12 9 9","15ma)":"5 15ma 12 9 9","15mb(":"4 15mb 12 9 9","15mb)":"4 15mb 12 9 9",breath:"5 brth 0 1 16",caesura:"5 caes 0 1 20",short:"5 short 0 1 16",tick:"5 tick 0 1 16",coda:"5 coda 22,5 10 10",dacapo:"5 dacs 16 20 20 Da Capo",dacoda:"5 dacs 16 20 20 Da Coda","D.C.":"5 dcap 16,3 6 6","D.S.":"5 dsgn 16,3 6 6","D.C.alcoda":"5 dacs 16 32 32 D.C. al Coda","D.S.alcoda":"5 dacs 16 32 32 D.S. al Coda","D.C.alfine":"5 dacs 16 32 32 D.C. al Fine","D.S.alfine":"5 dacs 16 32 32 D.S. al Fine",fermata:"3 hld 12 7.5 7.5",fine:"5 dacs 16 12 12 Fine",invertedfermata:"4 hld 12 8 8",segno:"5 sgno 22,2 5 5",f:"6 f 12,5 3 4",ff:"6 ff 12,5 8 5",fff:"6 fff 12,5 11 9",ffff:"6 ffff 12,5 15 12",mf:"6 mf 12,5 8 10",mp:"6 mp 12,5 9 10",p:"6 p 12,5 3 6",pp:"6 pp 12,5 8 9",ppp:"6 ppp 12,5 14 11",pppp:"6 pppp 12,5 14 17",pralltriller:"3 umrd 6,5 4 6",sfz:"6 sfz 12,5 9 9",ped:"6 ped 9 6 10","ped-up":"6 pedoff 9 4 4","ped(":"7 lped 14 1 1","ped)":"7 lped 14 1 1","crescendo(":"6 cresc 15,2 0 0","crescendo)":"6 cresc 15,2 0 0","<(":"6 cresc 15,2 0 0","<)":"6 cresc 15,2 0 0","diminuendo(":"6 dim 15,2 0 0","diminuendo)":"6 dim 15,2 0 0",">(":"6 dim 15,2 0 0",">)":"6 dim 15,2 0 0","-(":"8 gliss 0 0 0","-)":"8 gliss 0 0 0","~(":"8 glisq 0 0 0","~)":"8 glisq 0 0 0",invisible:"32 0 0 0 0",beamon:"33 0 0 0 0",trem1:"34 0 0 0 0",trem2:"34 0 0 0 0",trem3:"34 0 0 0 0",trem4:"34 0 0 0 0",xstem:"35 0 0 0 0",beambr1:"36 0 0 0 0",beambr2:"36 0 0 0 0",rbstop:"37 0 0 0 0","/":"38 0 0 6 6","//":"38 0 0 6 6","///":"38 0 0 6 6","beam-accel":"39 0 0 0 0","beam-rall":"39 0 0 0 0",stemless:"40 0 0 0 0",rbend:"41 0 0 0 0",editorial:"42 0 0 0 0","sacc-1":"3 sacc-1 6,4 4 4",sacc3:"3 sacc3 6,5 4 4",sacc1:"3 sacc1 6,4 4 4",courtesy:"43 0 0 0 0","cacc-1":"3 cacc-1 0 16 0",cacc3:"3 cacc3 0 16 0",cacc1:"3 cacc1 0 16 0","tie(":"44 0 0 0 0","tie)":"44 0 0 0 0",fg:"45 0 0 0 0"},f_near=[d_near,d_slide,d_arp],f_note=[null,null,null,d_upstaff,d_upstaff],f_staff=[null,null,null,null,null,d_upstaff,d_upstaff,d_upstaff]
+var decos={dot:"0 stc 6 .7 1",tenuto:"0 emb 6 4 3",slide:"1 sld 5,5 7 1",arpeggio:"2 arp 12 10 3",roll:"3 roll 5,4 5 6",lowermordent:"3 lmrd 6,5 4 6",uppermordent:"3 umrd 6,5 4 6",trill:"3 trl 14 5 8",upbow:"3 upb 12,2 3 7",downbow:"3 dnb 8,2 4 6",gmark:"3 grm 7 4 6",wedge:"0 wedge 8 1.5 1",longphrase:"5 lphr 0 1 16",mediumphrase:"5 mphr 0 1 16",shortphrase:"5 sphr 0 1 16",turnx:"3 turnx 7,2.5 5 6",invertedturn:"3 turn 7,2 5 6",plus:"3 dplus 8,2 2 4","+":"3 dplus 8,2 2 4",">":"3 accent 3.5,3.5 4 4",accent:"3 accent 3.5,3.5 4 4",emphasis:"3 accent 3.5,3.5 4 4",marcato:"3 marcato 9 5 5","^":"3 marcato 9 5 5",mordent:"3 lmrd 6,5 4 6",open:"3 opend 8 3 3",snap:"3 snap 10 3 3",thumb:"3 thumb 10 3 3",turn:"3 turn 7,2.5 5 6","trill(":"5 ltr 8 0 0","trill)":"5 ltr 8 0 0","8va(":"5 8va 12 6 6","8va)":"5 8va 12 6 6","8vb(":"4 8vb 10,5 6 6","8vb)":"4 8vb 10,5 6 6","15ma(":"5 15ma 12 9 9","15ma)":"5 15ma 12 9 9","15mb(":"4 15mb 12 9 9","15mb)":"4 15mb 12 9 9",breath:"5 brth 0 1 16",caesura:"5 caes 0 1 20",short:"5 short 0 1 16",tick:"5 tick 0 1 16",coda:"5 coda 22,5 10 10",dacapo:"5 dacs 16 20 20 Da Capo",dacoda:"5 dacs 16 20 20 Da Coda","D.C.":"5 dcap 16,3 6 6","D.S.":"5 dsgn 16,3 6 6","D.C.alcoda":"5 dacs 16 32 32 D.C. al Coda","D.S.alcoda":"5 dacs 16 32 32 D.S. al Coda","D.C.alfine":"5 dacs 16 32 32 D.C. al Fine","D.S.alfine":"5 dacs 16 32 32 D.S. al Fine",fermata:"3 hld 12 7.5 7.5",fine:"5 dacs 16 12 12 Fine",invertedfermata:"4 hld 12 8 8",segno:"5 sgno 22,2 5 5",f:"6 f 12,5 3 4",ff:"6 ff 12,5 8 5",fff:"6 fff 12,5 11 9",ffff:"6 ffff 12,5 15 12",mf:"6 mf 12,5 8 10",mp:"6 mp 12,5 9 10",p:"6 p 12,5 3 6",pp:"6 pp 12,5 8 9",ppp:"6 ppp 12,5 14 11",pppp:"6 pppp 12,5 14 17",pralltriller:"3 umrd 6,5 4 6",sfz:"6 sfz 12,5 9 9",ped:"6 ped 10 4 10","ped-up":"6 pedoff 10 4 4","ped(":"6 lped 12,2 1 1","ped)":"6 lped 12,2 0 2","crescendo(":"6 cresc 15,2 0 0","crescendo)":"6 cresc 15,2 0 0","<(":"6 cresc 15,2 0 0","<)":"6 cresc 15,2 0 0","diminuendo(":"6 dim 15,2 0 0","diminuendo)":"6 dim 15,2 0 0",">(":"6 dim 15,2 0 0",">)":"6 dim 15,2 0 0","-(":"8 gliss 0 0 0","-)":"8 gliss 0 0 0","~(":"8 glisq 0 0 0","~)":"8 glisq 0 0 0",invisible:"32 0 0 0 0",beamon:"33 0 0 0 0",trem1:"34 0 0 0 0",trem2:"34 0 0 0 0",trem3:"34 0 0 0 0",trem4:"34 0 0 0 0",xstem:"35 0 0 0 0",beambr1:"36 0 0 0 0",beambr2:"36 0 0 0 0",rbstop:"37 0 0 0 0","/":"38 0 0 6 6","//":"38 0 0 6 6","///":"38 0 0 6 6","beam-accel":"39 0 0 0 0","beam-rall":"39 0 0 0 0",stemless:"40 0 0 0 0",rbend:"41 0 0 0 0",editorial:"42 0 0 0 0","sacc-1":"3 sacc-1 6,4 4 4",sacc3:"3 sacc3 6,5 4 4",sacc1:"3 sacc1 6,4 4 4",courtesy:"43 0 0 0 0","cacc-1":"3 cacc-1 0 16 0",cacc3:"3 cacc3 0 16 0",cacc1:"3 cacc1 0 16 0","tie(":"44 0 0 0 0","tie)":"44 0 0 0 0",fg:"45 0 0 0 0"},f_near=[d_near,d_slide,d_arp],f_note=[null,null,null,d_upstaff,d_upstaff],f_staff=[null,null,null,null,null,d_upstaff,d_upstaff,d_upstaff]
 function y_get(st,up,x,w){var y,p_staff=staff_tb[st],i=(x/2)|0,j=((x+w)/2)|0
 if(i<0){i=0
 if(j<0)
@@ -192,7 +192,9 @@ y_set(s.st,0,de.x,de.dd.wl,de.y-de.dd.h)}
 function d_trill(de){if(de.ldst)
 return
 var y,w,tmp,dd=de.dd,de2=de.prev,up=de.start.up,s2=de.s,st=s2.st,s=de.start.s,x=s.x
-function sh_st(){var de3,de2=de.start,s=de2.s,i=de2.ix
+function sh_st(){if(dd.name=="ped)")
+return
+var de3,de2=de.start,s=de2.s,i=de2.ix
 while(--i>=0){de3=a_de[i]
 if(!de3||de3.s!=s)
 break}
@@ -205,7 +207,7 @@ continue
 if(!(up^de3.up)&&(de3.dd.name=="trill"||de3.dd.func==6)){x+=de3.dd.wr+2
 break}}}
 function sh_en(){var de3,i=de.ix
-while(--i>0){de3=a_de[i]
+while(--i>=0){de3=a_de[i]
 if(!de3||de3.s!=s2)
 break}
 while(1){i++
@@ -215,9 +217,10 @@ break
 if(de3==de)
 continue
 if(!(up^de3.up)&&de3.dd.func==6){w-=de3.dd.wl
-break}}}
-if(de2){x=de2.s.x+de.dd.wl+2
-de2.val-=de2.dd.wr
+break}}
+if(dd.name=='ped)')
+w-=15}
+if(de2){de2.val-=de2.dd.wr
 if(de2.val<8)
 de2.val=8}
 de.st=st
@@ -263,7 +266,9 @@ break
 x+=((s?s.x:realwidth)-x)*.45}
 de.x=x
 de.y=y
-return}
+return
+case"pedoff":de.x=x-=16
+break}
 if(s.nhd)
 x+=s.notes[s.stem>=0?0:s.nhd].shhd;switch(dd.ty){case'@':case'<':case'>':y=de.y
 break}
@@ -326,7 +331,7 @@ dd.str=str}
 if(dd.func==6&&dd.str==undefined)
 dd.str=nm
 c=nm.slice(-1)
-if(c=='('||(c==')'&&nm.indexOf('(')<0)){dd.str=null;nm2=nm.slice(0,-1)+(c=='('?')':'(');dd2=dd_tb[nm2]
+if(c=='('||(c==')'&&nm.indexOf('(')<0)){nm2=nm.slice(0,-1)+(c=='('?')':'(');dd2=dd_tb[nm2]
 if(dd2){if(c=='('){dd.dd_en=dd2;dd2.dd_st=dd}else{dd.dd_st=dd2;dd2.dd_en=dd}}}
 return dd}
 function do_ctie(nm,s,nt1){var nt2=cross[nm],nm2=nm.slice(0,-1)+(nm.slice(-1)=='('?')':'(')
@@ -860,7 +865,7 @@ if(dd.dd_en||dd.name.slice(0,3)!="ped")
 continue
 w=de.val||10
 de.y=y_get(de.st,0,de.x,w)
--(dd.dd_st&&cfmt.pedline?10:dd.h)
+-(dd.dd_st&&cfmt.pedline?4:dd.h)
 y_set(de.st,0,de.x,w,de.y)}
 draw_all_chsy()
 for(v=0;v<voice_tb.length;v++){p_voice=voice_tb[v]
@@ -2270,7 +2275,7 @@ switch(s.type){case C.GRACE:for(g=s.extra;g;g=g.next){y_set(s.st,true,g.x-2,4,g.
 continue
 case C.MREST:y_set(s.st,true,s.x+16,32,s.ymx+2)
 continue
-default:y_set(s.st,true,s.x-s.wl,s.wl+s.wr,s.ymx+2);y_set(s.st,false,s.x-s.wl,s.wl+s.wr,s.ymn-2)
+default:y_set(s.st,true,s.x-s.wl+2,s.wl+s.wr-4,s.ymx+2);y_set(s.st,false,s.x-s.wl+2,s.wl+s.wr-4,s.ymn-2)
 case C.PART:case C.TEMPO:case C.STAVES:continue
 case C.NOTE:break}
 if(s.stem>0){if(s.stemless){dx=-5;w=10}else if(s.beam_st){dx=3;w=s.beam_end?4:10}else{dx=-8;w=s.beam_end?11:16}
@@ -3262,7 +3267,7 @@ return}
 font.src=p.slice(0,n+1)
 font.fid=abc2svg.font_tb.length
 abc2svg.font_tb.push(font)
-font.name='ft'+font.fid
+font.name=font.src.match(/(\w+)\.\w+\)$/)[1]
 p=p.replace(font.src,'')}
 a=p.match(/[- ]?[nN]ormal/)
 if(a){font.normal=true
@@ -5270,6 +5275,17 @@ continue}
 s_last_chg=s;clef_type=clef_type=='t'?'b':'t';s2=insert_clef(s3,clef_type,clef_type=="t"?2:4);s2.clef_auto=true}
 return clef_type_start}
 function set_clefs(){var s,s2,st,v,p_voice,g,new_type,new_line,p_staff,pit,staff_clef=new Array(nstaff+1),sy=cur_sy,mid=[]
+function adjoct(s){var d,g,m
+if(s.clef_oct_transp==voice_tb[s.v+1].clef.clef_oct_transp&&s.clef_octave==voice_tb[s.v+1].clef.clef_octave)
+return
+s=(s.clef_octave&&!s.clef_oct_transp)?s.p_v.sym:voice_tb[s.v+1].sym
+d=s.p_v.clef.clef_octave
+s.p_v.clef.clef_octave=null
+while(s){if(s.type==C.NOTE){for(m=0;m<=s.nhd;m++)
+s.notes[m].pit+=d}else if(s.type==C.GRACE){for(g=s.extra;g;g=g.next)
+for(m=0;m<=g.nhd;m++)
+g.notes[m].pit+=d}
+s=s.next}}
 staff_tb=new Array(nstaff+1)
 for(st=0;st<=nstaff;st++){staff_clef[st]={autoclef:true}
 staff_tb[st]={output:"",sc_out:""}}
@@ -5298,6 +5314,11 @@ mid[st]=(sy.staves[st].stafflines.length-1)*3
 for(v=0;v<voice_tb.length;v++){if(!sy.voices[v]||sy.voices[v].second)
 continue
 p_voice=voice_tb[v];st=sy.voices[v].st;s2=p_voice.clef
+if(sy.voices[v+1]&&sy.voices[v+1].st==st){if((voice_tb[v+1].clef.clef_octave&&!voice_tb[v+1].clef.clef_oct_transp)||(s2.clef_octave&&!s2.clef_oct_transp))
+adjoct(s2)
+if(voice_tb[v+1].clef.clef_type
+!=s2.clef_type)
+s2.clef_auto=1}
 if(s2.clef_auto){new_type=set_auto_clef(st,s,staff_clef[st].clef?staff_clef[st].clef.clef_type:'a');new_line=new_type=='t'?2:4
 set_yval(p_voice.clef)}else{new_type=s2.clef_type;new_line=s2.clef_line}
 if(!staff_clef[st].clef){if(s2.clef_auto){if(s2.clef_type!='a')
@@ -5352,7 +5373,8 @@ Abc.prototype.set_pitch=function(last_s){var s,s2,g,st,delta,pitch,note,dur=C.BL
 for(st=0;st<=nstaff;st++){s=staff_tb[st].clef;staff_delta[st]=delta_tb[s.clef_type]+s.clef_line*2
 if(s.clefpit)
 staff_delta[st]+=s.clefpit
-if(cfmt.sound){if(s.clef_octave&&!s.clef_oct_transp)
+if(s.clef_octave)
+if(cfmt.sound){if(!s.clef_oct_transp)
 staff_delta[st]+=s.clef_octave}else{if(s.clef_oct_transp)
 staff_delta[st]-=s.clef_octave}}
 for(s=tsfirst;s!=last_s;s=s.ts_next){st=s.st
@@ -5649,7 +5671,11 @@ s.ts_next=s2}
 function check_end_bar(){var s2,s=tsfirst
 while(s.ts_next)
 s=s.ts_next
-if(s.type!=C.BAR){s2=_bar(s)
+if(s.type!=C.BAR){for(s2=s.ts_prev;s2&&s2.time==s.time;s2=s2.ts_prev){if(s2.bar_type)
+return
+if(s2.type!=C.BLOCK)
+break}
+s2=_bar(s)
 s2.ts_prev=s
 s.next=s.ts_next=s2}}
 function set_words(p_voice){var s,s2,nflags,lastnote,res,start_flag=true,pitch=127
@@ -6212,7 +6238,7 @@ if(blkdiv<0)
 user.img_out('</div>')
 blkdiv=2
 break
-case"sep":set_page();vskip(s.sk1);output+='<path class="stroke"\n\td="M';out_sxsy((img.width-s.l)/2-img.lm,' ',0)
+case"sep":vskip(s.sk1);output+='<path class="stroke"\n\td="M';out_sxsy((get_lwidth()-s.l)/2,' ',0)
 output+='h'+s.l.toFixed(1)+'"/>\n';vskip(s.sk2);break
 case"text":set_font(s.font)
 use_font(s.font)
@@ -7617,8 +7643,10 @@ var c,i,r="",n=m.length
 for(i=0;i<n;i++){c=m[i]
 if(c>='h'&&c<='z'){r+=n2n(b+c.charCodeAt(0)-'n'.charCodeAt(0))}else{r+=c}}
 return r}
-function parse_mac(k,m,b){var te,ti,curv,s,line_sav=line,istart_sav=parse.istart;parse.line=line=new scanBuf;parse.istart+=line_sav.index;if(cfmt.writefields.indexOf('m')<0){line.buffer=k.replace('n',n2n(b))
-s=curvoice.last_sym
+function parse_mac(k,m,b){var te,ti,curv,line_sav=line,istart_sav=parse.istart,s=curvoice.last_sym
+if(!s&&cfmt.writefields.indexOf('m')<0)
+return syntax(1,"Bad length of the macro sequence")
+parse.line=line=new scanBuf;parse.istart+=line_sav.index;if(cfmt.writefields.indexOf('m')<0){line.buffer=k.replace('n',n2n(b))
 ti=curvoice.time
 parse_seq(true)
 if(!s)
@@ -7840,7 +7868,7 @@ if(!e)
 break
 sheet.insertRule(e,sheet.cssRules.length)}}:function(s){font_style+="\n"+s}
 var
-sw_tb=new Float32Array([.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.250,.333,.408,.500,.500,.833,.778,.333,.333,.333,.500,.564,.250,.564,.250,.278,.500,.500,.500,.500,.500,.500,.500,.500,.500,.500,.278,.278,.564,.564,.564,.444,.921,.722,.667,.667,.722,.611,.556,.722,.722,.333,.389,.722,.611,.889,.722,.722,.556,.722,.667,.556,.611,.722,.722,.944,.722,.722,.611,.333,.278,.333,.469,.500,.333,.444,.500,.444,.500,.444,.333,.500,.500,.278,.278,.500,.278,.778,.500,.500,.500,.500,.333,.389,.278,.500,.500,.722,.500,.500,.444,.480,.200,.480,.541,.500]),ssw_tb=new Float32Array([.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.278,.278,.355,.556,.556,.889,.667,.191,.333,.333,.389,.584,.278,.333,.278,.278,.556,.556,.556,.556,.556,.556,.556,.556,.556,.556,.278,.278,.584,.584,.584,.556,1.015,.667,.667,.722,.722,.667,.611,.778,.722,.278,.500,.667,.556,.833,.722,.778,.667,.778,.722,.667,.611,.722,.667,.944,.667,.667,.611,.278,.278,.278,.469,.556,.333,.556,.556,.500,.556,.556,.278,.556,.556,.222,.222,.500,.222,.833,.556,.556,.556,.556,.333,.500,.278,.556,.500,.722,.500,.500,.500,.334,.260,.334,.584,.512]),mw_tb=new Float32Array([.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52])
+sw_tb=new Float32Array([.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.250,.333,.408,.500,.500,.833,.778,.333,.333,.333,.500,.564,.250,.333,.250,.278,.500,.500,.500,.500,.500,.500,.500,.500,.500,.500,.278,.278,.564,.564,.564,.444,.921,.722,.667,.667,.722,.611,.556,.722,.722,.333,.389,.722,.611,.889,.722,.722,.556,.722,.667,.556,.611,.722,.722,.944,.722,.722,.611,.333,.278,.333,.469,.500,.333,.444,.500,.444,.500,.444,.333,.500,.500,.278,.278,.500,.278,.778,.500,.500,.500,.500,.333,.389,.278,.500,.500,.722,.500,.500,.444,.480,.200,.480,.541,.500]),ssw_tb=new Float32Array([.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.000,.278,.278,.355,.556,.556,.889,.667,.191,.333,.333,.389,.584,.278,.333,.278,.278,.556,.556,.556,.556,.556,.556,.556,.556,.556,.556,.278,.278,.584,.584,.584,.556,1.015,.667,.667,.722,.722,.667,.611,.778,.722,.278,.500,.667,.556,.833,.722,.778,.667,.778,.722,.667,.611,.722,.667,.944,.667,.667,.611,.278,.278,.278,.469,.556,.333,.556,.556,.500,.556,.556,.278,.556,.556,.222,.222,.500,.222,.833,.556,.556,.556,.556,.333,.500,.278,.556,.500,.722,.500,.500,.500,.334,.260,.334,.584,.512]),mw_tb=new Float32Array([.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.0,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52,.52])
 function cwid(c,font){var i=c.charCodeAt(0)
 if(i>=0x80){if(i>=0x300&&i<0x370)
 return 0;i=0x61}
@@ -8180,7 +8208,7 @@ var output="",style='\
 \n.sldW{stroke:currentColor;fill:none;stroke-width:.7;stroke-dasharray:5,10}\
 \n.sW{stroke:currentColor;fill:none;stroke-width:.7}\
 \n.box{outline:1px solid black;outline-offset:1px}',font_style='',posx=cfmt.leftmargin/cfmt.scale,posy=0,img={width:cfmt.pagewidth,lm:cfmt.leftmargin,rm:cfmt.rightmargin,wx:0,chg:1},defined_glyph={},defs='',fulldefs='',stv_g={scale:1,stsc:1,vsc:1,dy:0,st:-1,v:-1,g:0},blkdiv=0
-var tgls={"mtr ":{x:0,y:0,c:"\u0020"},brace:{x:0,y:0,c:"\ue000"},lphr:{x:0,y:23,c:"\ue030"},mphr:{x:0,y:23,c:"\ue038"},sphr:{x:0,y:25,c:"\ue039"},short:{x:0,y:32,c:"\ue038"},tick:{x:0,y:25,c:"\ue039"},rdots:{x:0,y:0,c:"\ue043"},rdot:{x:0,y:0,c:"\ue044"},dsgn:{x:-12,y:0,c:"\ue045"},dcap:{x:-12,y:0,c:"\ue046"},sgno:{x:-5,y:0,c:"\ue047"},coda:{x:-10,y:0,c:"\ue048"},tclef:{x:-8,y:0,c:"\ue050"},cclef:{x:-8,y:0,c:"\ue05c"},bclef:{x:-8,y:0,c:"\ue062"},pclef:{x:-6,y:0,c:"\ue069"},spclef:{x:-6,y:0,c:"\ue069"},stclef:{x:-8,y:0,c:"\ue07a"},scclef:{x:-8,y:0,c:"\ue07b"},sbclef:{x:-7,y:0,c:"\ue07c"},oct:{x:0,y:2,c:"\ue07d"},oct2:{x:0,y:2,c:"\ue07e"},mtr0:{x:0,y:0,c:"\ue080"},mtr1:{x:0,y:0,c:"\ue081"},mtr2:{x:0,y:0,c:"\ue082"},mtr3:{x:0,y:0,c:"\ue083"},mtr4:{x:0,y:0,c:"\ue084"},mtr5:{x:0,y:0,c:"\ue085"},mtr6:{x:0,y:0,c:"\ue086"},mtr7:{x:0,y:0,c:"\ue087"},mtr8:{x:0,y:0,c:"\ue088"},mtr9:{x:0,y:0,c:"\ue089"},mtrC:{x:0,y:0,c:"\ue08a"},"mtrC|":{x:0,y:0,c:"\ue08b"},"mtr+":{x:0,y:0,c:"\ue08c"},"mtr(":{x:0,y:0,c:"\ue094"},"mtr)":{x:0,y:0,c:"\ue095"},HDD:{x:-7,y:0,c:"\ue0a0"},breve:{x:-7,y:0,c:"\ue0a1"},HD:{x:-5.2,y:0,c:"\ue0a2"},Hd:{x:-3.8,y:0,c:"\ue0a3"},hd:{x:-3.7,y:0,c:"\ue0a4"},ghd:{x:2,y:0,c:"\ue0a4",sc:.66},pshhd:{x:-3.7,y:0,c:"\ue0a9"},pfthd:{x:-3.7,y:0,c:"\ue0b3"},x:{x:-3.7,y:0,c:"\ue0a9"},"circle-x":{x:-3.7,y:0,c:"\ue0b3"},srep:{x:-5,y:0,c:"\ue101"},"dot+":{x:-5,y:0,sc:.7,c:"\ue101"},diamond:{x:-4,y:0,c:"\ue1b9"},triangle:{x:-4,y:0,c:"\ue1bb"},dot:{x:-1,y:0,c:"\ue1e7"},flu1:{x:-.3,y:0,c:"\ue240"},fld1:{x:-.3,y:0,c:"\ue241"},flu2:{x:-.3,y:0,c:"\ue242"},fld2:{x:-.3,y:0,c:"\ue243"},flu3:{x:-.3,y:3.5,c:"\ue244"},fld3:{x:-.3,y:-4,c:"\ue245"},flu4:{x:-.3,y:8,c:"\ue246"},fld4:{x:-.3,y:-9,c:"\ue247"},flu5:{x:-.3,y:12.5,c:"\ue248"},fld5:{x:-.3,y:-14,c:"\ue249"},"acc-1":{x:-1,y:0,c:"\ue260"},"cacc-1":{x:0,y:0,c:"\ue26a\ue260\ue26b"},"sacc-1":{x:-1,y:0,sc:.7,c:"\ue260"},acc3:{x:-1,y:0,c:"\ue261"},"cacc3":{x:0,y:0,c:"\ue26a\ue261\ue26b"},sacc3:{x:-1,y:0,sc:.7,c:"\ue261"},acc1:{x:-2,y:0,c:"\ue262"},"cacc1":{x:0,y:0,c:"\ue26a\ue262\ue26b"},sacc1:{x:-2,y:0,sc:.7,c:"\ue262"},acc2:{x:-3,y:0,c:"\ue263"},"acc-2":{x:-3,y:0,c:"\ue264"},"acc-1_2":{x:-2,y:0,c:"\ue280"},"acc-3_2":{x:-3,y:0,c:"\ue281"},acc1_2:{x:-1,y:0,c:"\ue282"},acc3_2:{x:-3,y:0,c:"\ue283"},accent:{x:-3,y:2,c:"\ue4a0"},stc:{x:0,y:-2,c:"\ue4a2"},emb:{x:0,y:-2,c:"\ue4a4"},wedge:{x:0,y:0,c:"\ue4a8"},marcato:{x:-3,y:-2,c:"\ue4ac"},hld:{x:-7,y:-2,c:"\ue4c0"},brth:{x:0,y:0,c:"\ue4ce"},caes:{x:0,y:8,c:"\ue4d1"},r00:{x:-1.5,y:0,c:"\ue4e1"},r0:{x:-1.5,y:0,c:"\ue4e2"},r1:{x:-3.5,y:-6,c:"\ue4e3"},r2:{x:-3.2,y:0,c:"\ue4e4"},r4:{x:-3,y:0,c:"\ue4e5"},r8:{x:-3,y:0,c:"\ue4e6"},r16:{x:-4,y:0,c:"\ue4e7"},r32:{x:-4,y:0,c:"\ue4e8"},r64:{x:-4,y:0,c:"\ue4e9"},r128:{x:-4,y:0,c:"\ue4ea"},mrep:{x:-6,y:0,c:"\ue500"},mrep2:{x:-9,y:0,c:"\ue501"},p:{x:-3,y:0,c:"\ue520"},f:{x:-3,y:0,c:"\ue522"},pppp:{x:-15,y:0,c:"\ue529"},ppp:{x:-14,y:0,c:"\ue52a"},pp:{x:-8,y:0,c:"\ue52b"},mp:{x:-8,y:0,c:"\ue52c"},mf:{x:-8,y:0,c:"\ue52d"},ff:{x:-7,y:0,c:"\ue52f"},fff:{x:-10,y:0,c:"\ue530"},ffff:{x:-14,y:0,c:"\ue531"},sfz:{x:-10,y:0,c:"\ue539"},trl:{x:-3,y:-3,c:"\ue566"},turn:{x:-5,y:0,c:"\ue567"},turnx:{x:-5,y:0,c:"\ue569"},umrd:{x:-6,y:2,c:"\ue56c"},lmrd:{x:-6,y:2,c:"\ue56d"},dplus:{x:-3,y:0,c:"\ue582"},sld:{x:-3,y:2,c:"\ue5d0"},grm:{x:-3,y:-2,c:"\ue5e2"},dnb:{x:-3,y:0,c:"\ue610"},upb:{x:-2,y:0,c:"\ue612"},opend:{x:-2,y:-2,c:"\ue614"},roll:{x:0,y:0,c:"\ue618"},thumb:{x:-2,y:-2,c:"\ue624"},snap:{x:-2,y:-2,c:"\ue630"},ped:{x:-10,y:0,c:"\ue650"},pedoff:{x:-5,y:0,c:"\ue655"},"mtro.":{x:0,y:0,c:"\ue910"},mtro:{x:0,y:0,c:"\ue911"},"mtro|":{x:0,y:0,c:"\ue912"},"mtrc.":{x:0,y:0,c:"\ue914"},mtrc:{x:0,y:0,c:"\ue915"},"mtrc|":{x:0,y:0,c:"\ue918"},longa:{x:-4.7,y:0,c:"\ue95d"},custos:{x:-4,y:3,c:"\uea02"},ltr:{x:2,y:6,c:"\ueaa4"}}
+var tgls={"mtr ":{x:0,y:0,c:"\u0020"},brace:{x:0,y:0,c:"\ue000"},lphr:{x:0,y:23,c:"\ue030"},mphr:{x:0,y:23,c:"\ue038"},sphr:{x:0,y:25,c:"\ue039"},short:{x:0,y:32,c:"\ue038"},tick:{x:0,y:25,c:"\ue039"},rdots:{x:0,y:0,c:"\ue043"},rdot:{x:0,y:0,c:"\ue044"},dsgn:{x:-12,y:0,c:"\ue045"},dcap:{x:-12,y:0,c:"\ue046"},sgno:{x:-5,y:0,c:"\ue047"},coda:{x:-10,y:0,c:"\ue048"},tclef:{x:-8,y:0,c:"\ue050"},cclef:{x:-8,y:0,c:"\ue05c"},bclef:{x:-8,y:0,c:"\ue062"},pclef:{x:-6,y:0,c:"\ue069"},spclef:{x:-6,y:0,c:"\ue069"},stclef:{x:-8,y:0,c:"\ue07a"},scclef:{x:-8,y:0,c:"\ue07b"},sbclef:{x:-7,y:0,c:"\ue07c"},oct:{x:0,y:2,c:"\ue07d"},oct2:{x:0,y:2,c:"\ue07e"},mtr0:{x:0,y:0,c:"\ue080"},mtr1:{x:0,y:0,c:"\ue081"},mtr2:{x:0,y:0,c:"\ue082"},mtr3:{x:0,y:0,c:"\ue083"},mtr4:{x:0,y:0,c:"\ue084"},mtr5:{x:0,y:0,c:"\ue085"},mtr6:{x:0,y:0,c:"\ue086"},mtr7:{x:0,y:0,c:"\ue087"},mtr8:{x:0,y:0,c:"\ue088"},mtr9:{x:0,y:0,c:"\ue089"},mtrC:{x:0,y:0,c:"\ue08a"},"mtrC|":{x:0,y:0,c:"\ue08b"},"mtr+":{x:0,y:0,c:"\ue08c"},"mtr(":{x:0,y:0,c:"\ue094"},"mtr)":{x:0,y:0,c:"\ue095"},HDD:{x:-7,y:0,c:"\ue0a0"},breve:{x:-7,y:0,c:"\ue0a1"},HD:{x:-5.2,y:0,c:"\ue0a2"},Hd:{x:-3.8,y:0,c:"\ue0a3"},hd:{x:-3.7,y:0,c:"\ue0a4"},ghd:{x:2,y:0,c:"\ue0a4",sc:.66},pshhd:{x:-3.7,y:0,c:"\ue0a9"},pfthd:{x:-3.7,y:0,c:"\ue0b3"},x:{x:-3.7,y:0,c:"\ue0a9"},"circle-x":{x:-3.7,y:0,c:"\ue0b3"},srep:{x:-5,y:0,c:"\ue101"},"dot+":{x:-5,y:0,sc:.7,c:"\ue101"},diamond:{x:-4,y:0,c:"\ue1b9"},triangle:{x:-4,y:0,c:"\ue1bb"},dot:{x:-1,y:0,c:"\ue1e7"},flu1:{x:-.3,y:0,c:"\ue240"},fld1:{x:-.3,y:0,c:"\ue241"},flu2:{x:-.3,y:0,c:"\ue242"},fld2:{x:-.3,y:0,c:"\ue243"},flu3:{x:-.3,y:3.5,c:"\ue244"},fld3:{x:-.3,y:-4,c:"\ue245"},flu4:{x:-.3,y:8,c:"\ue246"},fld4:{x:-.3,y:-9,c:"\ue247"},flu5:{x:-.3,y:12.5,c:"\ue248"},fld5:{x:-.3,y:-14,c:"\ue249"},"acc-1":{x:-1,y:0,c:"\ue260"},"cacc-1":{x:0,y:0,c:"\ue26a\ue260\ue26b"},"sacc-1":{x:-1,y:0,sc:.7,c:"\ue260"},acc3:{x:-1,y:0,c:"\ue261"},"cacc3":{x:0,y:0,c:"\ue26a\ue261\ue26b"},sacc3:{x:-1,y:0,sc:.7,c:"\ue261"},acc1:{x:-2,y:0,c:"\ue262"},"cacc1":{x:0,y:0,c:"\ue26a\ue262\ue26b"},sacc1:{x:-2,y:0,sc:.7,c:"\ue262"},acc2:{x:-3,y:0,c:"\ue263"},"acc-2":{x:-3,y:0,c:"\ue264"},"acc-1_2":{x:-2,y:0,c:"\ue280"},"acc-3_2":{x:-3,y:0,c:"\ue281"},acc1_2:{x:-1,y:0,c:"\ue282"},acc3_2:{x:-3,y:0,c:"\ue283"},accent:{x:-3,y:2,c:"\ue4a0"},stc:{x:0,y:-2,c:"\ue4a2"},emb:{x:0,y:-2,c:"\ue4a4"},wedge:{x:0,y:0,c:"\ue4a8"},marcato:{x:-3,y:-2,c:"\ue4ac"},hld:{x:-7,y:-2,c:"\ue4c0"},brth:{x:0,y:0,c:"\ue4ce"},caes:{x:0,y:8,c:"\ue4d1"},r00:{x:-1.5,y:0,c:"\ue4e1"},r0:{x:-1.5,y:0,c:"\ue4e2"},r1:{x:-3.5,y:-6,c:"\ue4e3"},r2:{x:-3.2,y:0,c:"\ue4e4"},r4:{x:-3,y:0,c:"\ue4e5"},r8:{x:-3,y:0,c:"\ue4e6"},r16:{x:-4,y:0,c:"\ue4e7"},r32:{x:-4,y:0,c:"\ue4e8"},r64:{x:-4,y:0,c:"\ue4e9"},r128:{x:-4,y:0,c:"\ue4ea"},mrep:{x:-6,y:0,c:"\ue500"},mrep2:{x:-9,y:0,c:"\ue501"},p:{x:-3,y:0,c:"\ue520"},f:{x:-3,y:0,c:"\ue522"},pppp:{x:-15,y:0,c:"\ue529"},ppp:{x:-14,y:0,c:"\ue52a"},pp:{x:-8,y:0,c:"\ue52b"},mp:{x:-8,y:0,c:"\ue52c"},mf:{x:-8,y:0,c:"\ue52d"},ff:{x:-7,y:0,c:"\ue52f"},fff:{x:-10,y:0,c:"\ue530"},ffff:{x:-14,y:0,c:"\ue531"},sfz:{x:-10,y:0,c:"\ue539"},trl:{x:-3,y:-3,c:"\ue566"},turn:{x:-5,y:0,c:"\ue567"},turnx:{x:-5,y:0,c:"\ue569"},umrd:{x:-6,y:2,c:"\ue56c"},lmrd:{x:-6,y:2,c:"\ue56d"},dplus:{x:-3,y:0,c:"\ue582"},sld:{x:-3,y:2,c:"\ue5d0"},grm:{x:-3,y:-2,c:"\ue5e2"},dnb:{x:-3,y:0,c:"\ue610"},upb:{x:-2,y:0,c:"\ue612"},opend:{x:-2,y:-2,c:"\ue614"},roll:{x:0,y:0,c:"\ue618"},thumb:{x:-2,y:-2,c:"\ue624"},snap:{x:-2,y:-2,c:"\ue630"},ped:{x:-10,y:-2,c:"\ue650"},pedoff:{x:-5,y:-2,c:"\ue655"},"mtro.":{x:0,y:0,c:"\ue910"},mtro:{x:0,y:0,c:"\ue911"},"mtro|":{x:0,y:0,c:"\ue912"},"mtrc.":{x:0,y:0,c:"\ue914"},mtrc:{x:0,y:0,c:"\ue915"},"mtrc|":{x:0,y:0,c:"\ue918"},longa:{x:-4.7,y:0,c:"\ue95d"},custos:{x:-4,y:3,c:"\uea02"},ltr:{x:2,y:6,c:"\ueaa4"}}
 var glyphs={}
 function m_gl(s){return s.replace(/./g,function(e){var m=tgls["mtr"+e]
 return m?m.c:0})}
@@ -8408,13 +8436,17 @@ output+=h.toFixed(1)
 output+=h.toFixed(1)
 +((f&4)?'h-3"/>\n':'c5 0 9 4.5 8.5 5.5c0 1 -1.5 -4.5 -12 -3.5"/>\n')}}
 function out_bracket(x,y,h){out_wings(x-5,y+2,h,0)}
-function out_hyph(x,y,w){var n,a_y,d=25+((w/20)|0)*3
-if(w>15.)
-n=((w-15)/d)|0
-else
-n=0;x+=(w-d*n-5)/2;out_XYAB('<path class="stroke" stroke-width="1.2"\n\
- stroke-dasharray="5,A"\n\
- d="mX YhB"/>\n',x,y+4,Math.round((d-5)/stv_g.scale),d*n+5)}
+function out_hyph(x,y,w){var i,sz=cwidf('-'),d=5*sz,n=((w-2*sz)/d)|0
+if(n<0)
+n=0
+x+=(w-n*d-sz)/2
+output+='<text class="'+font_class(gene.curfont)
++'" x="'+sx(x).toFixed(2)
+i=n
+while(--n>=0){x+=d
+output+=","+sx(x).toFixed(2)}
+output+='" y="'+sy(y).toFixed(2)
++'">'+'-'.repeat(i+1)+'</text>\n'}
 function out_stem(x,y,h,grace,nflags,straight){var dx=grace?GSTEM_XOFF:3.5,slen=-h
 if(h<0)
 dx=-dx;x+=dx*stv_g.scale
@@ -8729,43 +8761,73 @@ if(s2){s.fname=s2.fname;s.istart=s2.istart;s.iend=s2.iend}
 return s}
 var w_tb=new Uint8Array([6,2,8,6,7,3,4,9,9,0,9,5,0,1,0,0,0,0])
 function sort_all(){var s,s2,time,w,wmin,ir,fmt,v,p_voice,prev,fl,new_sy,nv=voice_tb.length,vtb=[],vn=[],sy=cur_sy
-function b_chk(){var bt,s,s2,v,t,ir=0
+function b_chk(){var bt,s,s2,s3,v,t,ir=0
 while(1){v=vn[ir++]
 if(v==undefined)
 break
 s=vtb[v]
 if(!s||!s.bar_type||s.invis||s.time!=time)
 continue
-if(!bt){bt=s.bar_type
-if(s.text&&bt=='|')
-t=s.text
-continue}
-if(s.bar_type!=bt)
-break
-if(s.text&&!t&&bt=='|'){t=s.text
-break}}
+if(!bt){s3=s
+bt=s.bar_type}else if(s.bar_type!=bt||s.text!=s3.text){break}}
 if(v==undefined)
 return
-if(bt=="::"||bt==":|"||t){ir=0
-bt=t?'|':"::"
+if(bt[0]==':'&&s.bar_type[0]==':'&&(bt=="::"||s.bar_type=='::')){ir=0
 while(1){v=vn[ir++]
 if(v==undefined)
-break
+return
 s=vtb[v]
-if(!s||s.invis||s.bar_type!=bt||(bt=='|'&&!s.text))
+if(!s||s.invis)
 continue
+if(s.bar_type[0]!=':')
+break
+if(s.bar_type!='::'){if(s.bar_type!=":|")
+break
+s2=s
+while(s2.next&&s2.next.time==s3.time){s2=s2.next
+if(s2.bar_type)
+break}
+if(s2.bar_type=="|:")
+continue
+break}
 s2=clone(s)
-if(bt=="::"){s.bar_type=":|"
-s2.bar_type="|:"}else{delete s.text
-delete s.rbstart
-s2.bar_type='['
-s2.invis=1
-s2.xsh=0}
+s.bar_type=":|"
+s2.bar_type="|:"
 s2.next=s.next
 if(s2.next)
 s2.next.prev=s2
 s2.prev=s
-s.next=s2}}else{error(1,s,"Different bars $1 and $2",(bt+(t||'')),(s.bar_type+(s.text||'')))}}
+s.next=s2}}else if(s3.text||s.text){if(!s3.text)
+s3=s
+t=s3.text
+ir=0
+while(1){v=vn[ir++]
+if(v==undefined)
+return
+s=vtb[v]
+if(!s||s.invis)
+continue
+if(s.text){if(s.text==t)
+continue
+break}
+s2=s
+while(s2.next&&s2.next.time==s.time){s2=s2.next
+if(s2.text)
+break}
+if(!s2.text||s2.text!=t)
+break
+s2=clone(s)
+delete s.text
+delete s.rbstart
+s2.bar_type='['
+s2.invis=1
+s2.xsh=0
+s2.next=s.next
+if(s2.next)
+s2.next.prev=s2
+s2.prev=s
+s.next=s2}}
+error(1,s3,"Different bars $1 and $2",(bt+(s3.text||'')),(s.bar_type+(s.text||'')))}
 for(v=0;v<nv;v++){s=voice_tb[v].sym
 vtb[v]=s
 if(sy.voices[v]){vn[sy.voices[v].range]=v
@@ -9849,7 +9911,8 @@ shift=14}
 ly.shift=shift
 if(shift>wl)
 wl=shift
-w+=spw*1.5
+if(ly.ln!=1)
+w+=spw
 w-=shift
 if(w>wx)
 wx=w}
@@ -9888,7 +9951,8 @@ gene.curfont=ly.font
 p=ly.t;ln=ly.ln||0
 w=p.wh[0]
 shift=ly.shift
-if(hyflag){if(ln==3){ln=2}else if(ln<2){out_hyph(lastx,y,s.x-shift-lastx);hyflag=false;lastx=s.x+s.wr}}
+if(hyflag){if(ln==3){ln=2}else if(ln<2){if(s.x-shift-lastx>gene.curfont.swfac*.4)
+out_hyph(lastx,y,s.x-shift-lastx);hyflag=false;lastx=s.x+s.wr}}
 if(lflag&&ln!=3){out_wln(lastx+3,y,x0-lastx+3);lflag=false;lastx=s.x+s.wr}
 if(ln>=2){if(x0==0&&lastx>s.x-18)
 lastx=s.x-18
@@ -10277,4 +10341,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.23.1";abc2svg.vdate="2026-04-18"
+abc2svg.version="v1.23.2";abc2svg.vdate="2026-05-28"

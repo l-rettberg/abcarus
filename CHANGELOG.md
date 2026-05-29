@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.39.0] - 2026-05-28
+### Changed
+- Updated bundled `abc2svg` to Jef Moine's 2026-05-28 tip with the upstream `P:` selection playback fix.
+
+### Fixed
+- Full-tune playback for ABC `P:` part-order tunes now starts the abc2svg engine from the tune root, matching abc2svg editor behavior and avoiding extra repeats when the cursor is on the first playable note.
+
 ## [0.38.1] - 2026-04-24
 ### Changed
 - Package/build metadata now consistently uses the `abcarus` / `ABCarus` naming across package manifests, AppImage guidance, and developer orientation notes.

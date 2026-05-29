@@ -142,11 +142,12 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
   if (start < 0 || end < 0) throw new Error("Unable to isolate Align Bars helpers.");
 
   const module = { exports: {} };
-  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText };\n`;
+  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText, getBarSeparatorColumns };\n`;
   const load = new Function("module", "exports", helpers);
   load(module, module.exports);
-  const { alignBarsInText } = module.exports;
+  const { alignBarsInText, getBarSeparatorColumns } = module.exports;
   if (typeof alignBarsInText !== "function") throw new Error("alignBarsInText() is unavailable.");
+  if (typeof getBarSeparatorColumns !== "function") throw new Error("getBarSeparatorColumns() is unavailable.");
 
   const input = [
     "X:1",
@@ -172,6 +173,55 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
   }
   if (/^\s/.test(eLine)) {
     throw new Error("Align Bars inserted a leading empty column after inline M:/L: section fields.");
+  }
+
+  const lyricInterleaved = [
+    "X:2",
+    "M:6/8",
+    "L:1/16",
+    "K:G",
+    "z6 z (B,C^DEF) | Gz2<(!>!A2G) (ABAGFE) |",
+    "w:",
+    "^DzEDC2 E6 | E2^D2C2 D2 TE4 |",
+    "w: lyric | text",
+    "z4 (E^D) E2 F4 | (FG) (F/2G/2F/2E/2-)E2 F6- |",
+  ].join("\n");
+  const lyricOut = alignBarsInText(lyricInterleaved);
+  if (lyricOut === lyricInterleaved) {
+    throw new Error("Align Bars did not align music lines separated by w: lyric lines.");
+  }
+  const lyricLines = String(lyricOut || "").split(/\r\n|\n|\r/);
+  const lyricMusicLine = lyricLines.find((line) => line.startsWith("^DzEDC2"));
+  const alignedLyricLine = lyricLines.find((line) => line.startsWith("w: lyric"));
+  if (!/^w:\s*$/m.test(lyricOut) || !lyricMusicLine || !alignedLyricLine) {
+    throw new Error("Align Bars lost w: lyric lines while aligning interleaved music.");
+  }
+  if (lyricMusicLine.indexOf("|") !== alignedLyricLine.indexOf("|")) {
+    throw new Error("Align Bars did not align compatible w: separators to the preceding music line.");
+  }
+
+  const lyricLeadingRepeat = [
+    "X:3",
+    "M:2/4",
+    "L:1/4",
+    "K:C",
+    "|: C D E F G A B c | d e f g a b c d |",
+    "w:first words | second words |",
+  ].join("\n");
+  const leadingRepeatOut = alignBarsInText(lyricLeadingRepeat);
+  const leadingRepeatLines = String(leadingRepeatOut || "").split(/\r\n|\n|\r/);
+  const leadingRepeatMusic = leadingRepeatLines.find((line) => line.includes("|: C"));
+  const leadingRepeatLyric = leadingRepeatLines.find((line) => line.startsWith("w:first"));
+  if (!leadingRepeatMusic || !leadingRepeatLyric) {
+    throw new Error("Align Bars lost leading-repeat lyric regression lines.");
+  }
+  const musicSepCols = getBarSeparatorColumns(leadingRepeatMusic);
+  const lyricSepCols = getBarSeparatorColumns(leadingRepeatLyric);
+  if (musicSepCols.length !== 3 || lyricSepCols.length !== 2) {
+    throw new Error("Align Bars leading-repeat lyric regression fixture has unexpected separator counts.");
+  }
+  if (lyricSepCols[0] !== musicSepCols[1] || lyricSepCols[1] !== musicSepCols[2]) {
+    throw new Error("Align Bars did not skip the leading repeat separator when aligning w: separators.");
   }
 }
 
@@ -347,6 +397,62 @@ async function assertDirectiveErrorsDoNotGetMeasureStats() {
   }
 }
 
+async function assertSepIsPrestrippedForRender() {
+  const rendererPath = "src/renderer/renderer.js";
+  const src = await readFile(rendererPath, "utf8");
+  const start = src.indexOf("function stripSepForRender(text)");
+  const end = src.indexOf("function parseBarToken(rawToken)", start);
+  if (start < 0 || end < 0) throw new Error("Unable to isolate %%sep render helper.");
+
+  const module = { exports: {} };
+  const load = new Function("module", "exports", `${src.slice(start, end)}\nmodule.exports = { stripSepForRender };\n`);
+  load(module, module.exports);
+  const { stripSepForRender } = module.exports;
+  const input = "X:1\nK:C\nC |]\n%%sep 20 20 100\nW:words\n";
+  const out = stripSepForRender(input);
+  if (!out || !out.replaced) throw new Error("stripSepForRender() must detect %%sep lines.");
+  if (out.text.length !== input.length) throw new Error("stripSepForRender() must preserve source length.");
+  if (/^%%sep/m.test(out.text)) throw new Error("stripSepForRender() must neutralize %%sep before rendering.");
+
+  const prestripCount = (src.match(/const sepStripInitial = stripSepForRender/g) || []).length;
+  if (prestripCount < 2) {
+    throw new Error("Live and print render paths must pre-strip %%sep before calling abc2svg.");
+  }
+}
+
+async function assertPrintSuggestedBaseNameIncludesKey() {
+  const rendererPath = "src/renderer/renderer.js";
+  const src = await readFile(rendererPath, "utf8");
+  const start = src.indexOf("function latinize(text)");
+  const end = src.indexOf("function getPlaybackText()", start);
+  if (start < 0 || end < 0) throw new Error("Unable to isolate print suggested filename helpers.");
+
+  const module = { exports: {} };
+  const prelude = "let activeTuneMeta = null; let editorText = ''; function getEditorValue() { return editorText; }\n";
+  const load = new Function("module", "exports", `${prelude}${src.slice(start, end)}\nmodule.exports = { getSuggestedBaseName, getSuggestedPrintBaseName, setText: (value) => { editorText = value; } };\n`);
+  load(module, module.exports);
+  const { getSuggestedBaseName, getSuggestedPrintBaseName, setText } = module.exports;
+  setText([
+    "X:1",
+    "T:Զով Գիշեր Է",
+    "T:Zov Gisher E",
+    "C:Komitas",
+    "M:6/8",
+    "K:Gmaj",
+    "GABc |]",
+  ].join("\n"));
+  if (getSuggestedBaseName() !== "Zov Gisher E - Komitas") {
+    throw new Error("Default suggested filename should keep title/composer without key.");
+  }
+  if (getSuggestedPrintBaseName() !== "Zov Gisher E - Komitas - Gmaj") {
+    throw new Error("Print/PDF suggested filename should include title, composer, and key.");
+  }
+  setText("X:2\nT:Untitled Keyless\nK:none\nCDEF |]\n");
+  if (getSuggestedPrintBaseName() !== "Untitled Keyless") {
+    throw new Error("Print/PDF suggested filename must omit K:none.");
+  }
+}
+
 async function main() {
   const res = await build({
     entryPoints: ["src/renderer/renderer.js"],
@@ -368,6 +474,8 @@ async function main() {
   await assertMidiDrumContinuationCompat();
   await assertRenderCompatOffsetRemap();
   await assertDirectiveErrorsDoNotGetMeasureStats();
+  await assertSepIsPrestrippedForRender();
+  await assertPrintSuggestedBaseNameIncludesKey();
 }
 
 main().catch((err) => {

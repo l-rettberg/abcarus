@@ -92,8 +92,8 @@ contextBridge.exposeInMainWorld("api", {
   addRecentTune: async (entry) => ipcRenderer.invoke("recent:add", entry),
   addRecentFile: async (entry) => ipcRenderer.invoke("recent:file", entry),
   addRecentFolder: async (entry) => ipcRenderer.invoke("recent:folder", entry),
-  printPreview: async (svgMarkup) => ipcRenderer.invoke("print:preview", svgMarkup),
-  printDialog: async (svgMarkup) => ipcRenderer.invoke("print:dialog", svgMarkup),
+  printPreview: async (svgMarkup, suggestedName) => ipcRenderer.invoke("print:preview", svgMarkup, suggestedName),
+  printDialog: async (svgMarkup, suggestedName) => ipcRenderer.invoke("print:dialog", svgMarkup, suggestedName),
   exportPdf: async (svgMarkup, suggestedName) =>
     ipcRenderer.invoke("print:pdf", svgMarkup, suggestedName),
   listSoundfonts: async () => ipcRenderer.invoke("sf2:list"),

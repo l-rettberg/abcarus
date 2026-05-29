@@ -1,5 +1,17 @@
 import assert from "assert";
-import { transformTranspose, parseABCToPitchEvents } from "../src/renderer/transpose.mjs";
+import {
+  transformTranspose,
+  parseABCToPitchEvents,
+  getDefaultTransposeSupport,
+  getNativeTransposeSupport,
+  detectKnownMakamKeyProfile53,
+  buildEffectiveKeyMicroMap53FromKBody,
+  parseNoteTokenAt53,
+  parseAccidentalPrefix53,
+  computeOctave,
+  baseId53ForNaturalLetter,
+  NOTE_BASES,
+} from "../src/renderer/transpose.mjs";
 
 function run(name, fn) {
   try {
@@ -10,6 +22,53 @@ function run(name, fn) {
     console.error(err);
     process.exitCode = 1;
   }
+}
+
+function parseAbsolute53Pitches(text) {
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  let keyMap = {};
+  let barMap = {};
+  const out = [];
+  for (const line of lines) {
+    const km = line.match(/^\s*K:(.*)$/);
+    if (km) {
+      keyMap = buildEffectiveKeyMicroMap53FromKBody(km[1]);
+      barMap = {};
+      continue;
+    }
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === "%") break;
+      if (ch === "|") {
+        barMap = {};
+        i += 1;
+        continue;
+      }
+      const note = parseNoteTokenAt53(line, i);
+      if (!note) {
+        i += 1;
+        continue;
+      }
+      const upper = note.letter.toUpperCase();
+      const pc = NOTE_BASES[upper];
+      const explicit = parseAccidentalPrefix53(note.accPrefix, pc);
+      const octave = computeOctave(note.letter, note.octaveMarks);
+      const barKey = `${upper}:${octave}`;
+      let micro = 0;
+      if (explicit.explicit) {
+        micro = explicit.micro;
+        barMap[barKey] = micro;
+      } else if (Object.prototype.hasOwnProperty.call(barMap, barKey)) {
+        micro = barMap[barKey];
+      } else if (Object.prototype.hasOwnProperty.call(keyMap, upper)) {
+        micro = keyMap[upper];
+      }
+      out.push(octave * 53 + baseId53ForNaturalLetter(upper) + micro);
+      i = note.end;
+    }
+  }
+  return out;
 }
 
 run("parses pitch events", () => {
@@ -31,6 +90,329 @@ run("tonal transpose K:C (+1 -> Db)", () => {
   assert.strictEqual(output, expected);
 });
 
+run("tonal transpose keeps implied key accidental suppressed in target major key", () => {
+  const input = "X:1\nK:G\nF G A B|F\n";
+  const expected = "X:1\nK:Ab\nG A B c|G\n";
+  const output = transformTranspose(input, 1, { mode: "tonal", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
+run("tonal transpose keeps implied key accidental suppressed in target minor key", () => {
+  const input = "X:1\nK:Em\nF G A B|F\n";
+  const expected = "X:1\nK:Fm\nG A B c|G\n";
+  const output = transformTranspose(input, 1, { mode: "tonal", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
+run("tonal transpose emits natural when source accidental becomes covered by target key", () => {
+  const input = "X:1\nK:C\n^C D E F\n";
+  const expected = "X:1\nK:Db\n=D E F G\n";
+  const output = transformTranspose(input, 1, { mode: "tonal", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
+run("tonal transpose rewrites inline key changes with key-aware spelling", () => {
+  const input = "X:1\nK:C\nC D [K:G] F G A |\n";
+  const expected = "X:1\nK:Db\nD E [K:Ab] G A B |\n";
+  const output = transformTranspose(input, 1, { mode: "tonal", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
+run("default transpose support allows 12-EDO major/minor and K:none", () => {
+  assert.deepStrictEqual(
+    getDefaultTransposeSupport("X:1\nK:C\nCDE\n"),
+    { ok: true, edo: 12 }
+  );
+  assert.deepStrictEqual(
+    getDefaultTransposeSupport("X:1\nK:Am\nABC\n"),
+    { ok: true, edo: 12 }
+  );
+  assert.deepStrictEqual(
+    getDefaultTransposeSupport("X:1\nK:none\nABC\n"),
+    { ok: true, edo: 12 }
+  );
+});
+
+run("default transpose support rejects modal keys", () => {
+  const out = getDefaultTransposeSupport("X:1\nK:Ddor\nF C F C\n");
+  assert.strictEqual(out.ok, false);
+  assert.match(out.reason, /major, minor, or K:none/i);
+});
+
+run("default transpose support rejects microtonal temperament", () => {
+  const out = getDefaultTransposeSupport("X:1\n%%MIDI temperamentequal 24\nK:C\nCDE\n");
+  assert.strictEqual(out.ok, false);
+  assert.match(out.reason, /12-EDO/i);
+});
+
+run("native transpose support inherits 53-TET from file header", () => {
+  const out = getNativeTransposeSupport("X:1\nK:C _4B^4f^4c\nA B c d\n", {
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.deepStrictEqual(out, { ok: true, edo: 53 });
+});
+
+run("native transpose support allows local 12-EDO override inside 53-TET file", () => {
+  const out = getNativeTransposeSupport("X:1\n%%MIDI temperamentequal 12\nK:C\nCDE\n", {
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.deepStrictEqual(out, { ok: true, edo: 12 });
+});
+
+run("53-TET detects Hicaz key profile from canonical key signature", () => {
+  const profile = detectKnownMakamKeyProfile53("C _4B^4f^4c");
+  assert(profile);
+  assert.strictEqual(profile.id, "hicaz");
+});
+
+run("53-TET detects Hicaz key profile after transposition", () => {
+  const profile = detectKnownMakamKeyProfile53("D ^5B ^4g ^4d");
+  assert(profile);
+  assert.strictEqual(profile.id, "hicaz");
+});
+
+run("53-TET transpose uses file header inheritance", () => {
+  const input = "X:1\nK:C _4B^4f^4c\nA d ^3f\n";
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^K:none$/m);
+  assert.match(output, /^_5B _5e _\/g$/m);
+});
+
+run("53-TET local 12-EDO override wins over file header", () => {
+  const input = "X:1\n%%MIDI temperamentequal 12\nK:C\nCDE\n";
+  const expected = "X:1\n%%MIDI temperamentequal 12\nK:Db\nDEF\n";
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.strictEqual(output, expected);
+});
+
+run("53-TET round-trip preserves effective key signature semantics", () => {
+  const input = "X:1\nK:C _4B^4f^4c\nA d ^3f\n";
+  const up = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  const back = transformTranspose(up, -1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.deepStrictEqual(parseAbsolute53Pitches(back), parseAbsolute53Pitches(input));
+});
+
+run("53-TET hicaz excerpt round-trip preserves absolute pitches", () => {
+  const input = [
+    "X:1",
+    "K:C _4B^4f^4c",
+    "A d3ed/c/ d2|c/d/e2d/c/ c/B/B/A/ A2|de2g ^3fd ec|d3e/^3f/ a/g/^2f/e/ d2|",
+    "ga2=b ag ^2fe|^3fg2a ^1f3/e/ d2|cd2e cB AG|d3/ c/ c/B/B/A/ A4|",
+    "",
+  ].join("\n");
+  const up = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  const back = transformTranspose(up, -1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.deepStrictEqual(parseAbsolute53Pitches(back), parseAbsolute53Pitches(input));
+});
+
+run("53-TET hicaz bar 2 keeps transposed B notes out of western C# major defaults", () => {
+  const input = [
+    "X:1",
+    "K:C _4B^4f^4c",
+    "A d3ed/c/ d2|c/d/e2d/c/ c/B/B/A/ A2|",
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^K:none _5e _1d$/m);
+  assert.match(output, /d\/B\/B\/\^4A\/ A2\|/);
+  assert.doesNotMatch(output, /d\/\^4C\/\^4C\/\^4A\//);
+  assert.doesNotMatch(output, /_4c/);
+  const keyBody = output.match(/^K:(.*)$/m)?.[1] || "";
+  assert.deepStrictEqual(buildEffectiveKeyMicroMap53FromKBody(keyBody), { E: -5, D: -1 });
+});
+
+run("53-TET surrogate key uses standard signature ordering", () => {
+  const input = [
+    "X:1",
+    "K:C _4B^4f^4c",
+    "A d3ed/c/ d2|c/d/e2d/c/ c/B/B/A/ A2|",
+    "de2g ^3fd ec|d3e/^3f/ a/g/^2f/e/ d2|",
+    "ga2=b ag ^2fe|^3fg2a ^1f3/e/ d2|",
+    "cd2e cB AG|d3/ c/ c/B/B/A/ A4|",
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^K:none _5e _1d$/m);
+  assert.doesNotMatch(output, /^K:.*_4c/m);
+});
+
+run("53-TET prefers non-micro enharmonic spelling for key-derived notes", () => {
+  const input = "X:1\nK:C _4B^4f^4c\nB B B|B\n";
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^B B B\|B$/m);
+  assert.doesNotMatch(output, /_4c/);
+});
+
+run("53-TET semitone size follows finalis anchor", () => {
+  const input = "X:1\nK:C\n^C\n";
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^D$/m);
+  assert.doesNotMatch(output, /_1D/);
+});
+
+run("53-TET keeps named perde enharmonic family when useful", () => {
+  const input = "X:1\nK:C ^4f\n^4f\n";
+  const output = transformTranspose(input, 0, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /\^4f/);
+  assert.doesNotMatch(output, /_4A|_4a/);
+});
+
+run("53-TET +2 round-trip preserves absolute pitches", () => {
+  const input = "X:1\nK:C _4B^4f^4c\nA d ^3f\n";
+  const options = {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  };
+  const direct = transformTranspose(input, 2, options);
+  const back = transformTranspose(direct, -2, options);
+  assert.deepStrictEqual(parseAbsolute53Pitches(back), parseAbsolute53Pitches(input));
+});
+
+run("53-TET bar selector preserves Evic melodic contour across barline", () => {
+  const input = [
+    "X:1",
+    "T:Eviç Seyir",
+    "M:4/4",
+    "L:1/8",
+    "Q:1/4=60",
+    "K:C _1B^4f^4c",
+    "z2ff      f2f2           | ga/b/  ag    f3/^4e/ d2     |",
+    "z=c'  ba       a3/g/ a/g/g/f/ | f3^4e     de        f2   |",
+    "z2e^3f g2fe                 | a3g   ^3f3/e/  d2             |",
+    "zd2d      d2=cd          | e=f/g/ f/e/d =c/d/c/_2B/ A2 |",
+    "zA2A  d4                      | d/=f/e/d/ =c/B/A/G/ F2B2 |",
+    "zA2B   =c2BA                | A3/G/ A/G/G/F/ F4             |",
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, -1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /\| _4g_4a\/_5b\/  ag/);
+  assert.doesNotMatch(output, /\| \^5fg\/a\/  gf/);
+});
+
+run("53-TET direct +2 matches two canonical +1 steps", () => {
+  const input = [
+    "X:1",
+    "T:Eviç Seyir",
+    "M:4/4",
+    "L:1/8",
+    "Q:1/4=60",
+    "K:C _1B^4f^4c",
+    "z2ff      f2f2           | ga/b/  ag    f3/^4e/ d2     |",
+    "z=c'  ba       a3/g/ a/g/g/f/ | f3^4e     de        f2   |",
+    "z2e^3f g2fe                 | a3g   ^3f3/e/  d2             |",
+    "zd2d      d2=cd          | e=f/g/ f/e/d =c/d/c/_2B/ A2 |",
+    "zA2A  d4                      | d/=f/e/d/ =c/B/A/G/ F2B2 |",
+    "zA2B   =c2BA                | A3/G/ A/G/G/F/ F4             |",
+    "",
+  ].join("\n");
+  const options = {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  };
+  const sequential = transformTranspose(transformTranspose(input, 1, options), 1, options);
+  const direct = transformTranspose(input, 2, options);
+  assert.strictEqual(direct, sequential);
+});
+
+run("53-TET bar accidentals are octave-specific", () => {
+  const input = [
+    "X:1",
+    "K:C _1B^4f^4c",
+    "d/=f/e/d/ =c/B/A/G/ F2B2 |",
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, 2, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /\/A\/ \^4G2c2 \|/);
+  assert.doesNotMatch(output, /\/A\/ G2c2 \|/);
+});
+
+run("53-TET leaves voice field parameters untouched", () => {
+  const input = [
+    "X:1",
+    "K:C _1B^4f^4c",
+    "V:1 clef=treble transpose=-17",
+    "A B c |",
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.match(output, /^V:1 clef=treble transpose=-17$/m);
+  assert.doesNotMatch(output, /=cl\^4e=f=treble/);
+});
+
+run("53-TET transposes chord symbols in rest-only bars", () => {
+  const input = [
+    "X:1",
+    "%%MIDI temperamentequal 53",
+    "K:F _2B",
+    '"Am7" z4 z"Dsus4/G" z4 z |',
+    "",
+  ].join("\n");
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+  });
+  assert.match(output, /"Bbm7" z4 z"Ebsus4\/Ab" z4 z \|/);
+  assert.doesNotMatch(output, /"Am7" z4 z"Dsus4\/G" z4 z \|/);
+});
+
 run("bar accidentals reset", () => {
   const input = "X:1\nK:C\n^F F F|F\n";
   const expected = "X:1\nK:C\n_G G G|F\n";
@@ -43,6 +425,23 @@ run("key signature accidental defaults", () => {
   const expected = "X:1\nK:G\nF F|F\n";
   const output = transformTranspose(input, 0, { mode: "tonal", prefer: "flat" });
   assert.strictEqual(output, expected);
+});
+
+run("12-EDO extra key accidental suppresses matching transposed note accidentals", () => {
+  const input = "X:1\nK:none ^g\nG ^G | A\n";
+  const expected = "X:1\nK:none ^d\nD D | E\n";
+  const output = transformTranspose(input, -5, { mode: "chromatic", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
+run("12-EDO promotes frequent respelled accidentals into extra key signature", () => {
+  const input = "X:1\nK:none ^g\nB B B B G A F\n";
+  const expected = "X:1\nK:none ^d ^F\nF F F F D E C\n";
+  const output = transformTranspose(input, -5, { mode: "chromatic", prefer: "flat" });
+  assert.strictEqual(output, expected);
+  const before = parseABCToPitchEvents(input).map((event) => event.absolutePitch - 10);
+  const after = parseABCToPitchEvents(output).map((event) => event.absolutePitch);
+  assert.deepStrictEqual(after, before);
 });
 
 run("quarter-tone transpose K:none", () => {
@@ -82,7 +481,7 @@ run("bang directives untouched", () => {
 
 run("key signature microtonal accidental transposed", () => {
   const input = "X:1\nK:none ^/f clef=treble\nf\n";
-  const expected = "X:1\nK:none ^/g clef=treble\n^/g\n";
+  const expected = "X:1\nK:none ^/g clef=treble\ng\n";
   const output = transformTranspose(input, 2, { mode: "chromatic", prefer: "flat" });
   assert.strictEqual(output, expected);
 });

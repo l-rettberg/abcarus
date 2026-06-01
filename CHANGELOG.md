@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Transposition now preserves explicit accidentals correctly for separated minor key signatures such as `K:G Minor`, avoiding dropped sharp sevenths when moving to another minor key.
+
 
 
 ## [0.39.0] - 2026-05-28

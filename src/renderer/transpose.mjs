@@ -141,7 +141,7 @@ function parseKeyToken(token) {
   const letter = match[1].toUpperCase();
   const accidental = match[2] || "";
   const modeSuffix = match[3] || "";
-  const modeLower = modeSuffix.toLowerCase();
+  const modeLower = modeSuffix.trim().toLowerCase();
   const isMinor = modeLower.startsWith("m") && !modeLower.startsWith("maj");
   const base = NOTE_BASES[letter];
   const acc = accidental === "#" ? 1 : (accidental === "b" ? -1 : 0);
@@ -462,6 +462,25 @@ function parseKLineBodyForRewrite(body) {
   const m = raw.match(/^(\s*)(\S+)([\s\S]*)$/);
   if (!m) return { leading: "", firstToken: "", rest: raw };
   return { leading: m[1], firstToken: m[2], rest: m[3] };
+}
+
+function parseInitialKKeyToken(body) {
+  const raw = String(body || "");
+  const m = raw.match(/^(\s*)(\S+)([\s\S]*)$/);
+  if (!m) return { leading: "", keyToken: "", end: 0, tail: raw };
+
+  const leading = m[1] || "";
+  let keyToken = m[2] || "";
+  let end = leading.length + keyToken.length;
+  let tail = m[3] || "";
+  const mode = tail.match(/^(\s+)(major|minor|maj|min|m)\b/i);
+  if (mode) {
+    keyToken += `${mode[1]}${mode[2]}`;
+    end += mode[1].length + mode[2].length;
+    tail = tail.slice(mode[1].length + mode[2].length);
+  }
+
+  return { leading, keyToken, end, tail };
 }
 
 function tonicSideFromKeyToken(token) {
@@ -2084,13 +2103,15 @@ function parseABCWithMeta(text) {
     }
 
     if (/^\s*K:/.test(line)) {
-      const match = line.match(/^(\s*K:\s*)(\S+)(.*)$/);
+      const match = line.match(/^(\s*K:\s*)([\s\S]*)$/);
       if (match) {
-        const keyToken = match[2];
-        const start = offset + match[1].length;
-        const end = start + keyToken.length;
-        const tail = match[3] || "";
-        const accEvents = parseKeyAccidentals(tail, offset + match[1].length + keyToken.length);
+        const body = match[2] || "";
+        const parsedKey = parseInitialKKeyToken(body);
+        const keyToken = parsedKey.keyToken;
+        const start = offset + match[1].length + parsedKey.leading.length;
+        const end = offset + match[1].length + parsedKey.end;
+        const tail = parsedKey.tail || "";
+        const accEvents = parseKeyAccidentals(tail, end);
         keyEvents.push({
           start,
           end,
@@ -2148,10 +2169,11 @@ function parseABCWithMeta(text) {
           const tag = line[i + 1].toUpperCase();
           if (tag === "K") {
             const tokenPart = line.slice(i + 3, closeIdx);
-            const token = tokenPart.trim().split(/\s+/)[0] || "";
-            const tail = tokenPart.slice(token.length);
-            const tokenStart = offset + i + 3;
-            const tokenEnd = tokenStart + token.length;
+            const parsedKey = parseInitialKKeyToken(tokenPart);
+            const token = parsedKey.keyToken;
+            const tail = parsedKey.tail;
+            const tokenStart = offset + i + 3 + parsedKey.leading.length;
+            const tokenEnd = offset + i + 3 + parsedKey.end;
             if (token) {
               keyEvents.push({
                 start: tokenStart,
@@ -2253,6 +2275,7 @@ export function respellPitchEvents(events, options) {
   const keyInfos = options && options.keyInfos ? options.keyInfos : [];
   const mode = options && options.mode ? options.mode : "chromatic";
   const preferDefault = options && options.prefer ? options.prefer : "flat";
+  const preserveExplicitAccidentalLetters = options && options.preserveExplicitAccidentalLetters === true;
 
   let currentBar = -1;
   let barAccidentals = new Map();
@@ -2274,7 +2297,9 @@ export function respellPitchEvents(events, options) {
     const hasExtraKeyAccidentals = keyInfo.extraAccSteps && Object.keys(keyInfo.extraAccSteps).length > 0;
 
     const base = buildPitchToken(event.absolutePitch, prefer, keySig, barAccidentals, {
-      preferredLetter: hasExtraKeyAccidentals ? event.preferredLetter : "",
+      preferredLetter: (preserveExplicitAccidentalLetters && event.accidentalToken)
+        ? event.preferredLetter
+        : (hasExtraKeyAccidentals ? event.preferredLetter : ""),
     });
     if (base.token.startsWith("=") || base.token.startsWith("^") || base.token.startsWith("_")) {
       barAccidentals.set(base.letterKey, base.desiredAcc);
@@ -2430,6 +2455,7 @@ export function transformTranspose(text, semitones, options = {}) {
     mode,
     prefer,
     keyInfos: outKeyInfosWithAcc,
+    preserveExplicitAccidentalLetters: semitones !== 0,
   });
   const promotedExtraAcc = inferPromotableExtraKeyAccidentals(replacements, outKeyInfosWithAcc);
   const finalKeyInfos = outKeyInfosWithAcc.map((info, index) => {
@@ -2449,6 +2475,7 @@ export function transformTranspose(text, semitones, options = {}) {
       mode,
       prefer,
       keyInfos: finalKeyInfos,
+      preserveExplicitAccidentalLetters: semitones !== 0,
     })
     : replacements;
 

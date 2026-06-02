@@ -104,6 +104,13 @@ run("tonal transpose keeps implied key accidental suppressed in target minor key
   assert.strictEqual(output, expected);
 });
 
+run("tonal transpose preserves explicit sharp sevenths in separated minor keys", () => {
+  const input = "X:1\nK:G Minor\n^F G ^f g ^C C\n";
+  const expected = "X:1\nK:A Minor\n^G A ^g a ^D D\n";
+  const output = transformTranspose(input, 2, { mode: "tonal", prefer: "flat" });
+  assert.strictEqual(output, expected);
+});
+
 run("tonal transpose emits natural when source accidental becomes covered by target key", () => {
   const input = "X:1\nK:C\n^C D E F\n";
   const expected = "X:1\nK:Db\n=D E F G\n";

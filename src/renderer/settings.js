@@ -7,18 +7,16 @@ Allowed files for the full sequence: `src/renderer/index.html`, `src/renderer/st
 
 Current state (audit notes, high-level):
 - Markup: Settings modal lives in `src/renderer/index.html` under `#settingsModal` with left-nav containing
-  Search (`#settingsFilter`) and “Show advanced” checkbox (`#settingsShowAdvanced`), tabs container `#settingsTabs`,
-  panels container `#settingsPanels`, footer buttons `#settingsReset` + `#settingsClose`.
+  tabs container `#settingsTabs`, panels container `#settingsPanels`, and header Search (`#settingsFilter`).
 - CSS: `.modal-card.settings-card` is resizable and there are responsive rules that reflow to 1-column; multiple scroll
   containers can cause “jumping”.
-- JS: `settings.js` builds tabs/panels from schema, uses `details.settings-advanced` per section, search currently
-  filters across all panels and can change active tab; settings apply immediately via `store.update`.
+- JS: `settings.js` builds tabs/panels from schema, searches across all panels, and can change active tab;
+  settings are staged until Apply/OK.
 
 Target layout (DOM changes in `index.html`):
 1) Header:
    - Keep title “Settings”.
-   - Add header controls: segmented mode switch (buttons `#settingsModeBasic`, `#settingsModeAdvanced`, aria-pressed)
-     and Search input moved here (keep id `#settingsFilter`, accessible label/aria-label).
+   - Search input moved here (keep id `#settingsFilter`, accessible label/aria-label).
 2) Left pane:
    - Navigation only: keep `#settingsTabs` list.
    - Remove Search and remove “Show advanced” checkbox from visible UI (no `#settingsShowAdvanced` in UI).
@@ -37,20 +35,18 @@ Desktop styling changes in `style.css`:
 - Left nav: strong selected state, clean list.
 - Right pane: section header bar typography; groups as “cards” (`.settings-group`), consistent spacing.
 - Rows: predictable 2-column alignment; avoid far-right floating checkboxes; inputs not overly wide.
-- Advanced: disclosure (`details.settings-advanced`) styled like desktop preferences.
+- Advanced settings are shown in the same page as regular settings.
 
 Behavior changes in `settings.js`:
 1) Modes:
-   - Introduce `settingsMode = 'basic'|'advanced'` persisted in localStorage (UI state only).
-   - Basic mode shows only non-advanced settings; Advanced mode shows all settings, with advanced entries inside
-     per-group disclosure “Advanced options” (collapsed by default).
+   - Settings use one mode; all schema-backed settings are visible in their section.
 2) Sections:
    - Keep an `activeSectionId` persisted in localStorage; update `#settingsSectionTitle/#settingsSectionHint` on change.
 3) Rendering:
    - Render entries exactly once (fix duplication risks, e.g. global header enable appearing twice).
-   - Group entries into `.settings-group` cards; within each group place an “Advanced options” disclosure as needed.
+   - Group entries into `.settings-group` cards.
 4) Search:
-   - Search applies to the active section only; does not change left nav selection.
+   - Search applies across all sections, narrows the left nav, and opens the only matching section automatically.
    - When query is empty: normal view; when non-empty: hide non-matching entries; show `#settingsNoResults` if none.
    - Search query is NOT persisted across restarts.
 5) Footer semantics:
@@ -73,10 +69,9 @@ Minimal touch-points:
 
 /*
 SETTINGS UX (maintainer summary)
-- Basic/Advanced mode is UI-only and persisted in localStorage.
 - Changes are staged while Settings is open; `Apply`/`OK` commits via `store.update`, `Cancel` discards.
-- Search filters within the active section only and never changes the active section.
-- Advanced settings render only in Advanced mode inside per-group “Advanced options” disclosures.
+- Search filters across all Settings pages, narrows the left nav, and opens the only matching page automatically.
+- Advanced settings render in the same page as regular settings.
 - “Reset Section…” resets only the active section keys to schema defaults.
 */
 
@@ -104,7 +99,7 @@ const rectSelectionExt = rectangularSelection({
 const SETTINGS_SECTION_HINTS = {
   general: "General application settings.",
   playback: "Playback behavior and visuals.",
-  options: "App options (tools, library, dialogs).",
+  options: "App options (tools, print, library, dialogs).",
   fonts: "Fonts and soundfonts used for UI, editor, rendering, and playback.",
   header: "Global ABC directives prepended during render/playback.",
 };
@@ -261,8 +256,6 @@ export function initSettings(api) {
   const $settingsCard = $settingsModal ? $settingsModal.querySelector(".modal-card") : null;
   const $settingsHeader = $settingsModal ? $settingsModal.querySelector(".modal-header") : null;
   const $settingsFilter = document.getElementById("settingsFilter");
-  const $settingsModeBasic = document.getElementById("settingsModeBasic");
-  const $settingsModeAdvanced = document.getElementById("settingsModeAdvanced");
   const $settingsSectionTitle = document.getElementById("settingsSectionTitle");
   const $settingsSectionHint = document.getElementById("settingsSectionHint");
   const $settingsNoResults = document.getElementById("settingsNoResults");
@@ -286,7 +279,6 @@ export function initSettings(api) {
   let currentSettings = { ...defaultSettings };
   let activePane = "render";
   let lastActiveTab = "general";
-  let settingsMode = "basic"; // "basic" | "advanced" (UI state only)
   let setActiveTab = null;
   let applySettingsFilter = null;
   let cachedFontLists = { notation: [], text: [] };
@@ -296,7 +288,6 @@ export function initSettings(api) {
   let dragState = null;
   let draftPatch = {};
   let isSettingsOpen = false;
-  let advancedOpenState = new Set(); // session-only: "tab|group"
   let settingsPanelsByKey = new Map();
 
   function formatFontOptionLabel(ref) {
@@ -551,18 +542,6 @@ export function initSettings(api) {
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = rules.join("\n");
-  }
-
-  function setSettingsMode(nextMode) {
-    const next = nextMode === "advanced" ? "advanced" : "basic";
-    if (settingsMode === next) return;
-    settingsMode = next;
-    writeUiState({ settingsMode });
-    if ($settingsModeBasic) $settingsModeBasic.setAttribute("aria-pressed", settingsMode === "basic" ? "true" : "false");
-    if ($settingsModeAdvanced) $settingsModeAdvanced.setAttribute("aria-pressed", settingsMode === "advanced" ? "true" : "false");
-    buildSettingsUi();
-    applySettings(currentSettings);
-    if (applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
   }
 
   function applySettings(settings) {
@@ -1288,25 +1267,20 @@ export function initSettings(api) {
       { key: "general", label: "General", sections: ["General"] },
       { key: "fonts", label: "Fonts", sections: ["Fonts"] },
       { key: "playback", label: "Playback", sections: ["Playback"] },
-      { key: "options", label: "Options", sections: ["Tools", "Library", "Dialogs"] },
+      { key: "options", label: "Options", sections: ["Tools", "Print", "Library", "Dialogs"] },
       { key: "header", label: "Global Header", sections: ["Header"] },
     ];
     const panelKeys = new Set(panels.map((p) => p.key));
     settingsPanelsByKey = new Map(panels.map((p) => [p.key, p]));
 
     const uiState = readUiState();
-    if (uiState && (uiState.settingsMode === "basic" || uiState.settingsMode === "advanced")) {
-      settingsMode = uiState.settingsMode;
-    }
     if (uiState && uiState.activeTab) {
       const rawTab = normalizeTabKey(uiState.activeTab);
       if (panelKeys.has(rawTab)) lastActiveTab = rawTab;
     }
-    writeUiState({ activeTab: lastActiveTab, settingsMode });
-    if ($settingsModeBasic) $settingsModeBasic.setAttribute("aria-pressed", settingsMode === "basic" ? "true" : "false");
-    if ($settingsModeAdvanced) $settingsModeAdvanced.setAttribute("aria-pressed", settingsMode === "advanced" ? "true" : "false");
+    writeUiState({ activeTab: lastActiveTab });
 
-    setActiveTab = (name) => {
+    setActiveTab = (name, options = {}) => {
       lastActiveTab = normalizeTabKey(name || "general");
       writeUiState({ activeTab: lastActiveTab });
       const tabs = Array.from($settingsTabsHost.querySelectorAll("[data-settings-tab]"));
@@ -1327,7 +1301,7 @@ export function initSettings(api) {
         $settingsSectionHint.textContent = hint;
         $settingsSectionHint.style.display = hint ? "" : "none";
       }
-      if (applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
+      if (options.applyFilter !== false && applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
       scheduleClampModalPosition();
     };
 
@@ -1370,11 +1344,10 @@ export function initSettings(api) {
 
         for (const g of orderedGroups) {
           const groupEntries = g.entries || [];
-          const normal = groupEntries.filter((e) => !e.advanced && e.ui && e.ui.input && e.ui.input !== "code");
-          const advanced = groupEntries.filter((e) => e.advanced && e.ui && e.ui.input && e.ui.input !== "code");
+          const visibleEntries = groupEntries.filter((e) => e.ui && e.ui.input && e.ui.input !== "code");
           const codeEntry = groupEntries.find((e) => e.ui && e.ui.input === "code");
 
-          if (!normal.length && !(settingsMode === "advanced" && advanced.length) && !codeEntry) continue;
+          if (!visibleEntries.length && !codeEntry) continue;
 
           const group = createGroup(g.title, null);
 
@@ -1580,7 +1553,7 @@ export function initSettings(api) {
             const toggles = createCompactTogglesBlock("Bold", "editorNotesBold", "editorLyricsBold");
             if (toggles) group.appendChild(toggles);
           } else {
-            for (const entry of normal) appendEntryBlock(entry, group);
+            for (const entry of visibleEntries) appendEntryBlock(entry, group);
           }
 
           if (codeEntry) {
@@ -1622,19 +1595,6 @@ export function initSettings(api) {
             group.appendChild(editorBlock);
           }
 
-          if (settingsMode === "advanced" && advanced.length) {
-            const divider = document.createElement("div");
-            divider.className = "settings-advanced-divider";
-            group.appendChild(divider);
-
-            const label = document.createElement("div");
-            label.className = "settings-advanced-label";
-            label.textContent = "Advanced";
-            group.appendChild(label);
-
-            for (const entry of advanced) appendEntryBlock(entry, group);
-          }
-
           panelEl.appendChild(group);
         }
       }
@@ -1648,35 +1608,54 @@ export function initSettings(api) {
 
     applySettingsFilter = (raw) => {
       const needle = String(raw || "").trim().toLowerCase();
-      const panelEl = $settingsPanelsHost.querySelector(`[data-settings-panel="${lastActiveTab}"]`);
-      if (!panelEl) return;
-
-      const blocks = Array.from(panelEl.querySelectorAll(".settings-entry"));
-      const groups = Array.from(panelEl.querySelectorAll(".settings-group"));
-
       const anyQuery = Boolean(needle);
-      for (const block of blocks) {
-        const hay = String(block.dataset.settingsSearch || "");
-        block.style.display = !anyQuery || hay.includes(needle) ? "" : "none";
+      const matchesByPanel = new Map();
+      const panelEls = Array.from($settingsPanelsHost.querySelectorAll("[data-settings-panel]"));
+
+      for (const panelEl of panelEls) {
+        const blocks = Array.from(panelEl.querySelectorAll(".settings-entry"));
+        const groups = Array.from(panelEl.querySelectorAll(".settings-group"));
+        let panelMatches = 0;
+
+        for (const block of blocks) {
+          const hay = String(block.dataset.settingsSearch || "");
+          const match = !anyQuery || hay.includes(needle);
+          block.style.display = match ? "" : "none";
+          if (anyQuery && match) panelMatches += 1;
+        }
+
+        for (const group of groups) {
+          const visible = Boolean(group.querySelector(".settings-entry:not([style*='display: none'])"));
+          group.style.display = visible ? "" : "none";
+        }
+
+        matchesByPanel.set(panelEl.dataset.settingsPanel, anyQuery ? panelMatches : blocks.length);
       }
 
-      let anyVisible = false;
-      for (const group of groups) {
-        const visible = Boolean(group.querySelector(".settings-entry:not([style*='display: none'])"));
-        group.style.display = visible ? "" : "none";
-        if (visible) anyVisible = true;
+      const tabs = Array.from($settingsTabsHost.querySelectorAll("[data-settings-tab]"));
+      const matchingTabs = [];
+      for (const tab of tabs) {
+        const key = tab.dataset.settingsTab;
+        const hasMatches = !anyQuery || (matchesByPanel.get(key) || 0) > 0;
+        tab.hidden = !hasMatches;
+        if (hasMatches) matchingTabs.push(key);
+      }
+
+      if (anyQuery) {
+        if (matchingTabs.length === 1 && matchingTabs[0] !== lastActiveTab) {
+          setActiveTab(matchingTabs[0], { applyFilter: false });
+        } else if (matchingTabs.length > 1 && !matchingTabs.includes(lastActiveTab)) {
+          setActiveTab(matchingTabs[0], { applyFilter: false });
+        }
       }
 
       if ($settingsNoResults) {
         if (!anyQuery) {
           $settingsNoResults.classList.add("hidden");
           $settingsNoResults.textContent = "";
-        } else if (!anyVisible) {
+        } else if (!matchingTabs.length) {
           $settingsNoResults.classList.remove("hidden");
-          $settingsNoResults.textContent =
-            settingsMode === "basic"
-              ? "No matches in this section (Basic mode). Try Advanced."
-              : "No matches in this section.";
+          $settingsNoResults.textContent = "No matches in settings.";
         } else {
           $settingsNoResults.classList.add("hidden");
           $settingsNoResults.textContent = "";
@@ -1718,8 +1697,6 @@ export function initSettings(api) {
       updateSettings(patch).catch(() => {});
     });
   }
-  if ($settingsModeBasic) $settingsModeBasic.addEventListener("click", () => setSettingsMode("basic"));
-  if ($settingsModeAdvanced) $settingsModeAdvanced.addEventListener("click", () => setSettingsMode("advanced"));
   if ($settingsCancel) $settingsCancel.addEventListener("click", () => closeSettings({ discardDraft: true }));
   if ($settingsOk) {
     $settingsOk.addEventListener("click", async () => {

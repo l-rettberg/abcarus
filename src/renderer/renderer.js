@@ -30380,15 +30380,6 @@ async function preparePlayback() {
     lastPlaybackTuneInfo = { count: tunes.length };
   }
 
-  // Compatibility: older upstream builds exposed `abc2svg.drum` as a function, while newer ones expose
-  // an object with hook methods (`beg_end`, `set_fmt`, `set_hooks`). Only stub when the property is absent.
-  try {
-    if (window.abc2svg && window.abc2svg.drum == null) {
-      window.abc2svg.drum = () => {};
-      playbackSanitizeWarnings.push({ kind: "playback-abc2svg-drum-missing-stubbed" });
-    }
-  } catch {}
-
   for (const t of tunes) {
     p.add(t[0], t[1], t[3]);
   }

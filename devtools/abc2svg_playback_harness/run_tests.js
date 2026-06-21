@@ -55,12 +55,6 @@ function parseOnce(sandbox, abcText) {
   return { abc, messages };
 }
 
-function applyRendererCompatShim(sandbox) {
-  if (sandbox.abc2svg && sandbox.abc2svg.drum == null) {
-    sandbox.abc2svg.drum = () => {};
-  }
-}
-
 const DRUM_TUNE = `X:1
 T:Drum Hook Regression
 M:4/4
@@ -80,13 +74,7 @@ function main() {
   assert(typeof sandbox.abc2svg.drum.beg_end === "function", "abc2svg.drum.beg_end missing");
 
   parseOnce(sandbox, DRUM_TUNE);
-  applyRendererCompatShim(sandbox);
-
-  assert(typeof sandbox.abc2svg.drum === "object", "renderer compat shim must not overwrite abc2svg.drum object");
-  assert(typeof sandbox.abc2svg.drum.beg_end === "function", "abc2svg.drum.beg_end missing after compat shim");
-
-  parseOnce(sandbox, DRUM_TUNE);
-  console.log("% PASS abc2svg playback harness: native drum hooks survive renderer compat shim");
+  console.log("% PASS abc2svg playback harness: native drum hooks are available");
 }
 
 try {

@@ -2302,7 +2302,7 @@ const devConfig = (() => {
 })();
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
-const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") === "1";
+const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") !== "0";
 let autoDumpLastAtMs = 0;
 let autoDumpSeq = 0;
 let autoWcDumpLastAtMs = 0;

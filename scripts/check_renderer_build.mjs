@@ -11,6 +11,9 @@ async function assertSaveIntentGuards() {
   if (!src.includes("function resolveSaveSession()")) {
     throw new Error("Missing resolveSaveSession() in renderer.");
   }
+  if (!src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")) {
+    throw new Error("Missing post-commit working-copy save verification.");
+  }
 
   const saveStart = src.indexOf("async function performSaveFlow()");
   const saveEnd = src.indexOf("async function performSaveAsFlow()", saveStart);
@@ -74,6 +77,24 @@ async function assertSaveIntentGuards() {
   const syncBody = src.slice(syncStart, syncEnd);
   if (!syncBody.includes("ensureXNumberInAbc(tuneTextRaw")) {
     throw new Error("flushWorkingCopyTuneSync() must normalize tune text via ensureXNumberInAbc().");
+  }
+  if (!syncBody.includes("workingCopyTuneSyncRunPromise")) {
+    throw new Error("flushWorkingCopyTuneSync() must wait for in-flight sync before save commits.");
+  }
+  if (!syncBody.includes("result = { ok: true, path: filePath };")) {
+    throw new Error("flushWorkingCopyTuneSync() must report successful tune sync explicitly.");
+  }
+  if (!saveBody.includes("const syncRes = await flushWorkingCopyTuneSync().catch")) {
+    throw new Error("performSaveFlow() must inspect the working-copy tune sync result before commit.");
+  }
+  if (!saveBody.includes("if (!syncRes || !syncRes.ok)")) {
+    throw new Error("performSaveFlow() must refuse to commit stale working-copy text.");
+  }
+  if (!saveBody.includes("const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);")) {
+    throw new Error("performSaveFlow() must verify committed working-copy text reached disk before clearing dirty state.");
+  }
+  if (!saveBody.includes("save.wc.verify.fail")) {
+    throw new Error("performSaveFlow() must record save verification failures.");
   }
 
   const ensureStart = src.indexOf("function ensureXNumberInAbc(abcText, xNumber)");

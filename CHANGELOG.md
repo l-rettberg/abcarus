@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Intonation Explorer now suggests makam candidates from 53-EDO pitch usage, K signatures, makam DNA entries, and phrase/seyir cues, with quick actions to use a candidate as declared or comparison makam.
+
+### Changed
+- Settings now shows all options in one mode and searches across all settings pages, narrowing the left navigation as results change.
+- Release download compact reports now emit wide TSV columns for asset categories and allow larger GitHub CLI responses.
+
+### Fixed
+- Playback Follow now prefers a pitched melody voice over accompaniment-only `x` voices when choosing the voice to track in multi-voice lead sheets.
 
 
 ## [0.39.1] - 2026-06-01

@@ -55,6 +55,7 @@ import {
   parseAbcNoteToken,
   parseHeadersNear,
 } from "./note_preview/abc_note_parse.mjs";
+import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -207,6 +208,7 @@ const $intonationExplorerDnaText = document.getElementById("intonationExplorerDn
 const $intonationExplorerCopyDna = document.getElementById("intonationExplorerCopyDna");
 const $intonationExplorerCopyPitchSet = document.getElementById("intonationExplorerCopyPitchSet");
 const $intonationExplorerEditMakamDna = document.getElementById("intonationExplorerEditMakamDna");
+const $intonationExplorerCandidates = document.getElementById("intonationExplorerCandidates");
 const $errorsIndicator = document.getElementById("errorsIndicator");
 const $errorsFocusMessage = document.getElementById("errorsFocusMessage");
 const $errorsPopover = document.getElementById("errorsPopover");
@@ -5702,6 +5704,12 @@ async function ensurePerdeNameIndexLoaded() {
   perdeNameIndex = idx;
 }
 
+function resolvePerdePc53Candidates(perdeName) {
+  const key = normalizePerdeKey(perdeName);
+  const candidates = key && perdeNameIndex ? (perdeNameIndex.get(key) || []) : [];
+  return Array.from(new Set(candidates.map((cand) => mod53(cand.pc53)).filter((pc) => Number.isFinite(pc))));
+}
+
 function parseMakamDnaPerdeField(fieldText) {
   const raw = String(fieldText || "");
   const name = raw.split("(")[0].trim();
@@ -6024,7 +6032,37 @@ function resolveTonalBaseInput(rawValue) {
   return { ok: false, error: `Unable to parse tonal base (“${raw}”).` };
 }
 
-function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
+function getIntonationSelectionScope() {
+  if (!editorView || rawMode || payloadMode) return null;
+  try {
+    const sel = editorView.state && editorView.state.selection ? editorView.state.selection.main : null;
+    if (!sel || sel.empty) return null;
+    const docLen = editorView.state && editorView.state.doc ? editorView.state.doc.length : 0;
+    const start = Math.max(0, Math.min(docLen, Math.min(sel.anchor, sel.head)));
+    const end = Math.max(start, Math.min(docLen, Math.max(sel.anchor, sel.head)));
+    if (end <= start) return null;
+    const selectedText = editorView.state.doc.sliceString(start, end);
+    if (!/[A-Ga-gxzZ]/.test(selectedText)) return null;
+    return { start, end, label: "selection" };
+  } catch {
+    return null;
+  }
+}
+
+function noteDurationWeightFromToken(durationToken) {
+  try {
+    const parsed = parseLengthString(String(durationToken || ""));
+    if (!parsed) return 1;
+    const num = Number(parsed.num);
+    const den = Number(parsed.den);
+    if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return 1;
+    return Math.max(0.0625, num / den);
+  } catch {
+    return 1;
+  }
+}
+
+function scanIntonationEntries(snapshot, { skipGraceNotes = true, scope = null } = {}) {
   if (!snapshot || !snapshot.text) return { tune: null, entries: [], error: "Unable to read working copy." };
   const perfOn = isIntonationPerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
@@ -6036,6 +6074,15 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
   if (!tune) return { tune: null, entries: [], error: "No active tune snapshot available." };
   const fullText = String(snapshot.text || "");
   const body = fullText.slice(tune.start, tune.end);
+  const scopeStart = scope && Number.isFinite(Number(scope.start))
+    ? Math.max(0, Math.min(body.length, Number(scope.start)))
+    : 0;
+  const scopeEnd = scope && Number.isFinite(Number(scope.end))
+    ? Math.max(scopeStart, Math.min(body.length, Number(scope.end)))
+    : body.length;
+  const activeScope = scopeEnd > scopeStart && (scopeStart > 0 || scopeEnd < body.length)
+    ? { type: "selection", label: "Selection", start: scopeStart, end: scopeEnd }
+    : { type: "tune", label: "Tune", start: 0, end: body.length };
 
   let is53 = false;
   try {
@@ -6076,14 +6123,16 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
 
 			  const seen = new Map();
       const noteEvents = [];
-			  let idx = scanStart;
+      let lastNoteEvent = null;
+			  let idx = Math.max(scanStart, activeScope.start);
+        const scanEnd = Math.max(idx, Math.min(body.length, activeScope.end));
 			  let inTextBlock = false;
 			  let graceDepth = 0;
 		    let barAccidentals = new Map();
         let perfParseAttempts = 0;
         let perfParsedNotes = 0;
         let perfSkippedFast = 0;
-			  while (idx < body.length) {
+			  while (idx < scanEnd) {
 	    // Skip %%begintext … %%endtext blocks (often contain prose with A-G letters).
 	    if (!inTextBlock) {
 	      const prev = idx > 0 ? body[idx - 1] : "";
@@ -6119,9 +6168,15 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
 	      const nextNl = body.indexOf("\n", idx + 1);
 	      const nextCr = body.indexOf("\r", idx + 1);
 	      const next = (nextNl >= 0 && nextCr >= 0) ? Math.min(nextNl, nextCr) : (nextNl >= 0 ? nextNl : nextCr);
-	      idx = next >= 0 ? next + 1 : body.length;
+	      idx = next >= 0 ? Math.min(next + 1, scanEnd) : scanEnd;
 	      continue;
 	    }
+
+      if (body[idx] === "$") {
+        if (lastNoteEvent) lastNoteEvent.phraseEnd = true;
+        idx += 1;
+        continue;
+      }
 
 	    // Skip "%%" directive lines (except %%begintext/%%endtext handled above).
 	    {
@@ -6134,7 +6189,7 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
 	          const nextNl = body.indexOf("\n", j + 2);
 	          const nextCr = body.indexOf("\r", j + 2);
 	          const next = (nextNl >= 0 && nextCr >= 0) ? Math.min(nextNl, nextCr) : (nextNl >= 0 ? nextNl : nextCr);
-	          idx = next >= 0 ? next + 1 : body.length;
+	          idx = next >= 0 ? Math.min(next + 1, scanEnd) : scanEnd;
 	          continue;
 	        }
 	      }
@@ -6179,7 +6234,7 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
 	                  barAccidentals = new Map();
 	                } catch {}
 	              }
-			          idx = next >= 0 ? next + 1 : body.length;
+			          idx = next >= 0 ? Math.min(next + 1, scanEnd) : scanEnd;
 			          continue;
 			        }
 		      }
@@ -6210,10 +6265,11 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
         idx += 1;
         continue;
       }
-	    }
+	      }
 
       // Reset bar-accidental memory at barlines.
 	      if (body[idx] === "|") {
+          if (lastNoteEvent) lastNoteEvent.phraseEnd = true;
 	        barAccidentals = new Map();
 	        idx += 1;
 	        continue;
@@ -6288,16 +6344,20 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
 		        const effectivePrefix = formatEffectiveAccPrefix53(letterPc, appliedMicro);
 			      const spelling = `${effectivePrefix}${String(note.letter || "")}${String(note.octaveMarks || "")}`;
 			      if (spelling) entry.spellings.set(spelling, (Number(entry.spellings.get(spelling)) || 0) + 1);
-            noteEvents.push({
+            const noteEvent = {
               abs53,
               pc53,
               octave,
               letterUpper: letter,
               micro: appliedMicro,
               spelling,
+              durationWeight: noteDurationWeightFromToken(note.duration),
+              phraseEnd: false,
               start: note.start,
               end: note.end,
-            });
+            };
+            noteEvents.push(noteEvent);
+            lastNoteEvent = noteEvent;
 			    } catch {}
 		    entry.ranges.push({
 	      // NOTE: offsets are relative to the active tune text in the editor (not the full file).
@@ -6321,6 +6381,7 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
       }
 		  return {
       tune,
+      scope: activeScope,
       entries,
       noteEvents,
       is53,
@@ -6335,7 +6396,7 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
     return resolvePerdeNameSafe({ pc53: row.absStep, octave: row.octave }) || "";
   }
 
-  function buildSeyirSnapshotText({ tuneText, rows, noteEvents, baseStep, baseLabel, is53 }) {
+  function buildSeyirSnapshotText({ tuneText, rows, noteEvents, baseStep, baseLabel, is53, scopeLabel }) {
     const events = Array.isArray(noteEvents) ? noteEvents : [];
     const list = Array.isArray(rows) ? rows : [];
     const text = String(tuneText || "");
@@ -6400,6 +6461,7 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true } = {}) {
       "[ABCarus] Intonation DNA (read-only)",
       meta.x || meta.title ? `X:${meta.x || "?"}  T:${meta.title || "?"}` : "",
       meta.key ? `K:${meta.key}` : "",
+      scopeLabel ? `scope=${String(scopeLabel)}` : "",
       `mode=${is53 ? "EDO-53" : "EDO-12"} base=${String(baseLabel || "")}`,
       `events=${events.length} compressed=${compressed.length}`,
       (minAbs != null && maxAbs != null) ? `range(abs53)=${maxAbs - minAbs} (min=${minAbs}, max=${maxAbs})` : "",
@@ -6478,10 +6540,10 @@ function pickAutoBaseStep(entries) {
   const best = list.reduce((acc, entry) => {
     if (!acc) return entry;
     if ((entry.count || 0) > (acc.count || 0)) return entry;
-    if ((entry.count || 0) === (acc.count || 0) && entry.step < acc.step) return entry;
+    if ((entry.count || 0) === (acc.count || 0) && entry.abs53 < acc.abs53) return entry;
     return acc;
   }, null);
-  return best ? mod53(best.step) : 0;
+  return best ? mod53(best.abs53) : 0;
 }
 
 function parseTonalBaseFromK(tuneText) {
@@ -6690,6 +6752,62 @@ function renderIntonationExplorerRows(rows, { is53, roleAbs53Map } = {}) {
   }
 }
 
+function renderMakamCandidateSuggestions(candidates) {
+  if (!$intonationExplorerCandidates) return;
+  $intonationExplorerCandidates.innerHTML = "";
+  const list = Array.isArray(candidates) ? candidates : [];
+  if (!list.length) {
+    const empty = document.createElement("div");
+    empty.className = "makam-candidate-empty";
+    empty.textContent = "No candidates yet.";
+    $intonationExplorerCandidates.appendChild(empty);
+    return;
+  }
+  for (const candidate of list) {
+    const item = document.createElement("details");
+    item.className = "makam-candidate";
+    const summary = document.createElement("summary");
+    const title = document.createElement("span");
+    title.className = "makam-candidate-title";
+    title.textContent = String(candidate.makam || "");
+    const confidence = document.createElement("span");
+    confidence.className = "makam-candidate-confidence";
+    confidence.textContent = String(candidate.confidence || "Possible");
+    summary.append(title, confidence);
+    item.appendChild(summary);
+
+    const evidenceList = document.createElement("div");
+    evidenceList.className = "makam-candidate-evidence";
+    for (const ev of Array.isArray(candidate.evidence) ? candidate.evidence : []) {
+      const row = document.createElement("div");
+      row.className = "makam-candidate-evidence-row";
+      const label = document.createElement("span");
+      label.className = "makam-candidate-evidence-label";
+      label.textContent = String(ev.label || ev.kind || "");
+      const detail = document.createElement("span");
+      detail.className = "makam-candidate-evidence-detail";
+      detail.textContent = String(ev.detail || "");
+      row.append(label, detail);
+      evidenceList.appendChild(row);
+    }
+    const actions = document.createElement("div");
+    actions.className = "makam-candidate-actions";
+    const declared = document.createElement("button");
+    declared.type = "button";
+    declared.dataset.action = "declared";
+    declared.dataset.makam = String(candidate.makam || "");
+    declared.textContent = "Use as Declared";
+    const compare = document.createElement("button");
+    compare.type = "button";
+    compare.dataset.action = "compare";
+    compare.dataset.makam = String(candidate.makam || "");
+    compare.textContent = "Compare Overlay";
+    actions.append(declared, compare);
+    item.append(evidenceList, actions);
+    $intonationExplorerCandidates.appendChild(item);
+  }
+}
+
 function setIntonationExplorerStatus(message, { error } = {}) {
   if (!$intonationExplorerStatus) return;
   $intonationExplorerStatus.textContent = String(message || "");
@@ -6748,12 +6866,14 @@ async function refreshIntonationExplorer() {
 		    clearSvgIntonationNoteHighlight();
         lastIntonationDnaSource = null;
         setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
+        renderMakamCandidateSuggestions([]);
         clearIntonationExplorerPlot();
 		    setIntonationExplorerStatus("Unable to load working copy snapshot.", { error: true });
 		    return;
 		  }
 		    const tScan0 = perfOn ? perfNowMs() : 0;
-		    const scanned = scanIntonationEntries(snapshot, { skipGraceNotes: intonationExplorerSkipGraceNotes });
+        const scope = getIntonationSelectionScope();
+		    const scanned = scanIntonationEntries(snapshot, { skipGraceNotes: intonationExplorerSkipGraceNotes, scope });
 		    if (perfOn) {
 		      logIntonationPerf("scan", {
 		        ms: Math.round(perfNowMs() - tScan0),
@@ -6772,6 +6892,7 @@ async function refreshIntonationExplorer() {
 		    clearSvgIntonationNoteHighlight();
         lastIntonationDnaSource = null;
         setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
+        renderMakamCandidateSuggestions([]);
         clearIntonationExplorerPlot();
 		    setIntonationExplorerStatus(scanned.error, { error: true });
 		    return;
@@ -6783,6 +6904,7 @@ async function refreshIntonationExplorer() {
 			    updateIntonationBaseUi();
 		    const fullText = String(snapshot.text || "");
 		    const tuneText = scanned.tune ? fullText.slice(scanned.tune.start, scanned.tune.end) : "";
+        const scopeLabel = scanned.scope && scanned.scope.type === "selection" ? "selection" : "tune";
 
 	    // Best-effort auto-fill: if the tune text contains a recognizable makam name,
 	    // preselect both dropdowns once (convenience only).
@@ -6858,12 +6980,28 @@ async function refreshIntonationExplorer() {
 		    const tRender0 = perfOn ? perfNowMs() : 0;
 		    renderIntonationExplorerRows(rows, { is53: intonationExplorerIs53, roleAbs53Map: intonationExplorerRoleAbs53Map });
 		    if (perfOn) logIntonationPerf("renderTable", { ms: Math.round(perfNowMs() - tRender0) });
+        try {
+          await ensurePerdeNameIndexLoaded();
+          const candidates = suggestMakamCandidates({
+            tuneText,
+            rows,
+            noteEvents: scanned.noteEvents,
+            baseStep: intonationExplorerBaseStep,
+            makamEntries: getMakamDnaEntries(),
+            resolvePerdePc53: resolvePerdePc53Candidates,
+            maxCandidates: 5,
+          });
+          renderMakamCandidateSuggestions(candidates);
+        } catch (e) {
+          logErr(e && e.message ? e.message : String(e));
+          renderMakamCandidateSuggestions([]);
+        }
 		    setIntonationHighlightRanges([]);
 		    clearSvgIntonationBarHighlight();
 		    clearSvgIntonationNoteHighlight();
 		    const sortLabel = `sort:${String(intonationExplorerSortMode || "count")}`;
 	      const modeLabel = intonationExplorerIs53 ? "EDO-53" : "EDO-12";
-		    setIntonationExplorerStatus(`Base ${intonationExplorerBaseLabel} (${rows.length} classes; ${sortLabel}; ${modeLabel})`);
+		    setIntonationExplorerStatus(`Base ${intonationExplorerBaseLabel} (${scopeLabel}; ${rows.length} classes; ${sortLabel}; ${modeLabel})`);
 
       // Keep DNA/pitchSet generation lazy: only build it when the user clicks Copy.
       lastIntonationDnaSource = {
@@ -6873,6 +7011,7 @@ async function refreshIntonationExplorer() {
         baseStep: intonationExplorerBaseStep,
         baseLabel: intonationExplorerBaseLabel,
         is53: intonationExplorerIs53,
+        scopeLabel,
       };
       setIntonationExplorerDnaUi({ dnaText: "ready", pitchSetText: "ready" });
 
@@ -6890,6 +7029,7 @@ async function refreshIntonationExplorer() {
 	  } catch (err) {
 	    const msg = (err && err.message) ? String(err.message) : String(err || "");
       setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
+      renderMakamCandidateSuggestions([]);
       clearIntonationExplorerPlot();
 	    setIntonationExplorerStatus(msg ? `Unable to refresh the explorer: ${msg}` : "Unable to refresh the explorer.", { error: true });
 	    logErr(err);
@@ -6904,6 +7044,7 @@ function showIntonationExplorerPanel() {
   $intonationExplorerPanel.setAttribute("aria-hidden", "false");
   ensureToolPanelDefaultLeftPosition($intonationExplorerPanel);
   setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
+  renderMakamCandidateSuggestions([]);
   clearIntonationExplorerPlot();
   if ($intonationExplorerBaseMode) $intonationExplorerBaseMode.value = "auto";
   if ($intonationExplorerBaseManual && !$intonationExplorerBaseManual.value) $intonationExplorerBaseManual.value = DEFAULT_INT_BASE;
@@ -6961,6 +7102,7 @@ function hideIntonationExplorerPanel() {
   clearSvgIntonationBarHighlight();
   clearSvgIntonationNoteHighlight();
   setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
+  renderMakamCandidateSuggestions([]);
   clearIntonationExplorerPlot();
 }
 
@@ -23158,6 +23300,7 @@ if ($intonationExplorerCopyDna) {
           baseStep: lastIntonationDnaSource.baseStep,
           baseLabel: lastIntonationDnaSource.baseLabel,
           is53: lastIntonationDnaSource.is53,
+          scopeLabel: lastIntonationDnaSource.scopeLabel,
         });
         window.__abcarusLastIntonationDnaText = text;
         lastIntonationDnaUiText = text;
@@ -23207,6 +23350,25 @@ if ($intonationExplorerEditMakamDna) {
   $intonationExplorerEditMakamDna.addEventListener("click", async () => {
     try { if ($intonationExplorerMenu) $intonationExplorerMenu.classList.add("hidden"); } catch {}
     await openMakamDnaModal();
+  });
+}
+if ($intonationExplorerCandidates) {
+  $intonationExplorerCandidates.addEventListener("click", (event) => {
+    const target = event && event.target && event.target.closest ? event.target.closest("button[data-action][data-makam]") : null;
+    if (!target) return;
+    const makam = String(target.dataset.makam || "");
+    if (!makam) return;
+    if (target.dataset.action === "declared") {
+      intonationExplorerDeclaredMakam = makam;
+      if ($intonationExplorerDeclaredMakam) $intonationExplorerDeclaredMakam.value = makam;
+      refreshIntonationExplorer().catch(() => {});
+      return;
+    }
+    if (target.dataset.action === "compare") {
+      intonationExplorerCompareMakam = makam;
+      if ($intonationExplorerCompareMakam) $intonationExplorerCompareMakam.value = makam;
+      refreshIntonationExplorer().catch(() => {});
+    }
   });
 }
 if ($intonationExplorerBaseMode) {

@@ -67,14 +67,30 @@ V:1
 CDEF GABc|cBAG FEDC|]
 `;
 
+const DRUM_CONTINUATION_TUNE = `X:2
+T:Drum Continuation Regression
+M:10/8
+L:1/16
+K:C
+%%MIDI drum d2dd2d2d2d
+%%MIDI drum +: 64 62 62 64 62 62
+%%MIDI drum +: 100 90 70 90 70 70
+%%MIDI drumon
+V:1
+C2D2E2F2G2 |]
+`;
+
 function main() {
   const sandbox = createSandbox();
   assert(sandbox.abc2svg && sandbox.abc2svg.drum, "snd-1.js did not register abc2svg.drum");
   assert(typeof sandbox.abc2svg.drum === "object", "abc2svg.drum should remain an object in current upstream");
   assert(typeof sandbox.abc2svg.drum.beg_end === "function", "abc2svg.drum.beg_end missing");
 
-  parseOnce(sandbox, DRUM_TUNE);
-  console.log("% PASS abc2svg playback harness: native drum hooks are available");
+  const drum = parseOnce(sandbox, DRUM_TUNE);
+  assert(drum.messages.length === 0, `native drum tune reported errors: ${drum.messages.join("; ")}`);
+  const continuation = parseOnce(sandbox, DRUM_CONTINUATION_TUNE);
+  assert(continuation.messages.length === 0, `native drum continuation tune reported errors: ${continuation.messages.join("; ")}`);
+  console.log("% PASS abc2svg playback harness: native drum hooks and continuations are available");
 }
 
 try {

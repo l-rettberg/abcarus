@@ -8487,10 +8487,7 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
   }
 
   // 2) drum injection (playback-only when not using native drums)
-  let nativeDrums = shouldUseNativeMidiDrums();
-  if (nativeDrums && hasMultiLineMidiDrumDirectives(payload.text)) {
-    nativeDrums = false;
-  }
+  const nativeDrums = shouldUseNativeMidiDrums();
   const drumInjected = nativeDrums
     ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 }
     : injectDrumPlayback(payload.text);
@@ -17154,8 +17151,7 @@ function computeDrumMismatchInfoFromEditor() {
     let text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
     const gchordPreview = injectGchordOn(text, prefixPayload.offset || 0);
     if (gchordPreview && gchordPreview.changed) text = gchordPreview.text;
-    let nativeDrums = shouldUseNativeMidiDrums();
-    if (nativeDrums && hasMultiLineMidiDrumDirectives(text)) nativeDrums = false;
+    const nativeDrums = shouldUseNativeMidiDrums();
     if (nativeDrums) return { ok: true };
     const normalized = normalizeLeadingInlineDirectivesForPlayback(text);
     if (!/(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(normalized || "")) return null;
@@ -17741,8 +17737,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
   try {
     ensureAbc2svgLoader();
     const normalized = normalizeHeaderNoneSpacing(abcText);
-    const drumCompat = collapseMidiDrumContinuationsForCompat(normalized);
-    const baseText = drumCompat && drumCompat.text ? drumCompat.text : normalized;
+    const baseText = normalized;
     const context = options && options.errorContext ? options.errorContext : null;
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
@@ -18802,16 +18797,14 @@ function renderNow() {
     return;
   }
   const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
-  const drumCompat = collapseMidiDrumContinuationsForCompat(renderTextBase);
-  const renderTextCompat = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
-  const sepStripInitial = stripSepForRender(renderTextCompat);
-  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextCompat;
+  const sepStripInitial = stripSepForRender(renderTextBase);
+  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextBase;
   let sepFallbackUsed = sepStripInitial.replaced;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
     lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-    compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+    compatMap: null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
     errorLineOffset = renderPayload.lineOffset;
@@ -18911,7 +18904,7 @@ function renderNow() {
               text: renderText,
               offset: renderPayload.offset || 0,
               lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-              compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+              compatMap: null,
             };
             continue;
           }
@@ -29100,44 +29093,6 @@ function injectDrumPlayback(text) {
   return res;
 }
 
-function hasMultiLineMidiDrumDirectives(text) {
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  let inTextBlock = false;
-  let sawDrum = false;
-  for (const raw of lines) {
-    const trimmed = String(raw || "").trim();
-    if (/^%%\s*begintext\b/i.test(trimmed)) {
-      inTextBlock = true;
-      continue;
-    }
-    if (/^%%\s*endtext\b/i.test(trimmed)) {
-      inTextBlock = false;
-      continue;
-    }
-    if (inTextBlock) continue;
-    if (!trimmed) {
-      sawDrum = false;
-      continue;
-    }
-    if (/^%/.test(trimmed) && !/^%%/.test(trimmed)) continue;
-    if (/^\s*%%\s*MIDI\s+drum\s+\+:/i.test(raw)) return true;
-    if (/^\s*\+:\s*/i.test(raw)) {
-      if (sawDrum) return true;
-      continue;
-    }
-    if (/^\s*%%\s*MIDI\s+drum\s+(?!\+:)/i.test(raw)) {
-      sawDrum = true;
-      continue;
-    }
-    if (/^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(raw)) {
-      sawDrum = false;
-      continue;
-    }
-    sawDrum = false;
-  }
-  return false;
-}
-
 function injectGchordOn(text, insertAt) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   let hasGchordPattern = false;
@@ -29248,110 +29203,11 @@ function normalizeBlankLinesForPlayback(text) {
   return out.join("\n");
 }
 
-function collapseMidiDrumContinuationsForCompat(text) {
+function sanitizeAbcForPlayback(text) {
   const src = String(text || "");
   const lines = src.split(/\r\n|\n|\r/);
   const out = [];
   const warnings = [];
-  const shifts = [];
-  let inTextBlock = false;
-  let srcPos = 0;
-  let outPos = 0;
-  let totalDelta = 0;
-  const splitComment = (s) => {
-    const idx = String(s || "").indexOf("%", 2); // allow leading "%%" as directive marker
-    if (idx < 0) return { code: String(s || ""), comment: "" };
-    return { code: String(s || "").slice(0, idx), comment: String(s || "").slice(idx) };
-  };
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const rawLine = lines[lineIndex];
-    const trimmed = rawLine.trim();
-    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
-    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
-
-    // Compatibility: abc2svg rejects `%%MIDI drum +:` continuation lines.
-    // Keep line count stable for diagnostics by replacing consumed lines with comments.
-    if (!inTextBlock) {
-      const main = rawLine.match(/^(\s*)%%MIDI\s+drum\s+(?!\+:)(.*)$/i);
-      if (main) {
-        const indent = main[1] || "";
-        const restRaw = main[2] || "";
-        const mainParts = splitComment(rawLine);
-        const consumed = [];
-        let j = lineIndex + 1;
-        while (j < lines.length) {
-          const nextRaw = lines[j];
-          const m = nextRaw.match(/^\s*%%MIDI\s+drum\s+\+:\s*(.*)$/i);
-          if (!m) break;
-          const tail = m[1] || "";
-          consumed.push({ raw: nextRaw, payload: splitComment(tail).code });
-          j += 1;
-        }
-
-        if (consumed.length > 0) {
-          const mainPayload = splitComment(restRaw).code;
-          const mainTokens = String(mainPayload || "").trim().split(/\s+/).filter(Boolean);
-          const isNum = (t) => /^-?\d+$/.test(String(t || "").trim());
-          let firstNum = -1;
-          for (let i = 0; i < mainTokens.length; i += 1) {
-            if (isNum(mainTokens[i])) { firstNum = i; break; }
-          }
-          const rhythmTokens = (firstNum === -1 ? mainTokens : mainTokens.slice(0, firstNum)).filter((t) => t !== "+:");
-          const rhythm = rhythmTokens.join("");
-          const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum));
-          for (const c of consumed) {
-            numbers.push(...String(c.payload || "").trim().split(/\s+/).filter(Boolean));
-          }
-          const joined = [rhythm, numbers.join(" ")].filter(Boolean).join(" ").trim();
-          const combinedLine = `${indent}%%MIDI drum ${joined}` + (mainParts.comment || "");
-          out.push(combinedLine);
-          for (const consumedLine of consumed) {
-            out.push("%" + " ".repeat(Math.max(0, String(consumedLine.raw || "").length - 1)));
-          }
-          warnings.push({ kind: "midi-drum-continuation-collapsed", line: lineIndex + 1, lines: consumed.length + 1 });
-          let sourceBlockLen = 0;
-          let outputBlockLen = 0;
-          for (let k = 0; k <= consumed.length; k += 1) {
-            const isLast = (lineIndex + k) === lines.length - 1;
-            const sourceLine = k === 0 ? rawLine : String(consumed[k - 1].raw || "");
-            const outputLine = k === 0 ? combinedLine : "%" + " ".repeat(Math.max(0, String(consumed[k - 1].raw || "").length - 1));
-            sourceBlockLen += sourceLine.length + (isLast ? 0 : 1);
-            outputBlockLen += outputLine.length + (isLast ? 0 : 1);
-          }
-          srcPos += sourceBlockLen;
-          outPos += outputBlockLen;
-          const delta = outputBlockLen - sourceBlockLen;
-          if (delta !== 0) {
-            totalDelta += delta;
-            shifts.push({ srcPos, outPos, delta: totalDelta });
-          }
-          lineIndex = j - 1;
-          continue;
-        }
-      }
-    }
-
-    out.push(rawLine);
-    const isLast = lineIndex === lines.length - 1;
-    const lineLen = rawLine.length + (isLast ? 0 : 1);
-    srcPos += lineLen;
-    outPos += lineLen;
-  }
-
-  return { text: out.join("\n"), warnings, compatMap: shifts.length ? { shifts, totalDelta } : null };
-}
-
-function sanitizeAbcForPlayback(text, options = {}) {
-  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
-  const initialText = String(text || "");
-  const drumCompat = collapseMidiDrumContinuations
-    ? collapseMidiDrumContinuationsForCompat(initialText)
-    : { text: initialText, warnings: [] };
-  const src = drumCompat && typeof drumCompat.text === "string" ? drumCompat.text : initialText;
-  const lines = src.split(/\r\n|\n|\r/);
-  const out = [];
-  const warnings = Array.isArray(drumCompat && drumCompat.warnings) ? drumCompat.warnings.slice() : [];
   let inTextBlock = false;
   let inBody = false;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -29888,10 +29744,7 @@ function getPlaybackPayload() {
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
-  let nativeDrums = shouldUseNativeMidiDrums();
-  if (nativeDrums && hasMultiLineMidiDrumDirectives(gchordPreviewText)) {
-    nativeDrums = false;
-  }
+  const nativeDrums = shouldUseNativeMidiDrums();
   const drumPreview = (nativeDrums || skipDrums) ? { text: gchordPreviewText, changed: false } : injectDrumPlayback(gchordPreviewText);
   const previewText = normalizeBlankLinesForPlayback(
     normalizeDollarLineBreaksForPlayback(drumPreview && drumPreview.changed ? drumPreview.text : gchordPreviewText)
@@ -29925,7 +29778,7 @@ function getPlaybackPayload() {
   }
   payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
   payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
-  const sanitized = sanitizeAbcForPlayback(payload.text, { collapseMidiDrumContinuations: nativeDrums && !skipDrums });
+  const sanitized = sanitizeAbcForPlayback(payload.text);
   playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
   payload = { text: sanitized.text, offset: payload.offset };
 

@@ -26329,6 +26329,7 @@ function buildPlaybackState(firstSymbol) {
   const barIstarts = [];
   const voiceEventsById = new Map(); // voiceId -> [{time, istart}]
   const voiceEventsByIndex = new Map(); // voiceIndex -> [{time, istart}]
+  const voiceStats = new Map(); // voice key -> { id, index, order, playable, pitched }
   const pushUnique = (arr, symbol) => {
     if (!symbol || !Number.isFinite(symbol.istart)) return;
     if (arr.length && arr[arr.length - 1].istart === symbol.istart) return;
@@ -26342,6 +26343,7 @@ function buildPlaybackState(firstSymbol) {
   let preferredVoiceId = null;
   let preferredVoiceIndex = null;
   let lockedPrimaryVoice = false;
+  let voiceOrderSeq = 0;
   const editorLen = editorView ? editorView.state.doc.length : 0;
   const editorMaxIstart = (Number.isFinite(playbackIndexOffset) ? playbackIndexOffset : 0) + (Number.isFinite(editorLen) ? editorLen : 0);
   const isInjectedSymbol = (symbol) => {
@@ -26377,6 +26379,33 @@ function buildPlaybackState(firstSymbol) {
       preferredVoiceIndex = v;
       preferredVoiceId = id;
     }
+  };
+
+  const getVoiceStatsKey = (id, index) => {
+    if (id) return `id:${id}`;
+    if (index != null) return `idx:${index}`;
+    return null;
+  };
+
+  const recordVoiceStats = (symbol) => {
+    if (!symbol || !symbol.p_v) return;
+    if (!isPlayableSymbol(symbol)) return;
+    const id = symbol.p_v.id ? String(symbol.p_v.id) : null;
+    if (id && id.toUpperCase() === "DRUM") return;
+    const index = Number.isFinite(symbol.p_v.v) ? symbol.p_v.v : null;
+    const key = getVoiceStatsKey(id, index);
+    if (!key) return;
+    let stats = voiceStats.get(key);
+    if (!stats) {
+      stats = { id, index, order: voiceOrderSeq, playable: 0, pitched: 0 };
+      voiceOrderSeq += 1;
+      voiceStats.set(key, stats);
+    }
+    stats.playable += 1;
+    // abc2svg marks normal pitched notes as type 8. In many lead sheets an
+    // accompaniment voice made of `x` heads is playable too, but it is a poor
+    // default target for Follow when a real melody voice is present.
+    if (symbol.type === 8) stats.pitched += 1;
   };
 
   const pushVoiceEvent = (symbol) => {
@@ -26420,6 +26449,7 @@ function buildPlaybackState(firstSymbol) {
       }
       if (isPlayableSymbol(s)) {
         considerVoice(s);
+        recordVoiceStats(s);
         pushVoiceEvent(s);
       }
     }
@@ -26492,6 +26522,26 @@ function buildPlaybackState(firstSymbol) {
     byIndex: buildTimelineObject(voiceEventsByIndex),
   };
 
+  const preferredKey = getVoiceStatsKey(preferredVoiceId, preferredVoiceIndex);
+  const preferredStats = preferredKey ? voiceStats.get(preferredKey) : null;
+  if (!preferredStats || !preferredStats.pitched) {
+    let bestPitched = null;
+    for (const stats of voiceStats.values()) {
+      if (!stats || !stats.pitched) continue;
+      if (
+        !bestPitched
+        || stats.pitched > bestPitched.pitched
+        || (stats.pitched === bestPitched.pitched && stats.order < bestPitched.order)
+      ) {
+        bestPitched = stats;
+      }
+    }
+    if (bestPitched) {
+      preferredVoiceId = bestPitched.id;
+      preferredVoiceIndex = bestPitched.index;
+    }
+  }
+
   let startSymbol = firstSymbol;
   if (!startSymbol || !Number.isFinite(startSymbol.istart)) {
     startSymbol = symbols.length ? symbols[0].symbol : firstSymbol;
@@ -26513,6 +26563,7 @@ function buildPlaybackState(firstSymbol) {
     barIstarts: uniqSorted(barIstarts),
     timeline,
     voiceTimeline,
+    voiceStats: Array.from(voiceStats.values()).map((stats) => ({ ...stats })),
   };
 }
 
@@ -30250,6 +30301,9 @@ async function preparePlayback() {
       measures: playbackState ? playbackState.measures.length : 0,
       symbols: playbackState ? playbackState.symbols.length : 0,
       bars: playbackState && playbackState.barIstarts ? playbackState.barIstarts.length : 0,
+      preferredVoiceId: playbackState ? (playbackState.preferredVoiceId || null) : null,
+      preferredVoiceIndex: playbackState && Number.isFinite(playbackState.preferredVoiceIndex) ? playbackState.preferredVoiceIndex : null,
+      voiceStats: playbackState && Array.isArray(playbackState.voiceStats) ? playbackState.voiceStats.slice() : [],
       tunes: lastPlaybackTuneInfo,
       symbolsHead: playbackState
         ? playbackState.symbols.slice(0, 30).map((item) => {

@@ -463,6 +463,10 @@
 		        </label>
 	      </div>
       <div id="intonationExplorerStatus" class="tool-panel-status" aria-live="polite"></div>
+      <div class="tool-panel-candidates" aria-label="Makam candidates">
+        <div class="tool-panel-subtitle">Candidates</div>
+        <div id="intonationExplorerCandidates" class="makam-candidates-list"></div>
+      </div>
 	      <div class="tool-panel-table">
 	        <table>
 	          <thead>
@@ -621,10 +625,6 @@
       <div class="modal-header">
         <div class="modal-title">Settings</div>
         <div class="settings-header-controls" aria-label="Settings controls">
-          <div class="segmented" role="group" aria-label="Settings mode">
-            <button id="settingsModeBasic" type="button" aria-pressed="true">Basic</button>
-            <button id="settingsModeAdvanced" type="button" aria-pressed="false">Advanced</button>
-          </div>
           <label class="settings-search">
             <span class="settings-search-label">Search</span>
             <input id="settingsFilter" type="text" aria-label="Search settings" placeholder="Search…" />

@@ -35,7 +35,11 @@ function parseArgs(argv) {
 }
 
 function runGhJson(args) {
-  const buf = execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const buf = execFileSync("gh", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return JSON.parse(buf);
 }
 
@@ -186,17 +190,16 @@ function main() {
 
   if (opts.format === "compact") {
     const cols = wideColumns();
-    process.stdout.write("tag\ttotal\tbreakdown\n");
+    process.stdout.write(["tag", "total", ...cols.map((c) => compactLabelForKey(c.key)), "other"].join("\t") + "\n");
     for (const r of rows) {
-      const parts = [];
+      const values = [];
       for (const c of cols) {
         const v = r.byKey && typeof r.byKey.get === "function" ? (r.byKey.get(c.key) || 0) : 0;
         const num = Number(v) || 0;
-        if (num > 0) parts.push(`${compactLabelForKey(c.key)}:${num}`);
+        values.push(String(num));
       }
       const other = Number(r.otherTotal) || 0;
-      if (other > 0) parts.push(`other:${other}`);
-      process.stdout.write(`${safe(r.tag)}\t${String(r.total)}\t${parts.join(" ")}\n`);
+      process.stdout.write([safe(r.tag), String(r.total), ...values, String(other)].join("\t") + "\n");
     }
     return;
   }

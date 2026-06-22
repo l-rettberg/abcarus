@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [0.41.0] - 2026-06-22
 ### Changed
 - Updated bundled `abc2svg` to v1.23.3 from Jef Moine's 2026-06-21 tip.
 - Playback now relies on native `abc2svg` MIDI drum handling for canonical `%%MIDI drum` directives, with the legacy `V:DRUM` compatibility path removed from the normal playback pipeline.

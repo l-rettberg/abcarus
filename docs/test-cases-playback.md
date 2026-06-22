@@ -40,19 +40,20 @@ Expected:
 - Playback starts from the normal transport start (beginning of tune, or the current transport playhead if you moved it),
   not from the previous Focus loop range.
 
-## PB-DRUM-01 — `%%MIDI drum +:` lines collapse into one payload line
+## PB-DRUM-01 — canonical native `%%MIDI drum` plays
 
-Goal: Ensure multiline drum definitions are merged into a single `%%MIDI drum` line for playback payload.
+Goal: Ensure canonical one-line `%%MIDI drum` definitions are passed to abc2svg native playback.
 
 Steps:
 1. Open `/home/avetik/Projects/ABC/abc/Ara_Dinkjian_etc.abc`.
 2. Select the tune `X:160` (Bu akşam gün batarken gel).
 3. Open **Help → Diagnostics → Payload mode** and switch to **Playback payload**.
-4. Find the `%%MIDI drum` definition block in the payload.
+4. Find the `%%MIDI drum` definition in the payload.
 
 Expected:
-- No `%%MIDI drum +:` lines remain.
-- A single `%%MIDI drum` line contains the rhythm, drum map numbers, and velocities appended in order.
+- The payload uses canonical one-line `%%MIDI drum <pattern> <pitches> <velocities>` syntax.
+- Drums sound during playback when native abc2svg MIDI drums are enabled.
+- `%%MIDI drum +:` continuation lines are not considered a supported native format unless upstream abc2svg adds support.
 
 ## PB-DRUM-02 — V:DRUM preserves bar/repeat/volta skeleton of V:1
 

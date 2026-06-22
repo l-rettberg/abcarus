@@ -68,10 +68,15 @@ return(s.a_meter[1]&&s.a_meter[1].top=='|')?C.BLEN/2:C.BLEN/4
 if(s.a_meter[0].bot=="8"&&s.a_meter[0].top%3==0)
 return C.BLEN/8*3
 return C.BLEN/s.a_meter[0].bot|0}
-function def_beats(){var i,s2,s3,tim,beat=get_beat(),d=first.p_v.meter.wmeasure,nb=d/beat|0,v=voice_tb.length,p_v={id:"_beats",v:v,sym:{type:C.BLOCK,v:v,subtype:"midiprog",chn:9,instr:16384,ts_prev:first}},s={type:C.NOTE,v:v,p_v:p_v,dur:beat,nhd:0,notes:[{midi:37}]}
-abc_time=-d
-for(s2=first;s2;s2=s2.ts_next){if(s2.bar_type&&s2.time){nb=(2*d-s2.time)/beat|0
-abc_time-=d-s2.time
+function def_beats(){var i,s2,s3,tim,nb,npv=cfmt.playbeats.split(/\s+/),beat=get_beat(),d=first.p_v.meter.wmeasure,v=voice_tb.length,p_v={id:"_beats",v:v,sym:{type:C.BLOCK,v:v,subtype:"midiprog",chn:9,instr:16384,ts_prev:first}},s={type:C.NOTE,v:v,p_v:p_v,dur:beat,nhd:0,notes:[{midi:37}]}
+i=Number(npv[0])
+if(!isNaN(i))
+d*=i
+i=Number(npv[1])
+if(!isNaN(i))
+s.notes[0].midi=i
+for(s2=first;s2;s2=s2.ts_next){if(s2.bar_type&&s2.time){nb=(d+first.p_v.meter.wmeasure-s2.time)/beat|0
+abc_time=-beat*nb
 break}}
 s2=p_v.sym
 for(s3=first;s3&&!s3.time;s3=s3.ts_next){if(s3.type==C.TEMPO){s3=Object.create(s3)
@@ -134,15 +139,16 @@ if(s.dur)
 s.dur-=dt
 s.seqst=1
 if(dt<0){s2=s
-do{s=s.prev}while(s&&!s.dur)
-if(s){s.dur+=dt
-s.pdur=s.dur/play_fac
-if(s.ts_next==s2){s2=null}else{s=s2.ts_prev
-while(s&&s.time>=s2.time)
-s=s.ts_prev}}}else{s2=s.ts_next
+do{s2=s2.prev}while(s2&&!s2.dur)
+if(s2){s2.dur+=dt
+s2.pdur=s2.dur/play_fac
+while(s2&&s2.time>=s.time)
+s2=s2.prev
+if(s2)
+s2=s2.next}}else{s2=s.ts_next
 while(s2&&s2.time<s.time)
 s2=s2.ts_next}
-if(s2){s.ts_prev.ts_next=s.ts_next
+if(s2&&s2!=s&&s2!=s.ts_next){s.ts_prev.ts_next=s.ts_next
 if(s.ts_next)
 s.ts_next.ts_prev=s.ts_prev
 s.ts_prev=s2.ts_prev
@@ -165,6 +171,8 @@ prev=prev.prev
 if(prev&&(s.sappo||!next||next.type!=C.NOTE)){if(s.sappo){d=C.BLEN/16
 if(d>prev.dur/3)
 d=prev.dur/3}else{d=prev.dur/2}
+if(s.fmt.gracedur!=null)
+d*=s.fmt.gracedur
 s2=s.ts_next
 relink(s,-d)
 s.ptim-=d/play_fac}else{d=next.dur/12
@@ -178,6 +186,8 @@ if(d/n<24)
 d=24*n
 if(s.sappo&&d>C.BLEN/16)
 d=C.BLEN/16
+if(s.fmt.gracedur!=null)
+d*=s.fmt.gracedur
 relink(next,d)
 s2=s.ts_next}
 s.dur=d
@@ -253,6 +263,7 @@ b_typ|=2
 s.rep_p=rst
 if(rst==rsk[0])
 s.rep_v=rsk
+if(!s.text)
 rst=s}
 if(s.text){if(s.text[0]=='1'){if(b_typ&1)
 break
@@ -1221,12 +1232,7 @@ chnm=abc2svg.chnm
 if(cfmt.chord.names){for(k in cfmt.chord.names){chnm[k]=[]
 for(i=0;i<cfmt.chord.names[k].length;i++)
 chnm[k].push(+cfmt.chord.names[k][i])}}
-k=0
-for(i=0;i<voice_tb.length;i++){if(k<voice_tb[i].chn)
-k=voice_tb[i].chn}
-if(k==9)
-k++
-vch={v:voice_tb.length,id:"_chord",time:0,sym:{type:C.BLOCK,subtype:"midiprog",chn:k+1,instr:cfmt.chord.prog||0,time:0,dur:0,next:{type:C.BLOCK,subtype:"midictl",time:0,dur:0,ctrl:7,val:cfmt.chord.vol||75}}}
+vch={v:voice_tb.length,id:"_chord",time:0,sym:{type:C.BLOCK,subtype:"midiprog",chn:15,instr:cfmt.chord.prog||0,time:0,dur:0,next:{type:C.BLOCK,subtype:"midictl",time:0,dur:0,ctrl:7,val:cfmt.chord.vol||75}}}
 vch.sym.p_v=vch
 vch.sym.v=vch.v
 vch.sym.next.p_v=vch

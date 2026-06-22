@@ -10226,7 +10226,6 @@ function initEditor() {
 		            const hitCount = parsedPattern && Number.isFinite(parsedPattern.hitCount) ? parsedPattern.hitCount : 0;
 		            const pitches = numbers.slice(0, hitCount);
 		            const velocities = numbers.slice(hitCount, hitCount * 2);
-		            const hadContinuation = endLineNumber > mainLineNumber;
 		            const drumbarsValue = (() => {
 		              if (!drumbarsLineNumber) return "";
 		              const line = doc.line(drumbarsLineNumber).text || "";
@@ -10327,20 +10326,6 @@ function initEditor() {
 		            optionsRow.style.justifyContent = "space-between";
 		            optionsRow.style.gap = "10px";
 		            optionsRow.style.width = "100%";
-
-		            const useContinuationLabel = document.createElement("label");
-		            useContinuationLabel.style.display = "flex";
-		            useContinuationLabel.style.alignItems = "center";
-		            useContinuationLabel.style.gap = "6px";
-		            useContinuationLabel.style.cursor = "pointer";
-		            const useContinuationInput = document.createElement("input");
-		            useContinuationInput.type = "checkbox";
-		            useContinuationInput.checked = hadContinuation;
-		            const useContinuationText = document.createElement("span");
-		            useContinuationText.textContent = "Use +: continuation lines";
-		            useContinuationLabel.appendChild(useContinuationInput);
-		            useContinuationLabel.appendChild(useContinuationText);
-		            optionsRow.appendChild(useContinuationLabel);
 
 		            const status = document.createElement("div");
 		            status.style.fontSize = "12px";
@@ -10601,16 +10586,10 @@ function initEditor() {
 		                : "";
 		              const outLines = [];
 		              if (drumbarsOut) outLines.push(`${indent}%%MIDI drumbars ${drumbarsOut}`);
-		              if (useContinuationInput.checked) {
-		                outLines.push(`${indent}%%MIDI drum ${patternValue}${commentSuffix}`);
-		                if (pitchesNow.length) outLines.push(`${indent}%%MIDI drum +: ${pitchesNow.join(" ")}`);
-		                if (velocitiesNow.length) outLines.push(`${indent}%%MIDI drum +: ${velocitiesNow.join(" ")}`);
-		              } else {
-		                const tokens = [patternValue];
-		                if (pitchesNow.length) tokens.push(pitchesNow.join(" "));
-		                if (velocitiesNow.length) tokens.push(velocitiesNow.join(" "));
-		                outLines.push(`${indent}%%MIDI drum ${tokens.join(" ").trim()}${commentSuffix}`);
-		              }
+		              const tokens = [patternValue];
+		              if (pitchesNow.length) tokens.push(pitchesNow.join(" "));
+		              if (velocitiesNow.length) tokens.push(velocitiesNow.join(" "));
+		              outLines.push(`${indent}%%MIDI drum ${tokens.join(" ").trim()}${commentSuffix}`);
 
 		              const startLine = (drumbarsLineNumber != null) ? drumbarsLineNumber : mainLineNumber;
 		              const from = doc.line(startLine).from;

@@ -38,7 +38,7 @@ function main() {
     playbackSelectionMuteGchords: false,
     playbackSelectionAllowMidiDrums: false,
     playbackSelectionMutedVoices: "",
-    playbackNativeMidiDrums: false,
+    playbackNativeMidiDrums: true,
     playbackMidiFxPreset: "Custom",
     playbackMidiReverb: 0,
     playbackMidiChorus: 0,

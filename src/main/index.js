@@ -1399,11 +1399,17 @@ function clampZoom(value) {
   return Math.min(8, Math.max(0.5, value));
 }
 
+function isMissingFileError(err) {
+  const code = err && err.code ? String(err.code) : "";
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   const absPath = String(filePath || "");
   if (!absPath) throw new Error("Missing file path.");
   const dir = path.dirname(absPath);
   const tmpPath = path.join(dir, `.${path.basename(absPath)}.${process.pid}.${Date.now()}.tmp`);
+  const backupPath = path.join(dir, `.${path.basename(absPath)}.${process.pid}.${Date.now()}.bak`);
   await fs.promises.writeFile(tmpPath, data, "utf8");
   let lastErr = null;
   for (let i = 0; i < attempts; i += 1) {
@@ -1412,9 +1418,25 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
         await fs.promises.rename(tmpPath, absPath);
         return;
       } catch (e) {
-        try { await fs.promises.unlink(absPath); } catch {}
-        await fs.promises.rename(tmpPath, absPath);
-        return;
+        let backedUp = false;
+        try {
+          await fs.promises.rename(absPath, backupPath);
+          backedUp = true;
+        } catch (backupErr) {
+          if (!isMissingFileError(backupErr)) throw backupErr;
+        }
+        try {
+          await fs.promises.rename(tmpPath, absPath);
+          if (backedUp) {
+            try { await fs.promises.unlink(backupPath); } catch {}
+          }
+          return;
+        } catch (replaceErr) {
+          if (backedUp) {
+            try { await fs.promises.rename(backupPath, absPath); } catch {}
+          }
+          throw replaceErr;
+        }
       }
     } catch (e) {
       lastErr = e;
@@ -1503,7 +1525,6 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
     next.midiImportBackend = allowed.has(rawMidiBackend) ? rawMidiBackend : "auto";
   }
   next.midiImportBackendSetByUser = Boolean(next.midiImportBackendSetByUser);
-  next.playbackNativeMidiDrums = Boolean(next.playbackNativeMidiDrums);
   next.playbackNativeMidiDrumsSetByUser = Boolean(next.playbackNativeMidiDrumsSetByUser);
   if (patch && Object.prototype.hasOwnProperty.call(patch, "usePortalFileDialogs")) {
     next.usePortalFileDialogsSetByUser = true;
@@ -1511,6 +1532,9 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   if (patch && Object.prototype.hasOwnProperty.call(patch, "playbackNativeMidiDrums")) {
     next.playbackNativeMidiDrumsSetByUser = true;
   }
+  next.playbackNativeMidiDrums = next.playbackNativeMidiDrumsSetByUser
+    ? Boolean(next.playbackNativeMidiDrums)
+    : true;
   if (patch && Object.prototype.hasOwnProperty.call(patch, "midiImportBackend")) {
     next.midiImportBackendSetByUser = true;
   }
@@ -1880,6 +1904,7 @@ function ensurePersistedLibraryIndexLoaded() {
 
 async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const backupPath = `${filePath}.${process.pid}.${Date.now()}.bak`;
   await fs.promises.writeFile(tmpPath, data, "utf8");
   let lastErr = null;
   for (let i = 0; i < attempts; i += 1) {
@@ -1888,10 +1913,25 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
         await fs.promises.rename(tmpPath, filePath);
         return;
       } catch (e) {
-        // Windows often fails rename when target exists; remove and retry.
-        try { await fs.promises.unlink(filePath); } catch {}
-        await fs.promises.rename(tmpPath, filePath);
-        return;
+        let backedUp = false;
+        try {
+          await fs.promises.rename(filePath, backupPath);
+          backedUp = true;
+        } catch (backupErr) {
+          if (!isMissingFileError(backupErr)) throw backupErr;
+        }
+        try {
+          await fs.promises.rename(tmpPath, filePath);
+          if (backedUp) {
+            try { await fs.promises.unlink(backupPath); } catch {}
+          }
+          return;
+        } catch (replaceErr) {
+          if (backedUp) {
+            try { await fs.promises.rename(backupPath, filePath); } catch {}
+          }
+          throw replaceErr;
+        }
       }
     } catch (e) {
       lastErr = e;

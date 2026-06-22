@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.41.0] - 2026-06-22
+### Changed
+- Updated bundled `abc2svg` to v1.23.3 from Jef Moine's 2026-06-21 tip.
+- Playback now relies on native `abc2svg` MIDI drum handling for canonical `%%MIDI drum` directives, with the legacy `V:DRUM` compatibility path removed from the normal playback pipeline.
+- The Drum Pattern editor now writes canonical one-line `%%MIDI drum <pattern> <pitches> <velocities>` directives while continuing to read existing `%%MIDI drum +:` blocks.
+
+### Fixed
+- File save/export replacement fallback now preserves the previous file via backup-rename instead of deleting the destination before replacement.
+- Working-copy saves are guarded more strictly so failed saves surface as errors instead of silently losing user edits.
+
 ## [0.40.0] - 2026-06-21
 ### Added
 - Intonation Explorer now suggests makam candidates from 53-EDO pitch usage, K signatures, makam DNA entries, and phrase/seyir cues, with quick actions to use a candidate as declared or comparison makam.

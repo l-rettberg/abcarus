@@ -2302,7 +2302,7 @@ const devConfig = (() => {
 })();
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
-const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") === "1";
+const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") !== "0";
 let autoDumpLastAtMs = 0;
 let autoDumpSeq = 0;
 let autoWcDumpLastAtMs = 0;
@@ -3662,6 +3662,7 @@ let workingCopyTuneSyncTimer = null;
 let workingCopyTuneSyncInFlight = false;
 let workingCopyTuneSyncQueued = false;
 let workingCopyTuneSyncEpoch = 0;
+let workingCopyTuneSyncRunPromise = null;
 const WORKING_COPY_TUNE_SYNC_DEBOUNCE_MS = 450;
 
 let workingCopyFullSyncTimer = null;
@@ -3723,25 +3724,38 @@ function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
 }
 
 async function flushWorkingCopyTuneSync() {
+  if (workingCopyTuneSyncTimer) {
+    clearTimeout(workingCopyTuneSyncTimer);
+    workingCopyTuneSyncTimer = null;
+  }
   const epoch = workingCopyTuneSyncEpoch;
   if (workingCopyTuneSyncInFlight) {
     workingCopyTuneSyncQueued = true;
-    return;
+    if (workingCopyTuneSyncRunPromise) {
+      return workingCopyTuneSyncRunPromise;
+    }
+    return { ok: false, error: "Tune sync is already running." };
   }
-  if (rawMode) return;
-  if (payloadMode) return;
-  if (chordproMode) return;
+  if (rawMode) return { ok: false, skipped: true, reason: "raw_mode" };
+  if (payloadMode) return { ok: false, skipped: true, reason: "payload_mode" };
+  if (chordproMode) return { ok: false, skipped: true, reason: "chordpro_mode" };
   if (!activeTuneUid) {
     // Some open paths (e.g., recents / stale library metadata) may not have a tuneUid yet.
     // Try to self-heal from the current working copy snapshot; otherwise refuse to sync.
-    if (!tryResolveActiveTuneUidFromWorkingCopySnapshot()) return;
+    if (!tryResolveActiveTuneUidFromWorkingCopySnapshot()) {
+      return { ok: false, error: "Unable to resolve active tune in working copy." };
+    }
   }
-  if (!activeTuneMeta || !activeTuneMeta.path) return;
-  if (!window.api || typeof window.api.applyWorkingCopyTuneText !== "function") return;
+  if (!activeTuneMeta || !activeTuneMeta.path) return { ok: false, error: "Active tune path is missing." };
+  if (!window.api || typeof window.api.applyWorkingCopyTuneText !== "function") {
+    return { ok: false, error: "Working copy tune sync is unavailable." };
+  }
 
   const filePath = String(activeTuneMeta.path || "");
-  if (!filePath) return;
-  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) return;
+  if (!filePath) return { ok: false, error: "Active tune path is missing." };
+  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) {
+    return { ok: false, error: "Working copy snapshot does not match the active tune file." };
+  }
 
   const tuneTextRaw = getEditorValue();
   const targetX = (activeTuneMeta && activeTuneMeta.xNumber != null)
@@ -3751,36 +3765,60 @@ async function flushWorkingCopyTuneSync() {
     ? ensureXNumberInAbc(tuneTextRaw, targetX)
     : ensureXNumberInAbc(tuneTextRaw, "");
   workingCopyTuneSyncInFlight = true;
-  try {
-    const res = await window.api.applyWorkingCopyTuneText({
-      tuneUid: activeTuneUid,
-      text: tuneText,
-    });
-    if (epoch !== workingCopyTuneSyncEpoch) return;
-    if (!res || !res.ok) return;
-
-    const snapshot = await refreshWorkingCopySnapshot();
-    if (epoch !== workingCopyTuneSyncEpoch) return;
-    if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-      setFileContentInCache(filePath, snapshot.text);
-      const tuneEntry = resolveTuneEntryFromSnapshot(snapshot, {
+  const runPromise = (async () => {
+    let result = { ok: false, error: "Working copy tune sync did not complete." };
+    try {
+      const res = await window.api.applyWorkingCopyTuneText({
         tuneUid: activeTuneUid,
-        tuneIndex: activeTuneIndex,
-        startOffset: activeTuneMeta && activeTuneMeta.startOffset,
+        text: tuneText,
       });
-      if (tuneEntry && Number.isFinite(Number(tuneEntry.tuneIndex))) {
-        activeTuneIndex = tuneEntry.tuneIndex;
+      if (epoch !== workingCopyTuneSyncEpoch) {
+        result = { ok: false, stale: true, error: "Working copy tune sync was superseded." };
+        return result;
       }
-      if (tuneEntry && activeTuneMeta) {
-        activeTuneMeta.startOffset = tuneEntry.start;
-        activeTuneMeta.endOffset = tuneEntry.end;
+      if (!res || !res.ok) {
+        result = { ok: false, error: (res && res.error) ? String(res.error) : "Unable to apply tune text to working copy." };
+        return result;
+      }
+
+      const snapshot = await refreshWorkingCopySnapshot();
+      if (epoch !== workingCopyTuneSyncEpoch) {
+        result = { ok: false, stale: true, error: "Working copy tune sync was superseded." };
+        return result;
+      }
+      if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
+        setFileContentInCache(filePath, snapshot.text);
+        const tuneEntry = resolveTuneEntryFromSnapshot(snapshot, {
+          tuneUid: activeTuneUid,
+          tuneIndex: activeTuneIndex,
+          startOffset: activeTuneMeta && activeTuneMeta.startOffset,
+        });
+        if (tuneEntry && Number.isFinite(Number(tuneEntry.tuneIndex))) {
+          activeTuneIndex = tuneEntry.tuneIndex;
+        }
+        if (tuneEntry && activeTuneMeta) {
+          activeTuneMeta.startOffset = tuneEntry.start;
+          activeTuneMeta.endOffset = tuneEntry.end;
+        }
+        result = { ok: true, path: filePath };
+      } else {
+        result = { ok: false, error: "Working copy snapshot was not refreshed after tune sync." };
+      }
+    } finally {
+      workingCopyTuneSyncInFlight = false;
+      if (epoch === workingCopyTuneSyncEpoch && workingCopyTuneSyncQueued) {
+        workingCopyTuneSyncQueued = false;
+        result = await flushWorkingCopyTuneSync();
       }
     }
+    return result;
+  })();
+  workingCopyTuneSyncRunPromise = runPromise;
+  try {
+    return await runPromise;
   } finally {
-    workingCopyTuneSyncInFlight = false;
-    if (epoch === workingCopyTuneSyncEpoch && workingCopyTuneSyncQueued) {
-      workingCopyTuneSyncQueued = false;
-      await flushWorkingCopyTuneSync();
+    if (workingCopyTuneSyncRunPromise === runPromise) {
+      workingCopyTuneSyncRunPromise = null;
     }
   }
 }
@@ -4031,6 +4069,47 @@ function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffse
     start,
     end,
   };
+}
+
+async function verifyWorkingCopySaveReachedDisk(filePath) {
+  const p = String(filePath || "");
+  if (!p) return { ok: false, error: "Missing file path for save verification." };
+
+  const snapshot = await refreshWorkingCopySnapshot();
+  if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+    return { ok: false, error: "Unable to verify save: working copy snapshot is unavailable." };
+  }
+
+  const readRes = await readFile(p);
+  if (!readRes || !readRes.ok) {
+    return { ok: false, error: (readRes && readRes.error) ? readRes.error : "Unable to verify save: cannot read file from disk." };
+  }
+  if (String(readRes.data || "") !== String(snapshot.text || "")) {
+    return { ok: false, error: "Save verification failed: disk file does not match the committed working copy." };
+  }
+
+  if (activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, p)) {
+    const tuneEntry = resolveTuneEntryFromSnapshot(snapshot, {
+      tuneUid: activeTuneUid,
+      tuneIndex: activeTuneIndex,
+      startOffset: activeTuneMeta.startOffset,
+    });
+    if (!tuneEntry) {
+      return { ok: false, error: "Save verification failed: active tune was not found in the committed file." };
+    }
+    const targetX = activeTuneMeta && activeTuneMeta.xNumber != null
+      ? String(activeTuneMeta.xNumber || "").trim()
+      : "";
+    const expectedTuneText = targetX
+      ? ensureXNumberInAbc(getEditorValue(), targetX)
+      : ensureXNumberInAbc(getEditorValue(), "");
+    const actualTuneText = String(snapshot.text || "").slice(tuneEntry.start, tuneEntry.end);
+    if (actualTuneText !== expectedTuneText) {
+      return { ok: false, error: "Save verification failed: the active editor text is not in the committed file." };
+    }
+  }
+
+  return { ok: true, snapshot };
 }
 let activeTuneId = null;
 let activeTuneUid = null;
@@ -8408,10 +8487,7 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
   }
 
   // 2) drum injection (playback-only when not using native drums)
-  let nativeDrums = shouldUseNativeMidiDrums();
-  if (nativeDrums && hasMultiLineMidiDrumDirectives(payload.text)) {
-    nativeDrums = false;
-  }
+  const nativeDrums = shouldUseNativeMidiDrums();
   const drumInjected = nativeDrums
     ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 }
     : injectDrumPlayback(payload.text);
@@ -10150,7 +10226,6 @@ function initEditor() {
 		            const hitCount = parsedPattern && Number.isFinite(parsedPattern.hitCount) ? parsedPattern.hitCount : 0;
 		            const pitches = numbers.slice(0, hitCount);
 		            const velocities = numbers.slice(hitCount, hitCount * 2);
-		            const hadContinuation = endLineNumber > mainLineNumber;
 		            const drumbarsValue = (() => {
 		              if (!drumbarsLineNumber) return "";
 		              const line = doc.line(drumbarsLineNumber).text || "";
@@ -10251,20 +10326,6 @@ function initEditor() {
 		            optionsRow.style.justifyContent = "space-between";
 		            optionsRow.style.gap = "10px";
 		            optionsRow.style.width = "100%";
-
-		            const useContinuationLabel = document.createElement("label");
-		            useContinuationLabel.style.display = "flex";
-		            useContinuationLabel.style.alignItems = "center";
-		            useContinuationLabel.style.gap = "6px";
-		            useContinuationLabel.style.cursor = "pointer";
-		            const useContinuationInput = document.createElement("input");
-		            useContinuationInput.type = "checkbox";
-		            useContinuationInput.checked = hadContinuation;
-		            const useContinuationText = document.createElement("span");
-		            useContinuationText.textContent = "Use +: continuation lines";
-		            useContinuationLabel.appendChild(useContinuationInput);
-		            useContinuationLabel.appendChild(useContinuationText);
-		            optionsRow.appendChild(useContinuationLabel);
 
 		            const status = document.createElement("div");
 		            status.style.fontSize = "12px";
@@ -10525,16 +10586,10 @@ function initEditor() {
 		                : "";
 		              const outLines = [];
 		              if (drumbarsOut) outLines.push(`${indent}%%MIDI drumbars ${drumbarsOut}`);
-		              if (useContinuationInput.checked) {
-		                outLines.push(`${indent}%%MIDI drum ${patternValue}${commentSuffix}`);
-		                if (pitchesNow.length) outLines.push(`${indent}%%MIDI drum +: ${pitchesNow.join(" ")}`);
-		                if (velocitiesNow.length) outLines.push(`${indent}%%MIDI drum +: ${velocitiesNow.join(" ")}`);
-		              } else {
-		                const tokens = [patternValue];
-		                if (pitchesNow.length) tokens.push(pitchesNow.join(" "));
-		                if (velocitiesNow.length) tokens.push(velocitiesNow.join(" "));
-		                outLines.push(`${indent}%%MIDI drum ${tokens.join(" ").trim()}${commentSuffix}`);
-		              }
+		              const tokens = [patternValue];
+		              if (pitchesNow.length) tokens.push(pitchesNow.join(" "));
+		              if (velocitiesNow.length) tokens.push(velocitiesNow.join(" "));
+		              outLines.push(`${indent}%%MIDI drum ${tokens.join(" ").trim()}${commentSuffix}`);
 
 		              const startLine = (drumbarsLineNumber != null) ? drumbarsLineNumber : mainLineNumber;
 		              const from = doc.line(startLine).from;
@@ -17075,8 +17130,7 @@ function computeDrumMismatchInfoFromEditor() {
     let text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
     const gchordPreview = injectGchordOn(text, prefixPayload.offset || 0);
     if (gchordPreview && gchordPreview.changed) text = gchordPreview.text;
-    let nativeDrums = shouldUseNativeMidiDrums();
-    if (nativeDrums && hasMultiLineMidiDrumDirectives(text)) nativeDrums = false;
+    const nativeDrums = shouldUseNativeMidiDrums();
     if (nativeDrums) return { ok: true };
     const normalized = normalizeLeadingInlineDirectivesForPlayback(text);
     if (!/(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(normalized || "")) return null;
@@ -17662,8 +17716,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
   try {
     ensureAbc2svgLoader();
     const normalized = normalizeHeaderNoneSpacing(abcText);
-    const drumCompat = collapseMidiDrumContinuationsForCompat(normalized);
-    const baseText = drumCompat && drumCompat.text ? drumCompat.text : normalized;
+    const baseText = normalized;
     const context = options && options.errorContext ? options.errorContext : null;
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
@@ -18723,16 +18776,14 @@ function renderNow() {
     return;
   }
   const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
-  const drumCompat = collapseMidiDrumContinuationsForCompat(renderTextBase);
-  const renderTextCompat = drumCompat && drumCompat.text ? drumCompat.text : renderTextBase;
-  const sepStripInitial = stripSepForRender(renderTextCompat);
-  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextCompat;
+  const sepStripInitial = stripSepForRender(renderTextBase);
+  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextBase;
   let sepFallbackUsed = sepStripInitial.replaced;
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
     lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-    compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+    compatMap: null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
     errorLineOffset = renderPayload.lineOffset;
@@ -18832,7 +18883,7 @@ function renderNow() {
               text: renderText,
               offset: renderPayload.offset || 0,
               lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-              compatMap: drumCompat && drumCompat.compatMap ? drumCompat.compatMap : null,
+              compatMap: null,
             };
             continue;
           }
@@ -20478,9 +20529,14 @@ async function performSaveFlow() {
       await showSaveError("Unable to save: tune identity is missing. Re-open the tune and try again.");
       return false;
     }
-    try {
-      await flushWorkingCopyTuneSync();
-    } catch {}
+    const syncRes = await flushWorkingCopyTuneSync().catch((e) => ({
+      ok: false,
+      error: e && e.message ? e.message : String(e),
+    }));
+    if (!syncRes || !syncRes.ok) {
+      await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune before saving.");
+      return false;
+    }
     if (combineHeaderWithWorkingCopySave && headerDirty && window.api && typeof window.api.applyWorkingCopyHeaderText === "function") {
       try {
         const headerRes = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue());
@@ -20502,6 +20558,15 @@ async function performSaveFlow() {
         return Boolean(handled && handled.ok);
       }
       if (res && res.ok) {
+        const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);
+        if (!verified || !verified.ok) {
+          recordRecentAction("save.wc.verify.fail", {
+            path: String(activeTuneMeta.path),
+            error: (verified && verified.error) ? String(verified.error) : "unknown",
+          });
+          await showSaveError((verified && verified.error) ? verified.error : "Save verification failed.");
+          return false;
+        }
         recordRecentAction("save.wc.commit.ok", { path: String(activeTuneMeta.path) });
         await finalizeWorkingCopySave(activeTuneMeta.path);
         return true;
@@ -20509,6 +20574,15 @@ async function performSaveFlow() {
       if (res && res.conflict) {
         const forced = await window.api.commitWorkingCopyToDisk({ force: true });
         if (forced && forced.ok) {
+          const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);
+          if (!verified || !verified.ok) {
+            recordRecentAction("save.wc.verify.fail", {
+              path: String(activeTuneMeta.path),
+              error: (verified && verified.error) ? String(verified.error) : "unknown",
+            });
+            await showSaveError((verified && verified.error) ? verified.error : "Save verification failed.");
+            return false;
+          }
           recordRecentAction("save.wc.commit.forced", { path: String(activeTuneMeta.path) });
           await finalizeWorkingCopySave(activeTuneMeta.path);
           return true;
@@ -21698,7 +21772,7 @@ async function performAppendFlow() {
     setSaveSession({
       intent: SAVE_INTENT.REPLACE_TUNE,
       targetPath: filePath,
-      targetTuneUid: "",
+      targetTuneUid: String(activeTuneUid || ""),
       source: "append_saved",
     });
     if (currentDoc) {
@@ -28998,44 +29072,6 @@ function injectDrumPlayback(text) {
   return res;
 }
 
-function hasMultiLineMidiDrumDirectives(text) {
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  let inTextBlock = false;
-  let sawDrum = false;
-  for (const raw of lines) {
-    const trimmed = String(raw || "").trim();
-    if (/^%%\s*begintext\b/i.test(trimmed)) {
-      inTextBlock = true;
-      continue;
-    }
-    if (/^%%\s*endtext\b/i.test(trimmed)) {
-      inTextBlock = false;
-      continue;
-    }
-    if (inTextBlock) continue;
-    if (!trimmed) {
-      sawDrum = false;
-      continue;
-    }
-    if (/^%/.test(trimmed) && !/^%%/.test(trimmed)) continue;
-    if (/^\s*%%\s*MIDI\s+drum\s+\+:/i.test(raw)) return true;
-    if (/^\s*\+:\s*/i.test(raw)) {
-      if (sawDrum) return true;
-      continue;
-    }
-    if (/^\s*%%\s*MIDI\s+drum\s+(?!\+:)/i.test(raw)) {
-      sawDrum = true;
-      continue;
-    }
-    if (/^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(raw)) {
-      sawDrum = false;
-      continue;
-    }
-    sawDrum = false;
-  }
-  return false;
-}
-
 function injectGchordOn(text, insertAt) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   let hasGchordPattern = false;
@@ -29146,110 +29182,11 @@ function normalizeBlankLinesForPlayback(text) {
   return out.join("\n");
 }
 
-function collapseMidiDrumContinuationsForCompat(text) {
+function sanitizeAbcForPlayback(text) {
   const src = String(text || "");
   const lines = src.split(/\r\n|\n|\r/);
   const out = [];
   const warnings = [];
-  const shifts = [];
-  let inTextBlock = false;
-  let srcPos = 0;
-  let outPos = 0;
-  let totalDelta = 0;
-  const splitComment = (s) => {
-    const idx = String(s || "").indexOf("%", 2); // allow leading "%%" as directive marker
-    if (idx < 0) return { code: String(s || ""), comment: "" };
-    return { code: String(s || "").slice(0, idx), comment: String(s || "").slice(idx) };
-  };
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const rawLine = lines[lineIndex];
-    const trimmed = rawLine.trim();
-    if (/^%%\s*begintext\b/i.test(trimmed)) inTextBlock = true;
-    if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
-
-    // Compatibility: abc2svg rejects `%%MIDI drum +:` continuation lines.
-    // Keep line count stable for diagnostics by replacing consumed lines with comments.
-    if (!inTextBlock) {
-      const main = rawLine.match(/^(\s*)%%MIDI\s+drum\s+(?!\+:)(.*)$/i);
-      if (main) {
-        const indent = main[1] || "";
-        const restRaw = main[2] || "";
-        const mainParts = splitComment(rawLine);
-        const consumed = [];
-        let j = lineIndex + 1;
-        while (j < lines.length) {
-          const nextRaw = lines[j];
-          const m = nextRaw.match(/^\s*%%MIDI\s+drum\s+\+:\s*(.*)$/i);
-          if (!m) break;
-          const tail = m[1] || "";
-          consumed.push({ raw: nextRaw, payload: splitComment(tail).code });
-          j += 1;
-        }
-
-        if (consumed.length > 0) {
-          const mainPayload = splitComment(restRaw).code;
-          const mainTokens = String(mainPayload || "").trim().split(/\s+/).filter(Boolean);
-          const isNum = (t) => /^-?\d+$/.test(String(t || "").trim());
-          let firstNum = -1;
-          for (let i = 0; i < mainTokens.length; i += 1) {
-            if (isNum(mainTokens[i])) { firstNum = i; break; }
-          }
-          const rhythmTokens = (firstNum === -1 ? mainTokens : mainTokens.slice(0, firstNum)).filter((t) => t !== "+:");
-          const rhythm = rhythmTokens.join("");
-          const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum));
-          for (const c of consumed) {
-            numbers.push(...String(c.payload || "").trim().split(/\s+/).filter(Boolean));
-          }
-          const joined = [rhythm, numbers.join(" ")].filter(Boolean).join(" ").trim();
-          const combinedLine = `${indent}%%MIDI drum ${joined}` + (mainParts.comment || "");
-          out.push(combinedLine);
-          for (const consumedLine of consumed) {
-            out.push("%" + " ".repeat(Math.max(0, String(consumedLine.raw || "").length - 1)));
-          }
-          warnings.push({ kind: "midi-drum-continuation-collapsed", line: lineIndex + 1, lines: consumed.length + 1 });
-          let sourceBlockLen = 0;
-          let outputBlockLen = 0;
-          for (let k = 0; k <= consumed.length; k += 1) {
-            const isLast = (lineIndex + k) === lines.length - 1;
-            const sourceLine = k === 0 ? rawLine : String(consumed[k - 1].raw || "");
-            const outputLine = k === 0 ? combinedLine : "%" + " ".repeat(Math.max(0, String(consumed[k - 1].raw || "").length - 1));
-            sourceBlockLen += sourceLine.length + (isLast ? 0 : 1);
-            outputBlockLen += outputLine.length + (isLast ? 0 : 1);
-          }
-          srcPos += sourceBlockLen;
-          outPos += outputBlockLen;
-          const delta = outputBlockLen - sourceBlockLen;
-          if (delta !== 0) {
-            totalDelta += delta;
-            shifts.push({ srcPos, outPos, delta: totalDelta });
-          }
-          lineIndex = j - 1;
-          continue;
-        }
-      }
-    }
-
-    out.push(rawLine);
-    const isLast = lineIndex === lines.length - 1;
-    const lineLen = rawLine.length + (isLast ? 0 : 1);
-    srcPos += lineLen;
-    outPos += lineLen;
-  }
-
-  return { text: out.join("\n"), warnings, compatMap: shifts.length ? { shifts, totalDelta } : null };
-}
-
-function sanitizeAbcForPlayback(text, options = {}) {
-  const collapseMidiDrumContinuations = options.collapseMidiDrumContinuations !== false;
-  const initialText = String(text || "");
-  const drumCompat = collapseMidiDrumContinuations
-    ? collapseMidiDrumContinuationsForCompat(initialText)
-    : { text: initialText, warnings: [] };
-  const src = drumCompat && typeof drumCompat.text === "string" ? drumCompat.text : initialText;
-  const lines = src.split(/\r\n|\n|\r/);
-  const out = [];
-  const warnings = Array.isArray(drumCompat && drumCompat.warnings) ? drumCompat.warnings.slice() : [];
   let inTextBlock = false;
   let inBody = false;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -29786,10 +29723,7 @@ function getPlaybackPayload() {
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
-  let nativeDrums = shouldUseNativeMidiDrums();
-  if (nativeDrums && hasMultiLineMidiDrumDirectives(gchordPreviewText)) {
-    nativeDrums = false;
-  }
+  const nativeDrums = shouldUseNativeMidiDrums();
   const drumPreview = (nativeDrums || skipDrums) ? { text: gchordPreviewText, changed: false } : injectDrumPlayback(gchordPreviewText);
   const previewText = normalizeBlankLinesForPlayback(
     normalizeDollarLineBreaksForPlayback(drumPreview && drumPreview.changed ? drumPreview.text : gchordPreviewText)
@@ -29823,7 +29757,7 @@ function getPlaybackPayload() {
   }
   payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
   payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
-  const sanitized = sanitizeAbcForPlayback(payload.text, { collapseMidiDrumContinuations: nativeDrums && !skipDrums });
+  const sanitized = sanitizeAbcForPlayback(payload.text);
   playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
   payload = { text: sanitized.text, offset: payload.offset };
 
@@ -30277,15 +30211,6 @@ async function preparePlayback() {
   } catch {
     lastPlaybackTuneInfo = { count: tunes.length };
   }
-
-  // Compatibility: older upstream builds exposed `abc2svg.drum` as a function, while newer ones expose
-  // an object with hook methods (`beg_end`, `set_fmt`, `set_hooks`). Only stub when the property is absent.
-  try {
-    if (window.abc2svg && window.abc2svg.drum == null) {
-      window.abc2svg.drum = () => {};
-      playbackSanitizeWarnings.push({ kind: "playback-abc2svg-drum-missing-stubbed" });
-    }
-  } catch {}
 
   for (const t of tunes) {
     p.add(t[0], t[1], t[3]);

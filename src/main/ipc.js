@@ -304,9 +304,17 @@ async function checkChordProAvailable({ app, fs, path, settings }) {
 async function atomicWriteFileWithRetry(fs, path, filePath, data, { attempts = 5 } = {}) {
   const absPath = String(filePath || "");
   if (!absPath) throw new Error("Missing file path.");
+  const isMissing = (err) => {
+    const code = err && err.code ? String(err.code) : "";
+    return code === "ENOENT" || code === "ENOTDIR";
+  };
   const tmpPath = path.join(
     path.dirname(absPath),
     `.${path.basename(absPath)}.${process.pid}.${Date.now()}.tmp`
+  );
+  const backupPath = path.join(
+    path.dirname(absPath),
+    `.${path.basename(absPath)}.${process.pid}.${Date.now()}.bak`
   );
   await fs.promises.writeFile(tmpPath, data);
   let lastErr = null;
@@ -316,10 +324,25 @@ async function atomicWriteFileWithRetry(fs, path, filePath, data, { attempts = 5
         await fs.promises.rename(tmpPath, absPath);
         return;
       } catch (e) {
-        // Windows often fails rename when target exists; remove and retry.
-        try { await fs.promises.unlink(absPath); } catch {}
-        await fs.promises.rename(tmpPath, absPath);
-        return;
+        let backedUp = false;
+        try {
+          await fs.promises.rename(absPath, backupPath);
+          backedUp = true;
+        } catch (backupErr) {
+          if (!isMissing(backupErr)) throw backupErr;
+        }
+        try {
+          await fs.promises.rename(tmpPath, absPath);
+          if (backedUp) {
+            try { await fs.promises.unlink(backupPath); } catch {}
+          }
+          return;
+        } catch (replaceErr) {
+          if (backedUp) {
+            try { await fs.promises.rename(backupPath, absPath); } catch {}
+          }
+          throw replaceErr;
+        }
       }
     } catch (e) {
       lastErr = e;
@@ -355,9 +378,17 @@ async function atomicCopyFileWithRetry(fs, path, srcPath, destPath, { attempts =
   const absSrc = String(srcPath || "");
   const absDest = String(destPath || "");
   if (!absSrc || !absDest) throw new Error("Missing file path.");
+  const isMissing = (err) => {
+    const code = err && err.code ? String(err.code) : "";
+    return code === "ENOENT" || code === "ENOTDIR";
+  };
   const tmpPath = path.join(
     path.dirname(absDest),
     `.${path.basename(absDest)}.${process.pid}.${Date.now()}.tmp`
+  );
+  const backupPath = path.join(
+    path.dirname(absDest),
+    `.${path.basename(absDest)}.${process.pid}.${Date.now()}.bak`
   );
   await fs.promises.copyFile(absSrc, tmpPath);
   let lastErr = null;
@@ -367,10 +398,25 @@ async function atomicCopyFileWithRetry(fs, path, srcPath, destPath, { attempts =
         await fs.promises.rename(tmpPath, absDest);
         return;
       } catch (e) {
-        // Windows often fails rename when target exists; remove and retry.
-        try { await fs.promises.unlink(absDest); } catch {}
-        await fs.promises.rename(tmpPath, absDest);
-        return;
+        let backedUp = false;
+        try {
+          await fs.promises.rename(absDest, backupPath);
+          backedUp = true;
+        } catch (backupErr) {
+          if (!isMissing(backupErr)) throw backupErr;
+        }
+        try {
+          await fs.promises.rename(tmpPath, absDest);
+          if (backedUp) {
+            try { await fs.promises.unlink(backupPath); } catch {}
+          }
+          return;
+        } catch (replaceErr) {
+          if (backedUp) {
+            try { await fs.promises.rename(backupPath, absDest); } catch {}
+          }
+          throw replaceErr;
+        }
       }
     } catch (e) {
       lastErr = e;

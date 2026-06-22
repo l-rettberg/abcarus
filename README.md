@@ -216,6 +216,7 @@ Major third-party components used by ABCarus:
 - midi2abc — https://github.com/marmooo/midi2abc
 - CodeMirror — https://codemirror.net/
 - Tabulator — https://tabulator.info/
+- qrcodejs — https://github.com/davidshimjs/qrcodejs
 - Electron — https://www.electronjs.org/
 - Node.js — https://nodejs.org/
 - Python — https://www.python.org/

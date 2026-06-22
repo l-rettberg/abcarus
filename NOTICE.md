@@ -156,6 +156,18 @@ ABCarus vendors **Tabulator** for tabular UI components.
 
 ---
 
+## qrcodejs
+
+ABCarus vendors **qrcodejs** for local QR code generation.
+
+- Project: qrcodejs
+- Author: davidshimjs
+- License: MIT License
+- Website: https://github.com/davidshimjs/qrcodejs
+- Local files: `third_party/qrcodejs/qrcode.js`, `third_party/qrcodejs/LICENSE`
+
+---
+
 ## Electron
 
 This application is built using Electron.

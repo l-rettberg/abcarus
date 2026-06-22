@@ -125,10 +125,6 @@ const $xIssuesClose = document.getElementById("xIssuesClose");
 const $xIssuesCopy = document.getElementById("xIssuesCopy");
 const $xIssuesJump = document.getElementById("xIssuesJump");
 const $xIssuesAutoFix = document.getElementById("xIssuesAutoFix");
-const $sourcePreviewModal = document.getElementById("sourcePreviewModal");
-const $sourcePreviewClose = document.getElementById("sourcePreviewClose");
-const $sourcePreviewFrame = document.getElementById("sourcePreviewFrame");
-const $sourcePreviewOpenExternal = document.getElementById("sourcePreviewOpenExternal");
 const $printAllOptionsModal = document.getElementById("printAllOptionsModal");
 const $printAllPageBreaks = document.getElementById("printAllPageBreaks");
 const $printAllRemember = document.getElementById("printAllRemember");
@@ -4870,7 +4866,6 @@ function setTuneMetaText(text) {
 }
 
 let sourceLinkPanelTimer = null;
-let sourcePreviewUrl = "";
 
 function normalizeSourceUrl(raw) {
   const value = String(raw || "").trim();
@@ -4946,26 +4941,24 @@ function formatSourceLinkLabel(url) {
   }
 }
 
-function closeSourcePreviewModal() {
-  if ($sourcePreviewFrame) $sourcePreviewFrame.removeAttribute("src");
-  sourcePreviewUrl = "";
-  if ($sourcePreviewModal) {
-    $sourcePreviewModal.classList.remove("open");
-    $sourcePreviewModal.setAttribute("aria-hidden", "true");
-  }
-}
-
-function openSourcePreviewModal(sourceUrl) {
+async function openSourcePreviewModal(sourceUrl) {
   const url = normalizeSourceUrl(sourceUrl);
-  const embedUrl = getYouTubeEmbedUrl(url);
-  if (!$sourcePreviewModal || !$sourcePreviewFrame || !embedUrl) {
+  if (!getYouTubeEmbedUrl(url)) {
     showToast("Preview is available only for YouTube F: links.", 2400);
     return;
   }
-  sourcePreviewUrl = url;
-  $sourcePreviewFrame.src = embedUrl;
-  $sourcePreviewModal.classList.add("open");
-  $sourcePreviewModal.setAttribute("aria-hidden", "false");
+  try {
+    if (!window.api || typeof window.api.previewYouTubeSource !== "function") {
+      await openExternalUrl(url);
+      return;
+    }
+    const res = await window.api.previewYouTubeSource(url);
+    if (!res || res.ok === false) {
+      showToast((res && res.error) ? String(res.error) : "Unable to open YouTube preview.", 2800);
+    }
+  } catch (e) {
+    showToast(e && e.message ? e.message : "Unable to open YouTube preview.", 2800);
+  }
 }
 
 function clearSourceLinkPanel() {
@@ -20167,34 +20160,6 @@ if ($xIssuesModal) {
     closeXIssuesModal();
   });
   enableDraggableModal($xIssuesModal);
-}
-
-if ($sourcePreviewClose) {
-  $sourcePreviewClose.addEventListener("click", () => closeSourcePreviewModal());
-}
-if ($sourcePreviewOpenExternal) {
-  $sourcePreviewOpenExternal.addEventListener("click", async () => {
-    const url = normalizeSourceUrl(sourcePreviewUrl);
-    if (!url || !window.api || typeof window.api.openExternal !== "function") return;
-    try {
-      const res = await window.api.openExternal(url);
-      if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open source link.", 2600);
-    } catch (e) {
-      showToast(e && e.message ? e.message : "Unable to open source link.", 2600);
-    }
-  });
-}
-if ($sourcePreviewModal) {
-  $sourcePreviewModal.addEventListener("click", (e) => {
-    if (e.target === $sourcePreviewModal) closeSourcePreviewModal();
-  });
-  $sourcePreviewModal.addEventListener("keydown", (e) => {
-    if (!e || e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeSourcePreviewModal();
-  });
-  enableDraggableModal($sourcePreviewModal);
 }
 
 if ($printAllOptionsModal) {

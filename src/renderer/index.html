@@ -11,7 +11,6 @@
   font-src 'self' data:;
   connect-src 'self' data: blob: file:;
   media-src 'self' data: blob: file:;
-  frame-src https://www.youtube.com https://www.youtube-nocookie.com;
 ">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	  <title>ABCarus</title>
@@ -838,21 +837,6 @@
       </div>
       <div class="lib-footer">
         <div id="libStatus" class="lib-status" aria-live="polite"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="sourcePreviewModal" aria-hidden="true">
-    <div class="modal-card source-preview-card" role="dialog" aria-label="Source Preview">
-      <div class="modal-header">
-        <div class="modal-title">Source Preview</div>
-        <button class="modal-close" id="sourcePreviewClose" type="button">Close</button>
-      </div>
-      <div class="modal-body source-preview-body">
-        <iframe id="sourcePreviewFrame" title="Source preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
-      </div>
-      <div class="modal-footer">
-        <button id="sourcePreviewOpenExternal" type="button">Open in Browser</button>
       </div>
     </div>
   </div>

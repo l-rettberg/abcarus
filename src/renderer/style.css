@@ -1115,27 +1115,6 @@ body.chordpro-mode #btnToggleGlobals {
   display: block;
 }
 
-.modal-card.source-preview-card {
-  width: min(920px, 94vw);
-  height: min(620px, 88vh);
-  min-width: min(520px, 94vw);
-  min-height: 360px;
-}
-
-.source-preview-body {
-  padding: 0;
-  overflow: hidden;
-  background: #111;
-}
-
-.source-preview-body iframe {
-  width: 100%;
-  height: 100%;
-  min-height: 320px;
-  border: 0;
-  display: block;
-}
-
 #fileTuneSelect {
   min-width: 180px;
   max-width: 45%;

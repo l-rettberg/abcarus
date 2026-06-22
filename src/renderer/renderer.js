@@ -4922,6 +4922,19 @@ function getYouTubeEmbedUrl(url) {
   return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`;
 }
 
+function buildYouTubeSearchUrl(abcText) {
+  const fields = parseAbcHeaderFields(abcText);
+  const parts = [];
+  if (fields.title) parts.push(fields.title);
+  if (fields.composer) parts.push(fields.composer);
+  const query = parts
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!query) return "";
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
 function formatSourceLinkLabel(url) {
   try {
     const parsed = new URL(String(url || ""));
@@ -4961,63 +4974,84 @@ function clearSourceLinkPanel() {
   $sourceLinkPanel.hidden = true;
 }
 
-function renderSourceLinkPanel(url) {
+function appendSourceAction({ label, title, onClick, iconId = "" } = {}) {
   if (!$sourceLinkPanel) return;
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "source-link-action";
+  action.title = title || label || "";
+  action.setAttribute("aria-label", title || label || "Source link action");
+
+  if (iconId) {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "btn-icon");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", iconId);
+    icon.appendChild(use);
+    action.appendChild(icon);
+  }
+
+  const text = document.createElement("span");
+  text.className = "source-link-action-label";
+  text.textContent = label || "";
+  action.appendChild(text);
+
+  if (typeof onClick === "function") action.addEventListener("click", onClick);
+  $sourceLinkPanel.appendChild(action);
+  return action;
+}
+
+async function openExternalUrl(url) {
+  const target = normalizeSourceUrl(url);
+  if (!target || !window.api || typeof window.api.openExternal !== "function") return;
+  try {
+    const res = await window.api.openExternal(target);
+    if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open link.", 2600);
+  } catch (e) {
+    showToast(e && e.message ? e.message : "Unable to open link.", 2600);
+  }
+}
+
+function renderSourceLinkPanel(url, abcText = "") {
+  if (!$sourceLinkPanel) return;
+  const text = String(abcText || "");
   const sourceUrl = normalizeSourceUrl(url);
   $sourceLinkPanel.replaceChildren();
-  if (!sourceUrl || rawMode || chordproMode) {
+  if (rawMode || chordproMode) {
     $sourceLinkPanel.hidden = true;
     return;
   }
 
-  const action = document.createElement("button");
-  action.type = "button";
-  action.className = "source-link-action";
-  action.title = sourceUrl;
-  action.setAttribute("aria-label", `Open source link: ${sourceUrl}`);
-
-  const prefix = document.createElement("span");
-  prefix.textContent = "F:";
-  prefix.setAttribute("aria-hidden", "true");
-  action.appendChild(prefix);
-
-  const label = document.createElement("span");
-  label.className = "source-link-action-label";
-  label.textContent = formatSourceLinkLabel(sourceUrl);
-  action.appendChild(label);
-
-  action.addEventListener("click", async () => {
-    try {
-      if (!window.api || typeof window.api.openExternal !== "function") return;
-      const res = await window.api.openExternal(sourceUrl);
-      if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open source link.", 2600);
-    } catch (e) {
-      showToast(e && e.message ? e.message : "Unable to open source link.", 2600);
+  if (!sourceUrl) {
+    const searchUrl = buildYouTubeSearchUrl(text);
+    if (!searchUrl) {
+      $sourceLinkPanel.hidden = true;
+      return;
     }
+    appendSourceAction({
+      label: "Search YouTube",
+      title: "Search YouTube for this tune",
+      iconId: "#ui-play",
+      onClick: () => openExternalUrl(searchUrl),
+    });
+    $sourceLinkPanel.hidden = false;
+    return;
+  }
+
+  appendSourceAction({
+    label: `F: ${formatSourceLinkLabel(sourceUrl)}`,
+    title: sourceUrl,
+    onClick: () => openExternalUrl(sourceUrl),
   });
 
-  $sourceLinkPanel.appendChild(action);
-
-  const embedUrl = getYouTubeEmbedUrl(sourceUrl);
-  if (embedUrl) {
-    const preview = document.createElement("button");
-    preview.type = "button";
-    preview.className = "source-link-action";
-    preview.title = "Preview YouTube source";
-    preview.setAttribute("aria-label", "Preview YouTube source");
-    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    icon.setAttribute("class", "btn-icon icon-play");
-    icon.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", "#ui-play");
-    icon.appendChild(use);
-    preview.appendChild(icon);
-    const text = document.createElement("span");
-    text.className = "source-link-action-label";
-    text.textContent = "Preview";
-    preview.appendChild(text);
-    preview.addEventListener("click", () => openSourcePreviewModal(sourceUrl));
-    $sourceLinkPanel.appendChild(preview);
+  if (getYouTubeEmbedUrl(sourceUrl)) {
+    appendSourceAction({
+      label: "Preview",
+      title: "Preview YouTube source",
+      iconId: "#ui-play",
+      onClick: () => openSourcePreviewModal(sourceUrl),
+    });
   }
 
   const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
@@ -5048,7 +5082,8 @@ function updateSourceLinkPanel() {
     clearSourceLinkPanel();
     return;
   }
-  renderSourceLinkPanel(extractFirstSourceUrlFromAbc(getEditorValue()));
+  const text = getEditorValue();
+  renderSourceLinkPanel(extractFirstSourceUrlFromAbc(text), text);
 }
 
 function scheduleSourceLinkPanelUpdate(delayMs = 250) {

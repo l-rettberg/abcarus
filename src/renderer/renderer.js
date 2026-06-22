@@ -184,6 +184,7 @@ const $errorPane = document.getElementById("errorPane");
 const $errorList = document.getElementById("errorList");
 const $scanErrorTunes = document.getElementById("scanErrorTunes");
 const $fileNameMeta = document.getElementById("fileNameMeta");
+const $sourceLinkPanel = document.getElementById("sourceLinkPanel");
 const $sidebarSplit = document.getElementById("sidebarSplit");
 const $toast = document.getElementById("toast");
 const $intonationExplorerPanel = document.getElementById("intonationExplorerPanel");
@@ -3406,6 +3407,7 @@ function setChordProMode(enabled) {
     }
   }
   updateFileContext();
+  updateSourceLinkPanel();
 }
 
 function setChordProFullView(enabled) {
@@ -4861,6 +4863,126 @@ function renderBufferStatus() {
 function setTuneMetaText(text) {
   tuneBadgeText = String(text || "");
   renderBufferStatus();
+}
+
+let sourceLinkPanelTimer = null;
+
+function normalizeSourceUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    const protocol = String(url.protocol || "").toLowerCase();
+    if (protocol !== "http:" && protocol !== "https:") return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function extractFirstSourceUrlFromAbc(abcText) {
+  const text = String(abcText || "");
+  const lines = text.split(/\r\n|\n|\r/);
+  for (const line of lines) {
+    const match = String(line || "").match(/^\s*F:\s*(.+?)\s*$/);
+    if (!match) continue;
+    const url = normalizeSourceUrl(match[1]);
+    if (url) return url;
+  }
+  return "";
+}
+
+function formatSourceLinkLabel(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    const host = String(parsed.hostname || "").replace(/^www\./i, "");
+    if (/youtube\.com$/i.test(host) || /youtu\.be$/i.test(host)) return "YouTube";
+    return host || "F:";
+  } catch {
+    return "F:";
+  }
+}
+
+function clearSourceLinkPanel() {
+  if (!$sourceLinkPanel) return;
+  $sourceLinkPanel.replaceChildren();
+  $sourceLinkPanel.hidden = true;
+}
+
+function renderSourceLinkPanel(url) {
+  if (!$sourceLinkPanel) return;
+  const sourceUrl = normalizeSourceUrl(url);
+  $sourceLinkPanel.replaceChildren();
+  if (!sourceUrl || rawMode || chordproMode) {
+    $sourceLinkPanel.hidden = true;
+    return;
+  }
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "source-link-action";
+  action.title = sourceUrl;
+  action.setAttribute("aria-label", `Open source link: ${sourceUrl}`);
+
+  const prefix = document.createElement("span");
+  prefix.textContent = "F:";
+  prefix.setAttribute("aria-hidden", "true");
+  action.appendChild(prefix);
+
+  const label = document.createElement("span");
+  label.className = "source-link-action-label";
+  label.textContent = formatSourceLinkLabel(sourceUrl);
+  action.appendChild(label);
+
+  action.addEventListener("click", async () => {
+    try {
+      if (!window.api || typeof window.api.openExternal !== "function") return;
+      const res = await window.api.openExternal(sourceUrl);
+      if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open source link.", 2600);
+    } catch (e) {
+      showToast(e && e.message ? e.message : "Unable to open source link.", 2600);
+    }
+  });
+
+  $sourceLinkPanel.appendChild(action);
+
+  const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
+  if (QRCodeCtor) {
+    const qr = document.createElement("div");
+    qr.className = "source-link-qr";
+    qr.title = sourceUrl;
+    qr.setAttribute("aria-hidden", "true");
+    $sourceLinkPanel.appendChild(qr);
+    try {
+      new QRCodeCtor(qr, {
+        text: sourceUrl,
+        width: 96,
+        height: 96,
+        correctLevel: QRCodeCtor.CorrectLevel ? QRCodeCtor.CorrectLevel.M : undefined,
+      });
+    } catch {
+      qr.remove();
+    }
+  }
+
+  $sourceLinkPanel.hidden = false;
+}
+
+function updateSourceLinkPanel() {
+  if (!$sourceLinkPanel) return;
+  if (!editorView || rawMode || chordproMode) {
+    clearSourceLinkPanel();
+    return;
+  }
+  renderSourceLinkPanel(extractFirstSourceUrlFromAbc(getEditorValue()));
+}
+
+function scheduleSourceLinkPanelUpdate(delayMs = 250) {
+  if (sourceLinkPanelTimer) clearTimeout(sourceLinkPanelTimer);
+  sourceLinkPanelTimer = setTimeout(() => {
+    sourceLinkPanelTimer = null;
+    updateSourceLinkPanel();
+  }, Math.max(0, Number(delayMs) || 0));
 }
 
 function setDirtyIndicator(isDirty) {
@@ -7997,6 +8119,7 @@ function setRawModeUI(enabled) {
   if ($btnToggleErrors) $btnToggleErrors.disabled = rawMode;
   if ($scanErrorTunes) $scanErrorTunes.disabled = rawMode;
   if ($errorsIndicator) $errorsIndicator.disabled = rawMode;
+  updateSourceLinkPanel();
 }
 
 function updatePayloadModeInteractionLock() {
@@ -11892,6 +12015,7 @@ function initEditor() {
       if (!rawMode && !chordproFullView) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
+        scheduleSourceLinkPanelUpdate();
       }
     }
 	    if (!rawMode && update.selectionSet && !isPlaying) {
@@ -12215,6 +12339,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(buildTuneMetaLabel(metadata));
     setFileNameMeta(stripFileExtension(metadata.basename || ""));
+    updateSourceLinkPanel();
     if (currentDoc) {
       currentDoc.path = metadata.path || null;
       currentDoc.content = text;
@@ -12259,6 +12384,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(UNTITLED_UNSAVED_LABEL);
     setFileNameMeta(UNTITLED_UNSAVED_LABEL);
+    updateSourceLinkPanel();
     if (currentDoc) {
       currentDoc.path = null;
       currentDoc.content = text || "";
@@ -17578,6 +17704,59 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+async function createQrDataUrl(text, { size = 96 } = {}) {
+  const value = String(text || "").trim();
+  const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
+  if (!value || !QRCodeCtor) return "";
+  const holder = document.createElement("div");
+  holder.style.position = "fixed";
+  holder.style.left = "-10000px";
+  holder.style.top = "0";
+  holder.style.width = `${Math.max(1, size)}px`;
+  holder.style.height = `${Math.max(1, size)}px`;
+  document.body.appendChild(holder);
+  try {
+    const options = {
+      text: value,
+      width: Math.max(1, size),
+      height: Math.max(1, size),
+    };
+    if (QRCodeCtor.CorrectLevel && QRCodeCtor.CorrectLevel.M) {
+      options.correctLevel = QRCodeCtor.CorrectLevel.M;
+    }
+    new QRCodeCtor(holder, options);
+    const canvas = holder.querySelector("canvas");
+    if (canvas && typeof canvas.toDataURL === "function") {
+      return canvas.toDataURL("image/png");
+    }
+    const img = holder.querySelector("img");
+    return img && img.src ? String(img.src) : "";
+  } catch {
+    return "";
+  } finally {
+    holder.remove();
+  }
+}
+
+async function buildPrintSourceLinkMarkup(abcText) {
+  const url = extractFirstSourceUrlFromAbc(abcText);
+  if (!url) return "";
+  const qrDataUrl = await createQrDataUrl(url, { size: 128 });
+  const label = formatSourceLinkLabel(url);
+  const qrMarkup = qrDataUrl
+    ? `<img src="${escapeHtml(qrDataUrl)}" alt="" style="width:64px;height:64px;display:block;flex:0 0 auto;">`
+    : "";
+  return `
+    <div class="abcarus-print-source" style="display:flex;align-items:center;gap:10px;margin:10px 0 0;padding-top:8px;border-top:1px solid #ddd;font-family:sans-serif;font-size:11px;color:#444;break-inside:avoid;">
+      ${qrMarkup}
+      <div style="min-width:0;">
+        <div style="font-weight:700;margin-bottom:2px;">Source</div>
+        <a href="${escapeHtml(url)}" style="color:#1b5fb8;text-decoration:none;overflow-wrap:anywhere;">${escapeHtml(label)} — ${escapeHtml(url)}</a>
+      </div>
+    </div>
+  `;
+}
+
 function buildPrintTuneLabel(tune) {
   if (!tune) return "Untitled";
   const xPart = tune.xNumber ? `X:${tune.xNumber}` : "";
@@ -17799,7 +17978,12 @@ async function renderCurrentTuneSvgMarkupForPrint() {
   const headerText = entry ? getHeaderEditorValue() : "";
   const prefixPayload = buildHeaderPrefix(headerText, true, tuneText);
   const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  return renderAbcToSvgMarkup(text);
+  const res = await renderAbcToSvgMarkup(text);
+  if (res && res.ok && res.svg) {
+    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    if (sourceMarkup) res.svg = `${res.svg.trim()}\n${sourceMarkup}`;
+  }
+  return res;
 }
 
 async function getFileContentCached(filePath) {
@@ -17887,6 +18071,8 @@ async function renderPrintAllSvgMarkup(entry, content, options = {}) {
     if (res.svg && res.svg.trim()) {
       tuneMarkup.push(res.svg.trim());
     }
+    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    if (sourceMarkup) tuneMarkup.push(sourceMarkup);
     if (tuneErrors.length) {
       const uniqueKeys = new Set(tuneErrors.map((err) => {
         const msg = err && err.message ? err.message : "Unknown error";

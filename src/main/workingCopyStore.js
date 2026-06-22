@@ -77,6 +77,7 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   const absPath = String(filePath || "");
   if (!absPath) throw new Error("Missing file path.");
   const tmpPath = `${absPath}.${process.pid}.${Date.now()}.tmp`;
+  const backupPath = `${absPath}.${process.pid}.${Date.now()}.bak`;
   // `data` may be a string or a Buffer.
   await fs.promises.writeFile(tmpPath, data);
   let lastErr = null;
@@ -86,9 +87,25 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
         await fs.promises.rename(tmpPath, absPath);
         return;
       } catch (e) {
-        try { await fs.promises.unlink(absPath); } catch {}
-        await fs.promises.rename(tmpPath, absPath);
-        return;
+        let backedUp = false;
+        try {
+          await fs.promises.rename(absPath, backupPath);
+          backedUp = true;
+        } catch (backupErr) {
+          if (!isMissingFileError(backupErr)) throw backupErr;
+        }
+        try {
+          await fs.promises.rename(tmpPath, absPath);
+          if (backedUp) {
+            try { await fs.promises.unlink(backupPath); } catch {}
+          }
+          return;
+        } catch (replaceErr) {
+          if (backedUp) {
+            try { await fs.promises.rename(backupPath, absPath); } catch {}
+          }
+          throw replaceErr;
+        }
       }
     } catch (e) {
       lastErr = e;

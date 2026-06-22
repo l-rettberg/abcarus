@@ -125,6 +125,10 @@ const $xIssuesClose = document.getElementById("xIssuesClose");
 const $xIssuesCopy = document.getElementById("xIssuesCopy");
 const $xIssuesJump = document.getElementById("xIssuesJump");
 const $xIssuesAutoFix = document.getElementById("xIssuesAutoFix");
+const $sourcePreviewModal = document.getElementById("sourcePreviewModal");
+const $sourcePreviewClose = document.getElementById("sourcePreviewClose");
+const $sourcePreviewFrame = document.getElementById("sourcePreviewFrame");
+const $sourcePreviewOpenExternal = document.getElementById("sourcePreviewOpenExternal");
 const $printAllOptionsModal = document.getElementById("printAllOptionsModal");
 const $printAllPageBreaks = document.getElementById("printAllPageBreaks");
 const $printAllRemember = document.getElementById("printAllRemember");
@@ -4866,6 +4870,7 @@ function setTuneMetaText(text) {
 }
 
 let sourceLinkPanelTimer = null;
+let sourcePreviewUrl = "";
 
 function normalizeSourceUrl(raw) {
   const value = String(raw || "").trim();
@@ -4892,6 +4897,31 @@ function extractFirstSourceUrlFromAbc(abcText) {
   return "";
 }
 
+function parseYouTubeVideoId(url) {
+  const normalized = normalizeSourceUrl(url);
+  if (!normalized) return "";
+  try {
+    const parsed = new URL(normalized);
+    const host = String(parsed.hostname || "").replace(/^www\./i, "").toLowerCase();
+    if (host === "youtu.be") {
+      return String(parsed.pathname || "").replace(/^\/+/, "").split(/[/?#]/)[0] || "";
+    }
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      const watchId = String(parsed.searchParams.get("v") || "").trim();
+      if (watchId) return watchId;
+      const parts = String(parsed.pathname || "").split("/").filter(Boolean);
+      if ((parts[0] === "embed" || parts[0] === "shorts" || parts[0] === "live") && parts[1]) return parts[1];
+    }
+  } catch {}
+  return "";
+}
+
+function getYouTubeEmbedUrl(url) {
+  const id = parseYouTubeVideoId(url);
+  if (!id) return "";
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`;
+}
+
 function formatSourceLinkLabel(url) {
   try {
     const parsed = new URL(String(url || ""));
@@ -4901,6 +4931,28 @@ function formatSourceLinkLabel(url) {
   } catch {
     return "F:";
   }
+}
+
+function closeSourcePreviewModal() {
+  if ($sourcePreviewFrame) $sourcePreviewFrame.removeAttribute("src");
+  sourcePreviewUrl = "";
+  if ($sourcePreviewModal) {
+    $sourcePreviewModal.classList.remove("open");
+    $sourcePreviewModal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function openSourcePreviewModal(sourceUrl) {
+  const url = normalizeSourceUrl(sourceUrl);
+  const embedUrl = getYouTubeEmbedUrl(url);
+  if (!$sourcePreviewModal || !$sourcePreviewFrame || !embedUrl) {
+    showToast("Preview is available only for YouTube F: links.", 2400);
+    return;
+  }
+  sourcePreviewUrl = url;
+  $sourcePreviewFrame.src = embedUrl;
+  $sourcePreviewModal.classList.add("open");
+  $sourcePreviewModal.setAttribute("aria-hidden", "false");
 }
 
 function clearSourceLinkPanel() {
@@ -4945,6 +4997,28 @@ function renderSourceLinkPanel(url) {
   });
 
   $sourceLinkPanel.appendChild(action);
+
+  const embedUrl = getYouTubeEmbedUrl(sourceUrl);
+  if (embedUrl) {
+    const preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "source-link-action";
+    preview.title = "Preview YouTube source";
+    preview.setAttribute("aria-label", "Preview YouTube source");
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "btn-icon icon-play");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#ui-play");
+    icon.appendChild(use);
+    preview.appendChild(icon);
+    const text = document.createElement("span");
+    text.className = "source-link-action-label";
+    text.textContent = "Preview";
+    preview.appendChild(text);
+    preview.addEventListener("click", () => openSourcePreviewModal(sourceUrl));
+    $sourceLinkPanel.appendChild(preview);
+  }
 
   const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
   if (QRCodeCtor) {
@@ -20058,6 +20132,34 @@ if ($xIssuesModal) {
     closeXIssuesModal();
   });
   enableDraggableModal($xIssuesModal);
+}
+
+if ($sourcePreviewClose) {
+  $sourcePreviewClose.addEventListener("click", () => closeSourcePreviewModal());
+}
+if ($sourcePreviewOpenExternal) {
+  $sourcePreviewOpenExternal.addEventListener("click", async () => {
+    const url = normalizeSourceUrl(sourcePreviewUrl);
+    if (!url || !window.api || typeof window.api.openExternal !== "function") return;
+    try {
+      const res = await window.api.openExternal(url);
+      if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open source link.", 2600);
+    } catch (e) {
+      showToast(e && e.message ? e.message : "Unable to open source link.", 2600);
+    }
+  });
+}
+if ($sourcePreviewModal) {
+  $sourcePreviewModal.addEventListener("click", (e) => {
+    if (e.target === $sourcePreviewModal) closeSourcePreviewModal();
+  });
+  $sourcePreviewModal.addEventListener("keydown", (e) => {
+    if (!e || e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeSourcePreviewModal();
+  });
+  enableDraggableModal($sourcePreviewModal);
 }
 
 if ($printAllOptionsModal) {

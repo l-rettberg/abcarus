@@ -5047,25 +5047,6 @@ function renderSourceLinkPanel(url, abcText = "") {
     });
   }
 
-  const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
-  if (QRCodeCtor) {
-    const qr = document.createElement("div");
-    qr.className = "source-link-qr";
-    qr.title = sourceUrl;
-    qr.setAttribute("aria-hidden", "true");
-    $sourceLinkPanel.appendChild(qr);
-    try {
-      new QRCodeCtor(qr, {
-        text: sourceUrl,
-        width: 96,
-        height: 96,
-        correctLevel: QRCodeCtor.CorrectLevel ? QRCodeCtor.CorrectLevel.M : undefined,
-      });
-    } catch {
-      qr.remove();
-    }
-  }
-
   $sourceLinkPanel.hidden = false;
 }
 
@@ -17843,7 +17824,8 @@ async function createQrDataUrl(text, { size = 96 } = {}) {
 async function buildPrintSourceLinkMarkup(abcText) {
   const url = extractFirstSourceUrlFromAbc(abcText);
   if (!url) return "";
-  const qrDataUrl = await createQrDataUrl(url, { size: 128 });
+  const includeQr = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes);
+  const qrDataUrl = includeQr ? await createQrDataUrl(url, { size: 128 }) : "";
   const label = formatSourceLinkLabel(url);
   const qrMarkup = qrDataUrl
     ? `<img src="${escapeHtml(qrDataUrl)}" alt="" style="width:64px;height:64px;display:block;flex:0 0 auto;">`

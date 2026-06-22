@@ -1096,25 +1096,6 @@ body.chordpro-mode #btnToggleGlobals {
   white-space: nowrap;
 }
 
-.source-link-qr {
-  width: 28px;
-  height: 28px;
-  padding: 2px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-1);
-  background: #fff;
-  overflow: hidden;
-  flex: 0 0 auto;
-}
-
-.source-link-qr canvas,
-.source-link-qr img,
-.source-link-qr table {
-  width: 100% !important;
-  height: 100% !important;
-  display: block;
-}
-
 #fileTuneSelect {
   min-width: 180px;
   max-width: 45%;

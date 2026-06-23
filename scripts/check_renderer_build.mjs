@@ -84,17 +84,24 @@ async function assertSaveIntentGuards() {
   if (!syncBody.includes("result = { ok: true, path: filePath };")) {
     throw new Error("flushWorkingCopyTuneSync() must report successful tune sync explicitly.");
   }
-  if (!saveBody.includes("const syncRes = await flushWorkingCopyTuneSync().catch")) {
-    throw new Error("performSaveFlow() must inspect the working-copy tune sync result before commit.");
+  if (!src.includes("async function performSimpleTuneSave(filePath")) {
+    throw new Error("Renderer must provide the simple full-file tune save path.");
   }
-  if (!saveBody.includes("if (!syncRes || !syncRes.ok)")) {
-    throw new Error("performSaveFlow() must refuse to commit stale working-copy text.");
+  if (!saveBody.includes("const ok = await performSimpleTuneSave(activeTuneMeta.path")) {
+    throw new Error("performSaveFlow() must use the simple full-file tune save path for active ABC tunes.");
   }
-  if (!saveBody.includes("const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);")) {
-    throw new Error("performSaveFlow() must verify committed working-copy text reached disk before clearing dirty state.");
+  const simpleSaveStart = src.indexOf("async function performSimpleTuneSave(filePath");
+  const simpleSaveEnd = src.indexOf("async function showSaveError(", simpleSaveStart);
+  if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
+  const simpleSaveBody = src.slice(simpleSaveStart, simpleSaveEnd);
+  if (!simpleSaveBody.includes("const verifyRes = await readFile(p);")) {
+    throw new Error("performSimpleTuneSave() must read back the disk file after writing.");
   }
-  if (!saveBody.includes("save.wc.verify.fail")) {
-    throw new Error("performSaveFlow() must record save verification failures.");
+  if (!simpleSaveBody.includes("String(verifyRes.data || \"\") !== updatedText")) {
+    throw new Error("performSimpleTuneSave() must verify that disk text matches the saved buffer.");
+  }
+  if (!simpleSaveBody.includes("await alignWorkingCopyWithDiskAfterSimpleSave(p);")) {
+    throw new Error("performSimpleTuneSave() must keep any open working copy aligned after disk save.");
   }
 
   const ensureStart = src.indexOf("function ensureXNumberInAbc(abcText, xNumber)");

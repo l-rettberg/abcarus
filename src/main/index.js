@@ -2930,6 +2930,7 @@ app.on("window-all-closed", () => {
 
 registerIpcHandlers({
   ipcMain,
+  BrowserWindow,
   app,
   dialog,
   fs,

@@ -888,6 +888,17 @@ function getSettingsSchema() {
       ui: { input: "checkbox" },
     },
     {
+      key: "printSourceQrCodes",
+      type: "boolean",
+      default: false,
+      section: "Print",
+      group: "Source links",
+      groupOrder: 20,
+      label: "Print source QR codes",
+      help: "When enabled, print/PDF output adds a small QR code next to readable F: source URLs.",
+      ui: { input: "checkbox" },
+    },
+    {
       key: "editorFontFamily",
       type: "string",
       default: "\"ABCarus Noto Sans Mono\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",

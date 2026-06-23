@@ -1053,6 +1053,49 @@ body.chordpro-mode #btnToggleGlobals {
   color: #444;
 }
 
+.source-link-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-link-panel[hidden] {
+  display: none !important;
+}
+
+.source-link-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  max-width: 220px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-1);
+  background: #fff;
+  color: var(--button-text);
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.source-link-action:hover {
+  background: var(--button-hover-bg, #f6f6f6);
+}
+
+.source-link-action .btn-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.source-link-action-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #fileTuneSelect {
   min-width: 180px;
   max-width: 45%;

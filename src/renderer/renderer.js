@@ -184,6 +184,7 @@ const $errorPane = document.getElementById("errorPane");
 const $errorList = document.getElementById("errorList");
 const $scanErrorTunes = document.getElementById("scanErrorTunes");
 const $fileNameMeta = document.getElementById("fileNameMeta");
+const $sourceLinkPanel = document.getElementById("sourceLinkPanel");
 const $sidebarSplit = document.getElementById("sidebarSplit");
 const $toast = document.getElementById("toast");
 const $intonationExplorerPanel = document.getElementById("intonationExplorerPanel");
@@ -3406,6 +3407,7 @@ function setChordProMode(enabled) {
     }
   }
   updateFileContext();
+  updateSourceLinkPanel();
 }
 
 function setChordProFullView(enabled) {
@@ -3702,9 +3704,24 @@ function scheduleWorkingCopyFullSync() {
 function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
   if (rawMode) return false;
   if (payloadMode) return false;
-  if (activeTuneUid) return true;
   if (!activeTuneMeta || !activeTuneMeta.path) return false;
   if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)) return false;
+
+  if (activeTuneUid) {
+    const byUid = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
+      tuneUid: activeTuneUid,
+      tuneIndex: null,
+      startOffset: null,
+    });
+    if (byUid && byUid.tuneUid) {
+      if (Number.isFinite(Number(byUid.tuneIndex))) activeTuneIndex = Number(byUid.tuneIndex);
+      if (activeTuneMeta) {
+        activeTuneMeta.startOffset = byUid.start;
+        activeTuneMeta.endOffset = byUid.end;
+      }
+      return true;
+    }
+  }
 
   const resolved = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
     tuneUid: null,
@@ -3770,6 +3787,7 @@ async function flushWorkingCopyTuneSync() {
     try {
       const res = await window.api.applyWorkingCopyTuneText({
         tuneUid: activeTuneUid,
+        tuneIndex: activeTuneIndex,
         text: tuneText,
       });
       if (epoch !== workingCopyTuneSyncEpoch) {
@@ -4861,6 +4879,209 @@ function renderBufferStatus() {
 function setTuneMetaText(text) {
   tuneBadgeText = String(text || "");
   renderBufferStatus();
+}
+
+let sourceLinkPanelTimer = null;
+
+function normalizeSourceUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    const protocol = String(url.protocol || "").toLowerCase();
+    if (protocol !== "http:" && protocol !== "https:") return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function extractFirstSourceUrlFromAbc(abcText) {
+  const text = String(abcText || "");
+  const lines = text.split(/\r\n|\n|\r/);
+  for (const line of lines) {
+    const match = String(line || "").match(/^\s*F:\s*(.+?)\s*$/);
+    if (!match) continue;
+    const url = normalizeSourceUrl(match[1]);
+    if (url) return url;
+  }
+  return "";
+}
+
+function parseYouTubeVideoId(url) {
+  const normalized = normalizeSourceUrl(url);
+  if (!normalized) return "";
+  try {
+    const parsed = new URL(normalized);
+    const host = String(parsed.hostname || "").replace(/^www\./i, "").toLowerCase();
+    if (host === "youtu.be") {
+      return String(parsed.pathname || "").replace(/^\/+/, "").split(/[/?#]/)[0] || "";
+    }
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      const watchId = String(parsed.searchParams.get("v") || "").trim();
+      if (watchId) return watchId;
+      const parts = String(parsed.pathname || "").split("/").filter(Boolean);
+      if ((parts[0] === "embed" || parts[0] === "shorts" || parts[0] === "live") && parts[1]) return parts[1];
+    }
+  } catch {}
+  return "";
+}
+
+function getYouTubeEmbedUrl(url) {
+  const id = parseYouTubeVideoId(url);
+  if (!id) return "";
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`;
+}
+
+function buildYouTubeSearchUrl(abcText) {
+  const fields = parseAbcHeaderFields(abcText);
+  const parts = [];
+  if (fields.title) parts.push(fields.title);
+  if (fields.composer) parts.push(fields.composer);
+  const query = parts
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!query) return "";
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
+function formatSourceLinkLabel(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    const host = String(parsed.hostname || "").replace(/^www\./i, "");
+    if (/youtube\.com$/i.test(host) || /youtu\.be$/i.test(host)) return "YouTube";
+    return host || "F:";
+  } catch {
+    return "F:";
+  }
+}
+
+async function openSourcePreviewModal(sourceUrl) {
+  const url = normalizeSourceUrl(sourceUrl);
+  if (!getYouTubeEmbedUrl(url)) {
+    showToast("Preview is available only for YouTube F: links.", 2400);
+    return;
+  }
+  try {
+    if (!window.api || typeof window.api.previewYouTubeSource !== "function") {
+      await openExternalUrl(url);
+      return;
+    }
+    const res = await window.api.previewYouTubeSource(url);
+    if (!res || res.ok === false) {
+      showToast((res && res.error) ? String(res.error) : "Unable to open YouTube preview.", 2800);
+    }
+  } catch (e) {
+    showToast(e && e.message ? e.message : "Unable to open YouTube preview.", 2800);
+  }
+}
+
+function clearSourceLinkPanel() {
+  if (!$sourceLinkPanel) return;
+  $sourceLinkPanel.replaceChildren();
+  $sourceLinkPanel.hidden = true;
+}
+
+function appendSourceAction({ label, title, onClick, iconId = "" } = {}) {
+  if (!$sourceLinkPanel) return;
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "source-link-action";
+  action.title = title || label || "";
+  action.setAttribute("aria-label", title || label || "Source link action");
+
+  if (iconId) {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("class", "btn-icon");
+    icon.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", iconId);
+    icon.appendChild(use);
+    action.appendChild(icon);
+  }
+
+  const text = document.createElement("span");
+  text.className = "source-link-action-label";
+  text.textContent = label || "";
+  action.appendChild(text);
+
+  if (typeof onClick === "function") action.addEventListener("click", onClick);
+  $sourceLinkPanel.appendChild(action);
+  return action;
+}
+
+async function openExternalUrl(url) {
+  const target = normalizeSourceUrl(url);
+  if (!target || !window.api || typeof window.api.openExternal !== "function") return;
+  try {
+    const res = await window.api.openExternal(target);
+    if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open link.", 2600);
+  } catch (e) {
+    showToast(e && e.message ? e.message : "Unable to open link.", 2600);
+  }
+}
+
+function renderSourceLinkPanel(url, abcText = "") {
+  if (!$sourceLinkPanel) return;
+  const text = String(abcText || "");
+  const sourceUrl = normalizeSourceUrl(url);
+  $sourceLinkPanel.replaceChildren();
+  if (rawMode || chordproMode) {
+    $sourceLinkPanel.hidden = true;
+    return;
+  }
+
+  if (!sourceUrl) {
+    const searchUrl = buildYouTubeSearchUrl(text);
+    if (!searchUrl) {
+      $sourceLinkPanel.hidden = true;
+      return;
+    }
+    appendSourceAction({
+      label: "Search YouTube",
+      title: "Search YouTube for this tune",
+      iconId: "#ui-play",
+      onClick: () => openExternalUrl(searchUrl),
+    });
+    $sourceLinkPanel.hidden = false;
+    return;
+  }
+
+  appendSourceAction({
+    label: `F: ${formatSourceLinkLabel(sourceUrl)}`,
+    title: sourceUrl,
+    onClick: () => openExternalUrl(sourceUrl),
+  });
+
+  if (getYouTubeEmbedUrl(sourceUrl)) {
+    appendSourceAction({
+      label: "Preview",
+      title: "Preview YouTube source",
+      iconId: "#ui-play",
+      onClick: () => openSourcePreviewModal(sourceUrl),
+    });
+  }
+
+  $sourceLinkPanel.hidden = false;
+}
+
+function updateSourceLinkPanel() {
+  if (!$sourceLinkPanel) return;
+  if (!editorView || rawMode || chordproMode) {
+    clearSourceLinkPanel();
+    return;
+  }
+  const text = getEditorValue();
+  renderSourceLinkPanel(extractFirstSourceUrlFromAbc(text), text);
+}
+
+function scheduleSourceLinkPanelUpdate(delayMs = 250) {
+  if (sourceLinkPanelTimer) clearTimeout(sourceLinkPanelTimer);
+  sourceLinkPanelTimer = setTimeout(() => {
+    sourceLinkPanelTimer = null;
+    updateSourceLinkPanel();
+  }, Math.max(0, Number(delayMs) || 0));
 }
 
 function setDirtyIndicator(isDirty) {
@@ -7997,6 +8218,7 @@ function setRawModeUI(enabled) {
   if ($btnToggleErrors) $btnToggleErrors.disabled = rawMode;
   if ($scanErrorTunes) $scanErrorTunes.disabled = rawMode;
   if ($errorsIndicator) $errorsIndicator.disabled = rawMode;
+  updateSourceLinkPanel();
 }
 
 function updatePayloadModeInteractionLock() {
@@ -11892,6 +12114,7 @@ function initEditor() {
       if (!rawMode && !chordproFullView) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
+        scheduleSourceLinkPanelUpdate();
       }
     }
 	    if (!rawMode && update.selectionSet && !isPlaying) {
@@ -12215,6 +12438,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(buildTuneMetaLabel(metadata));
     setFileNameMeta(stripFileExtension(metadata.basename || ""));
+    updateSourceLinkPanel();
     if (currentDoc) {
       currentDoc.path = metadata.path || null;
       currentDoc.content = text;
@@ -12259,6 +12483,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(UNTITLED_UNSAVED_LABEL);
     setFileNameMeta(UNTITLED_UNSAVED_LABEL);
+    updateSourceLinkPanel();
     if (currentDoc) {
       currentDoc.path = null;
       currentDoc.content = text || "";
@@ -12780,6 +13005,8 @@ async function selectTune(tuneId, options = {}) {
   markActiveTuneButton(tuneId);
   setActiveTuneText(tuneText, {
     id: selected.id,
+    tuneUid: selected.tuneUid || "",
+    tuneIndex: Number.isFinite(Number(selected.tuneIndex)) ? Number(selected.tuneIndex) : null,
     path: fileMeta.path,
     basename: fileMeta.basename,
     xNumber: selected.xNumber,
@@ -17578,6 +17805,60 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+async function createQrDataUrl(text, { size = 96 } = {}) {
+  const value = String(text || "").trim();
+  const QRCodeCtor = window && typeof window.QRCode === "function" ? window.QRCode : null;
+  if (!value || !QRCodeCtor) return "";
+  const holder = document.createElement("div");
+  holder.style.position = "fixed";
+  holder.style.left = "-10000px";
+  holder.style.top = "0";
+  holder.style.width = `${Math.max(1, size)}px`;
+  holder.style.height = `${Math.max(1, size)}px`;
+  document.body.appendChild(holder);
+  try {
+    const options = {
+      text: value,
+      width: Math.max(1, size),
+      height: Math.max(1, size),
+    };
+    if (QRCodeCtor.CorrectLevel && QRCodeCtor.CorrectLevel.M) {
+      options.correctLevel = QRCodeCtor.CorrectLevel.M;
+    }
+    new QRCodeCtor(holder, options);
+    const canvas = holder.querySelector("canvas");
+    if (canvas && typeof canvas.toDataURL === "function") {
+      return canvas.toDataURL("image/png");
+    }
+    const img = holder.querySelector("img");
+    return img && img.src ? String(img.src) : "";
+  } catch {
+    return "";
+  } finally {
+    holder.remove();
+  }
+}
+
+async function buildPrintSourceLinkMarkup(abcText) {
+  const url = extractFirstSourceUrlFromAbc(abcText);
+  if (!url) return "";
+  const includeQr = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes);
+  const qrDataUrl = includeQr ? await createQrDataUrl(url, { size: 128 }) : "";
+  const label = formatSourceLinkLabel(url);
+  const qrMarkup = qrDataUrl
+    ? `<img src="${escapeHtml(qrDataUrl)}" alt="" style="width:64px;height:64px;display:block;flex:0 0 auto;">`
+    : "";
+  return `
+    <div class="abcarus-print-source" style="display:flex;align-items:center;gap:10px;margin:10px 0 0;padding-top:8px;border-top:1px solid #ddd;font-family:sans-serif;font-size:11px;color:#444;break-inside:avoid;">
+      ${qrMarkup}
+      <div style="min-width:0;">
+        <div style="font-weight:700;margin-bottom:2px;">Source</div>
+        <a href="${escapeHtml(url)}" style="color:#1b5fb8;text-decoration:none;overflow-wrap:anywhere;">${escapeHtml(label)} — ${escapeHtml(url)}</a>
+      </div>
+    </div>
+  `;
+}
+
 function buildPrintTuneLabel(tune) {
   if (!tune) return "Untitled";
   const xPart = tune.xNumber ? `X:${tune.xNumber}` : "";
@@ -17799,7 +18080,12 @@ async function renderCurrentTuneSvgMarkupForPrint() {
   const headerText = entry ? getHeaderEditorValue() : "";
   const prefixPayload = buildHeaderPrefix(headerText, true, tuneText);
   const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  return renderAbcToSvgMarkup(text);
+  const res = await renderAbcToSvgMarkup(text);
+  if (res && res.ok && res.svg) {
+    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    if (sourceMarkup) res.svg = `${res.svg.trim()}\n${sourceMarkup}`;
+  }
+  return res;
 }
 
 async function getFileContentCached(filePath) {
@@ -17887,6 +18173,8 @@ async function renderPrintAllSvgMarkup(entry, content, options = {}) {
     if (res.svg && res.svg.trim()) {
       tuneMarkup.push(res.svg.trim());
     }
+    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    if (sourceMarkup) tuneMarkup.push(sourceMarkup);
     if (tuneErrors.length) {
       const uniqueKeys = new Set(tuneErrors.map((err) => {
         const msg = err && err.message ? err.message : "Unknown error";
@@ -19018,7 +19306,228 @@ function countLines(text) {
   return text.split(/\r\n|\n|\r/).length;
 }
 
-// Legacy "save tune slice by offsets" logic was removed in favor of the Working Copy model.
+function isValidTuneSliceInFullText(fullText, startOffset, endOffset, expectedX = "") {
+  const text = String(fullText || "");
+  const start = Number(startOffset);
+  const end = Number(endOffset);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > text.length) return false;
+  const slice = text.slice(start, end);
+  if (!/^\s*X:/.test(slice)) return false;
+  const x = String(expectedX || "").trim();
+  if (x) {
+    const match = slice.match(/^\s*X:\s*([^\r\n]*)/);
+    if (!match || String(match[1] || "").trim() !== x) return false;
+  }
+  return true;
+}
+
+function getActiveFileTuneEntries(filePath) {
+  const p = String(filePath || "");
+  if (!p || !libraryIndex || !Array.isArray(libraryIndex.files)) return [];
+  const fileEntry = libraryIndex.files.find((f) => pathsEqual(f && f.path, p));
+  return fileEntry && Array.isArray(fileEntry.tunes) ? fileEntry.tunes : [];
+}
+
+function resolveActiveTuneSliceInFullText(filePath, fullText) {
+  const expectedX = activeTuneMeta && activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber || "").trim() : "";
+  const candidates = [];
+  const pushCandidate = (source, startOffset, endOffset, tune = null) => {
+    if (!Number.isFinite(Number(startOffset)) || !Number.isFinite(Number(endOffset))) return;
+    candidates.push({
+      source,
+      startOffset: Number(startOffset),
+      endOffset: Number(endOffset),
+      tune,
+    });
+  };
+
+  if (activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, filePath)) {
+    pushCandidate("active_meta", activeTuneMeta.startOffset, activeTuneMeta.endOffset);
+  }
+
+  const tunes = getActiveFileTuneEntries(filePath);
+  if (tunes.length) {
+    if (activeTuneId) {
+      const byId = tunes.find((t) => t && t.id && String(t.id) === String(activeTuneId));
+      if (byId) pushCandidate("library_id", byId.startOffset, byId.endOffset, byId);
+    }
+    if (activeTuneUid) {
+      const byUid = tunes.find((t) => t && t.tuneUid && String(t.tuneUid) === String(activeTuneUid));
+      if (byUid) pushCandidate("library_uid", byUid.startOffset, byUid.endOffset, byUid);
+    }
+    if (Number.isFinite(Number(activeTuneIndex))) {
+      const byIndex = tunes[Number(activeTuneIndex)];
+      if (byIndex) pushCandidate("library_index", byIndex.startOffset, byIndex.endOffset, byIndex);
+    }
+    if (expectedX) {
+      const byX = tunes.find((t) => t && String(t.xNumber || "").trim() === expectedX);
+      if (byX) pushCandidate("library_x", byX.startOffset, byX.endOffset, byX);
+    }
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = `${candidate.startOffset}:${candidate.endOffset}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (isValidTuneSliceInFullText(fullText, candidate.startOffset, candidate.endOffset, expectedX)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function replaceFileHeaderText(fullText, headerText) {
+  const text = String(fullText || "");
+  let header = String(headerText || "");
+  const body = text.slice(findHeaderEndOffset(text));
+  if (header && !/[\r\n]$/.test(header) && /^[\t ]*X:/.test(body)) header += "\n";
+  return `${header}${body}`;
+}
+
+function updateActiveTuneMetaAfterSimpleSave(filePath, updatedFile) {
+  if (!updatedFile || !Array.isArray(updatedFile.tunes) || !updatedFile.tunes.length) return;
+  const prevIndex = Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null;
+  const prevX = activeTuneMeta && activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber || "").trim() : "";
+  const prevId = activeTuneId ? String(activeTuneId) : "";
+  const prevStart = activeTuneMeta && Number.isFinite(Number(activeTuneMeta.startOffset)) ? Number(activeTuneMeta.startOffset) : null;
+  let tune = null;
+  if (prevIndex != null) tune = updatedFile.tunes[prevIndex] || null;
+  if (!tune && prevX) tune = updatedFile.tunes.find((t) => t && String(t.xNumber || "").trim() === prevX) || null;
+  if (!tune && prevId) tune = updatedFile.tunes.find((t) => t && t.id && String(t.id) === prevId) || null;
+  if (!tune && prevStart != null) tune = updatedFile.tunes.find((t) => Number(t && t.startOffset) === prevStart) || null;
+  if (!tune) return;
+
+  activeTuneId = tune.id || activeTuneId;
+  activeTuneUid = tune.tuneUid || activeTuneUid || null;
+  activeTuneIndex = Number.isFinite(Number(tune.tuneIndex))
+    ? Number(tune.tuneIndex)
+    : (Number.isFinite(Number(updatedFile.tunes.indexOf(tune))) ? updatedFile.tunes.indexOf(tune) : activeTuneIndex);
+  activeTuneMeta = {
+    ...(activeTuneMeta || {}),
+    id: tune.id || (activeTuneMeta && activeTuneMeta.id) || "",
+    tuneUid: tune.tuneUid || (activeTuneMeta && activeTuneMeta.tuneUid) || "",
+    tuneIndex: Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null,
+    path: updatedFile.path || filePath,
+    basename: updatedFile.basename || safeBasename(filePath),
+    xNumber: tune.xNumber || (activeTuneMeta && activeTuneMeta.xNumber) || "",
+    title: tune.title || (activeTuneMeta && activeTuneMeta.title) || "",
+    composer: tune.composer || (activeTuneMeta && activeTuneMeta.composer) || "",
+    key: tune.key || (activeTuneMeta && activeTuneMeta.key) || "",
+    startLine: tune.startLine,
+    endLine: tune.endLine,
+    startOffset: tune.startOffset,
+    endOffset: tune.endOffset,
+  };
+  markActiveTuneButton(activeTuneUid || activeTuneId);
+  setTuneMetaText(buildTuneMetaLabel(activeTuneMeta));
+  setFileNameMeta(stripFileExtension(activeTuneMeta.basename || safeBasename(filePath)));
+  setSaveSession({
+    intent: SAVE_INTENT.REPLACE_TUNE,
+    targetPath: String(filePath || ""),
+    targetTuneUid: String(activeTuneUid || ""),
+    source: "simple_tune_save",
+  });
+}
+
+async function alignWorkingCopyWithDiskAfterSimpleSave(filePath) {
+  const p = String(filePath || "");
+  if (!p || !isWorkingCopyOpenForFile(p)) return;
+  try {
+    if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
+      await window.api.reloadWorkingCopyFromDisk();
+      await refreshWorkingCopySnapshot();
+    }
+  } catch {}
+}
+
+async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
+  const p = String(filePath || "");
+  if (!p) {
+    await showSaveError("Unable to save: tune path is missing.");
+    return false;
+  }
+  return withFileLock(p, async () => {
+    const cached = getFileContentFromCache(p);
+    let fullText = cached != null ? String(cached) : "";
+    if (cached == null) {
+      const readRes = await readFile(p);
+      if (!readRes || !readRes.ok) {
+        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+        return false;
+      }
+      fullText = String(readRes.data || "");
+    }
+    let slice = resolveActiveTuneSliceInFullText(p, fullText);
+    if (!slice) {
+      const refreshed = await refreshLibraryFile(p, { force: true });
+      if (refreshed) slice = resolveActiveTuneSliceInFullText(p, fullText);
+    }
+    if (!slice && cached != null) {
+      const readRes = await readFile(p);
+      if (readRes && readRes.ok) {
+        fullText = String(readRes.data || "");
+        slice = resolveActiveTuneSliceInFullText(p, fullText);
+      }
+    }
+    if (!slice) {
+      await showSaveError("Unable to save: active tune slice was not found in the file buffer.");
+      return false;
+    }
+
+    const targetX = activeTuneMeta && activeTuneMeta.xNumber != null
+      ? String(activeTuneMeta.xNumber || "").trim()
+      : "";
+    const tuneText = targetX
+      ? ensureXNumberInAbc(getEditorValue(), targetX)
+      : ensureXNumberInAbc(getEditorValue(), "");
+    let updatedText = `${fullText.slice(0, slice.startOffset)}${tuneText}${fullText.slice(slice.endOffset)}`;
+    if (includeHeader) {
+      updatedText = replaceFileHeaderText(updatedText, getHeaderEditorValue());
+    }
+    const writeRes = await writeFile(p, updatedText);
+    if (!writeRes || !writeRes.ok) {
+      await showSaveError((writeRes && writeRes.error) ? writeRes.error : "Unable to save file.");
+      return false;
+    }
+
+    const verifyRes = await readFile(p);
+    if (!verifyRes || !verifyRes.ok) {
+      await showSaveError((verifyRes && verifyRes.error) ? verifyRes.error : "Unable to verify saved file.");
+      return false;
+    }
+    if (String(verifyRes.data || "") !== updatedText) {
+      await showSaveError("Save verification failed: disk file does not match the editor buffer.");
+      return false;
+    }
+
+    setFileContentInCache(p, updatedText);
+    if (currentDoc) {
+      currentDoc.path = p;
+      currentDoc.content = tuneText;
+      currentDoc.dirty = false;
+    }
+    if (includeHeader) {
+      headerDirty = false;
+      updateHeaderStateUI();
+    }
+    markDiskConflictPath(p, false);
+    resetTransposePreviewState();
+    setDirtyIndicator(false);
+    activeFilePath = p;
+    recordNavFilePath(p);
+
+    await alignWorkingCopyWithDiskAfterSimpleSave(p);
+    const updatedFile = await refreshLibraryFile(p, { force: true });
+    updateActiveTuneMetaAfterSimpleSave(p, updatedFile);
+    updateLibraryStatus();
+    scheduleRenderLibraryTree();
+    updateFileHeaderPanel();
+    scheduleAutoWcDump("save-simple", p ? safeBasename(p) : "");
+    recordRecentAction("save.simple_tune.ok", { path: p });
+    return true;
+  });
+}
 
 async function showSaveError(message) {
   if (!window.api || typeof window.api.showSaveError !== "function") return;
@@ -20515,91 +21024,10 @@ async function performSaveFlow() {
   }
 
   if (session.intent === SAVE_INTENT.REPLACE_TUNE && activeTuneMeta && activeTuneMeta.path) {
-    const wcOk = await ensureWorkingCopyOpenForPath(activeTuneMeta.path);
-    if (!wcOk) {
-      recordRecentAction("save.wc.missing", { path: String(activeTuneMeta.path) });
-      await showSaveError("Unable to save file: no working copy open.");
-      return false;
-    }
-    // Strict-write guard: never commit a stale working copy that doesn't include the editor buffer.
-    // If we cannot resolve the active tune identity inside the working copy snapshot, refuse loudly.
-    // (This prevents “Save succeeded but reopened shows older text” class of failures.)
-    await refreshWorkingCopySnapshot();
-    if (!tryResolveActiveTuneUidFromWorkingCopySnapshot()) {
-      await showSaveError("Unable to save: tune identity is missing. Re-open the tune and try again.");
-      return false;
-    }
-    const syncRes = await flushWorkingCopyTuneSync().catch((e) => ({
-      ok: false,
-      error: e && e.message ? e.message : String(e),
-    }));
-    if (!syncRes || !syncRes.ok) {
-      await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune before saving.");
-      return false;
-    }
-    if (combineHeaderWithWorkingCopySave && headerDirty && window.api && typeof window.api.applyWorkingCopyHeaderText === "function") {
-      try {
-        const headerRes = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue());
-        if (!headerRes || !headerRes.ok) {
-          await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to update header.");
-          return false;
-        }
-        headerDirty = false;
-        updateHeaderStateUI();
-      } catch (e) {
-        await showSaveError(e && e.message ? e.message : String(e));
-        return false;
-      }
-    }
-    if (window.api && typeof window.api.commitWorkingCopyToDisk === "function") {
-      const res = await window.api.commitWorkingCopyToDisk({ force: false });
-      if (res && res.missingOnDisk) {
-        const handled = await handleMissingWorkingCopySave(activeTuneMeta.path);
-        return Boolean(handled && handled.ok);
-      }
-      if (res && res.ok) {
-        const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);
-        if (!verified || !verified.ok) {
-          recordRecentAction("save.wc.verify.fail", {
-            path: String(activeTuneMeta.path),
-            error: (verified && verified.error) ? String(verified.error) : "unknown",
-          });
-          await showSaveError((verified && verified.error) ? verified.error : "Save verification failed.");
-          return false;
-        }
-        recordRecentAction("save.wc.commit.ok", { path: String(activeTuneMeta.path) });
-        await finalizeWorkingCopySave(activeTuneMeta.path);
-        return true;
-      }
-      if (res && res.conflict) {
-        const forced = await window.api.commitWorkingCopyToDisk({ force: true });
-        if (forced && forced.ok) {
-          const verified = await verifyWorkingCopySaveReachedDisk(activeTuneMeta.path);
-          if (!verified || !verified.ok) {
-            recordRecentAction("save.wc.verify.fail", {
-              path: String(activeTuneMeta.path),
-              error: (verified && verified.error) ? String(verified.error) : "unknown",
-            });
-            await showSaveError((verified && verified.error) ? verified.error : "Save verification failed.");
-            return false;
-          }
-          recordRecentAction("save.wc.commit.forced", { path: String(activeTuneMeta.path) });
-          await finalizeWorkingCopySave(activeTuneMeta.path);
-          return true;
-        }
-        markDiskConflictPath(activeTuneMeta.path, true);
-        await showSaveError((forced && forced.error) ? forced.error : "Unable to save file.");
-        return false;
-      }
-      recordRecentAction("save.wc.commit.fail", {
-        path: String(activeTuneMeta.path),
-        error: (res && res.error) ? String(res.error) : "unknown",
-      });
-      await showSaveError((res && res.error) ? res.error : "Unable to save file.");
-      return false;
-    }
-    await showSaveError("Internal error: working copy save is unavailable.");
-    return false;
+    const ok = await performSimpleTuneSave(activeTuneMeta.path, {
+      includeHeader: Boolean(combineHeaderWithWorkingCopySave && headerDirty),
+    });
+    return Boolean(ok);
   }
 
   if (session.intent === SAVE_INTENT.FULL_FILE && currentDoc.path) {

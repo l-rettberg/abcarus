@@ -460,6 +460,7 @@ function classifyFontName(name) {
 function registerIpcHandlers(ctx) {
   const {
     ipcMain,
+    BrowserWindow,
     app,
     dialog,
     fs,
@@ -538,6 +539,54 @@ function registerIpcHandlers(ctx) {
     files.sort((a, b) => a.localeCompare(b));
     return { root: absRoot, files };
   }
+
+  const sourcePreviewWindows = new Set();
+  const isAllowedYouTubePreviewUrl = (rawUrl) => {
+    try {
+      const parsed = new URL(String(rawUrl || ""));
+      const protocol = String(parsed.protocol || "").toLowerCase();
+      if (protocol !== "https:" && protocol !== "http:") return false;
+      const host = String(parsed.hostname || "").replace(/^www\./i, "").toLowerCase();
+      return host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com");
+    } catch {
+      return false;
+    }
+  };
+  const normalizeYouTubeWatchUrl = (rawUrl) => {
+    try {
+      const parsed = new URL(String(rawUrl || ""));
+      const host = String(parsed.hostname || "").replace(/^www\./i, "").toLowerCase();
+      let videoId = "";
+      if (host === "youtu.be") {
+        videoId = String(parsed.pathname || "").replace(/^\/+/, "").split(/[/?#]/)[0] || "";
+      } else if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+        videoId = String(parsed.searchParams.get("v") || "").trim();
+        if (!videoId) {
+          const parts = String(parsed.pathname || "").split("/").filter(Boolean);
+          if ((parts[0] === "embed" || parts[0] === "shorts" || parts[0] === "live") && parts[1]) videoId = parts[1];
+        }
+      }
+      if (!videoId) return "";
+      return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+    } catch {
+      return "";
+    }
+  };
+  const guardSourcePreviewNavigation = (win) => {
+    if (!win || !win.webContents) return;
+    win.webContents.on("will-navigate", (event, navUrl) => {
+      if (isAllowedYouTubePreviewUrl(navUrl)) return;
+      event.preventDefault();
+      if (shell && typeof shell.openExternal === "function") shell.openExternal(String(navUrl || "")).catch(() => {});
+    });
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (isAllowedYouTubePreviewUrl(url)) {
+        return { action: "allow" };
+      }
+      if (shell && typeof shell.openExternal === "function") shell.openExternal(String(url || "")).catch(() => {});
+      return { action: "deny" };
+    });
+  };
 
   const getParentForDialog = (event, reason) => {
     try {
@@ -1762,6 +1811,37 @@ function registerIpcHandlers(ctx) {
     try {
       if (!url) return { ok: false, error: "Missing URL." };
       await shell.openExternal(String(url));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle("source:preview-youtube", async (event, url) => {
+    try {
+      if (!BrowserWindow) return { ok: false, error: "BrowserWindow is unavailable." };
+      const targetUrl = normalizeYouTubeWatchUrl(url);
+      if (!targetUrl) return { ok: false, error: "Preview is available only for YouTube video links." };
+      const parent = getDialogParent ? getDialogParent(event, "source:preview-youtube") : null;
+      const win = new BrowserWindow({
+        width: 960,
+        height: 720,
+        minWidth: 640,
+        minHeight: 420,
+        parent: parent || undefined,
+        modal: false,
+        autoHideMenuBar: false,
+        title: "YouTube Source Preview",
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          webSecurity: true,
+        },
+      });
+      sourcePreviewWindows.add(win);
+      win.on("closed", () => sourcePreviewWindows.delete(win));
+      guardSourcePreviewNavigation(win);
+      await win.loadURL(targetUrl);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

@@ -2548,6 +2548,7 @@ function buildDecorationExample(name, shorthandChar) {
 function buildAbcDecorations(state) {
   const builder = new RangeSetBuilder();
   let inTextBlock = false;
+  let inDrumBlock = false;
   let lastNonEmptyKind = "";
 
   const findFirstUnescapedPercent = (text) => {
@@ -2576,10 +2577,57 @@ function buildAbcDecorations(state) {
     return ranges;
   };
 
+  const addDrumLineDecorations = (line, text) => {
+    if (!text.length) return;
+    builder.add(line.from, line.to, Decoration.mark({ class: "cm-abc-drum-line" }));
+    const m = text.match(/^(\s*)([A-Za-z0-9][A-Za-z0-9]?)(\s+)(\|.*\|)\s*$/);
+    if (!m) return;
+    const keyStart = m[1].length;
+    const keyEnd = keyStart + m[2].length;
+    const seqStart = keyEnd + m[3].length;
+    const seq = m[4] || "";
+    const isPattern = /^[-ox|]+$/.test(seq);
+    builder.add(line.from + keyStart, line.from + keyEnd, Decoration.mark({ class: "cm-abc-drum-key" }));
+    for (let i = 0; i < seq.length; i += 1) {
+      const ch = seq[i];
+      const from = line.from + seqStart + i;
+      const to = from + 1;
+      if (ch === "|") {
+        builder.add(from, to, Decoration.mark({ class: "cm-abc-drum-bar" }));
+      } else if (isPattern && (ch === "o" || ch === "x")) {
+        builder.add(from, to, Decoration.mark({ class: "cm-abc-drum-hit" }));
+      } else if (isPattern && ch === "-") {
+        builder.add(from, to, Decoration.mark({ class: "cm-abc-drum-rest" }));
+      } else if (!isPattern && ch !== " " && ch !== "-") {
+        builder.add(from, to, Decoration.mark({ class: "cm-abc-drum-instrument" }));
+      }
+    }
+  };
+
   for (let lineNo = 1; lineNo <= state.doc.lines; lineNo += 1) {
     const line = state.doc.line(lineNo);
     const text = line.text;
     const trimmed = text.trim();
+
+    if (/^%%\s*begindrum\b/i.test(text)) {
+      builder.add(line.from, line.to, Decoration.mark({ class: "cm-abc-directive cm-abc-drum-directive" }));
+      inDrumBlock = true;
+      lastNonEmptyKind = "directive";
+      continue;
+    }
+
+    if (/^%%\s*enddrum\b/i.test(text)) {
+      builder.add(line.from, line.to, Decoration.mark({ class: "cm-abc-directive cm-abc-drum-directive" }));
+      inDrumBlock = false;
+      lastNonEmptyKind = "directive";
+      continue;
+    }
+
+    if (inDrumBlock) {
+      addDrumLineDecorations(line, text);
+      if (trimmed) lastNonEmptyKind = "directive";
+      continue;
+    }
 
     if (/^%%\s*begintext\b/i.test(text)) {
       builder.add(line.from, line.to, Decoration.mark({ class: "cm-abc-directive" }));
@@ -10531,16 +10579,19 @@ function initEditor() {
 		            const pitchesField = mkField("Pitches (MIDI numbers)", "e.g. 36 42 42 36 42 38");
 		            const velocitiesField = mkField("Velocities (0–127)", "e.g. 80 95 95 80 95 90");
 		            const drumbarsField = mkField("drumbars (optional)", "e.g. 2");
+		            const drumNameField = mkField("%%drum name", "e.g. conga5");
 
 		            patternField.input.value = patternText || "";
 		            pitchesField.input.value = pitches.join(" ");
 		            velocitiesField.input.value = velocities.join(" ");
 		            drumbarsField.input.value = drumbarsValue;
+		            drumNameField.input.value = "drum1";
 
 		            body.appendChild(patternField.wrap);
 		            body.appendChild(pitchesField.wrap);
 		            body.appendChild(velocitiesField.wrap);
 		            body.appendChild(drumbarsField.wrap);
+		            body.appendChild(drumNameField.wrap);
 
 		            const optionsRow = document.createElement("div");
 		            optionsRow.style.display = "flex";
@@ -10553,13 +10604,49 @@ function initEditor() {
 		            status.style.fontSize = "12px";
 		            status.style.opacity = "0.7";
 		            optionsRow.appendChild(status);
+		            const outputWrap = document.createElement("label");
+		            outputWrap.style.display = "flex";
+		            outputWrap.style.alignItems = "center";
+		            outputWrap.style.gap = "6px";
+		            outputWrap.style.fontSize = "12px";
+		            outputWrap.style.opacity = "0.85";
+		            const outputLabel = document.createElement("span");
+		            outputLabel.textContent = "Write";
+		            const outputSelect = document.createElement("select");
+		            outputSelect.style.padding = "4px 6px";
+		            outputSelect.style.borderRadius = "6px";
+		            outputSelect.style.border = "1px solid rgba(0,0,0,0.2)";
+		            outputSelect.innerHTML = [
+		              "<option value=\"compact\">Compact %%MIDI drum</option>",
+		              "<option value=\"readable\">Readable %%MIDI drum +:</option>",
+		              "<option value=\"tablature\">%%drum tablature</option>",
+		            ].join("");
+		            outputWrap.appendChild(outputLabel);
+		            outputWrap.appendChild(outputSelect);
+		            optionsRow.appendChild(outputWrap);
 		            body.appendChild(optionsRow);
 
 		            const drumLegend = document.createElement("div");
 		            drumLegend.style.fontSize = "12px";
 		            drumLegend.style.opacity = "0.75";
-		            drumLegend.textContent = "Legend: d=hit, z=rest, digits=length. Pitches map to GM drum names.";
+		            drumLegend.textContent = "Legend: d=hit, z=rest, digits=length. Readable +: is ABCarus-only; %%drum is abc2svg/txtmus.";
 		            body.appendChild(drumLegend);
+
+		            const preview = document.createElement("textarea");
+		            preview.readOnly = true;
+		            preview.spellcheck = false;
+		            preview.style.width = "100%";
+		            preview.style.minHeight = "92px";
+		            preview.style.maxHeight = "180px";
+		            preview.style.resize = "vertical";
+		            preview.style.boxSizing = "border-box";
+		            preview.style.fontFamily = "var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
+		            preview.style.fontSize = "12px";
+		            preview.style.padding = "7px 8px";
+		            preview.style.borderRadius = "6px";
+		            preview.style.border = "1px solid rgba(0,0,0,0.16)";
+		            preview.style.background = "rgba(0,0,0,0.03)";
+		            body.appendChild(preview);
 
 		            const hitList = document.createElement("div");
 		            hitList.style.border = "1px solid rgba(0,0,0,0.12)";
@@ -10671,6 +10758,36 @@ function initEditor() {
 		              }
 		            };
 
+		            const getCurrentModel = () => makeDrumEditModel({
+		              patternText: patternField.input.value || "",
+		              pitches: parseNums(pitchesField.input.value),
+		              velocities: parseNums(velocitiesField.input.value).map((v) => clampVelocity(v)),
+		              drumbars: String(drumbarsField.input.value || "").trim(),
+		              name: drumNameField.input.value || "drum1",
+		            });
+
+		            const getOutputText = () => {
+		              const model = getCurrentModel();
+		              if (!model) return "";
+		              const indent = String(mainLine || "").match(/^[\t ]*/)?.[0] ?? "";
+		              const commentSuffix = mainParts.comment
+		                ? (mainParts.comment.startsWith(" ") ? mainParts.comment : ` ${mainParts.comment}`)
+		                : "";
+		              const mode = String(outputSelect.value || "compact");
+		              if (mode === "readable") return formatReadableMidiDrum(model, { indent, comment: commentSuffix });
+		              if (mode === "tablature") return formatDrumTablature(model, { indent });
+		              return formatCompactMidiDrum(model, { indent, comment: commentSuffix });
+		            };
+
+		            const updatePreview = () => {
+		              try {
+		                const text = getOutputText();
+		                preview.value = text || "Invalid drum pattern.";
+		              } catch {
+		                preview.value = "Invalid drum pattern.";
+		              }
+		            };
+
 		            const updateStatus = () => {
 		              const p = parseDrumPattern(patternField.input.value || "");
 		              const hits = p && Number.isFinite(p.hitCount) ? p.hitCount : 0;
@@ -10695,7 +10812,10 @@ function initEditor() {
 		              const velCount = velocityList.length;
 		              status.textContent = `hits: ${hits} · pitches: ${pitchCount} · velocities: ${velCount}${bars ? ` · bars: ${bars}${barsNote}` : barsNote}`;
 		              hitList.textContent = "";
-		              if (!hits) return;
+		              if (!hits) {
+		                updatePreview();
+		                return;
+		              }
 		              const canSplit = Boolean(bars && bars > 1 && totalUnits > 0 && totalUnits % bars === 0);
 		              const unitsPerBar = canSplit ? (totalUnits / bars) : 0;
 		              const hitMeta = [];
@@ -10755,6 +10875,7 @@ function initEditor() {
 		                row.appendChild(c4);
 		                hitList.appendChild(row);
 		              }
+		              updatePreview();
 		            };
 		            updateStatus();
 		            renderPicker();
@@ -10762,6 +10883,8 @@ function initEditor() {
 		            drumbarsField.input.addEventListener("input", updateStatus);
 		            pitchesField.input.addEventListener("input", updateStatus);
 		            velocitiesField.input.addEventListener("input", updateStatus);
+		            drumNameField.input.addEventListener("input", updateStatus);
+		            outputSelect.addEventListener("change", updateStatus);
 		            pickerInput.addEventListener("input", renderPicker);
 
 		            let closePopover = () => { try { pop.remove(); } catch {} };
@@ -10791,32 +10914,30 @@ function initEditor() {
 		                velocitiesNow = next;
 		              }
 
-		              const drumbarsRaw = String(drumbarsField.input.value || "").trim();
-		              let drumbarsOut = "";
-		              if (drumbarsRaw) {
-		                const n = Number(drumbarsRaw);
-		                if (!Number.isFinite(n) || n <= 0) {
-		                  try { showToast("Drum editor: drumbars must be a positive integer.", 2200); } catch {}
-		                  return;
-		                }
-		                drumbarsOut = String(Math.floor(n));
+		              const model = makeDrumEditModel({
+		                patternText: patternValue,
+		                pitches: pitchesNow,
+		                velocities: velocitiesNow,
+		                drumbars: String(drumbarsField.input.value || "").trim(),
+		                name: drumNameField.input.value || "drum1",
+		              });
+		              if (!model) {
+		                try { showToast("Drum editor: invalid drum model.", 2200); } catch {}
+		                return;
 		              }
-
-		              const indent = String(mainLine || "").match(/^[\t ]*/)?.[0] ?? "";
-		              const commentSuffix = mainParts.comment
-		                ? (mainParts.comment.startsWith(" ") ? mainParts.comment : ` ${mainParts.comment}`)
-		                : "";
-		              const outLines = [];
-		              if (drumbarsOut) outLines.push(`${indent}%%MIDI drumbars ${drumbarsOut}`);
-		              const tokens = [patternValue];
-		              if (pitchesNow.length) tokens.push(pitchesNow.join(" "));
-		              if (velocitiesNow.length) tokens.push(velocitiesNow.join(" "));
-		              outLines.push(`${indent}%%MIDI drum ${tokens.join(" ").trim()}${commentSuffix}`);
+		              if (String(drumbarsField.input.value || "").trim() && !model.drumbars) {
+		                try { showToast("Drum editor: drumbars must be a positive integer.", 2200); } catch {}
+		                return;
+		              }
+		              const insert = getOutputText();
+		              if (!insert.trim()) {
+		                try { showToast("Drum editor: nothing to write.", 2000); } catch {}
+		                return;
+		              }
 
 		              const startLine = (drumbarsLineNumber != null) ? drumbarsLineNumber : mainLineNumber;
 		              const from = doc.line(startLine).from;
 		              const to = doc.line(endLineNumber).to;
-		              const insert = outLines.join("\n");
 		              view.dispatch({
 		                changes: { from, to, insert },
 		                selection: EditorSelection.cursor(from + insert.length),
@@ -10848,6 +10969,7 @@ function initEditor() {
 		            pitchesField.input.addEventListener("keydown", onInputKey);
 		            velocitiesField.input.addEventListener("keydown", onInputKey);
 		            drumbarsField.input.addEventListener("keydown", onInputKey);
+		            drumNameField.input.addEventListener("keydown", onInputKey);
 
 		            const coords = view.coordsAtPos(pos);
 		            const margin = 10;
@@ -28750,6 +28872,183 @@ function parseDrumPattern(pattern) {
   }
   if (!tokens.length || totalUnits <= 0) return null;
   return { tokens, totalUnits, hitCount: hitIndex };
+}
+
+function getDrumInstrumentNameForPitch(pitch) {
+  const p = Number(pitch);
+  if (!Number.isFinite(p)) return "";
+  const item = DRUM_INSTRUMENTS.find((d) => d && Number(d.pitch) === p);
+  return item && item.name ? String(item.name).trim().toLowerCase() : `drum ${p}`;
+}
+
+function getDrumShortcutForPitch(pitch, used) {
+  const name = getDrumInstrumentNameForPitch(pitch);
+  const words = name.split(/\s+/).filter(Boolean);
+  const candidates = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const ch = words[i] && words[i][0] ? words[i][0].toUpperCase() : "";
+    if (ch && /^[A-Z0-9]$/.test(ch)) candidates.push(ch);
+  }
+  for (const word of words) {
+    const raw = word.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    if (raw.length >= 2) candidates.push(raw.slice(0, 2));
+  }
+  for (const c of candidates) {
+    if (c && !used.has(c)) {
+      used.add(c);
+      return c;
+    }
+  }
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (const ch of alphabet) {
+    if (!used.has(ch)) {
+      used.add(ch);
+      return ch;
+    }
+  }
+  let n = 1;
+  while (used.has(`D${n}`)) n += 1;
+  const key = `D${n}`;
+  used.add(key);
+  return key;
+}
+
+function makeDrumEditModel({ patternText, pitches, velocities, drumbars, name } = {}) {
+  const pattern = parseDrumPattern(patternText);
+  if (!pattern) return null;
+  const pitchList = Array.isArray(pitches) ? pitches.filter((n) => Number.isFinite(Number(n))).map((n) => Number(n)) : [];
+  const velocityList = Array.isArray(velocities) ? velocities.filter((n) => Number.isFinite(Number(n))).map((n) => clampVelocity(n)) : [];
+  const hitCount = Number(pattern.hitCount) || 0;
+  const events = [];
+  let hitIndex = 0;
+  let unit = 0;
+  for (const token of pattern.tokens) {
+    const len = Math.max(1, Number(token.len) || 1);
+    if (token.type === "d") {
+      const pitch = pitchList.length ? pitchList[hitIndex % pitchList.length] : 35;
+      const velocity = velocityList.length
+        ? velocityList[hitIndex % velocityList.length]
+        : clampVelocity(Number.isFinite(drumVelocityMap[pitch]) ? drumVelocityMap[pitch] : DEFAULT_DRUM_VELOCITY);
+      events.push({ hitIndex, unit, len, pitch, velocity });
+      hitIndex += 1;
+    }
+    unit += len;
+  }
+  const bars = Number(drumbars);
+  return {
+    name: String(name || "drum1").trim() || "drum1",
+    patternText: String(patternText || "").trim(),
+    pattern,
+    pitches: events.map((event) => event.pitch),
+    velocities: events.map((event) => event.velocity),
+    drumbars: Number.isFinite(bars) && bars > 0 ? Math.floor(bars) : null,
+    events,
+  };
+}
+
+function formatDrumPatternToken(token) {
+  if (!token) return "";
+  const type = token.type === "z" ? "z" : "d";
+  const len = Number(token.len) || 1;
+  return `${type}${len === 1 ? "" : String(len)}`;
+}
+
+function formatCompactMidiDrum(model, { indent = "", comment = "" } = {}) {
+  if (!model) return "";
+  const parts = [model.patternText || model.pattern.tokens.map(formatDrumPatternToken).join("")];
+  if (model.pitches.length) parts.push(model.pitches.join(" "));
+  if (model.velocities.length) parts.push(model.velocities.join(" "));
+  const lines = [];
+  if (model.drumbars) lines.push(`${indent}%%MIDI drumbars ${model.drumbars}`);
+  lines.push(`${indent}%%MIDI drum ${parts.join(" ").trim()}${comment || ""}`);
+  return lines.join("\n");
+}
+
+function formatReadableMidiDrum(model, { indent = "", comment = "" } = {}) {
+  if (!model) return "";
+  const tokenCells = model.pattern.tokens.map(formatDrumPatternToken);
+  let widthHit = 0;
+  const widths = tokenCells.map((cell, idx) => {
+    const token = model.pattern.tokens[idx];
+    const event = token && token.type === "d" ? model.events[widthHit++] : null;
+    const pitch = event ? String(event.pitch) : "";
+    const velocity = event ? String(event.velocity) : "";
+    return Math.max(cell.length, pitch.length, velocity.length, 1);
+  });
+  let hit = 0;
+  const patternCells = [];
+  const pitchCells = [];
+  const velocityCells = [];
+  for (const token of model.pattern.tokens) {
+    const idx = patternCells.length;
+    const width = widths[idx] || 1;
+    const cell = formatDrumPatternToken(token);
+    patternCells.push(cell.padEnd(width, " "));
+    if (token.type === "d") {
+      const event = model.events[hit] || null;
+      pitchCells.push(String(event ? event.pitch : "").padEnd(width, " "));
+      velocityCells.push(String(event ? event.velocity : "").padEnd(width, " "));
+      hit += 1;
+    } else {
+      pitchCells.push("".padEnd(width, " "));
+      velocityCells.push("".padEnd(width, " "));
+    }
+  }
+  const lines = [];
+  if (model.drumbars) lines.push(`${indent}%%MIDI drumbars ${model.drumbars}`);
+  lines.push(`${indent}%%MIDI drum     ${patternCells.join(" ").trimEnd()}${comment || ""}`);
+  lines.push(`${indent}%%MIDI drum +:  ${pitchCells.join(" ").trimEnd()}`);
+  lines.push(`${indent}%%MIDI drum +:  ${velocityCells.join(" ").trimEnd()}`);
+  return lines.join("\n");
+}
+
+function formatDrumTablature(model, { indent = "" } = {}) {
+  if (!model) return "";
+  const uniquePitches = [];
+  const seen = new Set();
+  for (const event of model.events) {
+    const pitch = Number(event && event.pitch);
+    if (!Number.isFinite(pitch) || seen.has(pitch)) continue;
+    seen.add(pitch);
+    uniquePitches.push(pitch);
+  }
+  if (!uniquePitches.length) uniquePitches.push(35);
+  const usedKeys = new Set();
+  const tracks = uniquePitches.map((pitch) => ({
+    pitch,
+    key: getDrumShortcutForPitch(pitch, usedKeys),
+    name: getDrumInstrumentNameForPitch(pitch),
+    cells: Array(Math.max(1, Number(model.pattern.totalUnits) || 1)).fill("-"),
+  }));
+  const byPitch = new Map(tracks.map((t) => [t.pitch, t]));
+  for (const event of model.events) {
+    const track = byPitch.get(Number(event.pitch));
+    if (!track) continue;
+    const start = Math.max(0, Number(event.unit) || 0);
+    if (start < track.cells.length) track.cells[start] = "o";
+  }
+  const bars = model.drumbars && model.drumbars > 1 && model.pattern.totalUnits % model.drumbars === 0
+    ? model.drumbars
+    : 1;
+  const unitsPerBar = Math.max(1, Math.floor(model.pattern.totalUnits / bars));
+  const withBars = (cells) => {
+    const chunks = [];
+    for (let i = 0; i < cells.length; i += unitsPerBar) chunks.push(cells.slice(i, i + unitsPerBar).join(""));
+    return `|${chunks.join("|")}|`;
+  };
+  const name = String(model.name || "drum1").replace(/[^A-Za-z0-9_-]+/g, "_") || "drum1";
+  const lines = [`${indent}%%begindrum ${name}`];
+  for (const track of tracks) lines.push(`${indent}${track.key} ${withBars(track.cells)}`);
+  lines.push("");
+  const nameWidth = Math.max(...tracks.map((t) => t.name.replace(/\s+/g, "-").length), 1);
+  for (const track of tracks) {
+    const padded = track.name.replace(/\s+/g, "-").padEnd(nameWidth, "-");
+    lines.push(`${indent}${track.key} |-${padded}-|`);
+  }
+  lines.push(`${indent}%%enddrum`);
+  lines.push("");
+  lines.push(`${indent}%%drum ${name}`);
+  return lines.join("\n");
 }
 
 function matchBarToken(line, idx) {

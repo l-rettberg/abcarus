@@ -1508,6 +1508,37 @@ body.resizing-cols * {
   font-weight: 600;
 }
 
+.cm-abc-drum-line {
+  color: #384152;
+}
+
+.cm-abc-drum-directive {
+  color: #7a3e00;
+}
+
+.cm-abc-drum-key {
+  color: #0b5aa7;
+  font-weight: 700;
+}
+
+.cm-abc-drum-hit {
+  color: #0f7a4f;
+  font-weight: 700;
+}
+
+.cm-abc-drum-rest {
+  color: #9aa1ad;
+}
+
+.cm-abc-drum-bar {
+  color: #56606d;
+  font-weight: 700;
+}
+
+.cm-abc-drum-instrument {
+  color: #5a2d82;
+}
+
 .cm-scroller {
   overflow: scroll;
 }

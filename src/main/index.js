@@ -127,9 +127,6 @@ function queueOrOpenCliInputPath(rawPath) {
   }
   const abs = path.resolve(resolved);
   pendingCliOpenFile = abs;
-  appState.recentTunes = [];
-  appState.recentFiles = [];
-  appState.recentFolders = [];
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   try {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -608,49 +605,21 @@ async function migrateStatePaths() {
     }
   }
 
-  const validFolderEntries = [];
-  for (const entry of appState.recentFolders) {
-    if (entry && entry.path && await pathExists(entry.path)) {
-      if (await folderHasAbc(entry.path)) validFolderEntries.push(entry);
-    }
-  }
-  appState.recentFolders = validFolderEntries;
-
-  const validFileEntries = [];
-  for (const entry of appState.recentFiles) {
-    if (entry && entry.path && await pathExists(entry.path)) validFileEntries.push(entry);
-  }
-  appState.recentFiles = validFileEntries;
-
-  const validTuneEntries = [];
-  for (const entry of appState.recentTunes) {
-    if (entry && entry.path && await pathExists(entry.path)) validTuneEntries.push(entry);
-  }
-  appState.recentTunes = validTuneEntries;
+  // Do not destructively prune recents during startup. Files or folders may be
+  // temporarily unavailable, externally deleted, or opened through file
+  // association. Keeping the remembered paths is safer than replacing the
+  // user's navigation history with an empty state.
+  appState.recentFolders = Array.isArray(appState.recentFolders)
+    ? appState.recentFolders.filter((entry) => entry && entry.path)
+    : [];
+  appState.recentFiles = Array.isArray(appState.recentFiles)
+    ? appState.recentFiles.filter((entry) => entry && entry.path)
+    : [];
+  appState.recentTunes = Array.isArray(appState.recentTunes)
+    ? appState.recentTunes.filter((entry) => entry && entry.path)
+    : [];
 
   await saveState();
-}
-
-async function folderHasAbc(rootDir) {
-  const stack = [rootDir];
-  while (stack.length) {
-    const dir = stack.pop();
-    let entries = [];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".abc")) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 async function saveState() {
@@ -2890,11 +2859,6 @@ app.whenReady().then(async () => {
   updateSplashStatus("Loading settings…");
   await loadState();
   logStartupPerf("loadState() done");
-  if (pendingCliOpenFile) {
-    appState.recentTunes = [];
-    appState.recentFiles = [];
-    appState.recentFolders = [];
-  }
   if (process.platform === "linux" && appState.settings && appState.settings.usePortalFileDialogs) {
     process.env.GTK_USE_PORTAL = "1";
   }

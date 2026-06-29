@@ -78,6 +78,14 @@ import {
 } from "./source_link.js";
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
 import {
+  buildTemplatesFlatList,
+  filterTemplates,
+  getTemplateDisplayTitle,
+  getTemplatePreviewTitle,
+  getTemplateSlice,
+  getTemplateSubtitle,
+} from "./tools/templates/templates_model.js";
+import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
 import {
@@ -23781,11 +23789,7 @@ function renderTemplatesList() {
   if (!$templatesList) return;
   const q = $templatesSearch ? String($templatesSearch.value || "").trim().toLowerCase() : "";
   $templatesList.textContent = "";
-  const items = templatesFlat.filter((item) => {
-    if (!q) return true;
-    const hay = `${item.title} ${item.composer} ${item.xNumber} ${item.fileBasename}`.toLowerCase();
-    return hay.includes(q);
-  });
+  const items = filterTemplates(templatesFlat, q);
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "templates-item";
@@ -23804,13 +23808,10 @@ function renderTemplatesList() {
     const right = document.createElement("div");
     const title = document.createElement("div");
     title.className = "templates-item-title";
-    title.textContent = item.title || item.preview || "Untitled";
+    title.textContent = getTemplateDisplayTitle(item);
     const subtitle = document.createElement("div");
     subtitle.className = "templates-item-subtitle";
-    const x = item.xNumber ? `X:${item.xNumber}` : "X:";
-    const c = item.composer ? ` · ${item.composer}` : "";
-    const src = item.preview === "Full file" ? " · full file" : "";
-    subtitle.textContent = `${x}${c}${src}`;
+    subtitle.textContent = getTemplateSubtitle(item);
     right.appendChild(title);
     right.appendChild(subtitle);
     row.appendChild(left);
@@ -23869,15 +23870,9 @@ async function selectTemplateByKey(key) {
     $templatesPreviewText.textContent = "";
     return;
   }
-  const title = item.title || item.preview || "Untitled";
-  const x = item.xNumber ? `X:${item.xNumber}` : "X:";
-  const c = item.composer ? ` · ${item.composer}` : "";
-  const src = item.preview === "Full file" ? " · full file" : "";
-  $templatesPreviewTitle.textContent = `${title} (${x}${c}${src})`;
+  $templatesPreviewTitle.textContent = getTemplatePreviewTitle(item);
   const full = await getTemplatesFileText(item.filePath);
-  const start = Number(item.startOffset) || 0;
-  const end = Number(item.endOffset) || 0;
-  const slice = full ? full.slice(start, Math.max(start, end)) : "";
+  const slice = getTemplateSlice(full, item);
   $templatesPreviewText.textContent = slice.trim() ? slice.trim() : "(Empty template)";
 }
 
@@ -23892,9 +23887,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
   }
 
   const full = await getTemplatesFileText(item.filePath);
-  const start = Number(item.startOffset) || 0;
-  const end = Number(item.endOffset) || 0;
-  let slice = full ? full.slice(start, Math.max(start, end)) : "";
+  let slice = getTemplateSlice(full, item);
   if (!slice.trim()) {
     await showSaveError("Template is empty.");
     return;
@@ -23960,44 +23953,7 @@ async function loadTemplatesForModal() {
     return;
   }
   templatesIndex = { root: scan.root || "", files: scan.files || [] };
-  const flat = [];
-  for (const file of scan.files || []) {
-    const filePath = file && file.path ? String(file.path) : "";
-    const fileBasename = file && file.basename ? String(file.basename) : safeBasename(filePath);
-    const tunes = (file && file.tunes) ? file.tunes : [];
-    if (tunes.length) {
-      for (const tune of tunes) {
-        if (!tune || !Number.isFinite(Number(tune.startOffset)) || !Number.isFinite(Number(tune.endOffset))) continue;
-        flat.push({
-          key: `${filePath}::${tune.startOffset}`,
-          filePath,
-          fileBasename,
-          startOffset: Number(tune.startOffset),
-          endOffset: Number(tune.endOffset),
-          xNumber: tune.xNumber ? String(tune.xNumber) : "",
-          title: tune.title ? String(tune.title) : "",
-          composer: tune.composer ? String(tune.composer) : "",
-          preview: tune.preview ? String(tune.preview) : "",
-        });
-      }
-    } else {
-      const length = Number(file && file.length);
-      if (Number.isFinite(length) && length > 0) {
-        flat.push({
-          key: `${filePath}::full`,
-          filePath,
-          fileBasename,
-          startOffset: 0,
-          endOffset: length,
-          xNumber: "",
-          title: fileBasename || "Untitled",
-          composer: "",
-          preview: "Full file",
-        });
-      }
-    }
-  }
-  templatesFlat = flat;
+  templatesFlat = buildTemplatesFlatList(scan.files || [], { safeBasename });
   renderTemplatesList();
 }
 

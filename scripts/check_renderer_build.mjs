@@ -334,14 +334,17 @@ async function assertSepIsPrestrippedForRender() {
 
 async function assertPrintSuggestedBaseNameIncludesKey() {
   const rendererPath = "src/renderer/renderer.js";
+  const headerFieldsPath = "src/renderer/abc/header_fields.js";
   const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("function latinize(text)");
+  const headerFieldsSrc = await readFile(headerFieldsPath, "utf8");
+  const start = src.indexOf("function sanitizeFileBaseName(text)");
   const end = src.indexOf("function getPlaybackText()", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate print suggested filename helpers.");
 
   const module = { exports: {} };
   const prelude = "let activeTuneMeta = null; let editorText = ''; function getEditorValue() { return editorText; }\n";
-  const load = new Function("module", "exports", `${prelude}${src.slice(start, end)}\nmodule.exports = { getSuggestedBaseName, getSuggestedPrintBaseName, setText: (value) => { editorText = value; } };\n`);
+  const headerHelpers = headerFieldsSrc.replace(/export\s+\{[\s\S]*?\};\s*$/, "");
+  const load = new Function("module", "exports", `${prelude}${headerHelpers}\n${src.slice(start, end)}\nmodule.exports = { getSuggestedBaseName, getSuggestedPrintBaseName, setText: (value) => { editorText = value; } };\n`);
   load(module, module.exports);
   const { getSuggestedBaseName, getSuggestedPrintBaseName, setText } = module.exports;
   setText([

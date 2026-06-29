@@ -79,12 +79,9 @@ import {
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
 import {
   buildTemplatesFlatList,
-  filterTemplates,
-  getTemplateDisplayTitle,
-  getTemplatePreviewTitle,
   getTemplateSlice,
-  getTemplateSubtitle,
 } from "./tools/templates/templates_model.js";
+import { createTemplatesView } from "./tools/templates/templates_view.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
@@ -4273,6 +4270,22 @@ let templatesFlat = [];
 let templatesSelectedKey = "";
 let templatesInsertMode = "insert";
 const templatesFileCache = new Map(); // filePath -> full text
+const templatesView = createTemplatesView({
+  list: $templatesList,
+  search: $templatesSearch,
+  previewTitle: $templatesPreviewTitle,
+  previewText: $templatesPreviewText,
+  insertButton: $templatesInsert,
+  replaceButton: $templatesReplace,
+  appendButton: $templatesAppend,
+  editButton: $templatesEdit,
+  onSelect: (key) => {
+    selectTemplateByKey(key).catch(() => {});
+  },
+  onDefaultAction: () => {
+    if ($templatesInsert && !$templatesInsert.disabled) $templatesInsert.click();
+  },
+});
 
 const libraryViewStore = createLibraryViewStore({
   getIndex: () => libraryIndex,
@@ -23732,12 +23745,7 @@ function closeTemplatesModal() {
   $templatesModal.classList.remove("open");
   $templatesModal.setAttribute("aria-hidden", "true");
   templatesSelectedKey = "";
-  if ($templatesInsert) $templatesInsert.disabled = true;
-  if ($templatesReplace) $templatesReplace.disabled = true;
-  if ($templatesAppend) $templatesAppend.disabled = true;
-  if ($templatesEdit) $templatesEdit.disabled = true;
-  if ($templatesPreviewTitle) $templatesPreviewTitle.textContent = "Select a template";
-  if ($templatesPreviewText) $templatesPreviewText.textContent = "";
+  templatesView.resetSelection();
 }
 
 function isMakamDnaModalOpen() {
@@ -23786,44 +23794,7 @@ async function applyUserMakamDnaTextAndRefresh(text) {
 }
 
 function renderTemplatesList() {
-  if (!$templatesList) return;
-  const q = $templatesSearch ? String($templatesSearch.value || "").trim().toLowerCase() : "";
-  $templatesList.textContent = "";
-  const items = filterTemplates(templatesFlat, q);
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "templates-item";
-    empty.style.cursor = "default";
-    empty.innerHTML = "<div class=\"templates-item-left\"></div><div><div class=\"templates-item-title\">No templates found</div><div class=\"templates-item-subtitle\">Add .abc files to the templates folder.</div></div>";
-    $templatesList.appendChild(empty);
-    return;
-  }
-  for (const item of items) {
-    const row = document.createElement("div");
-    row.className = `templates-item${item.key === templatesSelectedKey ? " selected" : ""}`;
-    row.dataset.key = item.key;
-    const left = document.createElement("div");
-    left.className = "templates-item-left";
-    left.textContent = item.fileBasename || "";
-    const right = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "templates-item-title";
-    title.textContent = getTemplateDisplayTitle(item);
-    const subtitle = document.createElement("div");
-    subtitle.className = "templates-item-subtitle";
-    subtitle.textContent = getTemplateSubtitle(item);
-    right.appendChild(title);
-    right.appendChild(subtitle);
-    row.appendChild(left);
-    row.appendChild(right);
-    row.addEventListener("click", () => {
-      selectTemplateByKey(item.key).catch(() => {});
-    });
-    row.addEventListener("dblclick", () => {
-      if ($templatesInsert && !$templatesInsert.disabled) $templatesInsert.click();
-    });
-    $templatesList.appendChild(row);
-  }
+  templatesView.renderList(templatesFlat, templatesSelectedKey);
 }
 
 function getSelectionTextWithinElement(el) {
@@ -23859,21 +23830,15 @@ async function selectTemplateByKey(key) {
   const wanted = String(key || "");
   const item = templatesFlat.find((t) => t && t.key === wanted) || null;
   templatesSelectedKey = item ? item.key : "";
-  if ($templatesInsert) $templatesInsert.disabled = !item;
-  if ($templatesReplace) $templatesReplace.disabled = !item;
-  if ($templatesAppend) $templatesAppend.disabled = !item;
-  if ($templatesEdit) $templatesEdit.disabled = !item;
+  templatesView.syncSelectionControls(item);
   renderTemplatesList();
-  if (!$templatesPreviewTitle || !$templatesPreviewText) return;
   if (!item) {
-    $templatesPreviewTitle.textContent = "Select a template";
-    $templatesPreviewText.textContent = "";
+    templatesView.renderPreview(null, "");
     return;
   }
-  $templatesPreviewTitle.textContent = getTemplatePreviewTitle(item);
   const full = await getTemplatesFileText(item.filePath);
   const slice = getTemplateSlice(full, item);
-  $templatesPreviewText.textContent = slice.trim() ? slice.trim() : "(Empty template)";
+  templatesView.renderPreview(item, slice);
 }
 
 async function insertSelectedTemplateFromModal(modeOverride = "") {
@@ -23962,12 +23927,7 @@ async function openTemplatesModal() {
   $templatesModal.classList.add("open");
   $templatesModal.setAttribute("aria-hidden", "false");
   if ($templatesSearch) $templatesSearch.value = "";
-  if ($templatesPreviewTitle) $templatesPreviewTitle.textContent = "Select a template";
-  if ($templatesPreviewText) $templatesPreviewText.textContent = "";
-  if ($templatesInsert) $templatesInsert.disabled = true;
-  if ($templatesReplace) $templatesReplace.disabled = true;
-  if ($templatesAppend) $templatesAppend.disabled = true;
-  if ($templatesEdit) $templatesEdit.disabled = true;
+  templatesView.resetSelection();
   await loadTemplatesForModal();
   try { if ($templatesSearch) $templatesSearch.focus(); } catch {}
 }

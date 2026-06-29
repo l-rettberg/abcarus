@@ -85,6 +85,11 @@ import {
   buildPrintErrorSummary,
   buildPrintTuneLabel,
 } from "./print/error_markup.js";
+import {
+  applyPrintDebugMarkup as applyPrintDebugMarkupCore,
+  ensureOnePerPageDirective,
+  sanitizeFileBaseName,
+} from "./print/print_helpers.js";
 import { createQrDataUrl } from "./print/qr_code.js";
 import {
   buildSetListExportAbc as buildSetListExportAbcCore,
@@ -17420,19 +17425,6 @@ function setEditorSelectionAtLineCol(line, col) {
   setEditorSelectionAt(pos);
 }
 
-function sanitizeFileBaseName(text) {
-  const cleaned = String(text || "")
-    .normalize("NFKC")
-    .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, " ")
-    .replace(/\p{Control}+/gu, " ")
-    .replace(/[. ]+$/g, "")
-    .replace(/^[. ]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cleaned) return "untitled";
-  return cleaned.slice(0, 120);
-}
-
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
   const parsed = parseAbcHeaderFields(getEditorValue());
   const title = parsed.title || (activeTuneMeta && activeTuneMeta.title) || "untitled";
@@ -17472,11 +17464,7 @@ function getCurrentNotationMarkup() {
 }
 
 function applyPrintDebugMarkup(markup) {
-  if (!markup) return markup;
-  if (window.__abcarusDebugPrintNoRaster) {
-    return `${markup}\n<!--abcarus:no-raster-->`;
-  }
-  return markup;
+  return applyPrintDebugMarkupCore(markup, { noRaster: Boolean(window.__abcarusDebugPrintNoRaster) });
 }
 
 function getSongbookSuggestedBaseName() {
@@ -17515,17 +17503,6 @@ async function runPrintAction(type) {
     setStatus("Error");
     logErr(res.error);
   }
-}
-
-function ensureOnePerPageDirective(text) {
-  const value = String(text || "");
-  if (/^%%\s*oneperpage\b/im.test(value)) return value;
-  const prefix = "%%oneperpage 1\n";
-  if (!value.trim()) return prefix;
-  if (value.startsWith("\ufeff")) {
-    return `\ufeff${prefix}${value.slice(1)}`;
-  }
-  return `${prefix}${value}`;
 }
 
 function ensureAbc2svgModulesReady(content) {

@@ -77,6 +77,7 @@ import {
   normalizeSourceUrl,
 } from "./source_link.js";
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
+import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
@@ -23734,38 +23735,6 @@ function closeTemplatesModal() {
   templatesController.close();
 }
 
-function isMakamDnaModalOpen() {
-  return Boolean($makamDnaModal && $makamDnaModal.classList.contains("open"));
-}
-
-function setMakamDnaModalStatus(message, { error = false } = {}) {
-  if (!$makamDnaStatus) return;
-  const text = String(message || "");
-  $makamDnaStatus.textContent = text;
-  $makamDnaStatus.classList.toggle("error", Boolean(error && text));
-}
-
-function closeMakamDnaModal() {
-  if (!$makamDnaModal) return;
-  $makamDnaModal.classList.remove("open");
-  $makamDnaModal.setAttribute("aria-hidden", "true");
-  setMakamDnaModalStatus("");
-}
-
-async function openMakamDnaModal() {
-  if (!$makamDnaModal || !$makamDnaEditor) return;
-  await ensureMakamDnaLoaded();
-  // If no user dataset exists, show a formatted wrapper around the current in-memory entries.
-  const text = activeMakamDnaUserText && activeMakamDnaUserText.trim()
-    ? activeMakamDnaUserText
-    : formatMakamDnaForEditor(getMakamDnaEntries());
-  $makamDnaEditor.value = text;
-  setMakamDnaModalStatus("");
-  $makamDnaModal.classList.add("open");
-  $makamDnaModal.setAttribute("aria-hidden", "false");
-  try { $makamDnaEditor.focus(); } catch {}
-}
-
 async function applyUserMakamDnaTextAndRefresh(text) {
   const parsed = parseMakamDnaText(text);
   if (!parsed.ok) return { ok: false, error: parsed.error || "Invalid Makam DNA." };
@@ -23777,6 +23746,50 @@ async function applyUserMakamDnaTextAndRefresh(text) {
     try { await refreshIntonationExplorer(); } catch {}
   }
   return { ok: true };
+}
+
+const makamDnaController = createMakamDnaController({
+  modal: $makamDnaModal,
+  closeButton: $makamDnaClose,
+  cancelButton: $makamDnaCancel,
+  editor: $makamDnaEditor,
+  status: $makamDnaStatus,
+  resetBuiltinButton: $makamDnaResetBuiltin,
+  saveButton: $makamDnaSave,
+  api: window.api,
+  ensureLoaded: ensureMakamDnaLoaded,
+  getInitialText: () => {
+    // If no user dataset exists, show a formatted wrapper around the current in-memory entries.
+    return activeMakamDnaUserText && activeMakamDnaUserText.trim()
+      ? activeMakamDnaUserText
+      : formatMakamDnaForEditor(getMakamDnaEntries());
+  },
+  validateText: parseMakamDnaText,
+  applyText: applyUserMakamDnaTextAndRefresh,
+  resetBuiltin: async () => {
+    activeMakamDnaEntries = await getBuiltinMakamDnaEntries();
+    activeMakamDnaUserText = "";
+    makamDnaLoaded = true;
+    rebuildMakamDnaNameIndex();
+    populateIntonationExplorerMakams();
+    if (intonationExplorerVisible) refreshIntonationExplorer().catch(() => {});
+    return formatMakamDnaForEditor(getMakamDnaEntries());
+  },
+  enableDraggable: enableDraggableModal,
+  onSaved: () => {
+    try { showToast("Saved Makam DNA.", 1800); } catch {}
+  },
+  onError: (e) => {
+    logErr(e && e.message ? e.message : String(e));
+  },
+});
+
+function closeMakamDnaModal() {
+  makamDnaController.close();
+}
+
+async function openMakamDnaModal() {
+  await makamDnaController.open();
 }
 
 function renderTemplatesList() {
@@ -24112,102 +24125,6 @@ if ($templatesPreviewText) {
       showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
     } catch {}
   });
-}
-
-if ($makamDnaClose) {
-  $makamDnaClose.addEventListener("click", () => {
-    closeMakamDnaModal();
-  });
-}
-
-if ($makamDnaCancel) {
-  $makamDnaCancel.addEventListener("click", () => {
-    closeMakamDnaModal();
-  });
-}
-
-if ($makamDnaResetBuiltin) {
-  $makamDnaResetBuiltin.addEventListener("click", async () => {
-    setMakamDnaModalStatus("");
-    if (!window.api || typeof window.api.clearMakamDnaUser !== "function") {
-      setMakamDnaModalStatus("Not available in this build.", { error: true });
-      return;
-    }
-	    try {
-	      const res = await window.api.clearMakamDnaUser();
-	      if (!res || !res.ok) {
-	        setMakamDnaModalStatus(res && res.error ? String(res.error) : "Reset failed.", { error: true });
-	        return;
-	      }
-	      activeMakamDnaEntries = await getBuiltinMakamDnaEntries();
-	      activeMakamDnaUserText = "";
-	      makamDnaLoaded = true;
-	      rebuildMakamDnaNameIndex();
-	      populateIntonationExplorerMakams();
-	      if ($makamDnaEditor) $makamDnaEditor.value = formatMakamDnaForEditor(getMakamDnaEntries());
-	      if (intonationExplorerVisible) refreshIntonationExplorer().catch(() => {});
-	      setMakamDnaModalStatus("Reset to built-in.");
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      setMakamDnaModalStatus("Reset failed.", { error: true });
-    }
-  });
-}
-
-if ($makamDnaSave) {
-  $makamDnaSave.addEventListener("click", async () => {
-    setMakamDnaModalStatus("");
-    if (!$makamDnaEditor) return;
-    const text = String($makamDnaEditor.value || "");
-    const parsed = parseMakamDnaText(text);
-    if (!parsed.ok) {
-      setMakamDnaModalStatus(parsed.error || "Invalid Makam DNA.", { error: true });
-      return;
-    }
-    if (!window.api || typeof window.api.saveMakamDnaUser !== "function") {
-      setMakamDnaModalStatus("Not available in this build.", { error: true });
-      return;
-    }
-    try {
-      const res = await window.api.saveMakamDnaUser(text);
-      if (!res || !res.ok) {
-        setMakamDnaModalStatus(res && res.error ? String(res.error) : "Save failed.", { error: true });
-        return;
-      }
-      const applied = await applyUserMakamDnaTextAndRefresh(text);
-      if (!applied.ok) {
-        setMakamDnaModalStatus(applied.error || "Save failed.", { error: true });
-        return;
-      }
-      closeMakamDnaModal();
-      try { showToast("Saved Makam DNA.", 1800); } catch {}
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      setMakamDnaModalStatus("Save failed.", { error: true });
-    }
-  });
-}
-
-if ($makamDnaModal) {
-  $makamDnaModal.addEventListener("click", (e) => {
-    if (e.target === $makamDnaModal) closeMakamDnaModal();
-  });
-  $makamDnaModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closeMakamDnaModal();
-      return;
-    }
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key === "Enter" && $makamDnaSave) {
-      e.preventDefault();
-      e.stopPropagation();
-      $makamDnaSave.click();
-    }
-  });
-  enableDraggableModal($makamDnaModal);
 }
 
 if ($setListClose) {

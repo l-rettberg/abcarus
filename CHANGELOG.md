@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.42.0] - 2026-06-28
+### Added
+- Drum Pattern helper can now preview and write drum patterns as compact `%%MIDI drum`, readable ABCarus `%%MIDI drum +:` blocks, or abc2svg/txtmus `%%begindrum` tablature.
+- Editor highlighting now recognizes `%%begindrum` tablature rows, with distinct styling for shortcut keys, hits, rests, bar separators, and instrument mappings.
+
+### Fixed
+- `%%MIDI drum` to `%%drum` conversion now preserves playback onsets for multiplier tokens such as `d2`, writing one tablature hit followed by rests instead of repeated hits.
+
 ## [0.41.0] - 2026-06-22
 ### Changed
 - Updated bundled `abc2svg` to v1.23.3 from Jef Moine's 2026-06-21 tip.

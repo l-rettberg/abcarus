@@ -79,6 +79,9 @@ import {
   getYouTubeEmbedUrl,
   normalizeSourceUrl,
 } from "./source_link.js";
+import {
+  buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
+} from "./print/source_link_markup.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -17645,23 +17648,8 @@ async function createQrDataUrl(text, { size = 96 } = {}) {
 }
 
 async function buildPrintSourceLinkMarkup(abcText) {
-  const url = extractFirstSourceUrlFromAbc(abcText);
-  if (!url) return "";
   const includeQr = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes);
-  const qrDataUrl = includeQr ? await createQrDataUrl(url, { size: 128 }) : "";
-  const label = formatSourceLinkLabel(url);
-  const qrMarkup = qrDataUrl
-    ? `<img src="${escapeHtml(qrDataUrl)}" alt="" style="width:64px;height:64px;display:block;flex:0 0 auto;">`
-    : "";
-  return `
-    <div class="abcarus-print-source" style="display:flex;align-items:center;gap:10px;margin:10px 0 0;padding-top:8px;border-top:1px solid #ddd;font-family:sans-serif;font-size:11px;color:#444;break-inside:avoid;">
-      ${qrMarkup}
-      <div style="min-width:0;">
-        <div style="font-weight:700;margin-bottom:2px;">Source</div>
-        <a href="${escapeHtml(url)}" style="color:#1b5fb8;text-decoration:none;overflow-wrap:anywhere;">${escapeHtml(label)} — ${escapeHtml(url)}</a>
-      </div>
-    </div>
-  `;
+  return buildPrintSourceLinkMarkupCore(abcText, { includeQr, createQrDataUrl });
 }
 
 function buildPrintTuneLabel(tune) {

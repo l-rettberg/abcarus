@@ -73,12 +73,10 @@ import {
 } from "./note_preview/abc_note_parse.mjs";
 import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 import {
-  buildYouTubeSearchUrlFromFields,
   extractFirstSourceUrlFromAbc,
-  formatSourceLinkLabel,
-  getYouTubeEmbedUrl,
   normalizeSourceUrl,
 } from "./source_link.js";
+import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
@@ -4963,59 +4961,22 @@ function setTuneMetaText(text) {
 }
 
 let sourceLinkPanelTimer = null;
-
-async function openSourcePreviewModal(sourceUrl) {
-  const url = normalizeSourceUrl(sourceUrl);
-  if (!getYouTubeEmbedUrl(url)) {
-    showToast("Preview is available only for YouTube F: links.", 2400);
-    return;
-  }
-  try {
+const sourceLinkPanel = createSourceLinkPanel({
+  panel: $sourceLinkPanel,
+  parseAbcHeaderFields,
+  openExternalUrl,
+  previewYouTubeSource: async (url) => {
     if (!window.api || typeof window.api.previewYouTubeSource !== "function") {
       await openExternalUrl(url);
-      return;
+      return { ok: true };
     }
-    const res = await window.api.previewYouTubeSource(url);
-    if (!res || res.ok === false) {
-      showToast((res && res.error) ? String(res.error) : "Unable to open YouTube preview.", 2800);
-    }
-  } catch (e) {
-    showToast(e && e.message ? e.message : "Unable to open YouTube preview.", 2800);
-  }
-}
+    return await window.api.previewYouTubeSource(url);
+  },
+  showToast,
+});
 
 function clearSourceLinkPanel() {
-  if (!$sourceLinkPanel) return;
-  $sourceLinkPanel.replaceChildren();
-  $sourceLinkPanel.hidden = true;
-}
-
-function appendSourceAction({ label, title, onClick, iconId = "" } = {}) {
-  if (!$sourceLinkPanel) return;
-  const action = document.createElement("button");
-  action.type = "button";
-  action.className = "source-link-action";
-  action.title = title || label || "";
-  action.setAttribute("aria-label", title || label || "Source link action");
-
-  if (iconId) {
-    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    icon.setAttribute("class", "btn-icon");
-    icon.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", iconId);
-    icon.appendChild(use);
-    action.appendChild(icon);
-  }
-
-  const text = document.createElement("span");
-  text.className = "source-link-action-label";
-  text.textContent = label || "";
-  action.appendChild(text);
-
-  if (typeof onClick === "function") action.addEventListener("click", onClick);
-  $sourceLinkPanel.appendChild(action);
-  return action;
+  sourceLinkPanel.clear();
 }
 
 async function openExternalUrl(url) {
@@ -5030,47 +4991,7 @@ async function openExternalUrl(url) {
 }
 
 function renderSourceLinkPanel(url, abcText = "") {
-  if (!$sourceLinkPanel) return;
-  const text = String(abcText || "");
-  const sourceUrl = normalizeSourceUrl(url);
-  $sourceLinkPanel.replaceChildren();
-  if (rawMode || chordproMode) {
-    $sourceLinkPanel.hidden = true;
-    return;
-  }
-
-  if (!sourceUrl) {
-    const searchUrl = buildYouTubeSearchUrlFromFields(parseAbcHeaderFields(text));
-    if (!searchUrl) {
-      $sourceLinkPanel.hidden = true;
-      return;
-    }
-    appendSourceAction({
-      label: "Search YouTube",
-      title: "Search YouTube for this tune",
-      iconId: "#ui-play",
-      onClick: () => openExternalUrl(searchUrl),
-    });
-    $sourceLinkPanel.hidden = false;
-    return;
-  }
-
-  appendSourceAction({
-    label: `F: ${formatSourceLinkLabel(sourceUrl)}`,
-    title: sourceUrl,
-    onClick: () => openExternalUrl(sourceUrl),
-  });
-
-  if (getYouTubeEmbedUrl(sourceUrl)) {
-    appendSourceAction({
-      label: "Preview",
-      title: "Preview YouTube source",
-      iconId: "#ui-play",
-      onClick: () => openSourcePreviewModal(sourceUrl),
-    });
-  }
-
-  $sourceLinkPanel.hidden = false;
+  sourceLinkPanel.render(url, abcText, { disabled: rawMode || chordproMode });
 }
 
 function updateSourceLinkPanel() {

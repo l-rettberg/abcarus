@@ -77,12 +77,7 @@ import {
   normalizeSourceUrl,
 } from "./source_link.js";
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
-import {
-  buildTemplatesFlatList,
-  getTemplateSlice,
-} from "./tools/templates/templates_model.js";
-import { createTemplatesFileCache } from "./tools/templates/templates_file_cache.js";
-import { createTemplatesView } from "./tools/templates/templates_view.js";
+import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
@@ -4266,23 +4261,21 @@ let libraryUiStateTimer = null;
 let libraryUiStateDirty = false;
 const LIBRARY_UI_STATE_DEBOUNCE_MS = 300;
 
-let templatesIndex = null;
-let templatesFlat = [];
-let templatesSelectedKey = "";
 let templatesInsertMode = "insert";
-const templatesFileCache = createTemplatesFileCache({ readFile });
-const templatesView = createTemplatesView({
+const templatesController = createTemplatesController({
+  modal: $templatesModal,
   list: $templatesList,
   search: $templatesSearch,
+  folderLabel: $templatesFolderLabel,
   previewTitle: $templatesPreviewTitle,
   previewText: $templatesPreviewText,
   insertButton: $templatesInsert,
   replaceButton: $templatesReplace,
   appendButton: $templatesAppend,
   editButton: $templatesEdit,
-  onSelect: (key) => {
-    selectTemplateByKey(key).catch(() => {});
-  },
+  api: window.api,
+  readFile,
+  safeBasename,
   onDefaultAction: () => {
     if ($templatesInsert && !$templatesInsert.disabled) $templatesInsert.click();
   },
@@ -23737,16 +23730,8 @@ document.addEventListener("keydown", (e) => {
   dumpDebugToFile().catch(() => {});
 });
 
-function isTemplatesModalOpen() {
-  return Boolean($templatesModal && $templatesModal.classList.contains("open"));
-}
-
 function closeTemplatesModal() {
-  if (!$templatesModal) return;
-  $templatesModal.classList.remove("open");
-  $templatesModal.setAttribute("aria-hidden", "true");
-  templatesSelectedKey = "";
-  templatesView.resetSelection();
+  templatesController.close();
 }
 
 function isMakamDnaModalOpen() {
@@ -23795,7 +23780,7 @@ async function applyUserMakamDnaTextAndRefresh(text) {
 }
 
 function renderTemplatesList() {
-  templatesView.renderList(templatesFlat, templatesSelectedKey);
+  templatesController.renderList();
 }
 
 function getSelectionTextWithinElement(el) {
@@ -23815,28 +23800,8 @@ function getSelectionTextWithinElement(el) {
   }
 }
 
-async function getTemplatesFileText(filePath) {
-  return await templatesFileCache.getText(filePath);
-}
-
-async function selectTemplateByKey(key) {
-  const wanted = String(key || "");
-  const item = templatesFlat.find((t) => t && t.key === wanted) || null;
-  templatesSelectedKey = item ? item.key : "";
-  templatesView.syncSelectionControls(item);
-  renderTemplatesList();
-  if (!item) {
-    templatesView.renderPreview(null, "");
-    return;
-  }
-  const full = await getTemplatesFileText(item.filePath);
-  const slice = getTemplateSlice(full, item);
-  templatesView.renderPreview(item, slice);
-}
-
 async function insertSelectedTemplateFromModal(modeOverride = "") {
-  const key = String(templatesSelectedKey || "");
-  const item = templatesFlat.find((t) => t && t.key === key) || null;
+  const item = templatesController.getSelectedItem();
   if (!item) return;
   const entry = getActiveFileEntry();
   if (!entry || !entry.path) {
@@ -23844,8 +23809,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
     return;
   }
 
-  const full = await getTemplatesFileText(item.filePath);
-  let slice = getTemplateSlice(full, item);
+  let slice = await templatesController.getSelectedText();
   if (!slice.trim()) {
     await showSaveError("Template is empty.");
     return;
@@ -23886,43 +23850,11 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
 }
 
 async function loadTemplatesForModal() {
-  templatesIndex = null;
-  templatesFlat = [];
-  templatesSelectedKey = "";
-  templatesFileCache.clear();
-
-  if (!$templatesFolderLabel) return;
-  if (!window.api || typeof window.api.getTemplatesInfo !== "function" || typeof window.api.scanTemplates !== "function") {
-    $templatesFolderLabel.textContent = "Templates unavailable";
-    $templatesFolderLabel.title = "Missing templates APIs.";
-    return;
-  }
-
-  const info = await window.api.getTemplatesInfo();
-  const folder = info && info.ok ? String(info.folder || "") : "";
-  $templatesFolderLabel.textContent = folder ? safeBasename(folder) : "(none)";
-  $templatesFolderLabel.title = folder || "";
-
-  const scan = await window.api.scanTemplates();
-  if (!scan || !scan.ok) {
-    templatesIndex = null;
-    templatesFlat = [];
-    renderTemplatesList();
-    return;
-  }
-  templatesIndex = { root: scan.root || "", files: scan.files || [] };
-  templatesFlat = buildTemplatesFlatList(scan.files || [], { safeBasename });
-  renderTemplatesList();
+  await templatesController.load();
 }
 
 async function openTemplatesModal() {
-  if (!$templatesModal) return;
-  $templatesModal.classList.add("open");
-  $templatesModal.setAttribute("aria-hidden", "false");
-  if ($templatesSearch) $templatesSearch.value = "";
-  templatesView.resetSelection();
-  await loadTemplatesForModal();
-  try { if ($templatesSearch) $templatesSearch.focus(); } catch {}
+  await templatesController.open();
 }
 
 initContextMenu();
@@ -24109,8 +24041,7 @@ if ($templatesManage) {
 if ($templatesEdit) {
   $templatesEdit.addEventListener("click", async () => {
     try {
-      const key = String(templatesSelectedKey || "");
-      const item = templatesFlat.find((t) => t && t.key === key) || null;
+      const item = templatesController.getSelectedItem();
       if (!item || !item.filePath) return;
       if (window.api && typeof window.api.openTemplatesFile === "function") {
         const res = await window.api.openTemplatesFile(String(item.filePath));

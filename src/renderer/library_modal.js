@@ -345,6 +345,7 @@
     }
 
     function getRowSearchText(rowData) {
+      if (rowData && typeof rowData.searchText === "string") return rowData.searchText;
       return buildSearchString(rowData);
     }
 
@@ -619,7 +620,7 @@
         const hay = getRowSearchText(data);
         if (hay.includes(q)) return true;
         if (qKey && hay.includes(qKey)) return true;
-        if (qKey) {
+        if (qKey && !(data && typeof data.searchText === "string")) {
           const titleKey = normalizeTitleKey(data && data.title ? data.title : "");
           if (titleKey && titleKey.includes(qKey)) return true;
         }

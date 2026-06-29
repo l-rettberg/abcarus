@@ -17874,7 +17874,7 @@ async function renderPrintAllSvgMarkup(entry, content, options = {}) {
     if (res.svg && res.svg.trim()) {
       tuneMarkup.push(res.svg.trim());
     }
-    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    const sourceMarkup = await buildPrintSourceLinkMarkup(block);
     if (sourceMarkup) tuneMarkup.push(sourceMarkup);
     if (tuneErrors.length) {
       const uniqueKeys = new Set(tuneErrors.map((err) => {
@@ -18137,6 +18137,10 @@ async function renderSetListSvgMarkupForPrint(options = {}) {
 
     if (res.svg && res.svg.trim()) {
       current.push(res.svg.trim());
+    }
+    const sourceMarkup = await buildPrintSourceLinkMarkup(block);
+    if (sourceMarkup) {
+      current.push(sourceMarkup);
     }
 
     if (setListPageBreaks === "perTune") flush();

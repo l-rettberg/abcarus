@@ -88,6 +88,11 @@ import {
   buildPrintTuneLabel,
 } from "./print/error_markup.js";
 import { createQrDataUrl } from "./print/qr_code.js";
+import {
+  clampTranslateToViewport,
+  formatTranslateXY,
+  readTranslateXY,
+} from "./app/modal_geometry.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -7498,23 +7503,9 @@ function enableDraggableModal(modalEl) {
   let dragState = null;
   let dragBaseRect = null;
 
-  const clampTranslate = (pos) => {
-    if (!dragBaseRect) return pos;
-    const margin = 12;
-    const base = dragBaseRect;
-    const minX = margin - base.left;
-    const maxX = (window.innerWidth - margin) - base.right;
-    const minY = margin - base.top;
-    const maxY = (window.innerHeight - margin) - base.bottom;
-    return {
-      x: Math.min(maxX, Math.max(minX, pos.x)),
-      y: Math.min(maxY, Math.max(minY, pos.y)),
-    };
-  };
-
   const applyTranslate = (pos) => {
-    const p = clampTranslate(pos);
-    card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    const p = clampTranslateToViewport(pos, dragBaseRect);
+    card.style.transform = formatTranslateXY(p);
   };
 
   header.addEventListener("pointerdown", (event) => {
@@ -17928,25 +17919,8 @@ function closePrintAllOptionsModal(result) {
   }
 }
 
-function readTranslateXY(value) {
-  const raw = String(value || "");
-  const m = raw.match(/translate\(\s*(-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)/);
-  if (!m) return { x: 0, y: 0 };
-  return { x: Number(m[1]) || 0, y: Number(m[2]) || 0 };
-}
-
 function clampPrintAllOptionsTranslate(pos) {
-  if (!printAllOptionsDragBaseRect) return pos;
-  const margin = 12;
-  const base = printAllOptionsDragBaseRect;
-  const minX = margin - base.left;
-  const maxX = (window.innerWidth - margin) - base.right;
-  const minY = margin - base.top;
-  const maxY = (window.innerHeight - margin) - base.bottom;
-  return {
-    x: Math.min(maxX, Math.max(minX, pos.x)),
-    y: Math.min(maxY, Math.max(minY, pos.y)),
-  };
+  return clampTranslateToViewport(pos, printAllOptionsDragBaseRect);
 }
 
 function applyPrintAllOptionsTranslate(pos) {
@@ -17954,7 +17928,7 @@ function applyPrintAllOptionsTranslate(pos) {
   const card = $printAllOptionsModal.querySelector(".modal-card");
   if (!card) return;
   const p = clampPrintAllOptionsTranslate(pos);
-  card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+  card.style.transform = formatTranslateXY(p);
 }
 
 function openPrintAllOptionsModal({ defaultPageBreaks = "perTune" } = {}) {

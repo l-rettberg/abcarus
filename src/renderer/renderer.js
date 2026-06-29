@@ -12474,6 +12474,35 @@ function scheduleRenderLibraryTree(files = null) {
   });
 }
 
+const LIBRARY_TUNE_DRAG_MIME = "application/x-abcarus-tune-id";
+let libraryDragTuneId = "";
+
+function getLibraryDragTuneId(ev) {
+  const dt = ev && ev.dataTransfer ? ev.dataTransfer : null;
+  if (dt) {
+    try {
+      const customId = dt.getData(LIBRARY_TUNE_DRAG_MIME);
+      if (customId) return customId;
+    } catch {}
+    try {
+      const plainId = dt.getData("text/plain");
+      if (plainId) return plainId;
+    } catch {}
+  }
+  return libraryDragTuneId || "";
+}
+
+function isLibraryTuneDrag(ev) {
+  if (libraryDragTuneId) return true;
+  const types = ev && ev.dataTransfer ? ev.dataTransfer.types : null;
+  if (!types) return false;
+  try {
+    return Array.from(types).includes(LIBRARY_TUNE_DRAG_MIME);
+  } catch {
+    return false;
+  }
+}
+
 function renderLibraryTree(files = null) {
   if (!$libraryTree) return;
   $libraryTree.style.display = "";
@@ -12582,8 +12611,10 @@ function renderLibraryTree(files = null) {
         showContextMenuAt(ev.clientX, ev.clientY, { type: "file", filePath: entry.id });
       });
       fileLabel.addEventListener("dragover", (ev) => {
-        if (!entry.isFile) return;
+        if (!entry.isFile || !isLibraryTuneDrag(ev)) return;
         ev.preventDefault();
+        ev.stopPropagation();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
         fileLabel.classList.add("drop-target");
       });
       fileLabel.addEventListener("dragleave", () => {
@@ -12592,23 +12623,12 @@ function renderLibraryTree(files = null) {
       fileLabel.addEventListener("drop", async (ev) => {
         if (!entry.isFile) return;
         ev.preventDefault();
+        ev.stopPropagation();
         fileLabel.classList.remove("drop-target");
-        const tuneId = ev.dataTransfer.getData("text/plain");
+        const tuneId = getLibraryDragTuneId(ev);
+        libraryDragTuneId = "";
         if (!tuneId) return;
-        const res = findTuneById(tuneId);
-        if (!res) return;
-        try {
-          const text = await getTuneText(res.tune, res.file);
-          clipboardTune = {
-            text,
-            sourcePath: res.file.path,
-            tuneId,
-            mode: "move",
-          };
-          await pasteClipboardToFile(entry.id);
-        } catch (e) {
-          await showSaveError(e && e.message ? e.message : String(e));
-        }
+        await moveTuneToFile(tuneId, entry.id);
       });
       fileNode.appendChild(fileLabel);
     }
@@ -12640,8 +12660,13 @@ function renderLibraryTree(files = null) {
       button.addEventListener("focus", () => showHoverStatus(tuneLabel));
       button.addEventListener("blur", () => restoreHoverStatus());
       button.addEventListener("dragstart", (ev) => {
+        libraryDragTuneId = tune.id;
+        ev.dataTransfer.setData(LIBRARY_TUNE_DRAG_MIME, tune.id);
         ev.dataTransfer.setData("text/plain", tune.id);
         ev.dataTransfer.effectAllowed = "move";
+      });
+      button.addEventListener("dragend", () => {
+        libraryDragTuneId = "";
       });
       button.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();

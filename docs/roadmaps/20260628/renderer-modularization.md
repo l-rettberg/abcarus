@@ -77,7 +77,7 @@ Use boring, shallow folders:
 src/renderer/
   app/
     dom_refs.js
-    renderer_state.js
+    layout.js
     status.js
     startup.js
   editor/
@@ -163,6 +163,12 @@ Distinguish dependencies from ownership. For example, `playback/transport.js` ma
 
 For high-risk areas, move complete transitions instead of loose helper clusters. Tune activation, raw mode entry/exit, save/save-as, working-copy conflict resolution, playback start/stop/restart, render success/failure, and close/quit flows should each preserve the transition from one consistent state to the next.
 
+High-risk transition extraction must name invariants, not just call sequences. Examples:
+- Tune activation: active tune id matches editor contents; working-copy snapshot and active metadata refer to the same file/tune; dirty state is preserved; render payload is based on current editor text; library selection matches the active tune.
+- Playback stop: player no longer emits note events; transport UI reflects stopped state; follow/playhead highlights are cleared; loop/focus state follows the current policy.
+- Save/save-as: disk write is verified; file cache and library metadata match saved content; header/tune dirty flags are cleared only after success; conflict paths are updated consistently.
+- Render success/failure: `lastRenderPayload`, error line offsets, diagnostics, and score/editor highlights agree about the text that was rendered or failed.
+
 ## Dependency Direction
 
 Use one-way imports:
@@ -184,6 +190,37 @@ Rules:
 - The menu router may call public commands exposed by feature modules.
 - Feature modules should not reach sideways into unrelated features; use explicit callbacks/events from the composition root.
 - If an import would point "up" toward `renderer.js`, keep that code in `renderer.js` until a cleaner boundary exists.
+
+## Public Module API
+
+Feature modules should expose one small public surface:
+- an `init(...)` function that returns commands/events; or
+- a small set of domain commands plus event subscription methods.
+
+Example:
+
+```js
+const playback = initPlayback({ getEditorText, getRenderPayload, showToast });
+
+playback.play();
+playback.pause();
+playback.stop();
+playback.onStateChange(listener);
+```
+
+Avoid exporting internal mutation helpers as the module API:
+
+```js
+export {
+  setPlaying,
+  getWaiting,
+  mutatePlayer,
+  updateButtons,
+  clearTimer,
+};
+```
+
+The second shape splits files without encapsulating ownership.
 
 ## Component Inventory
 
@@ -235,10 +272,19 @@ Deliverables:
 - This roadmap.
 - Keep branch separate from release branch work.
 - Do not touch runtime code yet.
+- Before moving high-risk components, add characterization coverage for current behavior, even if that behavior is not ideal.
 
 Exit gates:
 - `npm run -s test:renderer-build`
 - `npm run -s test:quick`
+
+Characterization priority areas:
+- repeat/focus/selection playback,
+- render offsets and source/render mapping,
+- dirty/conflict flows,
+- raw mode,
+- close/quit dirty prompts,
+- tune activation.
 
 ### Phase 1: Low-Coupling Helpers
 
@@ -390,8 +436,14 @@ Target:
 - `renderer.js` becomes a composition root that imports modules, initializes DOM/editor/settings, wires command handlers, and owns only unavoidable cross-cutting state.
 
 Exit target:
-- `renderer.js` below 8k-12k lines without hiding complexity in one giant "services" object.
+- `renderer.js` reads as application assembly: imports, initialization, callback wiring, startup sequencing, and top-level orchestration.
+- `renderer.js` has no large domain algorithms and no large mutable state clusters without an owner.
+- High-level transitions have one owner each.
+- Imports point downward according to the dependency direction rules.
+- Feature modules can be tested or smoke-tested independently.
 - Each extracted module has a clear owner and a small public surface.
+
+Line count is only a secondary health signal. A smaller `renderer.js` is useful only if it is not achieved by hiding orchestration in artificial files.
 
 ## Dependency Notes
 
@@ -412,6 +464,8 @@ Known dependency clusters:
 | State split-brain | Active tune/current doc/working copy can diverge | Keep state ownership in `renderer.js` until a component owns a complete transition boundary |
 | Accidental mega-state module | A global `renderer_state.js` can recreate the monolith in another file | Delay shared state; document reads/mutates/owns/publishes before extraction |
 | Over-wide DOM refs | A single all-DOM object preserves monolithic coupling | Group refs by feature or collect feature refs in `init()` |
+| Wide module API | Exporting many internal setters recreates global access in module form | Expose `init(...)` plus domain commands/events only |
+| Literal move with changed side effects | Move-only can still alter timing/order around globals and DOM | Add characterization tests before moving high-risk transitions |
 | Offset mapping regression | Follow, errors, playback, print all rely on source/render offsets | Move offset helpers with tests or keep them near render until parity is proven |
 | Optional tool startup regressions | Makam/Payload code and data should not load by default | Lazy import optional tool modules after settings gate |
 | Save/file corruption | File operations are high stakes | Delay file-flow extraction; preserve locks, conflict checks, verification, and IPC-backed writes |

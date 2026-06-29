@@ -81,6 +81,7 @@ import {
   buildTemplatesFlatList,
   getTemplateSlice,
 } from "./tools/templates/templates_model.js";
+import { createTemplatesFileCache } from "./tools/templates/templates_file_cache.js";
 import { createTemplatesView } from "./tools/templates/templates_view.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
@@ -4269,7 +4270,7 @@ let templatesIndex = null;
 let templatesFlat = [];
 let templatesSelectedKey = "";
 let templatesInsertMode = "insert";
-const templatesFileCache = new Map(); // filePath -> full text
+const templatesFileCache = createTemplatesFileCache({ readFile });
 const templatesView = createTemplatesView({
   list: $templatesList,
   search: $templatesSearch,
@@ -23815,15 +23816,7 @@ function getSelectionTextWithinElement(el) {
 }
 
 async function getTemplatesFileText(filePath) {
-  const p = String(filePath || "");
-  if (!p) return "";
-  const cached = templatesFileCache.get(p);
-  if (typeof cached === "string") return cached;
-  const res = await readFile(p);
-  if (!res || !res.ok) return "";
-  const text = String(res.data || "");
-  templatesFileCache.set(p, text);
-  return text;
+  return await templatesFileCache.getText(filePath);
 }
 
 async function selectTemplateByKey(key) {

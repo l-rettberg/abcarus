@@ -2943,6 +2943,19 @@ registerIpcHandlers({
     }
     return null;
   },
+  getRecentCandidates: () => {
+    const out = [];
+    const add = (type, entries) => {
+      if (!Array.isArray(entries)) return;
+      for (const entry of entries) {
+        if (entry && entry.path) out.push({ type, entry });
+      }
+    };
+    add("tune", appState.recentTunes);
+    add("file", appState.recentFiles);
+    add("folder", appState.recentFolders);
+    return out;
+  },
   requestQuit: () => {
     isQuitting = true;
     app.quit();

@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld("api", {
   importSettings: async () => ipcRenderer.invoke("settings:import"),
   openSettingsFolder: async () => ipcRenderer.invoke("settings:open-folder"),
   getLastRecent: async () => ipcRenderer.invoke("recent:last"),
+  getRecentCandidates: async () => ipcRenderer.invoke("recent:candidates"),
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   previewYouTubeSource: async (url) => ipcRenderer.invoke("source:preview-youtube", url),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),

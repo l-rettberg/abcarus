@@ -499,6 +499,7 @@ function registerIpcHandlers(ctx) {
 	    updateSettings,
 	    requestQuit,
 	    getLastRecent,
+      getRecentCandidates,
       reportStartupStatus,
 	  } = ctx;
 
@@ -1798,6 +1799,9 @@ function registerIpcHandlers(ctx) {
   // Note: we intentionally do not expose attach/detach/reload controls in the UI.
   // The file-backed mode is activated by Export/Import and silently falls back to internal if the file disappears.
   ipcMain.handle("recent:last", async () => getLastRecent());
+  ipcMain.handle("recent:candidates", async () => (
+    typeof getRecentCandidates === "function" ? getRecentCandidates() : []
+  ));
   ipcMain.handle("app:startup-status", async (_event, text) => {
     try {
       if (typeof reportStartupStatus === "function") {

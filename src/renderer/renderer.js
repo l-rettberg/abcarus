@@ -7944,27 +7944,45 @@ function refreshErrorsNow() {
 }
 
 async function loadLastRecentEntry() {
-  if (!window.api || typeof window.api.getLastRecent !== "function") return false;
+  if (!window.api) return false;
   reportStartupStatus("Checking recent files…");
-  const res = await window.api.getLastRecent();
-  if (!res || !res.entry) return false;
-  if (res.type === "tune") {
-    reportStartupStatus("Opening recent tune…");
-    startupRecentOpenStarted = true;
-    await openRecentTune(res.entry);
-    return true;
+  let candidates = [];
+  if (typeof window.api.getRecentCandidates === "function") {
+    const list = await window.api.getRecentCandidates();
+    if (Array.isArray(list)) candidates = list;
   }
-  if (res.type === "file") {
-    reportStartupStatus("Opening recent file…");
-    startupRecentOpenStarted = true;
-    await openRecentFile(res.entry);
-    return true;
+  if (!candidates.length && typeof window.api.getLastRecent === "function") {
+    const res = await window.api.getLastRecent();
+    if (res && res.entry) candidates = [res];
   }
-  if (res.type === "folder") {
-    reportStartupStatus("Opening recent folder…");
-    startupRecentOpenStarted = true;
-    await openRecentFolder(res.entry);
-    return true;
+  for (const res of candidates) {
+    if (!res || !res.entry) continue;
+    if (res.type === "tune") {
+      reportStartupStatus("Opening recent tune…");
+      const opened = await openRecentTune(res.entry);
+      if (opened && opened.ok) {
+        startupRecentOpenStarted = true;
+        return true;
+      }
+      continue;
+    }
+    if (res.type === "file") {
+      reportStartupStatus("Opening recent file…");
+      const opened = await openRecentFile(res.entry);
+      if (opened && opened.ok) {
+        startupRecentOpenStarted = true;
+        return true;
+      }
+      continue;
+    }
+    if (res.type === "folder") {
+      reportStartupStatus("Opening recent folder…");
+      const opened = await openRecentFolder(res.entry);
+      if (opened && opened.ok) {
+        startupRecentOpenStarted = true;
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -13009,9 +13027,9 @@ async function openTuneFromLibrarySelection(selection) {
 window.openTuneFromLibrarySelection = openTuneFromLibrarySelection;
 
 async function openRecentTune(entry) {
-  if (!entry || !entry.path) return;
+  if (!entry || !entry.path) return { ok: false, error: "Missing path." };
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent tune");
-  if (!ok) return;
+  if (!ok) return { ok: false, cancelled: true };
 
   setChordProMode(false);
   const dir = safeDirname(entry.path);
@@ -13022,13 +13040,13 @@ async function openRecentTune(entry) {
     const tune = fileEntry ? fileEntry.tunes.find((t) => t.id === id) : null;
     if (tune) {
       await selectTune(tune.id);
-      return;
+      return { ok: true };
     }
   }
   const res = await readFile(entry.path);
   if (!res.ok) {
     logErr(res.error || "Unable to read file.");
-    return;
+    return { ok: false, error: res.error || "Unable to read file." };
   }
   setFileContentInCache(entry.path, res.data);
   const startOffset = entry.startOffset || 0;
@@ -13046,12 +13064,13 @@ async function openRecentTune(entry) {
     endOffset,
   });
   setDirtyIndicator(false);
+  return { ok: true };
 }
 
 async function openRecentFile(entry) {
-  if (!entry || !entry.path) return;
+  if (!entry || !entry.path) return { ok: false, error: "Missing path." };
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent file");
-  if (!ok) return;
+  if (!ok) return { ok: false, cancelled: true };
   const targetPath = String(entry.path || "");
   const activePath = String(
     (activeTuneMeta && activeTuneMeta.path)
@@ -13085,20 +13104,22 @@ async function openRecentFile(entry) {
   const readRes = await readFile(entry.path);
   if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(entry.path))) {
     await openChordProFile(entry.path, readRes.data, { suppressRecent: true });
-    return;
+    return { ok: true };
   }
-  await loadLibraryFileIntoEditor(entry.path);
+  return await loadLibraryFileIntoEditor(entry.path);
 }
 
 async function openRecentFolder(entry) {
-  if (!entry || !entry.path) return;
+  if (!entry || !entry.path) return { ok: false, error: "Missing path." };
   if (chordproMode) {
     showToast("Library is disabled while editing ChordPro.", 2400);
-    return;
+    return { ok: false, error: "Library is disabled while editing ChordPro." };
   }
   const ok = await ensureSafeToAbandonCurrentDoc("opening a recent folder");
-  if (!ok) return;
+  if (!ok) return { ok: false, cancelled: true };
   await loadLibraryFromFolder(entry.path);
+  if (libraryIndex && libraryIndex.root) return { ok: true };
+  return { ok: false, error: "Unable to load folder." };
 }
 
 async function scanAndLoadLibrary() {

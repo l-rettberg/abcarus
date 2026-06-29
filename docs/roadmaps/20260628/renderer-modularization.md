@@ -22,6 +22,8 @@ The current renderer entry point is about 32k lines and owns too many unrelated 
 
 The objective is not to replace all of this with a framework. The objective is to make boundaries explicit enough that future changes can land in small, reviewable slices.
 
+`renderer.js` should remain the renderer composition root. A good final shape is allowed to keep startup sequencing, module initialization, callback wiring, and cross-feature orchestration in the entry point. The success criterion is not "delete `renderer.js`"; it is "remove feature/domain logic from the entry point and make ownership auditable."
+
 ## Non-Goals
 
 - No broad renderer rewrite.
@@ -129,6 +131,60 @@ src/renderer/
 
 This is a target map, not a mandate to create every folder up front.
 
+Create a target directory only when the first real module lands there. Do not pre-create empty folders or placeholder files. Some boundaries, such as Set List being `print/` versus `tools/`, should be proven by dependency inventory instead of predicted up front.
+
+Avoid turning `app/dom_refs.js` or `app/renderer_state.js` into a renamed monolith. Shared DOM refs should cover only genuinely global elements, such as layout roots, status areas, and editor hosts. Feature-owned elements should either be grouped by feature, for example `playbackDom` or `libraryDom`, or collected by the feature module during `init()`.
+
+Avoid a single broad renderer state store at the start. Prefer explicit callbacks and readers:
+
+```js
+initTemplates({
+  getEditorView,
+  insertText,
+  showToast,
+  api: window.api,
+});
+```
+
+Only introduce a shared state owner after repeated call patterns prove that one component really owns that state.
+
+## Ownership Checklist
+
+Before moving a stateful component, write down:
+
+| Question | Example |
+| --- | --- |
+| What does it read? | current editor text, active tune id |
+| What does it mutate? | playback state, library selection |
+| What does it own? | A-B markers, transport state, modal-local selection |
+| What does it publish? | `onPlaybackStopped`, `onTuneActivated` |
+
+Distinguish dependencies from ownership. For example, `playback/transport.js` may own transport state, while `playback/follow_highlight.js` should react to playback/render events and update highlights; it should not decide whether playback is active.
+
+For high-risk areas, move complete transitions instead of loose helper clusters. Tune activation, raw mode entry/exit, save/save-as, working-copy conflict resolution, playback start/stop/restart, render success/failure, and close/quit flows should each preserve the transition from one consistent state to the next.
+
+## Dependency Direction
+
+Use one-way imports:
+
+```text
+pure helpers
+    ^
+feature modules
+    ^
+orchestrators
+    ^
+renderer.js
+```
+
+Rules:
+- Pure helpers do not import DOM, `window.api`, or `renderer.js`.
+- Render/playback payload helpers do not import DOM.
+- Tool modules do not import the menu router.
+- The menu router may call public commands exposed by feature modules.
+- Feature modules should not reach sideways into unrelated features; use explicit callbacks/events from the composition root.
+- If an import would point "up" toward `renderer.js`, keep that code in `renderer.js` until a cleaner boundary exists.
+
 ## Component Inventory
 
 | Component | Current area in `renderer.js` | Proposed destination | Dependencies | Risk |
@@ -184,7 +240,7 @@ Exit gates:
 - `npm run -s test:renderer-build`
 - `npm run -s test:quick`
 
-### Phase 1: Low-Risk Pure Helpers
+### Phase 1: Low-Coupling Helpers
 
 Start with functions that can move without owning DOM or global mutable state.
 
@@ -192,20 +248,20 @@ Good candidates:
 - Source URL parsing and YouTube URL helpers.
 - ABC header parsing/name sanitization helpers.
 - Library sorting/filtering pure helpers.
-- Print/source-link markup helpers that accept all dependencies as arguments.
-- Repeat/bar token helpers if covered by playback harnesses.
 - Small localStorage JSON helpers if scoped to one feature.
 
 Rules:
 - Move only, export functions, update imports.
 - Add or reuse harnesses where practical.
 - No behavior edits in the same commit.
+- Judge candidates on two axes: state coupling and semantic criticality. A pure helper can still be high-risk if it affects playback, save paths, or offset mapping.
+- Do not move repeat expansion, save path normalization, or offset mapping as "easy pure helpers" unless the corresponding harness/manual gates are ready.
 
 Suggested destinations:
 - `src/renderer/source_link.js` or `src/renderer/tools/source_link/source_link.js`
 - `src/renderer/library/sorting_filtering.js`
 - `src/renderer/abc/header_fields.js`
-- `src/renderer/playback/repeats.js`
+- later, with playback gates: `src/renderer/playback/repeats.js`
 
 Verification:
 - `npm run -s test:renderer-build`
@@ -216,8 +272,8 @@ Verification:
 Extract stable DOM ids and small UI helpers after pure moves have reduced noise.
 
 Good candidates:
-- `app/dom_refs.js` returns a plain object with existing ids.
-- `app/status.js` for status/toast/hover helpers if call sites can be updated cleanly.
+- grouped DOM refs for genuinely shared elements and feature-local refs for feature modules.
+- simple status/toast/hover display functions if call sites can be updated cleanly.
 - `app/layout.js` for pane resizers and persisted split settings.
 - Generic draggable modal/tool-panel helpers.
 
@@ -225,6 +281,7 @@ Rules:
 - Keep DOM ids unchanged.
 - Avoid a global framework. A plain object and explicit function imports are enough.
 - Do not move command behavior with DOM refs in the same commit.
+- Do not create a smart cross-cutting `status` service early. Preserve current helper behavior first; only consolidate semantics after repeated usage proves the need.
 
 Verification:
 - renderer build check.
@@ -249,6 +306,7 @@ Rules:
 - Tool `init(...)` receives explicit callbacks/state readers instead of importing core mutable state directly.
 - Follow ADR-0012 for optional tools: no top-level Makam/Payload dataset imports on default startup once extracted.
 - Fail closed with toast/status if a lazy import fails.
+- Prefer Templates before MIDI input unless dependency inventory proves otherwise. MIDI input crosses Web MIDI lifecycle, permissions, audio preview, note spelling, settings, popovers, and editor insertion; Templates is likely a smaller modal-controller extraction.
 
 Verification:
 - renderer build check.
@@ -295,6 +353,7 @@ Rules:
 - Prefer pure planner extraction before transport extraction.
 - Keep old behavior as the default unless a focused change is explicitly planned.
 - Add harness cases before changing range/focus/repeat semantics.
+- Separate owners: transport owns playing/paused/waiting state; follow/highlight owns only visual response; focus/selection modules produce plans and options, not player lifecycle decisions.
 
 Verification:
 - `npm run -s test:focus-playback`
@@ -351,6 +410,8 @@ Known dependency clusters:
 | Hidden behavior change during move-only extraction | Users rely on fragile editing/save/playback behavior | One component per commit, no formatting churn, run renderer build and focused harnesses |
 | Circular imports | Existing globals make components interdependent | Pass callbacks/readers explicitly for the first extraction; only introduce shared state modules after repetition proves need |
 | State split-brain | Active tune/current doc/working copy can diverge | Keep state ownership in `renderer.js` until a component owns a complete transition boundary |
+| Accidental mega-state module | A global `renderer_state.js` can recreate the monolith in another file | Delay shared state; document reads/mutates/owns/publishes before extraction |
+| Over-wide DOM refs | A single all-DOM object preserves monolithic coupling | Group refs by feature or collect feature refs in `init()` |
 | Offset mapping regression | Follow, errors, playback, print all rely on source/render offsets | Move offset helpers with tests or keep them near render until parity is proven |
 | Optional tool startup regressions | Makam/Payload code and data should not load by default | Lazy import optional tool modules after settings gate |
 | Save/file corruption | File operations are high stakes | Delay file-flow extraction; preserve locks, conflict checks, verification, and IPC-backed writes |
@@ -367,10 +428,11 @@ Use small commits with messages like:
 
 For each component:
 1. Inventory function/state dependencies.
-2. Move only.
-3. Run checks.
-4. Commit.
-5. Make behavior changes later in a separate commit if needed.
+2. Record reads, mutations, owned state, and published events/callbacks.
+3. Move only.
+4. Run checks.
+5. Commit.
+6. Make behavior changes later in a separate commit if needed.
 
 ## Standard Verification Gates
 
@@ -411,11 +473,11 @@ Manual smoke by area:
 
 Recommended first five implementation slices:
 
-1. Move source URL/YouTube pure helpers and source print markup helpers.
-2. Move ABC header/title filename helpers.
-3. Move library sorting/filtering pure helpers.
-4. Move draggable modal/tool-panel helpers.
-5. Move Templates modal or MIDI input, whichever has the smaller dependency surface after the first three moves.
+1. Move only source URL/YouTube pure helpers: URL normalization, YouTube id parsing, embed URL construction, and search URL construction if it can accept parsed title/composer as inputs.
+2. Move ABC header field helpers: parse title/composer/key/source fields, plus filename sanitization only if it remains policy-free.
+3. Move library sorting/filtering pure helpers: comparators, labels, and filter predicates, without tree rendering or active selection.
+4. Review the first three moves before choosing the next target: check for circular imports, argument count, global reads, and testability.
+5. Move draggable modal/tool-panel helpers or Templates modal, depending on the dependency inventory. Prefer Templates over MIDI input unless the inventory shows Templates has hidden coupling.
 
 Do not start with:
 - working-copy save flows,

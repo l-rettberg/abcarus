@@ -87,6 +87,7 @@ import { createTemplatesController } from "./tools/templates/templates_controlle
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
+import { createPrintAllOptionsController } from "./print/print_all_options_controller.js";
 import {
   buildPrintErrorCard,
   buildPrintErrorSummary,
@@ -829,8 +830,13 @@ const SET_LIST_STORAGE_KEY = "abcarus.setList.v1";
 let setListSaveTimer = null;
 
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
-let printAllPageBreaks = "perTune"; // perTune | continuous
-let printAllAskEachTime = true;
+const printAllOptionsController = createPrintAllOptionsController({
+  modal: $printAllOptionsModal,
+  pageBreaksSelect: $printAllPageBreaks,
+  rememberCheckbox: $printAllRemember,
+  cancelButton: $printAllOptionsCancel,
+  okButton: $printAllOptionsOk,
+});
 
 function safeReadJsonLocalStorage(key) {
   try {
@@ -921,27 +927,16 @@ function loadSetListFromStorage() {
 loadSetListFromStorage();
 
 function loadPrintAllOptionsFromStorage() {
-  const saved = safeReadJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY);
-  if (!saved || typeof saved !== "object") return;
-  const version = saved && saved.version ? String(saved.version) : "";
-  if (version !== "1") return;
-  const pageBreaks = saved.pageBreaks ? String(saved.pageBreaks) : "";
-  if (pageBreaks === "perTune") {
-    printAllPageBreaks = "perTune";
-  } else if (pageBreaks === "continuous" || pageBreaks === "none" || pageBreaks === "auto") {
-    printAllPageBreaks = "continuous";
-  }
-  if (typeof saved.askEachTime === "boolean") {
-    printAllAskEachTime = saved.askEachTime;
-  }
+  printAllOptionsController.applySavedOptions(safeReadJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY));
 }
 
 function persistPrintAllOptionsToStorageNow() {
+  const patch = printAllOptionsController.getPatch();
   safeWriteJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY, {
     version: "1",
     savedAtMs: Date.now(),
-    pageBreaks: printAllPageBreaks,
-    askEachTime: !!printAllAskEachTime,
+    pageBreaks: patch.printAllPageBreaks,
+    askEachTime: !!patch.printAllAskEachTime,
   });
 }
 
@@ -17743,86 +17738,24 @@ async function renderPrintAllSvgMarkup(entry, content, options = {}) {
   return { ok: true, svg };
 }
 
-let printAllOptionsResolve = null;
-let printAllOptionsDragState = null;
-let printAllOptionsDragBaseRect = null;
-
-function closePrintAllOptionsModal(result) {
-  if (!$printAllOptionsModal) return;
-  $printAllOptionsModal.classList.remove("open");
-  $printAllOptionsModal.setAttribute("aria-hidden", "true");
-  if (typeof printAllOptionsResolve === "function") {
-    const resolve = printAllOptionsResolve;
-    printAllOptionsResolve = null;
-    resolve(result || null);
-  }
-}
-
-function clampPrintAllOptionsTranslate(pos) {
-  return clampTranslateToViewport(pos, printAllOptionsDragBaseRect);
-}
-
-function applyPrintAllOptionsTranslate(pos) {
-  if (!$printAllOptionsModal) return;
-  const card = $printAllOptionsModal.querySelector(".modal-card");
-  if (!card) return;
-  const p = clampPrintAllOptionsTranslate(pos);
-  card.style.transform = formatTranslateXY(p);
-}
-
-function openPrintAllOptionsModal({ defaultPageBreaks = "perTune" } = {}) {
-  if (!$printAllOptionsModal || !$printAllPageBreaks) return Promise.resolve(null);
-  const value = String(defaultPageBreaks || "perTune");
-  $printAllPageBreaks.value = (value === "perTune" || value === "continuous") ? value : "perTune";
-  if ($printAllRemember) $printAllRemember.checked = false;
-  $printAllOptionsModal.classList.add("open");
-  $printAllOptionsModal.setAttribute("aria-hidden", "false");
-  $printAllPageBreaks.focus();
-  requestAnimationFrame(() => {
-    const card = $printAllOptionsModal.querySelector(".modal-card");
-    if (!card) return;
-    printAllOptionsDragBaseRect = card.getBoundingClientRect();
-    // Clamp any existing transform (e.g., after a resize).
-    const current = readTranslateXY(card.style.transform);
-    applyPrintAllOptionsTranslate(current);
-  });
-  return new Promise((resolve) => {
-    printAllOptionsResolve = resolve;
-  });
-}
-
 async function getPrintAllPageBreaksForAction() {
-  const value = String(printAllPageBreaks || "perTune");
-  if (!printAllAskEachTime) return value;
-  const res = await openPrintAllOptionsModal({ defaultPageBreaks: value });
-  if (!res) return null;
-  const pageBreaks = String(res.pageBreaks || "perTune");
-  if (pageBreaks === "perTune" || pageBreaks === "continuous") printAllPageBreaks = pageBreaks;
-  if (res.remember) printAllAskEachTime = false;
+  const res = await printAllOptionsController.getPageBreaksForAction();
+  if (!res || !res.pageBreaks) return null;
 
   // Persist in settings (preferred) and localStorage (fallback / older builds).
-  const patch = { printAllPageBreaks, printAllAskEachTime };
-  try {
-    if (window.api && typeof window.api.updateSettings === "function") {
-      await window.api.updateSettings(patch);
-    }
-  } catch {}
-  persistPrintAllOptionsToStorageNow();
-  return printAllPageBreaks;
+  if (res.patch) {
+    try {
+      if (window.api && typeof window.api.updateSettings === "function") {
+        await window.api.updateSettings(res.patch);
+      }
+    } catch {}
+    persistPrintAllOptionsToStorageNow();
+  }
+  return res.pageBreaks;
 }
 
 function setPrintAllFromSettings(settings) {
-  if (!settings) return;
-  const mode = String(settings.printAllPageBreaks || "").trim();
-  if (mode === "perTune" || mode === "continuous") {
-    printAllPageBreaks = mode;
-  } else if (mode === "none" || mode === "auto") {
-    // Compatibility with any legacy values.
-    printAllPageBreaks = "continuous";
-  }
-  if (typeof settings.printAllAskEachTime === "boolean") {
-    printAllAskEachTime = settings.printAllAskEachTime;
-  }
+  printAllOptionsController.applySettings(settings);
 }
 
 async function runPrintAllAction(type) {
@@ -19868,70 +19801,6 @@ if ($xIssuesModal) {
     closeXIssuesModal();
   });
   enableDraggableModal($xIssuesModal);
-}
-
-if ($printAllOptionsModal) {
-  $printAllOptionsModal.addEventListener("click", (e) => {
-    if (e.target === $printAllOptionsModal) closePrintAllOptionsModal(null);
-  });
-  $printAllOptionsModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closePrintAllOptionsModal(null);
-  });
-
-  const card = $printAllOptionsModal.querySelector(".modal-card");
-  const header = $printAllOptionsModal.querySelector(".modal-header");
-  if (card && header) {
-    header.addEventListener("pointerdown", (event) => {
-      if (!event || event.button !== 0) return;
-      const target = event.target;
-      if (target && (target.closest("button") || target.closest("input") || target.closest("select") || target.closest("textarea"))) {
-        return;
-      }
-      if (!$printAllOptionsModal.classList.contains("open")) return;
-      const start = readTranslateXY(card.style.transform);
-      printAllOptionsDragState = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: start.x,
-        originY: start.y,
-      };
-      card.classList.add("dragging");
-      try { header.setPointerCapture(event.pointerId); } catch {}
-      event.preventDefault();
-    });
-
-    header.addEventListener("pointermove", (event) => {
-      if (!printAllOptionsDragState || printAllOptionsDragState.pointerId !== event.pointerId) return;
-      const dx = event.clientX - printAllOptionsDragState.startX;
-      const dy = event.clientY - printAllOptionsDragState.startY;
-      applyPrintAllOptionsTranslate({ x: printAllOptionsDragState.originX + dx, y: printAllOptionsDragState.originY + dy });
-    });
-
-    const endDrag = (event) => {
-      if (!printAllOptionsDragState) return;
-      if (event && printAllOptionsDragState.pointerId != null && event.pointerId !== printAllOptionsDragState.pointerId) return;
-      printAllOptionsDragState = null;
-      card.classList.remove("dragging");
-      try { if (event) header.releasePointerCapture(event.pointerId); } catch {}
-    };
-    header.addEventListener("pointerup", endDrag);
-    header.addEventListener("pointercancel", endDrag);
-  }
-}
-if ($printAllOptionsCancel) {
-  $printAllOptionsCancel.addEventListener("click", () => closePrintAllOptionsModal(null));
-}
-if ($printAllOptionsOk) {
-  $printAllOptionsOk.addEventListener("click", () => {
-    const pageBreaks = $printAllPageBreaks ? String($printAllPageBreaks.value || "perTune") : "perTune";
-    const remember = Boolean($printAllRemember && $printAllRemember.checked);
-    closePrintAllOptionsModal({ pageBreaks, remember });
-  });
 }
 
 function showDisclaimerIfNeeded(settings) {

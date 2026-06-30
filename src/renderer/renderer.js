@@ -73,7 +73,6 @@ import {
 } from "./note_preview/abc_note_parse.mjs";
 import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 import {
-  extractFirstSourceUrlFromAbc,
   normalizeSourceUrl,
 } from "./source_link.js";
 import {
@@ -91,7 +90,7 @@ import {
   serializeSetListState,
 } from "./tools/set_list/set_list_model.js";
 import { createSetListController } from "./tools/set_list/set_list_controller.js";
-import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
+import { createSourceLinkController } from "./tools/source_link/source_link_controller.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import {
@@ -4909,8 +4908,7 @@ function setTuneMetaText(text) {
   renderBufferStatus();
 }
 
-let sourceLinkPanelTimer = null;
-const sourceLinkPanel = createSourceLinkPanel({
+const sourceLinkController = createSourceLinkController({
   panel: $sourceLinkPanel,
   parseAbcHeaderFields,
   openExternalUrl,
@@ -4922,11 +4920,10 @@ const sourceLinkPanel = createSourceLinkPanel({
     return await window.api.previewYouTubeSource(url);
   },
   showToast,
+  getEditorText: getEditorValue,
+  hasEditor: () => Boolean(editorView),
+  isDisabled: () => Boolean(rawMode || chordproMode),
 });
-
-function clearSourceLinkPanel() {
-  sourceLinkPanel.clear();
-}
 
 async function openExternalUrl(url) {
   const target = normalizeSourceUrl(url);
@@ -4939,26 +4936,12 @@ async function openExternalUrl(url) {
   }
 }
 
-function renderSourceLinkPanel(url, abcText = "") {
-  sourceLinkPanel.render(url, abcText, { disabled: rawMode || chordproMode });
-}
-
 function updateSourceLinkPanel() {
-  if (!$sourceLinkPanel) return;
-  if (!editorView || rawMode || chordproMode) {
-    clearSourceLinkPanel();
-    return;
-  }
-  const text = getEditorValue();
-  renderSourceLinkPanel(extractFirstSourceUrlFromAbc(text), text);
+  sourceLinkController.update();
 }
 
 function scheduleSourceLinkPanelUpdate(delayMs = 250) {
-  if (sourceLinkPanelTimer) clearTimeout(sourceLinkPanelTimer);
-  sourceLinkPanelTimer = setTimeout(() => {
-    sourceLinkPanelTimer = null;
-    updateSourceLinkPanel();
-  }, Math.max(0, Number(delayMs) || 0));
+  sourceLinkController.scheduleUpdate(delayMs);
 }
 
 function setDirtyIndicator(isDirty) {

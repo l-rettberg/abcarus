@@ -1128,8 +1128,8 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <style>
       html, body { margin: 0; padding: 0; }
       body { padding: 24px; font-family: sans-serif; }
-      svg { width: 100%; height: auto; display: block; overflow: visible; }
-      img { width: 100%; height: auto; display: block; }
+      svg { max-width: 100%; height: auto; display: block; overflow: visible; }
+      img { max-width: 100%; height: auto; display: block; }
       .print-tune { page-break-after: always; break-after: page; overflow: visible; }
       .print-tune:last-of-type { page-break-after: auto; break-after: auto; }
       .print-error-summary,

@@ -17552,6 +17552,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
     const context = options && options.errorContext ? options.errorContext : null;
     const stopOnFirstError = Boolean(options && options.stopOnFirstError);
     const noSvg = Boolean(options && options.noSvg);
+    const pageFormat = Boolean(options && options.pageFormat);
 
     const sepStripInitial = stripSepForRender(baseText);
     let renderText = sepStripInitial.replaced ? sepStripInitial.text : baseText;
@@ -17574,6 +17575,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
           }
         }
         const user = {
+          page_format: pageFormat,
           img_out: (s) => {
             if (!noSvg) svgParts.push(s);
           },
@@ -17631,7 +17633,7 @@ async function renderCurrentTuneSvgMarkupForPrint() {
   const headerText = entry ? getHeaderEditorValue() : "";
   const prefixPayload = buildHeaderPrefix(headerText, true, tuneText);
   const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  const res = await renderAbcToSvgMarkup(text);
+  const res = await renderAbcToSvgMarkup(text, { pageFormat: true });
   if (res && res.ok && res.svg) {
     const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
     if (sourceMarkup) res.svg = `${res.svg.trim()}\n${sourceMarkup}`;
@@ -17714,7 +17716,7 @@ async function renderPrintAllSvgMarkup(entry, content, options = {}) {
       skipMeasureRange: true,
     };
     setErrorLineOffsetFromHeader(prefix.text);
-    const res = await renderAbcToSvgMarkup(block, { errorContext: context });
+    const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
     const tuneErrors = res.errors ? res.errors.slice() : [];
     if (!res.ok && res.error) {
       tuneErrors.push({ message: res.error });
@@ -17892,7 +17894,7 @@ async function renderSetListSvgMarkupForPrint(options = {}) {
     const block = prefix.text ? `${prefix.text}${renumbered}` : renumbered;
     const context = { tuneLabel: buildPrintTuneLabel(tune) };
     setErrorLineOffsetFromHeader(prefix.text);
-    const res = await renderAbcToSvgMarkup(block, { errorContext: context });
+    const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
     const tuneErrors = res.errors ? res.errors.slice() : [];
     if (!res.ok && res.error) tuneErrors.push({ message: res.error });
 

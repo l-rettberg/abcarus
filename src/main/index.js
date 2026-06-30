@@ -1130,6 +1130,9 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
       body { padding: 24px; font-family: sans-serif; }
       svg { max-width: 100%; height: auto; display: block; overflow: visible; }
       img { max-width: 100%; height: auto; display: block; }
+      .nobrk { page-break-inside: avoid; break-inside: avoid; }
+      .newpage { page-break-before: always; break-before: page; }
+      .newpage:first-of-type { page-break-before: auto; break-before: auto; }
       .print-tune { page-break-after: always; break-after: page; overflow: visible; }
       .print-tune:last-of-type { page-break-after: auto; break-after: auto; }
       .print-error-summary,

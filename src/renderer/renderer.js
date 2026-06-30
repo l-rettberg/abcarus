@@ -81,6 +81,15 @@ import {
   isChordProText,
   parseChordProBlocks,
 } from "./tools/chordpro/chordpro_model.js";
+import {
+  DEFAULT_SET_LIST_HEADER_TEXT,
+  insertSetListItemAt as insertSetListItemAtCore,
+  moveSetListItems,
+  normalizeSetListPageBreaks,
+  parseSetListSavedState,
+  removeSetListItemAt as removeSetListItemAtCore,
+  serializeSetListState,
+} from "./tools/set_list/set_list_model.js";
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
@@ -824,7 +833,7 @@ let payloadModeUiWired = false;
 let setListItems = [];
 let setListPageBreaks = "perTune"; // perTune | none | auto
 let setListCompact = false;
-let setListHeaderText = "%%stretchlast 1\n";
+let setListHeaderText = DEFAULT_SET_LIST_HEADER_TEXT;
 
 const SET_LIST_STORAGE_KEY = "abcarus.setList.v1";
 let setListSaveTimer = null;
@@ -858,25 +867,12 @@ function safeWriteJsonLocalStorage(key, value) {
 }
 
 function saveSetListToStorageNow() {
-  const payload = {
-    version: "1",
-    savedAtMs: Date.now(),
+  safeWriteJsonLocalStorage(SET_LIST_STORAGE_KEY, serializeSetListState({
+    items: setListItems,
     pageBreaks: setListPageBreaks,
-    compact: !!setListCompact,
-    headerText: String(setListHeaderText || ""),
-    items: Array.isArray(setListItems) ? setListItems.map((it) => ({
-      id: it && it.id ? String(it.id) : "",
-      sourceTuneId: it && it.sourceTuneId ? String(it.sourceTuneId) : "",
-      sourcePath: it && it.sourcePath ? String(it.sourcePath) : "",
-      xNumber: it && it.xNumber ? String(it.xNumber) : "",
-      title: it && it.title ? String(it.title) : "",
-      composer: it && it.composer ? String(it.composer) : "",
-      headerText: it && it.headerText ? String(it.headerText) : "",
-      text: it && it.text ? String(it.text) : "",
-      addedAtMs: it && Number.isFinite(Number(it.addedAtMs)) ? Number(it.addedAtMs) : Date.now(),
-    })) : [],
-  };
-  safeWriteJsonLocalStorage(SET_LIST_STORAGE_KEY, payload);
+    compact: setListCompact,
+    headerText: setListHeaderText,
+  }));
 }
 
 function scheduleSaveSetList() {
@@ -888,40 +884,12 @@ function scheduleSaveSetList() {
 }
 
 function loadSetListFromStorage() {
-  const saved = safeReadJsonLocalStorage(SET_LIST_STORAGE_KEY);
-  if (!saved || typeof saved !== "object") return;
-  const version = saved && saved.version ? String(saved.version) : "";
-  if (version !== "1") return;
-
-  const pageBreaks = saved.pageBreaks ? String(saved.pageBreaks) : "perTune";
-  if (pageBreaks === "perTune" || pageBreaks === "none" || pageBreaks === "auto") {
-    setListPageBreaks = pageBreaks;
-  }
-  setListCompact = Boolean(saved.compact);
-  if (typeof saved.headerText === "string") {
-    setListHeaderText = saved.headerText;
-  }
-
-  const itemsRaw = Array.isArray(saved.items) ? saved.items : [];
-  const items = [];
-  for (const it of itemsRaw) {
-    if (!it || typeof it !== "object") continue;
-    const text = typeof it.text === "string" ? it.text : "";
-    if (!text.trim()) continue;
-    items.push({
-      id: typeof it.id === "string" && it.id ? it.id : `${Date.now()}::${Math.random().toString(16).slice(2)}`,
-      sourceTuneId: typeof it.sourceTuneId === "string" ? it.sourceTuneId : "",
-      sourcePath: typeof it.sourcePath === "string" ? it.sourcePath : "",
-      xNumber: typeof it.xNumber === "string" ? it.xNumber : "",
-      title: typeof it.title === "string" ? it.title : "",
-      composer: typeof it.composer === "string" ? it.composer : "",
-      headerText: typeof it.headerText === "string" ? it.headerText : "",
-      text,
-      addedAtMs: Number.isFinite(Number(it.addedAtMs)) ? Number(it.addedAtMs) : Date.now(),
-    });
-    if (items.length >= 500) break;
-  }
-  setListItems = items;
+  const state = parseSetListSavedState(safeReadJsonLocalStorage(SET_LIST_STORAGE_KEY));
+  if (!state) return;
+  setListPageBreaks = state.pageBreaks;
+  setListCompact = state.compact;
+  setListHeaderText = state.headerText;
+  setListItems = state.items;
 }
 
 loadSetListFromStorage();
@@ -19612,40 +19580,22 @@ function closeSetListHeaderEditor() {
 }
 
 function moveSetListItem(fromIndex, toIndex) {
-  if (!Array.isArray(setListItems)) setListItems = [];
-  const from = Number(fromIndex);
-  const to = Number(toIndex);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return;
-  if (from < 0 || from >= setListItems.length) return;
-  if (to < 0 || to >= setListItems.length) return;
-  if (from === to) return;
-  const next = setListItems.slice();
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
+  const next = moveSetListItems(setListItems, fromIndex, toIndex);
+  if (next === setListItems) return;
   setListItems = next;
   scheduleSaveSetList();
 }
 
 function removeSetListItem(index) {
-  if (!Array.isArray(setListItems)) setListItems = [];
-  const idx = Number(index);
-  if (!Number.isFinite(idx) || idx < 0 || idx >= setListItems.length) return;
-  const next = setListItems.slice();
-  next.splice(idx, 1);
+  const next = removeSetListItemAtCore(setListItems, index);
+  if (next === setListItems) return;
   setListItems = next;
   scheduleSaveSetList();
 }
 
 function insertSetListItemAt(item, index) {
-  if (!item) return;
-  if (!Array.isArray(setListItems)) setListItems = [];
-  const idx = Number(index);
-  const next = setListItems.slice();
-  if (!Number.isFinite(idx) || idx < 0 || idx >= next.length) {
-    next.push(item);
-  } else {
-    next.splice(idx, 0, item);
-  }
+  const next = insertSetListItemAtCore(setListItems, item, index);
+  if (next === setListItems) return;
   setListItems = next;
   scheduleSaveSetList();
 }
@@ -24053,7 +24003,7 @@ if ($setListHeaderModal) {
 if ($setListHeaderReset) {
   $setListHeaderReset.addEventListener("click", () => {
     if (!$setListHeaderText) return;
-    $setListHeaderText.value = "%%stretchlast 1\n";
+    $setListHeaderText.value = DEFAULT_SET_LIST_HEADER_TEXT;
     $setListHeaderText.focus();
   });
 }
@@ -24081,7 +24031,7 @@ if ($setListClear) {
 
 if ($setListPageBreaks) {
   $setListPageBreaks.addEventListener("change", () => {
-    setListPageBreaks = String($setListPageBreaks.value || "perTune");
+    setListPageBreaks = normalizeSetListPageBreaks($setListPageBreaks.value, "perTune");
     scheduleSaveSetList();
     renderSetList();
   });

@@ -1171,16 +1171,39 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <script>
       (function () {
         var skipRaster = ${skipRaster ? "true" : "false"};
-        if (skipRaster) {
-          window._rasterReadyPromise = Promise.resolve();
-          return;
-        }
         function waitForFonts() {
           if (!document.fonts || !document.fonts.load) return Promise.resolve();
           return Promise.all([
             document.fonts.load('12px "music"').catch(function () { return null; }),
             document.fonts.ready.catch(function () { return null; }),
           ]);
+        }
+        function normalizeSvgBounds() {
+          const svgs = Array.from(document.querySelectorAll("svg"));
+          for (const svg of svgs) {
+            try {
+              if (!svg || !svg.getBBox) continue;
+              const bbox = svg.getBBox();
+              if (!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) continue;
+              const vb = svg.viewBox && svg.viewBox.baseVal;
+              const curX = vb ? Number(vb.x) || 0 : 0;
+              const curY = vb ? Number(vb.y) || 0 : 0;
+              const curW = vb && Number(vb.width) > 0 ? Number(vb.width) : (Number.parseFloat(svg.getAttribute("width")) || bbox.width);
+              const curH = vb && Number(vb.height) > 0 ? Number(vb.height) : (Number.parseFloat(svg.getAttribute("height")) || bbox.height);
+              const pad = 3;
+              const minX = Math.min(curX, Math.floor(bbox.x - pad));
+              const minY = Math.min(curY, Math.floor(bbox.y - pad));
+              const maxX = Math.max(curX + curW, Math.ceil(bbox.x + bbox.width + pad));
+              const maxY = Math.max(curY + curH, Math.ceil(bbox.y + bbox.height + pad));
+              const nextW = Math.max(1, maxX - minX);
+              const nextH = Math.max(1, maxY - minY);
+              if (minX !== curX || minY !== curY || nextW > curW || nextH > curH) {
+                svg.setAttribute("viewBox", minX + " " + minY + " " + nextW + " " + nextH);
+                svg.setAttribute("width", nextW + "px");
+                svg.setAttribute("height", nextH + "px");
+              }
+            } catch (_e) {}
+          }
         }
         function rasterizeSvg(svg) {
           const xml = new XMLSerializer().serializeToString(svg);
@@ -1221,7 +1244,11 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
             }
           });
         }
-        window._rasterReadyPromise = waitForFonts().then(rasterizeAll);
+        window._rasterReadyPromise = waitForFonts().then(function () {
+          normalizeSvgBounds();
+          if (skipRaster) return null;
+          return rasterizeAll();
+        });
       })();
     </script>
   </body>

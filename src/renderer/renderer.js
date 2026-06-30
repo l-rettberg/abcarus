@@ -90,6 +90,7 @@ import {
   removeSetListItemAt as removeSetListItemAtCore,
   serializeSetListState,
 } from "./tools/set_list/set_list_model.js";
+import { createSetListController } from "./tools/set_list/set_list_controller.js";
 import { createSourceLinkPanel } from "./tools/source_link/source_link_panel.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
@@ -845,6 +846,62 @@ const printAllOptionsController = createPrintAllOptionsController({
   rememberCheckbox: $printAllRemember,
   cancelButton: $printAllOptionsCancel,
   okButton: $printAllOptionsOk,
+});
+const setListController = createSetListController({
+  modal: $setListModal,
+  closeButton: $setListClose,
+  empty: $setListEmpty,
+  itemsList: $setListItems,
+  headerButton: $setListHeader,
+  clearButton: $setListClear,
+  saveAbcButton: $setListSaveAbc,
+  exportPdfButton: $setListExportPdf,
+  printButton: $setListPrint,
+  pageBreaksSelect: $setListPageBreaks,
+  compactCheckbox: $setListCompact,
+  headerModal: $setListHeaderModal,
+  headerCloseButton: $setListHeaderClose,
+  headerText: $setListHeaderText,
+  headerResetButton: $setListHeaderReset,
+  headerSaveButton: $setListHeaderSave,
+  defaultHeaderText: DEFAULT_SET_LIST_HEADER_TEXT,
+  getState: () => ({
+    items: setListItems,
+    pageBreaks: setListPageBreaks,
+    compact: setListCompact,
+  }),
+  getHeaderText: () => setListHeaderText,
+  onMoveItem: moveSetListItem,
+  onRemoveItem: removeSetListItem,
+  onAddTune: addTuneToSetListByTuneId,
+  onClear: () => {
+    setListItems = [];
+    scheduleSaveSetList();
+  },
+  onPageBreaksChange: (value) => {
+    setListPageBreaks = normalizeSetListPageBreaks(value, "perTune");
+    scheduleSaveSetList();
+  },
+  onCompactChange: (value) => {
+    setListCompact = Boolean(value);
+    scheduleSaveSetList();
+  },
+  onHeaderTextChange: (value) => {
+    setListHeaderText = String(value || "");
+    scheduleSaveSetList();
+  },
+  onSaveAbc: () => {
+    exportSetListAsAbc().catch(() => {});
+  },
+  onExportPdf: () => {
+    runPrintSetListAction("pdf").catch(() => {});
+  },
+  onPrint: () => {
+    runPrintSetListAction("print").catch(() => {});
+  },
+  confirm: (message) => window.confirm(message),
+  showToast,
+  enableDraggable: enableDraggableModal,
 });
 
 function safeReadJsonLocalStorage(key) {
@@ -19500,83 +19557,23 @@ function closeAbout() {
 }
 
 function renderSetList() {
-  if (!$setListEmpty || !$setListItems) return;
-  const hasItems = Array.isArray(setListItems) && setListItems.length > 0;
-  $setListEmpty.hidden = hasItems;
-  $setListItems.hidden = !hasItems;
-
-  $setListItems.textContent = "";
-  if (hasItems) {
-    for (let i = 0; i < setListItems.length; i++) {
-      const item = setListItems[i] || {};
-      const row = document.createElement("div");
-      row.className = "set-list-row";
-      row.draggable = true;
-      row.dataset.index = String(i);
-
-      const idx = document.createElement("div");
-      idx.className = "set-list-idx";
-      idx.textContent = String(i + 1);
-
-      const title = document.createElement("div");
-      title.className = "set-list-title";
-      title.textContent = String(item.title || "Untitled");
-
-      const meta = document.createElement("div");
-      meta.className = "set-list-meta";
-      meta.textContent = item.composer ? String(item.composer) : "";
-
-      const actions = document.createElement("div");
-      actions.className = "set-list-actions";
-      const upDisabled = i === 0;
-      const downDisabled = i === setListItems.length - 1;
-      actions.innerHTML = `
-        <button type="button" class="set-list-btn" data-action="up" data-index="${i}" aria-label="Move up" ${upDisabled ? "disabled" : ""}>↑</button>
-        <button type="button" class="set-list-btn" data-action="down" data-index="${i}" aria-label="Move down" ${downDisabled ? "disabled" : ""}>↓</button>
-        <button type="button" class="set-list-btn" data-action="remove" data-index="${i}" aria-label="Remove">✕</button>
-      `;
-
-      row.append(idx, title, meta, actions);
-      $setListItems.append(row);
-    }
-  }
-
-  if ($setListPageBreaks) $setListPageBreaks.value = setListPageBreaks;
-  if ($setListCompact) $setListCompact.checked = !!setListCompact;
-
-  const disableActions = !hasItems;
-  if ($setListClear) $setListClear.disabled = disableActions;
-  if ($setListSaveAbc) $setListSaveAbc.disabled = disableActions;
-  if ($setListExportPdf) $setListExportPdf.disabled = disableActions;
-  if ($setListPrint) $setListPrint.disabled = disableActions;
+  setListController.render();
 }
 
 function openSetList() {
-  if (!$setListModal) return;
-  renderSetList();
-  $setListModal.classList.add("open");
-  $setListModal.setAttribute("aria-hidden", "false");
-  if ($setListPageBreaks) $setListPageBreaks.focus();
+  setListController.open();
 }
 
 function closeSetList() {
-  if (!$setListModal) return;
-  $setListModal.classList.remove("open");
-  $setListModal.setAttribute("aria-hidden", "true");
+  setListController.close();
 }
 
 function openSetListHeaderEditor() {
-  if (!$setListHeaderModal || !$setListHeaderText) return;
-  $setListHeaderText.value = String(setListHeaderText || "");
-  $setListHeaderModal.classList.add("open");
-  $setListHeaderModal.setAttribute("aria-hidden", "false");
-  $setListHeaderText.focus();
+  setListController.openHeaderEditor();
 }
 
 function closeSetListHeaderEditor() {
-  if (!$setListHeaderModal) return;
-  $setListHeaderModal.classList.remove("open");
-  $setListHeaderModal.setAttribute("aria-hidden", "true");
+  setListController.closeHeaderEditor();
 }
 
 function moveSetListItem(fromIndex, toIndex) {
@@ -23851,218 +23848,6 @@ if ($templatesPreviewText) {
       const selectionText = getSelectionTextWithinElement($templatesPreviewText);
       showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
     } catch {}
-  });
-}
-
-if ($setListClose) {
-  $setListClose.addEventListener("click", () => {
-    closeSetList();
-  });
-}
-
-if ($setListHeader) {
-  $setListHeader.addEventListener("click", () => {
-    openSetListHeaderEditor();
-  });
-}
-
-if ($setListItems) {
-  let setListDragFromIndex = null;
-
-  $setListItems.addEventListener("dragstart", (e) => {
-    const row = e && e.target && e.target.closest ? e.target.closest(".set-list-row") : null;
-    if (!row) return;
-    const idx = row.dataset ? Number(row.dataset.index) : NaN;
-    if (!Number.isFinite(idx)) return;
-    setListDragFromIndex = idx;
-    row.classList.add("dragging");
-    try {
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", String(idx));
-      }
-    } catch {}
-  });
-
-  $setListItems.addEventListener("dragend", () => {
-    setListDragFromIndex = null;
-    const rows = $setListItems.querySelectorAll(".set-list-row.dragging");
-    for (const r of rows) r.classList.remove("dragging");
-    const over = $setListItems.querySelectorAll(".set-list-row.drag-over");
-    for (const r of over) r.classList.remove("drag-over");
-  });
-
-  $setListItems.addEventListener("dragover", (e) => {
-    if (!e) return;
-    const row = e.target && e.target.closest ? e.target.closest(".set-list-row") : null;
-    e.preventDefault();
-    try { if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; } catch {}
-    if (!row) return;
-  });
-
-  $setListItems.addEventListener("dragenter", (e) => {
-    const row = e && e.target && e.target.closest ? e.target.closest(".set-list-row") : null;
-    if (!row) return;
-    row.classList.add("drag-over");
-  });
-
-  $setListItems.addEventListener("dragleave", (e) => {
-    const row = e && e.target && e.target.closest ? e.target.closest(".set-list-row") : null;
-    if (!row) return;
-    row.classList.remove("drag-over");
-  });
-
-  $setListItems.addEventListener("drop", (e) => {
-    if (!e) return;
-    e.preventDefault();
-    const row = e.target && e.target.closest ? e.target.closest(".set-list-row") : null;
-    const toIdx = row && row.dataset ? Number(row.dataset.index) : (Array.isArray(setListItems) ? setListItems.length : 0);
-    let raw = "";
-    try { raw = e.dataTransfer ? e.dataTransfer.getData("text/plain") : ""; } catch {}
-
-    let fromIdx = setListDragFromIndex;
-    if (!Number.isFinite(fromIdx)) {
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed)) fromIdx = parsed;
-    }
-
-    if (Number.isFinite(fromIdx)) {
-      if (!Number.isFinite(toIdx)) return;
-      moveSetListItem(fromIdx, toIdx);
-      renderSetList();
-      return;
-    }
-
-    const tuneId = String(raw || "").trim();
-    if (!tuneId) return;
-    addTuneToSetListByTuneId(tuneId, { insertIndex: toIdx }).then(() => {
-      showToast("Added to Set List.", 2000);
-      renderSetList();
-    }).catch((err) => {
-      showToast(err && err.message ? err.message : String(err), 5000);
-    });
-  });
-
-  $setListItems.addEventListener("click", (e) => {
-    const btn = e && e.target && e.target.closest ? e.target.closest(".set-list-btn") : null;
-    if (!btn) return;
-    if (btn.disabled) return;
-    const action = btn.dataset ? btn.dataset.action : "";
-    const index = btn.dataset ? btn.dataset.index : "";
-    if (action === "remove") {
-      removeSetListItem(index);
-      renderSetList();
-      return;
-    }
-    if (action === "up") {
-      moveSetListItem(index, Number(index) - 1);
-      renderSetList();
-      return;
-    }
-    if (action === "down") {
-      moveSetListItem(index, Number(index) + 1);
-      renderSetList();
-    }
-  });
-}
-
-if ($setListModal) {
-  $setListModal.addEventListener("click", (e) => {
-    if (e.target === $setListModal) closeSetList();
-  });
-  $setListModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeSetList();
-  });
-  enableDraggableModal($setListModal);
-}
-
-if ($setListHeaderClose) {
-  $setListHeaderClose.addEventListener("click", () => {
-    closeSetListHeaderEditor();
-  });
-}
-
-if ($setListHeaderModal) {
-  $setListHeaderModal.addEventListener("click", (e) => {
-    if (e.target === $setListHeaderModal) closeSetListHeaderEditor();
-  });
-  $setListHeaderModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeSetListHeaderEditor();
-  });
-  enableDraggableModal($setListHeaderModal);
-}
-
-if ($setListHeaderReset) {
-  $setListHeaderReset.addEventListener("click", () => {
-    if (!$setListHeaderText) return;
-    $setListHeaderText.value = DEFAULT_SET_LIST_HEADER_TEXT;
-    $setListHeaderText.focus();
-  });
-}
-
-if ($setListHeaderSave) {
-  $setListHeaderSave.addEventListener("click", () => {
-    if (!$setListHeaderText) return;
-    setListHeaderText = String($setListHeaderText.value || "");
-    scheduleSaveSetList();
-    closeSetListHeaderEditor();
-  });
-}
-
-if ($setListClear) {
-  $setListClear.addEventListener("click", () => {
-    if (Array.isArray(setListItems) && setListItems.length) {
-      const ok = window.confirm("Clear Set List? This cannot be undone.");
-      if (!ok) return;
-    }
-    setListItems = [];
-    scheduleSaveSetList();
-    renderSetList();
-  });
-}
-
-if ($setListPageBreaks) {
-  $setListPageBreaks.addEventListener("change", () => {
-    setListPageBreaks = normalizeSetListPageBreaks($setListPageBreaks.value, "perTune");
-    scheduleSaveSetList();
-    renderSetList();
-  });
-}
-
-if ($setListCompact) {
-  $setListCompact.addEventListener("change", () => {
-    setListCompact = !!$setListCompact.checked;
-    scheduleSaveSetList();
-    renderSetList();
-  });
-}
-
-if ($setListSaveAbc) {
-  $setListSaveAbc.addEventListener("click", () => {
-    if (!Array.isArray(setListItems) || setListItems.length === 0) return;
-    exportSetListAsAbc().catch(() => {});
-  });
-}
-
-if ($setListExportPdf) {
-  $setListExportPdf.addEventListener("click", () => {
-    if (!Array.isArray(setListItems) || setListItems.length === 0) return;
-    runPrintSetListAction("pdf").catch(() => {});
-  });
-}
-
-if ($setListPrint) {
-  $setListPrint.addEventListener("click", () => {
-    if (!Array.isArray(setListItems) || setListItems.length === 0) return;
-    runPrintSetListAction("print").catch(() => {});
   });
 }
 

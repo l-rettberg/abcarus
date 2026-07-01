@@ -254,8 +254,8 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
 }
 
 async function assertBareContinuationDirectiveHighlight() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
+  const decorationsPath = "src/renderer/editor/abc_decorations.js";
+  const src = await readFile(decorationsPath, "utf8");
   const markerStart = src.indexOf("// Field/directive continuation marker");
   const markerEnd = src.indexOf("if (text.trim().length)", markerStart);
   if (markerStart < 0 || markerEnd < 0) {

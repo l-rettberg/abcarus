@@ -231,6 +231,54 @@
       $modal.addEventListener("pointerdown", onPointerDown, true);
     }
 
+    function ensureModalDrag() {
+      if (!$modal || $modal.__abcarusLibraryModalDrag) return;
+      const handle = $modal.querySelector(".lib-header-top");
+      if (!handle) return;
+      $modal.__abcarusLibraryModalDrag = true;
+
+      handle.addEventListener("pointerdown", (event) => {
+        if (!event || event.button !== 0) return;
+        const target = event.target;
+        if (target && target.closest && target.closest("button,input,select,textarea")) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const rect = $modal.getBoundingClientRect();
+        applyModalRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const start = $modal.getBoundingClientRect();
+
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          const clamped = clampModalRect({
+            left: start.left + dx,
+            top: start.top + dy,
+            width: start.width,
+            height: start.height,
+          });
+          applyModalRect(clamped);
+        };
+
+        const up = () => {
+          window.removeEventListener("pointermove", move, true);
+          window.removeEventListener("pointerup", up, true);
+          $modal.classList.remove("lib-dragging");
+          const r = $modal.getBoundingClientRect();
+          lastModalRect = clampModalRect({ left: r.left, top: r.top, width: r.width, height: r.height });
+          scheduleTableRedraw();
+        };
+
+        $modal.classList.add("lib-dragging");
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+      });
+    }
+
     function scheduleSaveTableState() {
       if (!libTable) return;
       if (saveStateTimer) clearTimeout(saveStateTimer);
@@ -654,6 +702,7 @@
     resetStatus();
     $overlay.hidden = false;
     ensureResizeHandles();
+    ensureModalDrag();
     if (lastModalRect) applyModalRect(clampModalRect(lastModalRect));
     document.dispatchEvent(new CustomEvent("library-modal:opened"));
 

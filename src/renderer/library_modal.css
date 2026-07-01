@@ -55,6 +55,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: move;
+  user-select: none;
 }
 .lib-header-bottom{
   display: flex;
@@ -104,7 +106,9 @@
 .lib-x:hover{ background: var(--button-bg-hover, #f3f3f3); }
 
 .lib-modal.lib-resizing,
-.lib-modal.lib-resizing *{
+.lib-modal.lib-resizing *,
+.lib-modal.lib-dragging,
+.lib-modal.lib-dragging *{
   user-select: none !important;
   cursor: default;
 }

@@ -69,12 +69,18 @@ function buildAbcCompletionSource() {
   const edoOptions = ["12", "19", "24", "31", "41", "53"].map((label) => ({ label, type: "keyword" }));
 
   const midiDirectives = [
-    { label: "%%MIDI program ", type: "keyword", info: "Select instrument program (0\u2013127)" },
+    { label: "%%MIDI program ", type: "keyword", info: "Select instrument program (0\u2013127). Use ABC Helpers (Ctrl+F2) for GM program picker." },
+    { label: "%%MIDI chordprog ", type: "keyword", info: "Select chord instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker." },
+    { label: "%%MIDI bassprog ", type: "keyword", info: "Select bass instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker." },
     { label: "%%MIDI instrument ", type: "keyword", info: "Alias of program (engine-defined)" },
     { label: "%%MIDI temperamentequal ", type: "keyword", info: "Enable EDO-N (e.g. 53)" },
     { label: "%%MIDI drum ", type: "keyword", info: "Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing." },
     { label: "%%MIDI drumoff", type: "keyword", info: "Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines." },
     { label: "%%MIDI drumon", type: "keyword", info: "Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines." },
+    { label: "%%MIDI gchord ", type: "keyword", info: "Define accompaniment pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper for guided editing." },
+    { label: "%%MIDI gchordbars ", type: "keyword", info: "Set bars covered by gchord pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper." },
+    { label: "%%MIDI gchordoff", type: "keyword", info: "Disable gchords." },
+    { label: "%%MIDI gchordon", type: "keyword", info: "Enable gchords." },
   ];
 
   return (context) => {

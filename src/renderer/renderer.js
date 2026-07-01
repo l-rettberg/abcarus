@@ -9160,12 +9160,18 @@ function initEditor() {
 		            if (m[1] === "L") msg = "L: — Default note length unit (e.g. L:1/8).";
 		          } else if (midi) {
 		            const cmd = String(midi[2] || "").toLowerCase();
-		            if (cmd === "program") msg = "%%MIDI program — Select instrument program (0–127).";
+		            if (cmd === "program") msg = "%%MIDI program — Select instrument program (0–127). Use ABC Helpers (Ctrl+F2) for GM program picker.";
+		            else if (cmd === "chordprog") msg = "%%MIDI chordprog — Select chord instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker.";
+		            else if (cmd === "bassprog") msg = "%%MIDI bassprog — Select bass instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker.";
 		            else if (cmd === "instrument") msg = "%%MIDI instrument — Instrument selection (engine-defined).";
 		            else if (cmd === "temperamentequal") msg = "%%MIDI temperamentequal — Enable EDO-N (e.g. 53).";
 		            else if (cmd === "drum") msg = "%%MIDI drum — Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing.";
 		            else if (cmd === "drumon") msg = "%%MIDI drumon — Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
 		            else if (cmd === "drumoff") msg = "%%MIDI drumoff — Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
+		            else if (cmd === "gchord") msg = "%%MIDI gchord — Define accompaniment pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper for guided editing.";
+		            else if (cmd === "gchordbars") msg = "%%MIDI gchordbars — Set bars covered by gchord pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper.";
+		            else if (cmd === "gchordon") msg = "%%MIDI gchordon — Enable gchords.";
+		            else if (cmd === "gchordoff") msg = "%%MIDI gchordoff — Disable gchords.";
 		          }
 
 		          const pop = document.createElement("div");

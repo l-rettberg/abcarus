@@ -10,12 +10,18 @@ function buildAbcHoverTooltip() {
   ]);
 
   const helpByMidiCommand = new Map([
-    ["program", "Select instrument program (0\u2013127)."],
+    ["program", "Select instrument program (0\u2013127). Use ABC Helpers (Ctrl+F2) for GM program picker."],
+    ["chordprog", "Select chord instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker."],
+    ["bassprog", "Select bass instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker."],
     ["instrument", "Instrument selection (engine-defined; often an alias of program)."],
     ["temperamentequal", "Enable EDO-N tuning (e.g. %%MIDI temperamentequal 53)."],
     ["drum", "Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing."],
     ["drumon", "Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
     ["drumoff", "Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
+    ["gchord", "Define accompaniment pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper for guided editing."],
+    ["gchordbars", "Set bars covered by gchord pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper."],
+    ["gchordon", "Enable gchords."],
+    ["gchordoff", "Disable gchords."],
   ]);
 
   const buildDom = (title, body) => {

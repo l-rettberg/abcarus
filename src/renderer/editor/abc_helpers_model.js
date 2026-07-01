@@ -37,6 +37,86 @@ function parseDecorationCatalogEnrichment(rawJson) {
   return map;
 }
 
+function getRangeDecorationBase(name) {
+  const n = String(name || "");
+  if (n.endsWith("(")) return n.slice(0, -1);
+  if (n.endsWith(")")) return n.slice(0, -1);
+  return "";
+}
+
+function getDecorationDetails(dec, enrichment) {
+  const name = dec && dec.name ? String(dec.name) : "";
+  const fromEnrichment = enrichment && name ? enrichment.get(name) : null;
+  const description = fromEnrichment && fromEnrichment.description ? String(fromEnrichment.description) : "";
+  const example = fromEnrichment && fromEnrichment.example
+    ? String(fromEnrichment.example)
+    : buildDecorationExample(name, dec && dec.char ? String(dec.char) : "");
+  return { description, example };
+}
+
+function buildDecorationPickerItems(catalog, {
+  query = "",
+  enrichment = null,
+  favoriteNames = new Set(),
+  favoritesFirst = true,
+  hideNoPreview = false,
+  previewStatus = new Map(),
+} = {}) {
+  const allRaw = (Array.isArray(catalog) ? catalog : []).map((d) => ({
+    char: String(d && d.char || ""),
+    abc: String(d && d.abc || ""),
+    name: String(d && d.name || ""),
+    isInternal: Boolean(d && d.isInternal),
+  }));
+
+  // Collapse paired decorations (foo( + foo)) into a single item keyed by the opening element.
+  const endSet = new Set(allRaw.filter((d) => d.name.endsWith(")")).map((d) => d.name));
+  const all = [];
+  for (const d of allRaw) {
+    if (d.name.endsWith(")")) continue;
+    if (d.name.endsWith("(")) {
+      const base = d.name.slice(0, -1);
+      const endName = `${base})`;
+      if (endSet.has(endName)) {
+        all.push({
+          ...d,
+          displayName: `${base}(\u2026${base})`,
+          pairEndAbc: `!${endName}!`,
+        });
+        continue;
+      }
+    }
+    all.push({ ...d, displayName: d.name });
+  }
+
+  const q = String(query || "").trim().toLowerCase();
+  const filtered = q
+    ? all.filter((d) => {
+      const extra = (() => {
+        const fromEnrichment = enrichment && d.name ? enrichment.get(d.name) : null;
+        return fromEnrichment && fromEnrichment.description ? String(fromEnrichment.description) : "";
+      })();
+      const hay = `${d.char} ${d.displayName || d.name} ${d.name} ${d.abc} ${d.pairEndAbc || ""} ${extra}`.toLowerCase();
+      return hay.includes(q);
+    })
+    : all;
+
+  let ordered = filtered;
+  if (favoritesFirst && favoriteNames && favoriteNames.size) {
+    const fav = [];
+    const rest = [];
+    for (const d of filtered) {
+      if (favoriteNames.has(d.name)) fav.push(d);
+      else rest.push(d);
+    }
+    ordered = fav.concat(rest);
+  }
+
+  return hideNoPreview
+    ? ordered.filter((d) => previewStatus.get(d.name) !== "none")
+    : ordered;
+}
+
 function getMidiProgramCommand(lineText) {
   const m = /^\s*%{1,2}\s*MIDI\s*(program|chordprog|bassprog)\b/i.exec(String(lineText || ""));
   return m ? String(m[1] || "program").toLowerCase() : "";
@@ -105,9 +185,12 @@ function findMidiProgramCommentEdit(text, cmd, programName) {
 
 export {
   buildDecorationExample,
+  buildDecorationPickerItems,
   buildGmProgramItems,
   findMidiProgramCommentEdit,
   findMidiProgramNumberEdit,
+  getDecorationDetails,
+  getRangeDecorationBase,
   getMidiProgramCommand,
   parseDecorationCatalogEnrichment,
 };

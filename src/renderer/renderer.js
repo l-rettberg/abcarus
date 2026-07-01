@@ -23,6 +23,9 @@ import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import {
   buildDecorationExample,
+  buildDecorationPickerItems,
+  getDecorationDetails,
+  getRangeDecorationBase,
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
 import { openMidiProgramPickerAtCursor } from "./editor/abc_helpers_controller.js";
@@ -9478,23 +9481,6 @@ function initEditor() {
 			            return Number.isFinite(n) ? n : null;
 			          };
 
-			          const asRangeDecorationBase = (name) => {
-			            const n = String(name || "");
-			            if (n.endsWith("(")) return n.slice(0, -1);
-			            if (n.endsWith(")")) return n.slice(0, -1);
-			            return "";
-			          };
-
-			          const getDecorationDetails = (dec) => {
-			            const name = dec && dec.name ? String(dec.name) : "";
-			            const fromEnrichment = enrichment && name ? enrichment.get(name) : null;
-			            const description = fromEnrichment && fromEnrichment.description ? String(fromEnrichment.description) : "";
-			            const example = fromEnrichment && fromEnrichment.example
-			              ? String(fromEnrichment.example)
-			              : buildDecorationExample(name, dec && dec.char ? String(dec.char) : "");
-			            return { description, example };
-			          };
-
 			          const renderPreview = (name, exampleAbc) => {
 			            const seq = (previewSeq += 1);
 			            if (previewTimer) clearTimeout(previewTimer);
@@ -9549,7 +9535,7 @@ function initEditor() {
 			          const updateDetails = (dec) => {
 			            const name = dec && dec.name ? String(dec.name) : "";
 			            const abc = dec && dec.abc ? String(dec.abc) : "";
-			            const { description, example } = getDecorationDetails(dec);
+			            const { description, example } = getDecorationDetails(dec, enrichment);
 			            detailsTitle.textContent = name ? `Details: ${name}` : "Details";
 			            detailsDesc.textContent = description || "";
 			            detailsExample.textContent = example ? `Example: ${example}` : (abc ? `Example: ${abc}c` : "");
@@ -9562,7 +9548,7 @@ function initEditor() {
 		              if (view.state.readOnly) return false;
 
 		              const name = dec && dec.name ? String(dec.name) : "";
-		              const base = asRangeDecorationBase(name);
+		              const base = getRangeDecorationBase(name);
 
 		              const sel = view.state.selection.main;
 		              const selectedText = sel.empty ? "" : view.state.doc.sliceString(sel.from, sel.to);
@@ -9611,59 +9597,14 @@ function initEditor() {
 
 			          const render = () => {
 			            list.textContent = "";
-			            const q = String(input.value || "").trim().toLowerCase();
-		            const allRaw = ABC2SVG_DECORATIONS.map((d) => ({
-		              char: String(d.char || ""),
-		              abc: String(d.abc || ""),
-		              name: String(d.name || ""),
-		              isInternal: Boolean(d.isInternal),
-		            }));
-
-		            // Collapse paired decorations (foo( + foo)) into a single list item keyed by the opening element.
-		            // This makes the UI clearer and matches insertion semantics (wrap selection with start/end).
-		            const endSet = new Set(allRaw.filter((d) => d.name.endsWith(")")).map((d) => d.name));
-		            const all = [];
-		            for (const d of allRaw) {
-		              if (d.name.endsWith(")")) continue; // hide closing part
-		              if (d.name.endsWith("(")) {
-		                const base = d.name.slice(0, -1);
-		                const endName = `${base})`;
-		                if (endSet.has(endName)) {
-		                  all.push({
-		                    ...d,
-		                    displayName: `${base}(${String("\u2026")}${base})`,
-		                    pairEndAbc: `!${endName}!`,
-		                  });
-		                  continue;
-		                }
-		              }
-			              all.push({ ...d, displayName: d.name });
-			            }
-			            const filtered = q
-			              ? all.filter((d) => {
-			                const extra = (() => {
-			                  const fromEnrichment = enrichment && d.name ? enrichment.get(d.name) : null;
-			                  return fromEnrichment && fromEnrichment.description ? String(fromEnrichment.description) : "";
-			                })();
-			                const hay = `${d.char} ${d.displayName || d.name} ${d.name} ${d.abc} ${d.pairEndAbc || ""} ${extra}`.toLowerCase();
-			                return hay.includes(q);
-			              })
-			              : all;
-
-			            let ordered = filtered;
-			            if (favoritesFirst && favoriteNames.size) {
-			              const fav = [];
-			              const rest = [];
-			              for (const d of filtered) {
-			                if (favoriteNames.has(d.name)) fav.push(d);
-			                else rest.push(d);
-			              }
-			              ordered = fav.concat(rest);
-			            }
-
-			            items = hideNoPreview
-			              ? ordered.filter((d) => previewStatus.get(d.name) !== "none")
-			              : ordered;
+			            items = buildDecorationPickerItems(ABC2SVG_DECORATIONS, {
+			              query: input.value || "",
+			              enrichment,
+			              favoriteNames,
+			              favoritesFirst,
+			              hideNoPreview,
+			              previewStatus,
+			            });
 
 			            if (activeName) {
 			              const idx = items.findIndex((d) => d && d.name === activeName);
@@ -9674,7 +9615,7 @@ function initEditor() {
 			            let activeRow = null;
 			            for (let i = 0; i < items.length; i += 1) {
 			              const dec = items[i];
-			              const { description } = getDecorationDetails(dec);
+			              const { description } = getDecorationDetails(dec, enrichment);
 			              const fav = favoriteNames.has(dec.name);
 			              const noPrev = previewStatus.get(dec.name) === "none";
 			              const row = document.createElement("div");

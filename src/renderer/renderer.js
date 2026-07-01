@@ -96,6 +96,7 @@ import {
   formatReadableMidiDrum,
   makeDrumEditModel,
   parseDrumPattern,
+  parseDrumTablatureBlock,
 } from "./tools/drum_helper/drum_helper_model.js";
 import {
   buildGchordLines,
@@ -8838,7 +8839,16 @@ function initEditor() {
 		            const s = String(text || "");
 		            return /^\s*%%\s*MIDI\s+drum\s+\+:/i.test(s) || /^\s*\+:\s*/i.test(s);
 		          };
-		          const isDrumLine = (text) => isDrumMainLine(text) || isDrumContinuationLine(text);
+		          const isDrumTablatureBoundaryLine = (text) => /^\s*%%\s*(begin|end)drum\b/i.test(String(text || ""));
+		          const isDrumTablatureRefLine = (text) => /^\s*%%\s*drum\b/i.test(String(text || ""));
+		          const isDrumTablatureTrackLine = (text) => /^\s*[A-Za-z0-9][A-Za-z0-9]?\s+\|[-ox|]+\|\s*$/i.test(String(text || ""));
+		          const isDrumLine = (text) => (
+		            isDrumMainLine(text)
+		            || isDrumContinuationLine(text)
+		            || isDrumTablatureBoundaryLine(text)
+		            || isDrumTablatureRefLine(text)
+		            || isDrumTablatureTrackLine(text)
+		          );
 		          if (isDrumLine(lineText)) {
 		            const existing = document.getElementById("abcarusDrumEditorPopover");
 		            if (existing) {
@@ -8867,62 +8877,136 @@ function initEditor() {
 		              return out;
 		            };
 
+		            let sourceKind = "";
 		            let mainLineNumber = null;
+		            let tablatureBeginLineNumber = null;
+		            let tablatureEndLineNumber = null;
 		            if (isDrumMainLine(lineText)) {
+		              sourceKind = "midi";
 		              mainLineNumber = lineInfo.number;
-		            } else {
+		            } else if (isDrumContinuationLine(lineText)) {
 		              for (let n = lineInfo.number; n >= 1; n -= 1) {
 		                const t = doc.line(n).text || "";
-		                if (isDrumMainLine(t)) { mainLineNumber = n; break; }
+		                if (isDrumMainLine(t)) { sourceKind = "midi"; mainLineNumber = n; break; }
 		                if (!isDrumContinuationLine(t)) break;
 		              }
 		            }
-		            if (mainLineNumber == null) {
+		            if (!sourceKind) {
+		              if (/^\s*%%\s*begindrum\b/i.test(lineText)) {
+		                tablatureBeginLineNumber = lineInfo.number;
+		              } else if (isDrumTablatureRefLine(lineText)) {
+		                const refName = String(lineText || "").replace(/^\s*%%\s*drum\b\s*/i, "").trim().split(/\s+/)[0] || "";
+		                for (let n = lineInfo.number - 1; n >= 1; n -= 1) {
+		                  const t = doc.line(n).text || "";
+		                  const m = t.match(/^\s*%%\s*begindrum(?:\s+([^\s%]+))?/i);
+		                  if (m && (!refName || String(m[1] || "").trim() === refName)) {
+		                    tablatureBeginLineNumber = n;
+		                    break;
+		                  }
+		                }
+		              } else {
+		                const scanStart = /^\s*%%\s*enddrum\b/i.test(lineText) ? lineInfo.number - 1 : lineInfo.number;
+		                for (let n = scanStart; n >= 1; n -= 1) {
+		                  const t = doc.line(n).text || "";
+		                  if (/^\s*%%\s*begindrum\b/i.test(t)) { tablatureBeginLineNumber = n; break; }
+		                  if (/^\s*%%\s*enddrum\b/i.test(t)) break;
+		                }
+		              }
+		              if (tablatureBeginLineNumber != null) {
+		                for (let n = tablatureBeginLineNumber + 1; n <= doc.lines; n += 1) {
+		                  const t = doc.line(n).text || "";
+		                  if (/^\s*%%\s*enddrum\b/i.test(t)) { tablatureEndLineNumber = n; break; }
+		                }
+		                if (tablatureEndLineNumber != null) sourceKind = "tablature";
+		              }
+		            }
+		            if (mainLineNumber == null && sourceKind !== "tablature") {
 		              // Not a recognized drum block; fall through to decoration picker.
 		            } else {
 
-		            let endLineNumber = mainLineNumber;
-		            for (let n = mainLineNumber + 1; n <= doc.lines; n += 1) {
-		              const t = doc.line(n).text || "";
-		              if (!isDrumContinuationLine(t)) break;
-		              endLineNumber = n;
+		            let endLineNumber = sourceKind === "tablature" ? tablatureEndLineNumber : mainLineNumber;
+		            if (sourceKind !== "tablature") {
+		              for (let n = mainLineNumber + 1; n <= doc.lines; n += 1) {
+		                const t = doc.line(n).text || "";
+		                if (!isDrumContinuationLine(t)) break;
+		                endLineNumber = n;
+		              }
 		            }
 
+		            let sourceStartLineNumber = sourceKind === "tablature" ? tablatureBeginLineNumber : mainLineNumber;
+		            let sourceEndLineNumber = endLineNumber;
 		            let drumbarsLineNumber = null;
-		            for (let n = mainLineNumber - 1; n >= 1; n -= 1) {
-		              const t = doc.line(n).text || "";
-		              if (/^\s*%%\s*MIDI\s+drumbars\b/i.test(t)) { drumbarsLineNumber = n; break; }
-		              if (/^\s*%%\s*MIDI\s+drum(on|off)\b/i.test(t)) continue;
-		              break;
+		            if (sourceKind !== "tablature") {
+		              for (let n = mainLineNumber - 1; n >= 1; n -= 1) {
+		                const t = doc.line(n).text || "";
+		                if (/^\s*%%\s*MIDI\s+drumbars\b/i.test(t)) { drumbarsLineNumber = n; break; }
+		                if (/^\s*%%\s*MIDI\s+drum(on|off)\b/i.test(t)) continue;
+		                break;
+		              }
+		            } else {
+		              const beginLine = doc.line(tablatureBeginLineNumber).text || "";
+		              const beginName = String(beginLine || "").replace(/^\s*%%\s*begindrum\b\s*/i, "").trim().split(/\s+/)[0] || "";
+		              let scan = tablatureEndLineNumber + 1;
+		              while (scan <= doc.lines && !String(doc.line(scan).text || "").trim()) scan += 1;
+		              if (scan <= doc.lines) {
+		                const refLine = doc.line(scan).text || "";
+		                const refName = String(refLine || "").replace(/^\s*%%\s*drum\b\s*/i, "").trim().split(/\s+/)[0] || "";
+		                if (/^\s*%%\s*drum\b/i.test(refLine) && (!beginName || !refName || beginName === refName)) {
+		                  sourceEndLineNumber = scan;
+		                }
+		              }
 		            }
 
-		            const mainLine = doc.line(mainLineNumber).text || "";
-		            const mainParts = splitComment(mainLine);
-		            const mainCode = mainParts.code.replace(/^\s*%%\s*MIDI\s+drum\s+/i, "");
-		            const mainTokens = String(mainCode || "").trim().split(/\s+/).filter(Boolean);
-		            const isInt = (t) => /^-?\d+$/.test(String(t || "").trim());
-		            let firstNum = -1;
-		            for (let i = 0; i < mainTokens.length; i += 1) {
-		              if (isInt(mainTokens[i])) { firstNum = i; break; }
+		            let mainLine = "";
+		            let mainParts = { code: "", comment: "" };
+		            let patternText = "";
+		            let pitches = [];
+		            let velocities = [];
+		            let drumNameValue = "drum1";
+		            if (sourceKind === "tablature") {
+		              const blockLines = [];
+		              for (let n = tablatureBeginLineNumber; n <= tablatureEndLineNumber; n += 1) {
+		                blockLines.push(doc.line(n).text || "");
+		              }
+		              const model = parseDrumTablatureBlock(blockLines, { velocityMap: drumVelocityMap });
+		              if (!model) {
+		                try { showToast("Drum editor: could not parse %%begindrum block.", 2200); } catch {}
+		                return true;
+		              }
+		              patternText = model.patternText || "";
+		              pitches = Array.isArray(model.pitches) ? model.pitches.slice() : [];
+		              velocities = Array.isArray(model.velocities) ? model.velocities.slice() : [];
+		              drumNameValue = model.name || "drum1";
+		              mainLine = doc.line(tablatureBeginLineNumber).text || "";
+		            } else {
+		              mainLine = doc.line(mainLineNumber).text || "";
+		              mainParts = splitComment(mainLine);
+		              const mainCode = mainParts.code.replace(/^\s*%%\s*MIDI\s+drum\s+/i, "");
+		              const mainTokens = String(mainCode || "").trim().split(/\s+/).filter(Boolean);
+		              const isInt = (t) => /^-?\d+$/.test(String(t || "").trim());
+		              let firstNum = -1;
+		              for (let i = 0; i < mainTokens.length; i += 1) {
+		                if (isInt(mainTokens[i])) { firstNum = i; break; }
+		              }
+		              const patternTokens = (firstNum === -1 ? mainTokens : mainTokens.slice(0, firstNum)).filter((t) => t !== "+:");
+		              patternText = patternTokens.join("");
+		              const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum))
+		                .map((n) => Number(n))
+		                .filter((n) => Number.isFinite(n));
+		              for (let n = mainLineNumber + 1; n <= endLineNumber; n += 1) {
+		                const contRaw = doc.line(n).text || "";
+		                const contParts = splitComment(contRaw);
+		                let payload = "";
+		                const m = contParts.code.match(/^\s*%%\s*MIDI\s+drum\s+\+:\s*(.*)$/i);
+		                if (m) payload = m[1] || "";
+		                else payload = contParts.code.replace(/^\s*\+:\s*/i, "");
+		                numbers.push(...parseNums(payload));
+		              }
+		              const parsedPattern = parseDrumPattern(patternText);
+		              const hitCount = parsedPattern && Number.isFinite(parsedPattern.hitCount) ? parsedPattern.hitCount : 0;
+		              pitches = numbers.slice(0, hitCount);
+		              velocities = numbers.slice(hitCount, hitCount * 2);
 		            }
-		            const patternTokens = (firstNum === -1 ? mainTokens : mainTokens.slice(0, firstNum)).filter((t) => t !== "+:");
-		            const patternText = patternTokens.join("");
-		            const numbers = (firstNum === -1 ? [] : mainTokens.slice(firstNum))
-		              .map((n) => Number(n))
-		              .filter((n) => Number.isFinite(n));
-		            for (let n = mainLineNumber + 1; n <= endLineNumber; n += 1) {
-		              const contRaw = doc.line(n).text || "";
-		              const contParts = splitComment(contRaw);
-		              let payload = "";
-		              const m = contParts.code.match(/^\s*%%\s*MIDI\s+drum\s+\+:\s*(.*)$/i);
-		              if (m) payload = m[1] || "";
-		              else payload = contParts.code.replace(/^\s*\+:\s*/i, "");
-		              numbers.push(...parseNums(payload));
-		            }
-		            const parsedPattern = parseDrumPattern(patternText);
-		            const hitCount = parsedPattern && Number.isFinite(parsedPattern.hitCount) ? parsedPattern.hitCount : 0;
-		            const pitches = numbers.slice(0, hitCount);
-		            const velocities = numbers.slice(hitCount, hitCount * 2);
 		            const drumbarsValue = (() => {
 		              if (!drumbarsLineNumber) return "";
 		              const line = doc.line(drumbarsLineNumber).text || "";
@@ -9013,7 +9097,7 @@ function initEditor() {
 		            pitchesField.input.value = pitches.join(" ");
 		            velocitiesField.input.value = velocities.join(" ");
 		            drumbarsField.input.value = drumbarsValue;
-		            drumNameField.input.value = "drum1";
+		            drumNameField.input.value = drumNameValue || "drum1";
 
 		            body.appendChild(patternField.wrap);
 		            body.appendChild(pitchesField.wrap);
@@ -9365,9 +9449,9 @@ function initEditor() {
 		                return;
 		              }
 
-		              const startLine = (drumbarsLineNumber != null) ? drumbarsLineNumber : mainLineNumber;
+		              const startLine = (drumbarsLineNumber != null) ? drumbarsLineNumber : sourceStartLineNumber;
 		              const from = doc.line(startLine).from;
-		              const to = doc.line(endLineNumber).to;
+		              const to = doc.line(sourceEndLineNumber).to;
 		              view.dispatch({
 		                changes: { from, to, insert },
 		                selection: EditorSelection.cursor(from + insert.length),

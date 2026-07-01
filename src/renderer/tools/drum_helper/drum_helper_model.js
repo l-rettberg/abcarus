@@ -76,6 +76,104 @@ function getDrumShortcutForPitch(pitch, used) {
   return key;
 }
 
+function normalizeDrumInstrumentName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function getDrumPitchForName(name) {
+  const normalized = normalizeDrumInstrumentName(name);
+  if (!normalized) return null;
+  const item = DRUM_INSTRUMENTS.find((d) => normalizeDrumInstrumentName(d && d.name) === normalized);
+  return item && Number.isFinite(Number(item.pitch)) ? Number(item.pitch) : null;
+}
+
+function formatDrumPatternLength(type, len) {
+  const n = Math.max(1, Math.floor(Number(len) || 1));
+  return `${type}${n === 1 ? "" : String(n)}`;
+}
+
+function buildPatternFromTablatureEvents(events, totalUnits) {
+  const units = Math.max(0, Math.floor(Number(totalUnits) || 0));
+  if (!units) return "";
+  const hitUnits = Array.from(new Set((events || [])
+    .map((event) => Math.floor(Number(event && event.unit)))
+    .filter((unit) => Number.isFinite(unit) && unit >= 0 && unit < units)))
+    .sort((a, b) => a - b);
+  if (!hitUnits.length) return formatDrumPatternLength("z", units);
+
+  const tokens = [];
+  let cursor = 0;
+  for (let i = 0; i < hitUnits.length; i += 1) {
+    const unit = hitUnits[i];
+    if (unit > cursor) tokens.push(formatDrumPatternLength("z", unit - cursor));
+    const nextUnit = i + 1 < hitUnits.length ? hitUnits[i + 1] : units;
+    tokens.push(formatDrumPatternLength("d", Math.max(1, nextUnit - unit)));
+    cursor = nextUnit;
+  }
+  if (cursor < units) tokens.push(formatDrumPatternLength("z", units - cursor));
+  return tokens.join("");
+}
+
+function parseDrumTablatureBlock(lines, { velocityMap = null, defaultVelocity = DEFAULT_DRUM_VELOCITY } = {}) {
+  const rawLines = Array.isArray(lines) ? lines.map((line) => String(line || "")) : [];
+  if (!rawLines.length) return null;
+  const beginMatch = rawLines[0].match(/^\s*%%\s*begindrum(?:\s+([^\s%]+))?/i);
+  if (!beginMatch) return null;
+  const name = String(beginMatch[1] || "drum1").trim() || "drum1";
+  const tracks = [];
+  const namesByKey = new Map();
+
+  for (const raw of rawLines.slice(1)) {
+    if (/^\s*%%\s*enddrum\b/i.test(raw)) break;
+    const patternMatch = raw.match(/^\s*([A-Za-z0-9][A-Za-z0-9]?)\s+(\|[-ox|]+\|)\s*$/i);
+    if (patternMatch) {
+      const key = patternMatch[1];
+      const cells = String(patternMatch[2] || "").replace(/\|/g, "").split("");
+      tracks.push({ key, cells });
+      continue;
+    }
+    const legendMatch = raw.match(/^\s*([A-Za-z0-9][A-Za-z0-9]?)\s+\|-+(.+?)-+\|\s*$/i);
+    if (legendMatch) {
+      namesByKey.set(legendMatch[1], String(legendMatch[2] || "").replace(/-+/g, " ").trim());
+    }
+  }
+
+  if (!tracks.length) return null;
+  const totalUnits = Math.max(...tracks.map((track) => track.cells.length), 0);
+  if (!totalUnits) return null;
+
+  const events = [];
+  for (const track of tracks) {
+    const pitch = getDrumPitchForName(namesByKey.get(track.key)) ?? 35;
+    for (let unit = 0; unit < totalUnits; unit += 1) {
+      const cell = track.cells[unit] || "-";
+      if (cell !== "o" && cell !== "x") continue;
+      events.push({ unit, pitch });
+    }
+  }
+  events.sort((a, b) => (a.unit - b.unit) || (a.pitch - b.pitch));
+
+  const patternText = buildPatternFromTablatureEvents(events, totalUnits);
+  const pitches = events.map((event) => event.pitch);
+  const velocities = pitches.map((pitch) => clampVelocity(
+    velocityMap && Number.isFinite(velocityMap[pitch]) ? velocityMap[pitch] : defaultVelocity,
+  ));
+
+  return makeDrumEditModel({
+    patternText,
+    pitches,
+    velocities,
+    drumbars: "",
+    name,
+    velocityMap,
+    defaultVelocity,
+  });
+}
+
 function makeDrumEditModel({
   patternText,
   pitches,
@@ -227,4 +325,5 @@ export {
   formatReadableMidiDrum,
   makeDrumEditModel,
   parseDrumPattern,
+  parseDrumTablatureBlock,
 };

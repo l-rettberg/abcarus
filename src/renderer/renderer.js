@@ -25,6 +25,12 @@ import {
   buildDecorationExample,
   parseDecorationCatalogEnrichment,
 } from "./editor/decoration_examples.js";
+import {
+  buildGmProgramItems,
+  findMidiProgramCommentEdit,
+  findMidiProgramNumberEdit,
+  getMidiProgramCommand,
+} from "./editor/gm_program_picker_model.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -8513,13 +8519,13 @@ function initEditor() {
 		          const pos = view.state.selection.main.head;
 		          const lineInfo = view.state.doc.lineAt(pos);
 		          const lineText = String(lineInfo.text || "");
-		          const midiProgMatch = /^\s*%{1,2}\s*MIDI\s*(program|chordprog|bassprog)\b/i.exec(lineText);
+		          const midiProgramCommand = getMidiProgramCommand(lineText);
 		          let openedMidiPicker = false;
 		          if (isInBeginTextBlockAtLine(view.state, lineInfo.number)) {
 		            try { showToast("Decoration picker: not available in %%begintext blocks.", 2200); } catch {}
 		            return true;
 		          }
-		          if (midiProgMatch) {
+		          if (midiProgramCommand) {
 		            const existing = document.getElementById("abcarusMidiProgramPopover");
 		            if (existing) {
 		              try {
@@ -8530,7 +8536,7 @@ function initEditor() {
 		              return true;
 		            }
 
-		            const cmd = String(midiProgMatch[1] || "program").toLowerCase();
+		            const cmd = midiProgramCommand;
 		            const anchorLineFrom = lineInfo.from;
 		            const anchorText = lineInfo.text || "";
 		            const GM_PROGRAMS = Array.isArray(GM_PROGRAM_NAMES) && GM_PROGRAM_NAMES.length
@@ -8601,26 +8607,21 @@ function initEditor() {
 		              try {
 		                const lineNow = view.state.doc.lineAt(pos);
 		                const textNow = lineNow.text || "";
-		                const replaceRe = new RegExp(`^(\\s*%{1,2}\\s*MIDI\\s*${cmd}\\b\\s*)(\\d+)?`, "i");
-		                let mm = replaceRe.exec(textNow);
+		                let edit = findMidiProgramNumberEdit(textNow, cmd, programNumber);
 		                let baseFrom = lineNow.from;
 		                let textUse = textNow;
-		                if (!mm) {
-		                  mm = replaceRe.exec(anchorText);
+		                if (!edit) {
+		                  edit = findMidiProgramNumberEdit(anchorText, cmd, programNumber);
 		                  baseFrom = anchorLineFrom;
 		                  textUse = anchorText;
 		                }
-		                if (!mm) {
+		                if (!edit) {
 		                  try { showToast("Can't apply GM program here.", 1800); } catch {}
 		                  return false;
 		                }
-		                const prefix = mm[1] || "";
-		                const existingNum = mm[2] || "";
-		                const insertAt = baseFrom + (mm.index || 0) + prefix.length;
-		                const from = insertAt;
-		                const to = existingNum ? insertAt + existingNum.length : insertAt;
-		                const needSpace = !/\s$/.test(prefix);
-		                const insert = (needSpace && !existingNum) ? ` ${programNumber}` : String(programNumber);
+		                const from = baseFrom + edit.from;
+		                const to = baseFrom + edit.to;
+		                const insert = edit.insert;
 		                const cursorPos = from + insert.length;
 		                view.dispatch({
 		                  changes: { from, to, insert },
@@ -8629,35 +8630,18 @@ function initEditor() {
 		                });
 
 		                try {
-		                  const name = String(programName || "").trim();
-		                  if (name) {
-		                    const lineAfter = view.state.doc.lineAt(pos);
-		                    const textAfter = lineAfter.text || textUse;
-		                    const afterRe = new RegExp(`^(\\s*%{1,2}\\s*MIDI\\s*${cmd}\\b\\s*)(\\d+)`, "i");
-		                    const mm2 = afterRe.exec(textAfter);
-		                    if (mm2) {
-		                      const prefix2 = mm2[1] || "";
-		                      const num2 = mm2[2] || "";
-		                      const numEndLocal = (mm2.index || 0) + prefix2.length + num2.length;
-		                      let commentIdx = -1;
-		                      for (let i = numEndLocal; i < textAfter.length; i += 1) {
-		                        if (textAfter[i] === "%" && textAfter[i - 1] !== "\\") { commentIdx = i; break; }
-		                      }
-		                      const commentText = ` % ${name}`;
-		                      const trailingWs = /\s*$/.exec(textAfter);
-		                      const endNoWs = trailingWs ? (textAfter.length - trailingWs[0].length) : textAfter.length;
-		                      if (commentIdx === -1) {
-		                        view.dispatch({
-		                          changes: { from: lineAfter.from + endNoWs, to: lineAfter.from + endNoWs, insert: commentText },
-		                          userEvent: "input",
-		                        });
-		                      } else {
-		                        view.dispatch({
-		                          changes: { from: lineAfter.from + commentIdx, to: lineAfter.from + endNoWs, insert: commentText },
-		                          userEvent: "input",
-		                        });
-		                      }
-		                    }
+		                  const lineAfter = view.state.doc.lineAt(pos);
+		                  const textAfter = lineAfter.text || textUse;
+		                  const commentEdit = findMidiProgramCommentEdit(textAfter, cmd, programName);
+		                  if (commentEdit) {
+		                    view.dispatch({
+		                      changes: {
+		                        from: lineAfter.from + commentEdit.from,
+		                        to: lineAfter.from + commentEdit.to,
+		                        insert: commentEdit.insert,
+		                      },
+		                      userEvent: "input",
+		                    });
 		                  }
 		                } catch {}
 		                try { view.focus(); } catch {}
@@ -8673,21 +8657,7 @@ function initEditor() {
 
 		            const render = () => {
 		              list.textContent = "";
-		              const q = String(input.value || "").trim().toLowerCase();
-		              const terms = q ? q.split(/\s+/g).filter(Boolean) : [];
-		              const matches = (idx, name) => {
-		                if (!terms.length) return true;
-		                const hay = `${idx} ${idx + 1} ${String(name || "")}`.toLowerCase();
-		                return terms.every((t) => hay.includes(t));
-		              };
-		              const all = GM_PROGRAMS.length ? GM_PROGRAMS : Array.from({ length: 128 }, (_, i) => `Program ${i}`);
-		              const filtered = [];
-		              for (let i = 0; i < Math.min(128, all.length); i += 1) {
-		                const name = String(all[i] || `Program ${i}`);
-		                if (!matches(i, name)) continue;
-		                filtered.push({ idx: i, name });
-		              }
-		              items = filtered;
+		              items = buildGmProgramItems(GM_PROGRAMS, input.value || "");
 		              if (activeIdx >= items.length) activeIdx = 0;
 		              let activeRow = null;
 		              for (let i = 0; i < items.length; i += 1) {

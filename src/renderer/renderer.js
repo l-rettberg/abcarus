@@ -23,14 +23,12 @@ import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import {
   buildDecorationExample,
-  parseDecorationCatalogEnrichment,
-} from "./editor/decoration_examples.js";
-import {
   buildGmProgramItems,
   findMidiProgramCommentEdit,
   findMidiProgramNumberEdit,
   getMidiProgramCommand,
-} from "./editor/gm_program_picker_model.js";
+  parseDecorationCatalogEnrichment,
+} from "./editor/abc_helpers_model.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {

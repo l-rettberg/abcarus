@@ -89,6 +89,11 @@ import {
   parseDrumPattern,
 } from "./tools/drum_helper/drum_helper_model.js";
 import {
+  buildGchordLines,
+  buildGchordPreview,
+  getNormalizedGchordBars,
+} from "./tools/gchord_helper/gchord_helper_model.js";
+import {
   DEFAULT_SET_LIST_HEADER_TEXT,
   insertSetListItemAt as insertSetListItemAtCore,
   moveSetListItems,
@@ -9962,108 +9967,11 @@ function initEditor() {
 		            actions.appendChild(applyBtn);
 		            body.appendChild(actions);
 
-		            const expandGchordPattern = (rawPattern) => {
-		              const s = String(rawPattern || "");
-		              const out = [];
-		              let last = "";
-		              let i = 0;
-		              while (i < s.length) {
-		                const ch = s[i];
-		                if (/\s/.test(ch)) { i += 1; continue; }
-		                if (/[0-9]/.test(ch)) {
-		                  let num = "";
-		                  while (i < s.length && /[0-9]/.test(s[i])) { num += s[i]; i += 1; }
-		                  const n = Number(num);
-		                  if (last && Number.isFinite(n) && n > 1) {
-		                    for (let k = 0; k < n - 1; k += 1) out.push(last);
-		                  }
-		                  continue;
-		                }
-		                last = ch;
-		                out.push(ch);
-		                i += 1;
-		              }
-		              return out;
-		            };
 		            const updateStatus = () => {
 		              const raw = String(patternField.input.value || "");
-		              const tokens = expandGchordPattern(raw);
-		              const len = tokens.length;
-		              let bars = String(barsField.input.value || "").trim();
-		              let barsNote = "";
-		              if (bars) {
-		                const n = Number(bars);
-		                if (Number.isFinite(n) && n > 0) {
-		                  bars = String(Math.floor(n));
-		                  if (len > 0 && len % Number(bars) !== 0) {
-		                    barsNote = " (pattern length not divisible)";
-		                  }
-		                } else {
-		                  bars = "";
-		                }
-		              }
-		              status.textContent = `pattern length: ${len}${bars ? ` · bars: ${bars}${barsNote}` : ""}`;
-		              if (!tokens.length) {
-		                previewBox.textContent = "";
-		                return;
-		              }
-		              const maxTokens = 64;
-		              let shown = tokens;
-		              let truncated = false;
-		              if (tokens.length > maxTokens) {
-		                shown = tokens.slice(0, maxTokens);
-		                truncated = true;
-		              }
-		              const useBars = bars && Number.isFinite(Number(bars)) && Number(bars) > 0 && shown.length % Number(bars) === 0;
-		              const perBar = useBars ? (shown.length / Number(bars)) : 0;
-		              const withBars = (arr) => {
-		                if (!useBars || !perBar) return arr.slice();
-		                const out = [];
-		                for (let i = 0; i < arr.length; i += 1) {
-		                  out.push(arr[i]);
-		                  if ((i + 1) % perBar === 0 && i + 1 < arr.length) out.push("|");
-		                }
-		                return out;
-		              };
-		              const mapToken = (t) => {
-		                const ch = String(t || "");
-		                if (!ch) return { bass: "z", chord: "z" };
-		                if (ch === "z") return { bass: "z", chord: "z" };
-		                if (ch === "f") return { bass: "f", chord: "z" };
-		                if (ch === "c") return { bass: "z", chord: "c" };
-		                if (ch === "b") return { bass: "b", chord: "b" };
-		                if ("GHIJKghijk".includes(ch)) return { bass: "z", chord: ch };
-		                return { bass: ch, chord: ch };
-		              };
-		              const bassRow = [];
-		              const chordRow = [];
-		              for (const t of shown) {
-		                const mapped = mapToken(t);
-		                bassRow.push(mapped.bass);
-		                chordRow.push(mapped.chord);
-		              }
-		              const bassOut = withBars(bassRow);
-		              const chordOut = withBars(chordRow);
-		              if (truncated) {
-		                bassOut.push("...");
-		                chordOut.push("...");
-		              }
-		              const beatOut = (() => {
-		                const out = [];
-		                if (!useBars || !perBar) return out;
-		                for (let i = 0; i < shown.length; i += 1) {
-		                  const step = (i % perBar) + 1;
-		                  out.push(String(step));
-		                  if ((i + 1) % perBar === 0 && i + 1 < shown.length) out.push("|");
-		                }
-		                if (truncated) out.push("...");
-		                return out;
-		              })();
-		              const labelPad = (s) => (s.length < 6 ? `${s}${" ".repeat(6 - s.length)}` : s);
-		              const line1 = beatOut.length ? `${labelPad("BEAT:")}${beatOut.join(" ")}` : "";
-		              const line2 = `${labelPad("BASS:")}${bassOut.join(" ")}`;
-		              const line3 = `${labelPad("CHRD:")}${chordOut.join(" ")}`;
-		              previewBox.textContent = [line1, line2, line3].filter(Boolean).join("\n");
+		              const preview = buildGchordPreview(raw, barsField.input.value || "");
+		              status.textContent = preview.statusText;
+		              previewBox.textContent = preview.previewText;
 		            };
 		            updateStatus();
 		            patternField.input.addEventListener("input", updateStatus);
@@ -10077,21 +9985,23 @@ function initEditor() {
 		                return;
 		              }
 		              const barsRaw = String(barsField.input.value || "").trim();
-		              let barsOut = "";
-		              if (barsRaw) {
-		                const n = Number(barsRaw);
-		                if (!Number.isFinite(n) || n <= 0) {
-		                  try { showToast("Gchord editor: gchordbars must be a positive integer.", 2200); } catch {}
-		                  return;
-		                }
-		                barsOut = String(Math.floor(n));
+		              const barsOut = getNormalizedGchordBars(barsRaw);
+		              if (barsRaw && !barsOut) {
+		                try { showToast("Gchord editor: gchordbars must be a positive integer.", 2200); } catch {}
+		                return;
 		              }
 
 		              const gchordIndent = String(gchordLine || "").match(/^[\t ]*/)?.[0] ?? "";
 		              const gchordComment = gchordParts.comment
 		                ? (gchordParts.comment.startsWith(" ") ? gchordParts.comment : ` ${gchordParts.comment}`)
 		                : "";
-		              const newGchordLine = `${gchordIndent}%%MIDI gchord ${patternValue}${gchordComment}`;
+		              const baseGchordLines = buildGchordLines({
+		                pattern: patternValue,
+		                bars: barsOut,
+		                gchordIndent,
+		                gchordComment,
+		              });
+		              const newGchordLine = baseGchordLines.gchordLine;
 
 		              const changes = [];
 		              const gchordLineInfo = doc.line(gchordLineNumber);
@@ -10105,10 +10015,17 @@ function initEditor() {
 		                  const barsComment = barsParts.comment
 		                    ? (barsParts.comment.startsWith(" ") ? barsParts.comment : ` ${barsParts.comment}`)
 		                    : "";
-		                  const newBarsLine = `${barsIndent}%%MIDI gchordbars ${barsOut}${barsComment}`;
+		                  const newBarsLine = buildGchordLines({
+		                    pattern: patternValue,
+		                    bars: barsOut,
+		                    gchordIndent,
+		                    gchordComment,
+		                    barsIndent,
+		                    barsComment,
+		                  }).barsLine;
 		                  changes.push({ from: barsLineInfo.from, to: barsLineInfo.to, insert: newBarsLine });
 		                } else {
-		                  changes.push({ from: gchordLineInfo.from, to: gchordLineInfo.from, insert: `${gchordIndent}%%MIDI gchordbars ${barsOut}\n` });
+		                  changes.push({ from: gchordLineInfo.from, to: gchordLineInfo.from, insert: `${baseGchordLines.barsLine}\n` });
 		                }
 		              } else if (gchordBarsLineNumber != null) {
 		                const barsLineInfo = doc.line(gchordBarsLineNumber);

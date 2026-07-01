@@ -19,6 +19,7 @@ import {
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
+import { formatAbcHelpLine, getAbcHelpAtLine } from "./editor/abc_help.js";
 import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
@@ -8885,29 +8886,8 @@ function initEditor() {
 		          const anchorLineFrom = line.from;
 		          const anchorText = line.text || "";
 		          const text = anchorText;
-		          const m = /^\s*([KML]):/.exec(text);
-		          const midi = /^\s*(%{1,2})\s*MIDI\s*([A-Za-z]+)/i.exec(text);
 		          const midiProg = /^\s*(%{1,2})\s*MIDI\s*(program|chordprog|bassprog)\b/i.exec(text);
-		          let msg = "";
-		          if (m) {
-		            if (m[1] === "K") msg = "K: — Key signature (e.g. K:Dm, K:G, K:C#m).";
-		            if (m[1] === "M") msg = "M: — Meter/time signature (e.g. M:4/4, M:6/8, M:C, M:C|).";
-		            if (m[1] === "L") msg = "L: — Default note length unit (e.g. L:1/8).";
-		          } else if (midi) {
-		            const cmd = String(midi[2] || "").toLowerCase();
-		            if (cmd === "program") msg = "%%MIDI program — Select instrument program (0–127). Use ABC Helpers (Ctrl+F2) for GM program picker.";
-		            else if (cmd === "chordprog") msg = "%%MIDI chordprog — Select chord instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker.";
-		            else if (cmd === "bassprog") msg = "%%MIDI bassprog — Select bass instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker.";
-		            else if (cmd === "instrument") msg = "%%MIDI instrument — Instrument selection (engine-defined).";
-		            else if (cmd === "temperamentequal") msg = "%%MIDI temperamentequal — Enable EDO-N (e.g. 53).";
-		            else if (cmd === "drum") msg = "%%MIDI drum — Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing.";
-		            else if (cmd === "drumon") msg = "%%MIDI drumon — Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
-		            else if (cmd === "drumoff") msg = "%%MIDI drumoff — Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
-		            else if (cmd === "gchord") msg = "%%MIDI gchord — Define accompaniment pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper for guided editing.";
-		            else if (cmd === "gchordbars") msg = "%%MIDI gchordbars — Set bars covered by gchord pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper.";
-		            else if (cmd === "gchordon") msg = "%%MIDI gchordon — Enable gchords.";
-		            else if (cmd === "gchordoff") msg = "%%MIDI gchordoff — Disable gchords.";
-		          }
+		          const msg = formatAbcHelpLine(getAbcHelpAtLine(text));
 
 		          const pop = document.createElement("div");
 		          pop.id = "abcarusAbcHelpPopover";

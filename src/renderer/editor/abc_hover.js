@@ -1,29 +1,9 @@
 import {
   hoverTooltip,
 } from "../../../third_party/codemirror/cm.js";
+import { getAbcHelpAtLine } from "./abc_help.js";
 
 function buildAbcHoverTooltip() {
-  const helpByHeaderKey = new Map([
-    ["K", "Key signature (e.g. K:Dm, K:G, K:C#m). abc2svg treats K: as the header/body boundary."],
-    ["M", "Meter/time signature (e.g. M:4/4, M:6/8, M:C, M:C|)."],
-    ["L", "Default note length unit (e.g. L:1/8)."],
-  ]);
-
-  const helpByMidiCommand = new Map([
-    ["program", "Select instrument program (0\u2013127). Use ABC Helpers (Ctrl+F2) for GM program picker."],
-    ["chordprog", "Select chord instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker."],
-    ["bassprog", "Select bass instrument program. Use ABC Helpers (Ctrl+F2) for GM program picker."],
-    ["instrument", "Instrument selection (engine-defined; often an alias of program)."],
-    ["temperamentequal", "Enable EDO-N tuning (e.g. %%MIDI temperamentequal 53)."],
-    ["drum", "Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing."],
-    ["drumon", "Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
-    ["drumoff", "Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
-    ["gchord", "Define accompaniment pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper for guided editing."],
-    ["gchordbars", "Set bars covered by gchord pattern. Use ABC Helpers (Ctrl+F2) > Gchord Helper."],
-    ["gchordon", "Enable gchords."],
-    ["gchordoff", "Disable gchords."],
-  ]);
-
   const buildDom = (title, body) => {
     const dom = document.createElement("div");
     dom.style.maxWidth = "320px";
@@ -38,35 +18,13 @@ function buildAbcHoverTooltip() {
     return dom;
   };
 
-  const getHelpAtLine = (text) => {
-    if (!text) return null;
-
-    const headerMatch = /^\s*([KML]):/.exec(text);
-    if (headerMatch) {
-      const key = headerMatch[1];
-      const help = helpByHeaderKey.get(key) || null;
-      if (!help) return null;
-      return { title: `${key}:`, help };
-    }
-
-    const midiMatch = /^\s*(%{1,2})\s*MIDI\s+([A-Za-z]+)/i.exec(text);
-    if (midiMatch) {
-      const cmd = String(midiMatch[2] || "").toLowerCase();
-      const help = helpByMidiCommand.get(cmd) || null;
-      if (!help) return null;
-      return { title: `%%MIDI ${cmd}`, help };
-    }
-
-    return null;
-  };
-
   return hoverTooltip((view, pos) => {
     if (!view) return null;
     const line = view.state.doc.lineAt(pos);
     const text = line.text;
     const leadingSpaces = /^\s*/.exec(text)?.[0]?.length || 0;
 
-    const help = getHelpAtLine(text);
+    const help = getAbcHelpAtLine(text);
     if (help && /^\s*([KML]):/.test(text)) {
       const from = line.from + leadingSpaces;
       const to = Math.min(line.to, from + 2);

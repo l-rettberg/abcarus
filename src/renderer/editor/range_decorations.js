@@ -3,6 +3,24 @@ import {
   RangeSetBuilder,
 } from "../../../third_party/codemirror/cm.js";
 
+function buildSingleRangeMarkDecorations(state, range, className) {
+  const r = range || null;
+  if (!r) return Decoration.none;
+  const max = state.doc.length;
+  const from = Math.max(0, Math.min(Number(r.from), max));
+  const to = Math.max(from, Math.min(Number(r.to), max));
+  if (to <= from) return Decoration.none;
+  return Decoration.set([Decoration.mark({ class: className }).range(from, to)]);
+}
+
+function buildErrorActivationDecorations(state, range) {
+  return buildSingleRangeMarkDecorations(state, range, "cm-error-activation");
+}
+
+function buildPracticeBarDecorations(state, range) {
+  return buildSingleRangeMarkDecorations(state, range, "cm-practice-bar");
+}
+
 function buildMeasureErrorDecorations(state, ranges) {
   if (!ranges || !ranges.length) return Decoration.none;
   const builder = new RangeSetBuilder();
@@ -164,7 +182,9 @@ function buildPayloadLayerDecorations(state, { payloadMode, showLayers, layerSpa
 
 export {
   buildBarMismatchDecorations,
+  buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
   buildMeasureErrorDecorations,
   buildPayloadLayerDecorations,
+  buildPracticeBarDecorations,
 };

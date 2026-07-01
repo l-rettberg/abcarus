@@ -25,9 +25,11 @@ import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
   buildBarMismatchDecorations,
+  buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
   buildMeasureErrorDecorations,
   buildPayloadLayerDecorations,
+  buildPracticeBarDecorations,
 } from "./editor/range_decorations.js";
 import { initSettings } from "./settings.js";
 import {
@@ -1438,20 +1440,10 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
   updateErrorsFeatureUI();
 }
 
-function buildErrorActivationDecorations(state) {
-  const r = errorActivationHighlightRange;
-  if (!r) return Decoration.none;
-  const max = state.doc.length;
-  const from = Math.max(0, Math.min(Number(r.from), max));
-  const to = Math.max(from, Math.min(Number(r.to), max));
-  if (to <= from) return Decoration.none;
-  return Decoration.set([Decoration.mark({ class: "cm-error-activation" }).range(from, to)]);
-}
-
 const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
     this.version = errorActivationHighlightVersion;
-    this.decorations = buildErrorActivationDecorations(view.state);
+    this.decorations = buildErrorActivationDecorations(view.state, errorActivationHighlightRange);
   }
   update(update) {
     if (update.docChanged && activeErrorHighlight && errorActivationHighlightRange) {
@@ -1477,27 +1469,17 @@ const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
     }
     if (this.version !== errorActivationHighlightVersion) {
       this.version = errorActivationHighlightVersion;
-      this.decorations = buildErrorActivationDecorations(update.state);
+      this.decorations = buildErrorActivationDecorations(update.state, errorActivationHighlightRange);
     }
   }
 }, {
   decorations: (v) => v.decorations,
 });
 
-function buildPracticeBarDecorations(state) {
-  const r = practiceBarHighlightRange;
-  if (!r) return Decoration.none;
-  const max = state.doc.length;
-  const from = Math.max(0, Math.min(Number(r.from), max));
-  const to = Math.max(from, Math.min(Number(r.to), max));
-  if (to <= from) return Decoration.none;
-  return Decoration.set([Decoration.mark({ class: "cm-practice-bar" }).range(from, to)]);
-}
-
 const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
     this.version = practiceBarHighlightVersion;
-    this.decorations = buildPracticeBarDecorations(view.state);
+    this.decorations = buildPracticeBarDecorations(view.state, practiceBarHighlightRange);
   }
   update(update) {
     if (update.docChanged) {
@@ -1517,7 +1499,7 @@ const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
     }
     if (update.docChanged || update.selectionSet || this.version !== practiceBarHighlightVersion) {
       this.version = practiceBarHighlightVersion;
-      this.decorations = buildPracticeBarDecorations(update.state);
+      this.decorations = buildPracticeBarDecorations(update.state, practiceBarHighlightRange);
     }
   }
 }, {

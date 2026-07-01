@@ -1,36 +1,8 @@
+import { BUILTIN_MAKAM_K_SIGNATURES } from "../makam_dna/makam_k_signatures.mjs";
+import { buildKeySignatureCompletionOptions } from "./abc_helpers_model.js";
+
 function buildAbcCompletionSource() {
-  const keyOptions = [
-    "C",
-    "G",
-    "D",
-    "A",
-    "E",
-    "B",
-    "F#",
-    "C#",
-    "F",
-    "Bb",
-    "Eb",
-    "Ab",
-    "Db",
-    "Gb",
-    "Cb",
-    "Am",
-    "Em",
-    "Bm",
-    "F#m",
-    "C#m",
-    "G#m",
-    "D#m",
-    "A#m",
-    "Dm",
-    "Gm",
-    "Cm",
-    "Fm",
-    "Bbm",
-    "Ebm",
-    "Abm",
-  ].map((label) => ({ label, type: "keyword" }));
+  const keyOptions = buildKeySignatureCompletionOptions(BUILTIN_MAKAM_K_SIGNATURES);
 
   const meterOptions = [
     "4/4",
@@ -110,8 +82,9 @@ function buildAbcCompletionSource() {
 
     // Header field values.
     if (/^\s*K:/.test(lineText)) {
-      const m = context.matchBefore(/[A-Za-z#bm]*$/);
-      if (m) return { from: line.from + m.from, options: keyOptions };
+      const bodyStart = lineText.indexOf(":") + 1;
+      const from = line.from + bodyStart;
+      if (pos >= from) return { from, options: keyOptions };
     }
     if (/^\s*M:/.test(lineText)) {
       const m = context.matchBefore(/[0-9C|/nobe]*$/i);

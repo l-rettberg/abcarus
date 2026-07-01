@@ -1,3 +1,111 @@
+const WESTERN_KEY_SIGNATURES = [
+  { k: "C", detail: "C major" },
+  { k: "G", detail: "G major" },
+  { k: "D", detail: "D major" },
+  { k: "A", detail: "A major" },
+  { k: "E", detail: "E major" },
+  { k: "B", detail: "B major" },
+  { k: "F#", detail: "F# major" },
+  { k: "C#", detail: "C# major" },
+  { k: "F", detail: "F major" },
+  { k: "Bb", detail: "Bb major" },
+  { k: "Eb", detail: "Eb major" },
+  { k: "Ab", detail: "Ab major" },
+  { k: "Db", detail: "Db major" },
+  { k: "Gb", detail: "Gb major" },
+  { k: "Cb", detail: "Cb major" },
+  { k: "Am", detail: "A minor" },
+  { k: "Em", detail: "E minor" },
+  { k: "Bm", detail: "B minor" },
+  { k: "F#m", detail: "F# minor" },
+  { k: "C#m", detail: "C# minor" },
+  { k: "G#m", detail: "G# minor" },
+  { k: "D#m", detail: "D# minor" },
+  { k: "A#m", detail: "A# minor" },
+  { k: "Dm", detail: "D minor" },
+  { k: "Gm", detail: "G minor" },
+  { k: "Cm", detail: "C minor" },
+  { k: "Fm", detail: "F minor" },
+  { k: "Bbm", detail: "Bb minor" },
+  { k: "Ebm", detail: "Eb minor" },
+  { k: "Abm", detail: "Ab minor" },
+  { k: "none", detail: "No key signature" },
+];
+
+function buildWesternKeySignatureItems() {
+  return WESTERN_KEY_SIGNATURES.map((item) => ({
+    k: item.k,
+    label: item.k,
+    detail: item.detail,
+    info: item.detail,
+    source: "western",
+    count: 0,
+    makams: [],
+  }));
+}
+
+function buildMakamKeySignatureItems(makamSignatures) {
+  const groups = new Map();
+  for (const entry of Array.isArray(makamSignatures) ? makamSignatures : []) {
+    const k = String(entry && entry.k || "").trim();
+    const makam = String(entry && entry.makam || "").trim();
+    const count = Number(entry && entry.count) || 0;
+    if (!k || !makam) continue;
+    const group = groups.get(k) || { k, count: 0, makams: [] };
+    group.count += count;
+    group.makams.push({ makam, count });
+    groups.set(k, group);
+  }
+
+  return Array.from(groups.values())
+    .sort((a, b) => (b.count - a.count) || a.k.localeCompare(b.k))
+    .map((group) => {
+      const top = group.makams
+        .slice()
+        .sort((a, b) => (b.count - a.count) || a.makam.localeCompare(b.makam))
+        .slice(0, 4);
+      const makamText = top.map((m) => `${m.makam} ${m.count}`).join(", ");
+      const more = group.makams.length > top.length ? `, +${group.makams.length - top.length} more` : "";
+      const detail = `SymbTr makam (${group.count}): ${makamText}${more}`;
+      return {
+        k: group.k,
+        label: group.k,
+        detail,
+        info: detail,
+        source: "symbtr-makam",
+        count: group.count,
+        makams: group.makams,
+      };
+    });
+}
+
+function buildKeySignatureItems(makamSignatures) {
+  return buildWesternKeySignatureItems().concat(buildMakamKeySignatureItems(makamSignatures));
+}
+
+function filterKeySignatureItems(items, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return Array.isArray(items) ? items : [];
+  const terms = q.split(/\s+/g).filter(Boolean);
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const makams = Array.isArray(item && item.makams)
+      ? item.makams.map((m) => m && m.makam).join(" ")
+      : "";
+    const hay = `${item && item.k || ""} ${item && item.detail || ""} ${makams}`.toLowerCase();
+    return terms.every((term) => hay.includes(term));
+  });
+}
+
+function buildKeySignatureCompletionOptions(makamSignatures) {
+  return buildKeySignatureItems(makamSignatures).map((item) => ({
+    label: item.k,
+    type: "keyword",
+    detail: item.source === "western" ? item.detail : "SymbTr makam",
+    info: item.info,
+    boost: item.source === "western" ? 2 : 0,
+  }));
+}
+
 function buildDecorationExample(name, shorthandChar) {
   if (!name) return "";
   const abc = `!${name}!`;
@@ -187,8 +295,11 @@ export {
   buildDecorationExample,
   buildDecorationPickerItems,
   buildGmProgramItems,
+  buildKeySignatureCompletionOptions,
+  buildKeySignatureItems,
   findMidiProgramCommentEdit,
   findMidiProgramNumberEdit,
+  filterKeySignatureItems,
   getDecorationDetails,
   getRangeDecorationBase,
   getMidiProgramCommand,

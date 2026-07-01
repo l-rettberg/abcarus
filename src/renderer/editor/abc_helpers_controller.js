@@ -1,12 +1,15 @@
 import {
   buildDecorationPickerItems,
   buildGmProgramItems,
+  buildKeySignatureItems,
   findMidiProgramCommentEdit,
   findMidiProgramNumberEdit,
+  filterKeySignatureItems,
   getDecorationDetails,
   getRangeDecorationBase,
   getMidiProgramCommand,
 } from "./abc_helpers_model.js";
+import { BUILTIN_MAKAM_K_SIGNATURES } from "../makam_dna/makam_k_signatures.mjs";
 
 function openMidiProgramPickerAtCursor({
   view,
@@ -228,6 +231,243 @@ function openMidiProgramPickerAtCursor({
   });
 
   let closePopover = () => { try { pop.remove(); } catch {} };
+  const coords = view.coordsAtPos(pos);
+  const margin = 10;
+  const vw = window.innerWidth || 0;
+  const vh = window.innerHeight || 0;
+  let left = margin;
+  let top = margin;
+  if (coords) {
+    left = Math.round(coords.left);
+    top = Math.round(coords.bottom + 8);
+  }
+  document.body.appendChild(pop);
+  const r = pop.getBoundingClientRect();
+  if (left + r.width + margin > vw) left = Math.max(margin, vw - r.width - margin);
+  if (top + r.height + margin > vh) top = Math.max(margin, (coords ? (coords.top - r.height - 8) : (vh - r.height - margin)));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+
+  const onDocKey = (ev) => {
+    try { if (ev && ev.key === "Escape") closePopover(); } catch {}
+  };
+  const onDocDown = (ev) => {
+    try { if (ev && !pop.contains(ev.target)) closePopover(); } catch {}
+  };
+  const cleanup = () => {
+    document.removeEventListener("keydown", onDocKey, true);
+    document.removeEventListener("mousedown", onDocDown, true);
+  };
+  closePopover = () => {
+    try { cleanup(); } catch {}
+    try { pop.remove(); } catch {}
+  };
+  pop.__abcarusClose = closePopover;
+  document.addEventListener("keydown", onDocKey, true);
+  document.addEventListener("mousedown", onDocDown, true);
+  render();
+  setTimeout(() => { try { input.focus(); input.select(); } catch {} }, 0);
+  return true;
+}
+
+function openKeySignaturePickerAtCursor({
+  view,
+  pos,
+  lineInfo,
+  lineText,
+  makamSignatures = BUILTIN_MAKAM_K_SIGNATURES,
+  EditorSelection,
+  enableDraggableFixedPopover,
+} = {}) {
+  if (!view || !view.state || !lineInfo || !EditorSelection) return false;
+  if (!/^\s*K:/.test(String(lineText || ""))) return false;
+
+  const existing = document.getElementById("abcarusKeySignaturePopover");
+  if (existing) {
+    try {
+      const close = existing.__abcarusClose;
+      if (typeof close === "function") close();
+      else existing.remove();
+    } catch {}
+    return true;
+  }
+
+  const allItems = buildKeySignatureItems(makamSignatures);
+  const pop = document.createElement("div");
+  pop.id = "abcarusKeySignaturePopover";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-label", "Key signature picker");
+  pop.style.position = "fixed";
+  pop.style.zIndex = "9999";
+  pop.style.width = "min(720px, calc(100vw - 20px))";
+  pop.style.maxWidth = "calc(100vw - 20px)";
+  pop.style.maxHeight = "calc(100vh - 20px)";
+  pop.style.overflow = "auto";
+  pop.style.padding = "8px 10px";
+  pop.style.boxSizing = "border-box";
+  pop.style.borderRadius = "8px";
+  pop.style.border = "1px solid rgba(0,0,0,0.18)";
+  pop.style.background = "rgba(255,255,255,0.98)";
+  pop.style.boxShadow = "0 8px 24px rgba(0,0,0,0.18)";
+  pop.style.fontSize = "13px";
+  pop.style.lineHeight = "1.35";
+
+  const head = document.createElement("div");
+  head.style.display = "flex";
+  head.style.alignItems = "center";
+  head.style.justifyContent = "space-between";
+  head.style.gap = "12px";
+
+  const title = document.createElement("div");
+  title.textContent = "Key signature";
+  title.style.fontWeight = "600";
+  head.appendChild(title);
+
+  const hint = document.createElement("div");
+  hint.textContent = "Search makam or key · Enter=insert · Esc=close";
+  hint.style.opacity = "0.65";
+  hint.style.fontSize = "12px";
+  head.appendChild(hint);
+  pop.appendChild(head);
+  if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
+
+  const body = document.createElement("div");
+  body.style.marginTop = "6px";
+  pop.appendChild(body);
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Search… (e.g. hicaz, rast, C _4B, F#m)";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.style.width = "100%";
+  input.style.padding = "6px 8px";
+  input.style.borderRadius = "6px";
+  input.style.border = "1px solid rgba(0,0,0,0.2)";
+  input.style.boxSizing = "border-box";
+  body.appendChild(input);
+
+  const list = document.createElement("div");
+  list.style.marginTop = "6px";
+  list.style.maxHeight = "320px";
+  list.style.overflow = "auto";
+  list.style.border = "1px solid rgba(0,0,0,0.12)";
+  list.style.borderRadius = "6px";
+  body.appendChild(list);
+
+  let items = [];
+  let activeIdx = 0;
+  let closePopover = () => { try { pop.remove(); } catch {} };
+
+  const applyKeySignature = (item) => {
+    try {
+      if (!item || !item.k) return false;
+      const currentLine = view.state.doc.lineAt(pos);
+      const text = currentLine.text || "";
+      const m = /^(\s*K:\s*)(.*)$/.exec(text);
+      if (!m) return false;
+      const prefix = m[1] || "";
+      const rest = m[2] || "";
+      const commentIdx = rest.indexOf("%");
+      const comment = commentIdx >= 0 ? rest.slice(commentIdx) : "";
+      const insert = `${item.k}${comment ? (comment.startsWith(" ") ? comment : ` ${comment}`) : ""}`;
+      const from = currentLine.from + prefix.length;
+      view.dispatch({
+        changes: { from, to: currentLine.to, insert },
+        selection: EditorSelection.cursor(from + String(item.k).length),
+        userEvent: "input",
+      });
+      try { view.focus(); } catch {}
+      return true;
+    } catch {}
+    return false;
+  };
+
+  const render = () => {
+    list.textContent = "";
+    items = filterKeySignatureItems(allItems, input.value || "");
+    if (activeIdx >= items.length) activeIdx = 0;
+    let activeRow = null;
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const row = document.createElement("div");
+      row.style.display = "grid";
+      row.style.gridTemplateColumns = "12em 1fr";
+      row.style.gap = "10px";
+      row.style.padding = "6px 8px";
+      row.style.cursor = "pointer";
+      row.style.borderTop = i === 0 ? "none" : "1px solid rgba(0,0,0,0.06)";
+      if (i === activeIdx) {
+        row.style.background = "rgba(30,144,255,0.12)";
+        activeRow = row;
+      }
+
+      const key = document.createElement("div");
+      key.textContent = item.k;
+      key.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace";
+      key.style.fontWeight = "600";
+      key.style.whiteSpace = "nowrap";
+      row.appendChild(key);
+
+      const detail = document.createElement("div");
+      detail.textContent = item.detail || "";
+      detail.style.opacity = "0.75";
+      detail.style.overflow = "hidden";
+      detail.style.whiteSpace = "nowrap";
+      detail.style.textOverflow = "ellipsis";
+      row.appendChild(detail);
+
+      row.addEventListener("click", (ev) => {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch {}
+        const ok = applyKeySignature(item);
+        if (ok) closePopover();
+      }, true);
+      list.appendChild(row);
+    }
+    try { if (activeRow) activeRow.scrollIntoView({ block: "nearest" }); } catch {}
+  };
+
+  input.addEventListener("input", () => {
+    activeIdx = 0;
+    render();
+  });
+
+  input.addEventListener("keydown", (ev) => {
+    try {
+      if (!ev) return;
+      const key = String(ev.key || "");
+      if (key === "ArrowDown") {
+        if (items.length) activeIdx = Math.min(items.length - 1, activeIdx + 1);
+        render();
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      if (key === "ArrowUp") {
+        if (items.length) activeIdx = Math.max(0, activeIdx - 1);
+        render();
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      if (key === "Enter") {
+        const item = items[activeIdx];
+        if (item) {
+          const ok = applyKeySignature(item);
+          if (ok) closePopover();
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      if (key === "Escape") {
+        closePopover();
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    } catch {}
+  }, true);
+
   const coords = view.coordsAtPos(pos);
   const margin = 10;
   const vw = window.innerWidth || 0;
@@ -983,5 +1223,6 @@ function openDecorationPickerAtCursor({
 
 export {
   openDecorationPickerAtCursor,
+  openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 };

@@ -26,6 +26,7 @@ import {
 } from "./editor/abc_helpers_model.js";
 import {
   openDecorationPickerAtCursor,
+  openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
@@ -8510,6 +8511,14 @@ function initEditor() {
 		            try { showToast("Decoration picker: not available in %%begintext blocks.", 2200); } catch {}
 		            return true;
 		          }
+		          if (openKeySignaturePickerAtCursor({
+		            view,
+		            pos,
+		            lineInfo,
+		            lineText,
+		            EditorSelection,
+		            enableDraggableFixedPopover,
+		          })) return true;
 		          if (openMidiProgramPickerAtCursor({
 		            view,
 		            pos,

@@ -118,6 +118,8 @@ def main():
 
     by_k = Counter()
     by_makam = defaultdict(Counter)
+    examples = defaultdict(lambda: defaultdict(list))
+    unclassified = []
     tunes_total = 0
 
     for tune in parse_abc(args.input):
@@ -128,12 +130,32 @@ def main():
             by_k[k] += 1
         if k and m:
             by_makam[m][k] += 1
+            if len(examples[m][k]) < 3:
+                examples[m][k].append({
+                    "x": tune["x"],
+                    "title": tune["titles"][0] if tune["titles"] else "",
+                })
+        elif k and not m and len(unclassified) < 20:
+            unclassified.append({
+                "x": tune["x"],
+                "titles": tune["titles"],
+                "k": k,
+            })
 
     by_makam_out = {}
     for makam_key, ks in by_makam.items():
         by_makam_out[makam_key] = {
             "count": sum(ks.values()),
             "kSignatures": dict(ks.most_common()),
+            "topK": [
+                {"k": k, "count": count}
+                for k, count in ks.most_common(5)
+            ],
+            "examples": {
+                k: examples[makam_key][k]
+                for k, _count in ks.most_common(5)
+                if examples[makam_key][k]
+            },
         }
 
     out = {
@@ -148,6 +170,7 @@ def main():
         "byMakam": dict(
             sorted(by_makam_out.items(), key=lambda kv: kv[1]["count"], reverse=True)
         ),
+        "unclassified": unclassified,
         "notes": {
             "makamDetection": "Heuristic: first token of the 2nd T: line when present; normalized to ASCII; keeps hyphenated forms.",
             "kFormat": "K: appears to encode 53-EDO accidental sets (SymbTr convention) rather than major/minor.",
@@ -156,7 +179,7 @@ def main():
 
     with open(args.output_json, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-        f.write("\\n")
+        f.write("\n")
 
 
 if __name__ == "__main__":

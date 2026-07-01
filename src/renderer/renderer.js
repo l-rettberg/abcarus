@@ -3634,7 +3634,6 @@ let libraryUiStateTimer = null;
 let libraryUiStateDirty = false;
 const LIBRARY_UI_STATE_DEBOUNCE_MS = 300;
 
-let templatesInsertMode = "insert";
 const templatesController = createTemplatesController({
   modal: $templatesModal,
   list: $templatesList,
@@ -3642,6 +3641,10 @@ const templatesController = createTemplatesController({
   folderLabel: $templatesFolderLabel,
   previewTitle: $templatesPreviewTitle,
   previewText: $templatesPreviewText,
+  closeButton: $templatesClose,
+  cancelButton: $templatesCancel,
+  manageButton: $templatesManage,
+  reloadButton: $templatesReload,
   insertButton: $templatesInsert,
   replaceButton: $templatesReplace,
   appendButton: $templatesAppend,
@@ -3649,8 +3652,14 @@ const templatesController = createTemplatesController({
   api: window.api,
   readFile,
   safeBasename,
-  onDefaultAction: () => {
-    if ($templatesInsert && !$templatesInsert.disabled) $templatesInsert.click();
+  enableDraggableModal,
+  logError: (message) => logErr(message),
+  showToast,
+  onInsert: () => insertSelectedTemplateFromModal("insert"),
+  onReplace: () => insertSelectedTemplateFromModal("replace"),
+  onAppend: () => insertSelectedTemplateFromModal("append"),
+  onPreviewContextMenu: (ev, { fullText, selectionText } = {}) => {
+    showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
   },
 });
 
@@ -20215,10 +20224,6 @@ document.addEventListener("keydown", (e) => {
   dumpDebugToFile().catch(() => {});
 });
 
-function closeTemplatesModal() {
-  templatesController.close();
-}
-
 async function applyUserMakamDnaTextAndRefresh(text) {
   const parsed = parseMakamDnaText(text);
   if (!parsed.ok) return { ok: false, error: parsed.error || "Invalid Makam DNA." };
@@ -20276,27 +20281,6 @@ async function openMakamDnaModal() {
   await makamDnaController.open();
 }
 
-function renderTemplatesList() {
-  templatesController.renderList();
-}
-
-function getSelectionTextWithinElement(el) {
-  const root = el && el.nodeType ? el : null;
-  if (!root) return "";
-  const sel = window.getSelection ? window.getSelection() : null;
-  if (!sel || sel.rangeCount < 1) return "";
-  try {
-    const range = sel.getRangeAt(0);
-    const container = range && range.commonAncestorContainer ? range.commonAncestorContainer : null;
-    if (!container) return "";
-    if (root !== container && !root.contains(container)) return "";
-    const text = sel.toString ? sel.toString() : "";
-    return String(text || "");
-  } catch {
-    return "";
-  }
-}
-
 async function insertSelectedTemplateFromModal(modeOverride = "") {
   const item = templatesController.getSelectedItem();
   if (!item) return;
@@ -20315,7 +20299,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
     slice = ensureXNumberInAbc(slice, "");
   }
 
-  const mode = String(modeOverride || templatesInsertMode || "insert");
+  const mode = String(modeOverride || "insert");
   if (mode === "insert") {
     if (payloadMode) {
       showToast("Exit Payload Mode to insert a template.", 2400);
@@ -20327,7 +20311,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
     const inserted = insertTextAtEditorSelection(slice);
     if (!inserted) return;
     showToast("Template inserted.", 1800);
-    closeTemplatesModal();
+    templatesController.close();
     return;
   }
 
@@ -20338,16 +20322,12 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
     }
     setEditorValue(slice.trimEnd());
     showToast("Template replaced current tune.", 2200);
-    closeTemplatesModal();
+    templatesController.close();
     return;
   }
 
   const appended = await appendTuneTextToFileNow(entry.path, slice, { toastOk: "Template appended." });
-  if (appended) closeTemplatesModal();
-}
-
-async function loadTemplatesForModal() {
-  await templatesController.load();
+  if (appended) templatesController.close();
 }
 
 async function openTemplatesModal() {
@@ -20499,115 +20479,6 @@ if ($aboutCopy) {
       logErr(e && e.message ? e.message : String(e));
       setStatus("Copy failed.");
     }
-  });
-}
-
-if ($templatesClose) {
-  $templatesClose.addEventListener("click", () => {
-    closeTemplatesModal();
-  });
-}
-
-if ($templatesCancel) {
-  $templatesCancel.addEventListener("click", () => {
-    closeTemplatesModal();
-  });
-}
-
-if ($templatesSearch) {
-  $templatesSearch.addEventListener("input", () => {
-    renderTemplatesList();
-  });
-}
-
-if ($templatesManage) {
-  $templatesManage.addEventListener("click", async () => {
-    try {
-      if (window.api && typeof window.api.pickTemplatesFolder === "function") {
-        const res = await window.api.pickTemplatesFolder();
-        if (res && res.ok && !res.canceled) {
-          await loadTemplatesForModal();
-        }
-      }
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-    }
-  });
-}
-
-if ($templatesEdit) {
-  $templatesEdit.addEventListener("click", async () => {
-    try {
-      const item = templatesController.getSelectedItem();
-      if (!item || !item.filePath) return;
-      if (window.api && typeof window.api.openTemplatesFile === "function") {
-        const res = await window.api.openTemplatesFile(String(item.filePath));
-        if (!res || !res.ok) {
-          const msg = res && res.error ? String(res.error) : "Unable to open template file.";
-          showToast(msg, 3200);
-        }
-      }
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-    }
-  });
-}
-
-if ($templatesReload) {
-  $templatesReload.addEventListener("click", async () => {
-    try { await loadTemplatesForModal(); } catch (e) { logErr(e && e.message ? e.message : String(e)); }
-  });
-}
-
-if ($templatesInsert) {
-  $templatesInsert.addEventListener("click", async () => {
-    try { await insertSelectedTemplateFromModal(); } catch (e) { logErr(e && e.message ? e.message : String(e)); }
-  });
-}
-
-if ($templatesReplace) {
-  $templatesReplace.addEventListener("click", async () => {
-    try { await insertSelectedTemplateFromModal("replace"); } catch (e) { logErr(e && e.message ? e.message : String(e)); }
-  });
-}
-
-if ($templatesAppend) {
-  $templatesAppend.addEventListener("click", async () => {
-    try { await insertSelectedTemplateFromModal("append"); } catch (e) { logErr(e && e.message ? e.message : String(e)); }
-  });
-}
-
-if ($templatesModal) {
-  $templatesModal.addEventListener("click", (e) => {
-    if (e.target === $templatesModal) closeTemplatesModal();
-  });
-  $templatesModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closeTemplatesModal();
-      return;
-    }
-    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      if (!$templatesInsert || $templatesInsert.disabled) return;
-      e.preventDefault();
-      e.stopPropagation();
-      $templatesInsert.click();
-    }
-  });
-  enableDraggableModal($templatesModal);
-}
-
-if ($templatesPreviewText) {
-  $templatesPreviewText.addEventListener("contextmenu", (ev) => {
-    try {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const fullText = String($templatesPreviewText.textContent || "");
-      const selectionText = getSelectionTextWithinElement($templatesPreviewText);
-      showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
-    } catch {}
   });
 }
 

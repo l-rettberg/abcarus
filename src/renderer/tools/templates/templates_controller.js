@@ -12,6 +12,10 @@ function createTemplatesController({
   folderLabel,
   previewTitle,
   previewText,
+  closeButton,
+  cancelButton,
+  manageButton,
+  reloadButton,
   insertButton,
   replaceButton,
   appendButton,
@@ -19,7 +23,13 @@ function createTemplatesController({
   api,
   readFile,
   safeBasename,
-  onDefaultAction,
+  enableDraggableModal,
+  onInsert,
+  onReplace,
+  onAppend,
+  onPreviewContextMenu,
+  logError,
+  showToast,
 } = {}) {
   let index = null;
   let items = [];
@@ -38,8 +48,33 @@ function createTemplatesController({
     onSelect: (key) => {
       selectByKey(key).catch(() => {});
     },
-    onDefaultAction,
+    onDefaultAction: () => {
+      runInsertAction("insert").catch((err) => reportError(err));
+    },
   });
+
+  function reportError(err) {
+    try {
+      if (typeof logError === "function") logError(err && err.message ? err.message : String(err));
+    } catch {}
+  }
+
+  function getSelectionTextWithinElement(el) {
+    const root = el && el.nodeType ? el : null;
+    if (!root) return "";
+    const sel = window.getSelection ? window.getSelection() : null;
+    if (!sel || sel.rangeCount < 1) return "";
+    try {
+      const range = sel.getRangeAt(0);
+      const container = range && range.commonAncestorContainer ? range.commonAncestorContainer : null;
+      if (!container) return "";
+      if (root !== container && !root.contains(container)) return "";
+      const text = sel.toString ? sel.toString() : "";
+      return String(text || "");
+    } catch {
+      return "";
+    }
+  }
 
   function isOpen() {
     return Boolean(modal && modal.classList.contains("open"));
@@ -124,6 +159,96 @@ function createTemplatesController({
     view.resetSelection();
     await load();
     try { if (search) search.focus(); } catch {}
+  }
+
+  async function openTemplatesFolderPicker() {
+    try {
+      if (api && typeof api.pickTemplatesFolder === "function") {
+        const res = await api.pickTemplatesFolder();
+        if (res && res.ok && !res.canceled) await load();
+      }
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
+  async function openSelectedTemplateFile() {
+    try {
+      const item = getSelectedItem();
+      if (!item || !item.filePath) return;
+      if (api && typeof api.openTemplatesFile === "function") {
+        const res = await api.openTemplatesFile(String(item.filePath));
+        if (!res || !res.ok) {
+          const msg = res && res.error ? String(res.error) : "Unable to open template file.";
+          try {
+            if (typeof showToast === "function") showToast(msg, 3200);
+          } catch {}
+        }
+      }
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
+  async function runInsertAction(mode = "insert") {
+    const callback = mode === "replace" ? onReplace : (mode === "append" ? onAppend : onInsert);
+    if (typeof callback !== "function") return false;
+    return await callback({ mode, item: getSelectedItem() });
+  }
+
+  if (closeButton) closeButton.addEventListener("click", () => close());
+  if (cancelButton) cancelButton.addEventListener("click", () => close());
+  if (search) search.addEventListener("input", () => renderList());
+  if (manageButton) manageButton.addEventListener("click", () => {
+    openTemplatesFolderPicker().catch((err) => reportError(err));
+  });
+  if (reloadButton) reloadButton.addEventListener("click", () => {
+    load().catch((err) => reportError(err));
+  });
+  if (editButton) editButton.addEventListener("click", () => {
+    openSelectedTemplateFile().catch((err) => reportError(err));
+  });
+  if (insertButton) insertButton.addEventListener("click", () => {
+    runInsertAction("insert").catch((err) => reportError(err));
+  });
+  if (replaceButton) replaceButton.addEventListener("click", () => {
+    runInsertAction("replace").catch((err) => reportError(err));
+  });
+  if (appendButton) appendButton.addEventListener("click", () => {
+    runInsertAction("append").catch((err) => reportError(err));
+  });
+  if (modal) {
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) close();
+    });
+    modal.addEventListener("keydown", (event) => {
+      if (!event) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+        return;
+      }
+      if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (!insertButton || insertButton.disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        runInsertAction("insert").catch((err) => reportError(err));
+      }
+    });
+    if (typeof enableDraggableModal === "function") enableDraggableModal(modal);
+  }
+  if (previewText) {
+    previewText.addEventListener("contextmenu", (event) => {
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof onPreviewContextMenu !== "function") return;
+        const fullText = String(previewText.textContent || "");
+        const selectionText = getSelectionTextWithinElement(previewText);
+        onPreviewContextMenu(event, { fullText, selectionText });
+      } catch {}
+    });
   }
 
   return {

@@ -119,6 +119,7 @@ import {
   readTranslateXY,
 } from "./app/modal_geometry.js";
 import { enableDraggableModal } from "./app/draggable_modal.js";
+import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
 
 const $editorHost = document.getElementById("abc-editor");
@@ -9071,6 +9072,7 @@ function initEditor() {
 		          head.appendChild(hint);
 
 		          pop.appendChild(head);
+		          enableDraggableFixedPopover(pop, head);
 
 		          const body = document.createElement("div");
 		          body.style.marginTop = "6px";
@@ -9422,6 +9424,7 @@ function initEditor() {
 		            hint.style.fontSize = "12px";
 		            head.appendChild(hint);
 		            pop.appendChild(head);
+		            enableDraggableFixedPopover(pop, head);
 
 		            const body = document.createElement("div");
 		            body.style.marginTop = "6px";
@@ -9787,6 +9790,7 @@ function initEditor() {
 		            hint.style.fontSize = "12px";
 		            head.appendChild(hint);
 		            pop.appendChild(head);
+		            enableDraggableFixedPopover(pop, head);
 
 		            const body = document.createElement("div");
 		            body.style.marginTop = "6px";
@@ -10363,6 +10367,7 @@ function initEditor() {
 		            hint.style.fontSize = "12px";
 		            head.appendChild(hint);
 		            pop.appendChild(head);
+		            enableDraggableFixedPopover(pop, head);
 
 		            const body = document.createElement("div");
 		            body.style.marginTop = "6px";
@@ -10733,6 +10738,7 @@ function initEditor() {
 			          head.appendChild(hint);
 
 		          pop.appendChild(head);
+		          enableDraggableFixedPopover(pop, head);
 
 		          const body = document.createElement("div");
 		          body.style.marginTop = "6px";

@@ -72,9 +72,9 @@ function buildAbcCompletionSource() {
     { label: "%%MIDI program ", type: "keyword", info: "Select instrument program (0\u2013127)" },
     { label: "%%MIDI instrument ", type: "keyword", info: "Alias of program (engine-defined)" },
     { label: "%%MIDI temperamentequal ", type: "keyword", info: "Enable EDO-N (e.g. 53)" },
-    { label: "%%MIDI drum ", type: "keyword" },
-    { label: "%%MIDI drumoff", type: "keyword" },
-    { label: "%%MIDI drumon", type: "keyword" },
+    { label: "%%MIDI drum ", type: "keyword", info: "Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing." },
+    { label: "%%MIDI drumoff", type: "keyword", info: "Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines." },
+    { label: "%%MIDI drumon", type: "keyword", info: "Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines." },
   ];
 
   return (context) => {

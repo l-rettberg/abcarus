@@ -13,9 +13,9 @@ function buildAbcHoverTooltip() {
     ["program", "Select instrument program (0\u2013127)."],
     ["instrument", "Instrument selection (engine-defined; often an alias of program)."],
     ["temperamentequal", "Enable EDO-N tuning (e.g. %%MIDI temperamentequal 53)."],
-    ["drum", "Enable/define drums (engine-defined)."],
-    ["drumon", "Enable drums (engine-defined)."],
-    ["drumoff", "Disable drums (engine-defined)."],
+    ["drum", "Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing."],
+    ["drumon", "Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
+    ["drumoff", "Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines."],
   ]);
 
   const buildDom = (title, body) => {

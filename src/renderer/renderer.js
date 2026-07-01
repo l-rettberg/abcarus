@@ -9163,9 +9163,9 @@ function initEditor() {
 		            if (cmd === "program") msg = "%%MIDI program — Select instrument program (0–127).";
 		            else if (cmd === "instrument") msg = "%%MIDI instrument — Instrument selection (engine-defined).";
 		            else if (cmd === "temperamentequal") msg = "%%MIDI temperamentequal — Enable EDO-N (e.g. 53).";
-		            else if (cmd === "drum") msg = "%%MIDI drum — Enable/define drums (engine-defined).";
-		            else if (cmd === "drumon") msg = "%%MIDI drumon — Enable drums (engine-defined).";
-		            else if (cmd === "drumoff") msg = "%%MIDI drumoff — Disable drums (engine-defined).";
+		            else if (cmd === "drum") msg = "%%MIDI drum — Define drum pattern. Use ABC Helpers (Ctrl+F2) > Drum Helper for guided editing.";
+		            else if (cmd === "drumon") msg = "%%MIDI drumon — Enable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
+		            else if (cmd === "drumoff") msg = "%%MIDI drumoff — Disable drums. Use ABC Helpers (Ctrl+F2) > Drum Helper for drum lines.";
 		          }
 
 		          const pop = document.createElement("div");

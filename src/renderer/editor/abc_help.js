@@ -41,12 +41,6 @@ function getAbcHelpAtLine(text) {
   return null;
 }
 
-function formatAbcHelpLine(help) {
-  if (!help) return "";
-  return `${help.title} \u2014 ${help.help}`;
-}
-
 export {
-  formatAbcHelpLine,
   getAbcHelpAtLine,
 };

@@ -13329,6 +13329,16 @@ function hasDrumBarMismatchParseError(parseErrors) {
   });
 }
 
+function isMidiDrumMustBeInVoicePlaybackError(message) {
+  return /%%MIDI\s+drum\s+must be in a voice|%%MIDI\s+drumon\s+must be in a voice|%%MIDI\s+drumbars\s+must be in a voice/i
+    .test(String(message || ""));
+}
+
+function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
+  if (!Array.isArray(parseErrors)) return false;
+  return parseErrors.some((e) => isMidiDrumMustBeInVoicePlaybackError(e && e.message ? e.message : ""));
+}
+
 function relocateMidiDrumDirectivesIntoBody(text) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   const drumLineRe = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i;
@@ -25388,6 +25398,10 @@ async function preparePlayback() {
     };
     playbackParseErrors.push(entry);
     if (playbackParseErrors.length > 200) playbackParseErrors = playbackParseErrors.slice(-200);
+    if (isMidiDrumMustBeInVoicePlaybackError(entry.message)) {
+      playbackSanitizeWarnings.push({ kind: "playback-midi-drums-before-voice", message: entry.message });
+      return;
+    }
     if (!playbackParseErrorToastShown) {
       playbackParseErrorToastShown = true;
       scheduleAutoDump("playback-parse-error", entry && entry.message ? entry.message : String(message || ""));
@@ -25465,13 +25479,6 @@ async function preparePlayback() {
       { skipMeasureRange: true }
     );
   }
-  if (lastPlaybackKeyOrderWarning && lastPlaybackKeyOrderWarning.detail) {
-    addError(
-      `Warning: ${lastPlaybackKeyOrderWarning.detail}`,
-      lastPlaybackKeyOrderWarning.loc || null,
-      { skipMeasureRange: true }
-    );
-  }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
   const scopedOptions = playbackScopedOptions && typeof playbackScopedOptions === "object"
     ? playbackScopedOptions
@@ -25516,7 +25523,7 @@ async function preparePlayback() {
 
   // abc2svg requires %%MIDI drum/drumon/drumbars to be inside a voice; many real-world files place them in headers.
   // Neutralize (comment out) these directives for tolerant playback while preserving istart mapping.
-  if (Array.isArray(playbackParseErrors) && playbackParseErrors.some((e) => /%%MIDI\s+drum\s+must be in a voice|%%MIDI\s+drumon\s+must be in a voice|%%MIDI\s+drumbars\s+must be in a voice/i.test(e.message || ""))) {
+  if (hasMidiDrumMustBeInVoicePlaybackError(playbackParseErrors)) {
     playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackParseErrors = [];

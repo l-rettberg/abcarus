@@ -29,6 +29,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -478,7 +479,6 @@ let suppressHeaderDirty = false;
 let lastHeaderToastFilePath = null;
 let headerEditorFilePath = null;
 let lastErrors = [];
-let errorsPopoverOpen = false;
 let isNewTuneDraft = false;
 let rawMode = false;
 let rawModeFilePath = null;
@@ -1358,14 +1358,11 @@ function setActiveErrorHighlight(entry, from, to) {
   errorActivationHighlightRange = { from: a, to: b };
   errorActivationHighlightVersion += 1;
   setErrorFocusMessage(entry, a);
-  if (errorsPopoverOpen) {
-    renderErrorsPopoverList();
-    positionErrorsPopover();
-  }
+  errorsPopoverController.refresh();
 }
 
 function clearErrorsFeatureState() {
-  toggleErrorsPopover(false);
+  errorsPopoverController.close();
   clearActiveErrorHighlight("docReplaced");
   tuneErrorFilter = false;
   tuneErrorScanInFlight = false;
@@ -3700,6 +3697,16 @@ const xIssuesModalController = createXIssuesModalController({
   selectTune,
   autoFixFile: renumberXInActiveFile,
   showToast,
+});
+const errorsPopoverController = createErrorsPopoverController({
+  indicator: $errorsIndicator,
+  popover: $errorsPopover,
+  titleElement: $errorsPopoverTitle,
+  listElement: $errorsListPopover,
+  getErrors: () => lastErrors,
+  getActiveErrorId: () => activeErrorHighlight && activeErrorHighlight.id ? activeErrorHighlight.id : "",
+  computeErrorId,
+  onJump: jumpToError,
 });
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
@@ -10056,13 +10063,6 @@ if ($btnToggleLibrary) {
   });
 }
 
-if ($errorsIndicator) {
-  $errorsIndicator.addEventListener("click", () => {
-    if ($errorsIndicator.disabled) return;
-    toggleErrorsPopover(!errorsPopoverOpen);
-  });
-}
-
 if ($midiInputStatus) {
   $midiInputStatus.addEventListener("click", (e) => {
     if (e) e.preventDefault();
@@ -10150,27 +10150,11 @@ if ($midiInputBeepDurationCtl) {
 }
 
 document.addEventListener("click", (e) => {
-  if (!errorsPopoverOpen) return;
-  const target = e.target;
-  if ($errorsPopover && $errorsPopover.contains(target)) return;
-  if ($errorsIndicator && $errorsIndicator.contains(target)) return;
-  toggleErrorsPopover(false);
-}, true);
-
-document.addEventListener("click", (e) => {
   if (!midiPopoverOpen) return;
   const target = e.target;
   if ($midiInputPopover && $midiInputPopover.contains(target)) return;
   if ($midiInputStatus && $midiInputStatus.contains(target)) return;
   closeMidiInputPopover();
-}, true);
-
-document.addEventListener("keydown", (e) => {
-  if (!errorsPopoverOpen) return;
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  toggleErrorsPopover(false);
 }, true);
 
 document.addEventListener("keydown", (e) => {
@@ -10194,18 +10178,6 @@ document.addEventListener("keydown", (e) => {
   // Always route Esc to transport stop/reset so users can “double‑Esc” out of selection play.
   stopPlaybackTransport();
 });
-
-if ($errorsListPopover) {
-  $errorsListPopover.addEventListener("click", (e) => {
-    const row = e.target && e.target.closest ? e.target.closest(".errors-row") : null;
-    if (!row || !row.dataset) return;
-    const idx = Number(row.dataset.index);
-    const item = Number.isFinite(idx) ? lastErrors[idx] : null;
-    if (!item) return;
-    toggleErrorsPopover(false);
-    jumpToError(item).catch(() => {});
-  });
-}
 
 if ($groupBy) {
   $groupBy.addEventListener("change", () => {
@@ -10824,32 +10796,14 @@ function normalizeErrors(entries) {
 
 function updateErrorsIndicatorAndPopover() {
   if (!errorsEnabled) {
-    if ($errorsIndicator) {
-      $errorsIndicator.textContent = "Errors: 0";
-      $errorsIndicator.disabled = true;
-      $errorsIndicator.hidden = true;
-    }
     if ($errorsFocusMessage) {
       $errorsFocusMessage.textContent = "";
       $errorsFocusMessage.hidden = true;
     }
-    if (errorsPopoverOpen) toggleErrorsPopover(false);
+    errorsPopoverController.updateIndicator({ enabled: false });
     return;
   }
-  const n = lastErrors.length;
-  if ($errorsIndicator) {
-    $errorsIndicator.textContent = `Errors: ${n}`;
-    $errorsIndicator.disabled = n === 0;
-    $errorsIndicator.hidden = n === 0;
-  }
-  if (errorsPopoverOpen && n === 0) {
-    toggleErrorsPopover(false);
-    return;
-  }
-  if (errorsPopoverOpen) {
-    renderErrorsPopoverList();
-    positionErrorsPopover();
-  }
+  errorsPopoverController.updateIndicator({ enabled: true });
 }
 
 function setScanErrors(errorsArray) {
@@ -10916,67 +10870,6 @@ function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = 
     highlightSvgAtEditorOffset(from);
   } else {
     setErrorFocusMessage(best.entry, from);
-  }
-}
-
-function renderErrorsPopoverList() {
-  if (!$errorsListPopover) return;
-  $errorsListPopover.textContent = "";
-  if (!lastErrors.length) return;
-  const activeId = activeErrorHighlight && activeErrorHighlight.id ? String(activeErrorHighlight.id) : "";
-  for (let i = 0; i < lastErrors.length; i += 1) {
-    const err = lastErrors[i];
-    const row = document.createElement("div");
-    row.className = "errors-row";
-    const rowId = computeErrorId(err);
-    if (rowId && activeId && rowId === activeId) row.classList.add("active");
-    row.dataset.index = String(i);
-    const label = err.tuneTitle ? String(err.tuneTitle) : "Untitled";
-    const source = err.source ? ` (${err.source})` : "";
-    row.textContent = `${label} — ${err.message}${source}`;
-    $errorsListPopover.appendChild(row);
-  }
-  if ($errorsPopoverTitle) {
-    $errorsPopoverTitle.textContent = `Errors (${lastErrors.length})`;
-  }
-}
-
-function positionErrorsPopover() {
-  if (!$errorsPopover || !$errorsIndicator) return;
-  const rect = $errorsIndicator.getBoundingClientRect();
-  const pop = $errorsPopover;
-  const margin = 10;
-
-  pop.style.left = "0px";
-  pop.style.top = "0px";
-  pop.style.maxHeight = "min(320px, calc(100vh - 24px))";
-
-  const popRect = pop.getBoundingClientRect();
-  const vw = window.innerWidth || 0;
-  const vh = window.innerHeight || 0;
-
-  let left = rect.left;
-  left = Math.max(margin, Math.min(vw - margin - popRect.width, left));
-
-  let top = rect.top - popRect.height - 8;
-  if (top < margin) {
-    top = rect.bottom + 8;
-  }
-  top = Math.max(margin, Math.min(vh - margin - popRect.height, top));
-
-  pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(top)}px`;
-}
-
-function toggleErrorsPopover(open) {
-  const wantOpen = Boolean(open);
-  if (wantOpen && lastErrors.length === 0) return;
-  errorsPopoverOpen = wantOpen;
-  if (!$errorsPopover) return;
-  $errorsPopover.classList.toggle("hidden", !wantOpen);
-  if (wantOpen) {
-    renderErrorsPopoverList();
-    positionErrorsPopover();
   }
 }
 

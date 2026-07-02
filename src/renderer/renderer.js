@@ -62,6 +62,7 @@ import {
 } from "./drums.js";
 import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
+import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import {
   applyLibraryTextFilter as applyLibraryTextFilterCore,
@@ -3671,6 +3672,17 @@ const libraryActions = createLibraryActions({
   openTuneFromSelection: openTuneFromLibrarySelection,
 });
 window.libraryActions = libraryActions;
+const moveTuneModalController = createMoveTuneModalController({
+  modal: $moveTuneModal,
+  closeButton: $moveTuneClose,
+  cancelButton: $moveTuneCancel,
+  targetSelect: $moveTuneTarget,
+  applyButton: $moveTuneApply,
+  safeBasename,
+  enableDraggableModal,
+  showError: showSaveError,
+  onMove: moveTuneToFile,
+});
 
 const GROUP_LABELS = {
   file: "File",
@@ -12303,7 +12315,6 @@ function clearErrors() {
 let contextMenu = null;
 let contextMenuTarget = null;
 let clipboardTune = null;
-let pendingMoveTuneId = null;
 
 function initContextMenu() {
   contextMenu = document.createElement("div");
@@ -12868,29 +12879,10 @@ async function commitRenameFile(oldPath, inputName) {
 }
 
 function openMoveTuneModal(tuneId) {
-  if (!$moveTuneModal || !$moveTuneTarget) return;
-  if (!libraryIndex || !libraryIndex.files || !libraryIndex.files.length) {
-    showSaveError("Load a library folder first.");
-    return;
-  }
-  pendingMoveTuneId = tuneId;
-  $moveTuneTarget.textContent = "";
-  for (const file of libraryIndex.files) {
-    const opt = document.createElement("option");
-    opt.value = file.path;
-    opt.textContent = file.basename || safeBasename(file.path);
-    $moveTuneTarget.appendChild(opt);
-  }
-  if (activeFilePath) $moveTuneTarget.value = activeFilePath;
-  $moveTuneModal.classList.add("open");
-  $moveTuneModal.setAttribute("aria-hidden", "false");
-}
-
-function closeMoveTuneModal() {
-  if (!$moveTuneModal) return;
-  $moveTuneModal.classList.remove("open");
-  $moveTuneModal.setAttribute("aria-hidden", "true");
-  pendingMoveTuneId = null;
+  moveTuneModalController.open(tuneId, {
+    files: libraryIndex && Array.isArray(libraryIndex.files) ? libraryIndex.files : [],
+    activeFilePath,
+  });
 }
 
 async function moveTuneToFile(tuneId, targetPath) {
@@ -20402,49 +20394,6 @@ if ($out) {
       });
     }
   });
-}
-
-if ($moveTuneClose) {
-  $moveTuneClose.addEventListener("click", () => {
-    closeMoveTuneModal();
-  });
-}
-
-if ($moveTuneCancel) {
-  $moveTuneCancel.addEventListener("click", () => {
-    closeMoveTuneModal();
-  });
-}
-
-if ($moveTuneApply) {
-  $moveTuneApply.addEventListener("click", async () => {
-    const targetPath = $moveTuneTarget ? $moveTuneTarget.value : "";
-    const tuneId = pendingMoveTuneId;
-    closeMoveTuneModal();
-    if (tuneId && targetPath) await moveTuneToFile(tuneId, targetPath);
-  });
-}
-
-if ($moveTuneModal) {
-  $moveTuneModal.addEventListener("click", (e) => {
-    if (e.target === $moveTuneModal) closeMoveTuneModal();
-  });
-  $moveTuneModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closeMoveTuneModal();
-      return;
-    }
-    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      if (!$moveTuneApply || $moveTuneApply.disabled) return;
-      e.preventDefault();
-      e.stopPropagation();
-      $moveTuneApply.click();
-    }
-  });
-  enableDraggableModal($moveTuneModal);
 }
 
 if ($aboutClose) {

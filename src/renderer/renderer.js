@@ -63,6 +63,7 @@ import {
 import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
+import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import {
   applyLibraryTextFilter as applyLibraryTextFilterCore,
@@ -3624,8 +3625,6 @@ let renamingFilePath = null;
 let renameInFlight = false;
 let librarySearchTimer = null;
 let pendingLibrarySearch = "";
-let pendingXIssuesFilePath = null;
-let pendingXIssuesTuneId = null;
 let suppressLibraryPrefsWrite = true;
 let pendingLibraryPrefsPatch = null;
 let libraryPrefsSaveTimer = null;
@@ -3683,6 +3682,24 @@ const moveTuneModalController = createMoveTuneModalController({
   enableDraggableModal,
   showError: showSaveError,
   onMove: moveTuneToFile,
+});
+const xIssuesModalController = createXIssuesModalController({
+  modal: $xIssuesModal,
+  infoElement: $xIssuesInfo,
+  closeButton: $xIssuesClose,
+  copyButton: $xIssuesCopy,
+  jumpButton: $xIssuesJump,
+  autoFixButton: $xIssuesAutoFix,
+  safeBasename,
+  enableDraggableModal,
+  getFileEntry: (filePath) => libraryIndex && Array.isArray(libraryIndex.files)
+    ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
+    : null,
+  refreshFile: refreshLibraryFile,
+  loadFile: requestLoadLibraryFile,
+  selectTune,
+  autoFixFile: renumberXInActiveFile,
+  showToast,
 });
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
@@ -12534,7 +12551,7 @@ function initContextMenu() {
     }
     if (action === "xIssues" && menuTarget && menuTarget.type === "file") {
       hideContextMenu();
-      await openXIssuesModalForFile(menuTarget.filePath);
+      await xIssuesModalController.open(menuTarget.filePath);
       return;
     }
     if (action === "renumberXInFile" && menuTarget) {
@@ -16127,103 +16144,6 @@ async function dumpDebugToFile(filePathArg) {
 
 window.dumpDebugToFile = dumpDebugToFile;
 
-function closeXIssuesModal() {
-  if (!$xIssuesModal) return;
-  $xIssuesModal.classList.remove("open");
-  $xIssuesModal.setAttribute("aria-hidden", "true");
-  pendingXIssuesFilePath = null;
-  pendingXIssuesTuneId = null;
-}
-
-function formatXIssuesReport(fileEntry) {
-  const label = fileEntry && (fileEntry.basename || safeBasename(fileEntry.path))
-    ? (fileEntry.basename || safeBasename(fileEntry.path))
-    : "";
-  const issues = fileEntry && fileEntry.xIssues ? fileEntry.xIssues : null;
-  if (!issues || issues.ok) {
-    return `File: ${label}\n\nNo X issues detected.`;
-  }
-
-  const tunes = Array.isArray(fileEntry.tunes) ? fileEntry.tunes : [];
-  const invalidLines = tunes
-    .filter((t) => !(t && t.xNumber && String(t.xNumber).trim()))
-    .map((t) => t.startLine)
-    .filter((n) => Number.isFinite(n));
-
-  const dupLines = new Map();
-  if (issues.duplicates && typeof issues.duplicates === "object") {
-    for (const tune of tunes) {
-      const x = tune && tune.xNumber != null ? String(tune.xNumber) : "";
-      if (!x) continue;
-      if (!Object.prototype.hasOwnProperty.call(issues.duplicates, x)) continue;
-      if (!dupLines.has(x)) dupLines.set(x, []);
-      dupLines.get(x).push(tune.startLine);
-    }
-  }
-
-  const lines = [];
-  lines.push(`File: ${label}`);
-  lines.push("");
-  lines.push("X issues:");
-  if (invalidLines.length) {
-    const shown = invalidLines.slice(0, 30);
-    const more = invalidLines.length - shown.length;
-    lines.push(`- Invalid/empty X at tune start lines: ${shown.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`);
-  }
-  if (dupLines.size) {
-    const keys = Array.from(dupLines.keys()).sort((a, b) => a.localeCompare(b));
-    const shownKeys = keys.slice(0, 20);
-    for (const x of shownKeys) {
-      const locs = (dupLines.get(x) || []).filter((n) => Number.isFinite(n));
-      const shown = locs.slice(0, 20);
-      const more = locs.length - shown.length;
-      lines.push(`- Duplicate X:${x} at lines: ${shown.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`);
-    }
-    if (keys.length > shownKeys.length) lines.push(`- Duplicate X: (+${keys.length - shownKeys.length} more values)`);
-  }
-  if (!invalidLines.length && !dupLines.size) {
-    lines.push("- (No details available; re-parse the file to compute locations.)");
-  }
-
-  return lines.join("\n");
-}
-
-function computeFirstXIssueTuneId(fileEntry) {
-  const tunes = Array.isArray(fileEntry && fileEntry.tunes) ? fileEntry.tunes : [];
-  const invalid = tunes.find((t) => !(t && t.xNumber && String(t.xNumber).trim()));
-  if (invalid && invalid.id) return invalid.id;
-  const issues = fileEntry && fileEntry.xIssues ? fileEntry.xIssues : null;
-  if (issues && issues.duplicates && typeof issues.duplicates === "object") {
-    const dupX = Object.keys(issues.duplicates)[0] || "";
-    if (dupX) {
-      const dupTune = tunes.find((t) => String((t && t.xNumber) || "") === dupX);
-      if (dupTune && dupTune.id) return dupTune.id;
-    }
-  }
-  return null;
-}
-
-async function openXIssuesModalForFile(filePath) {
-  if (!$xIssuesModal || !$xIssuesInfo) return;
-  if (!filePath) return;
-  const entry = libraryIndex && Array.isArray(libraryIndex.files)
-    ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
-    : null;
-  if (!entry) return;
-
-  let fileEntry = entry;
-  if ((!fileEntry.tunes || !fileEntry.tunes.length) && window.api && typeof window.api.parseLibraryFile === "function") {
-    const updated = await refreshLibraryFile(filePath);
-    if (updated) fileEntry = updated;
-  }
-
-  pendingXIssuesFilePath = filePath;
-  pendingXIssuesTuneId = computeFirstXIssueTuneId(fileEntry);
-  $xIssuesInfo.textContent = formatXIssuesReport(fileEntry);
-  $xIssuesModal.classList.add("open");
-  $xIssuesModal.setAttribute("aria-hidden", "false");
-}
-
 let libraryListYieldedByThisOpen = false;
 let libraryTreeHintToastShown = false;
 document.addEventListener("library-modal:closed", () => {
@@ -16408,71 +16328,6 @@ async function exportSetListAsAbc() {
     return false;
   });
   if (ok) showToast("Exported.", 2400);
-}
-
-if ($xIssuesClose) {
-  $xIssuesClose.addEventListener("click", () => closeXIssuesModal());
-}
-if ($xIssuesCopy) {
-  $xIssuesCopy.addEventListener("click", async () => {
-    try {
-      if (!$xIssuesInfo) return;
-      const text = String($xIssuesInfo.textContent || "");
-      if (text && navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        showToast("Copied.");
-      }
-    } catch {}
-  });
-}
-if ($xIssuesJump) {
-  $xIssuesJump.addEventListener("click", async () => {
-    const filePath = pendingXIssuesFilePath;
-    const tuneId = pendingXIssuesTuneId;
-    closeXIssuesModal();
-    if (!filePath) return;
-    try {
-      const ok = await requestLoadLibraryFile(filePath);
-      if (!ok) return;
-      if (tuneId) {
-        await selectTune(tuneId, { skipConfirm: true });
-      }
-    } catch {}
-  });
-}
-
-if ($xIssuesAutoFix) {
-  $xIssuesAutoFix.addEventListener("click", async () => {
-    const filePath = pendingXIssuesFilePath;
-    closeXIssuesModal();
-    if (!filePath) return;
-    try {
-      await renumberXInActiveFile(filePath);
-      const entry = libraryIndex && Array.isArray(libraryIndex.files)
-        ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
-        : null;
-      const hasIssues = Boolean(entry && entry.xIssues && entry.xIssues.ok === false);
-      if (hasIssues) {
-        await openXIssuesModalForFile(filePath);
-      } else {
-        showToast("Renumbered X.");
-      }
-    } catch {}
-  });
-}
-
-if ($xIssuesModal) {
-  $xIssuesModal.addEventListener("click", (e) => {
-    if (e.target === $xIssuesModal) closeXIssuesModal();
-  });
-  $xIssuesModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeXIssuesModal();
-  });
-  enableDraggableModal($xIssuesModal);
 }
 
 function showDisclaimerIfNeeded(settings) {

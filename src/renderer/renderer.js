@@ -140,6 +140,7 @@ import {
   formatTranslateXY,
   readTranslateXY,
 } from "./app/modal_geometry.js";
+import { createAboutModalController } from "./app/about_modal_controller.js";
 import { enableDraggableModal } from "./app/draggable_modal.js";
 import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
@@ -3682,6 +3683,16 @@ const moveTuneModalController = createMoveTuneModalController({
   enableDraggableModal,
   showError: showSaveError,
   onMove: moveTuneToFile,
+});
+const aboutModalController = createAboutModalController({
+  modal: $aboutModal,
+  infoElement: $aboutInfo,
+  closeButton: $aboutClose,
+  copyButton: $aboutCopy,
+  api: window.api,
+  enableDraggableModal,
+  setStatus,
+  logError: logErr,
 });
 
 const GROUP_LABELS = {
@@ -16116,38 +16127,6 @@ async function dumpDebugToFile(filePathArg) {
 
 window.dumpDebugToFile = dumpDebugToFile;
 
-function formatAboutInfo(info) {
-  if (!info) return "No system info available.";
-  const osParts = [info.platform, info.arch, info.osRelease].filter(Boolean).join(" ").trim();
-  const distro = info.distroPrettyName
-    || [info.distroName, info.distroVersion].filter(Boolean).join(" ").trim()
-    || "";
-  return [
-    `Version: ${info.appVersion || ""}`.trim(),
-    `Build: ${info.build || ""}`.trim(),
-    `Commit: ${info.commit || ""}`.trim(),
-    `Channel: ${info.channel || ""}`.trim(),
-    "Status: Early-stage release (functional, not yet guaranteed stable).",
-    "Disclaimer: docs/DISCLAIMER.md",
-    `Date: ${info.buildDate || ""}`.trim(),
-    `Electron: ${info.electron || ""}`.trim(),
-    `ElectronBuildId: ${info.electronBuildId || ""}`.trim(),
-    `Chromium: ${info.chrome || ""}`.trim(),
-    `Node.js: ${info.node || ""}`.trim(),
-    `V8: ${info.v8 || ""}`.trim(),
-    (info.abc2svgVersion || info.abc2svgDate)
-      ? `abc2svg: ${[info.abc2svgVersion || "", info.abc2svgDate || ""].filter(Boolean).join(" ")}`
-      : "",
-    `OS: ${osParts}`.trim(),
-    distro ? `Distro: ${distro}` : "",
-    info.sessionType ? `Session: ${info.sessionType}` : "",
-    (info.xdgCurrentDesktop || info.desktopSession || info.desktop) ? `Desktop: ${info.xdgCurrentDesktop || info.desktopSession || info.desktop}` : "",
-    (info.waylandDisplay || info.display) ? `Display: ${(info.waylandDisplay ? `wayland:${info.waylandDisplay}` : "")}${(info.waylandDisplay && info.display) ? " " : ""}${(info.display ? `x11:${info.display}` : "")}` : "",
-    (info.lcAll || info.lang) ? `Locale: ${info.lcAll || info.lang}` : "",
-    info.pythonVersion ? `Python: ${info.pythonVersion}` : "",
-  ].filter(Boolean).join("\n");
-}
-
 function closeXIssuesModal() {
   if (!$xIssuesModal) return;
   $xIssuesModal.classList.remove("open");
@@ -16299,22 +16278,7 @@ function openLibraryListFromCurrentLibraryIndex() {
 }
 
 async function openAbout() {
-  if (!$aboutModal || !$aboutInfo) return;
-  let infoText = "Loading…";
-  $aboutInfo.textContent = infoText;
-  $aboutModal.classList.add("open");
-  $aboutModal.setAttribute("aria-hidden", "false");
-  if (window.api && typeof window.api.getAboutInfo === "function") {
-    const info = await window.api.getAboutInfo();
-    infoText = formatAboutInfo(info);
-  }
-  $aboutInfo.textContent = infoText;
-}
-
-function closeAbout() {
-  if (!$aboutModal) return;
-  $aboutModal.classList.remove("open");
-  $aboutModal.setAttribute("aria-hidden", "true");
+  await aboutModalController.open();
 }
 
 function renderSetList() {
@@ -20392,41 +20356,6 @@ if ($out) {
         origin: "svg",
         loop: playbackRange.loop,
       });
-    }
-  });
-}
-
-if ($aboutClose) {
-  $aboutClose.addEventListener("click", () => {
-    closeAbout();
-  });
-}
-
-if ($aboutModal) {
-  $aboutModal.addEventListener("click", (e) => {
-    if (e.target === $aboutModal) closeAbout();
-  });
-  $aboutModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeAbout();
-  });
-  enableDraggableModal($aboutModal);
-}
-
-if ($aboutCopy) {
-  $aboutCopy.addEventListener("click", async () => {
-    if (!$aboutInfo) return;
-    const text = $aboutInfo.textContent || "";
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus("Copied.");
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      setStatus("Copy failed.");
     }
   });
 }

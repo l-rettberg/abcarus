@@ -120,6 +120,7 @@ import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
 import { createPayloadModeController } from "./tools/payload_mode/payload_mode_controller.js";
+import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
 import {
   buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
   computePayloadTuneOffset,
@@ -513,12 +514,7 @@ let chordproAvailabilityCache = null;
 let chordproAvailabilityInFlight = null;
 
 let payloadMode = false;
-let payloadModeSource = null;
-let payloadModeLayerSpans = [];
-let payloadModeShowLayers = false;
-let payloadModeView = "render"; // render | playback
-let payloadModeRenderState = null; // { text, selection, spans }
-let payloadModePlaybackState = null; // { text, selection, spans }
+const payloadModeFeature = createPayloadModeFeature();
 
 let setListItems = [];
 let setListPageBreaks = "perTune"; // perTune | none | auto
@@ -3467,7 +3463,7 @@ const payloadModeController = createPayloadModeController({
     $xIssuesJump,
     $xIssuesCopy,
   ],
-  getView: () => payloadModeView,
+  getView: () => payloadModeFeature.getView(),
   getCopyText: () => {
     if (!editorView) return { text: "", selectionText: "" };
     const doc = editorView.state.doc;
@@ -4671,11 +4667,7 @@ function setIntonationHighlightRanges(ranges) {
 
 let payloadLayerVersion = 0;
 function getPayloadLayerDecorationOptions() {
-  return {
-    payloadMode,
-    showLayers: payloadModeShowLayers,
-    layerSpans: payloadModeLayerSpans,
-  };
+  return payloadModeFeature.getLayerDecorationOptions(payloadMode);
 }
 
 const payloadLayerPlugin = ViewPlugin.fromClass(class {
@@ -6857,48 +6849,47 @@ function setPayloadModeUI(enabled) {
 }
 
 function updatePayloadModeTabUI() {
-  payloadModeController.updateTabs(payloadModeView);
+  payloadModeController.updateTabs(payloadModeFeature.getView());
 }
 
 async function setPayloadModeView(nextView) {
   if (!payloadMode) return;
   const next = nextView === "playback" ? "playback" : "render";
-  if (payloadModeView === next) return;
+  const currentView = payloadModeFeature.getView();
+  if (currentView === next) return;
   if (!editorView) return;
 
-  if (payloadModeView === "render") {
+  if (currentView === "render") {
     // Leaving render view: capture sandbox edits.
-    const text = getEditorValue();
-    const selection = editorView.state.selection;
-    if (!payloadModeRenderState) payloadModeRenderState = { text, selection, spans: payloadModeLayerSpans || [] };
-    payloadModeRenderState.text = text;
-    payloadModeRenderState.selection = selection;
+    payloadModeFeature.captureRenderEdit({
+      text: getEditorValue(),
+      selection: editorView.state.selection,
+    });
   }
 
   if (next === "playback") {
     // Build final playback payload from the current render payload.
-    const baseText = payloadModeRenderState && typeof payloadModeRenderState.text === "string"
-      ? payloadModeRenderState.text
+    const renderState = payloadModeFeature.getRenderState();
+    const baseText = renderState && typeof renderState.text === "string"
+      ? renderState.text
       : getEditorValue();
     const baseOffset = computePayloadTuneOffset(baseText);
     const built = buildPlaybackPayloadForDiagnosticsFromRenderText(baseText, baseOffset);
-    payloadModePlaybackState = {
+    const playbackState = payloadModeFeature.setPlaybackState({
       text: built.text,
       selection: null,
       spans: built.spans || [],
-    };
+    });
 
-    payloadModeView = "playback";
     updatePayloadModeTabUI();
-    payloadModeLayerSpans = payloadModePlaybackState.spans || [];
     setPayloadEditorReadOnly(true);
 
     suppressDirty = true;
-    setEditorValue(payloadModePlaybackState.text || "");
+    setEditorValue(playbackState.text || "");
     suppressDirty = false;
 
     try {
-      const offset = computePayloadTuneOffset(payloadModePlaybackState.text || "");
+      const offset = computePayloadTuneOffset(playbackState.text || "");
       editorView.dispatch({
         selection: { anchor: offset, head: offset },
         scrollIntoView: true,
@@ -6911,12 +6902,10 @@ async function setPayloadModeView(nextView) {
   }
 
   // Switch to render view.
-  payloadModeView = "render";
+  const restore = payloadModeFeature.setRenderView();
   updatePayloadModeTabUI();
-  payloadModeLayerSpans = (payloadModeRenderState && payloadModeRenderState.spans) ? payloadModeRenderState.spans : [];
   setPayloadEditorReadOnly(false);
 
-  const restore = payloadModeRenderState;
   suppressDirty = true;
   setEditorValue(restore && typeof restore.text === "string" ? restore.text : "");
   suppressDirty = false;
@@ -7286,12 +7275,13 @@ async function enterPayloadMode() {
   const prefixPayload = buildHeaderPrefixWithLayerSpans(headerText, true, sourceText);
   const payloadText = prefixPayload.text ? `${prefixPayload.text}${sourceText}` : sourceText;
 
-  payloadModeSource = { text: sourceText, selection: sourceSelection, tuneUid: activeTuneUid };
-  payloadModeRenderState = { text: payloadText, selection: null, spans: prefixPayload.spans || [] };
-  payloadModePlaybackState = null;
-  payloadModeView = "render";
-  payloadModeLayerSpans = payloadModeRenderState.spans || [];
-  payloadModeShowLayers = false;
+  payloadModeFeature.enter({
+    sourceText,
+    sourceSelection,
+    tuneUid: activeTuneUid,
+    payloadText,
+    spans: prefixPayload.spans || [],
+  });
 
   setPayloadModeUI(true);
   setBarMismatchMarkers([]);
@@ -7319,13 +7309,7 @@ async function exitPayloadMode() {
   try { stopPlaybackTransport(); } catch {}
   resetPlaybackState();
 
-  const restore = payloadModeSource;
-  payloadModeSource = null;
-  payloadModeLayerSpans = [];
-  payloadModeShowLayers = false;
-  payloadModeView = "render";
-  payloadModeRenderState = null;
-  payloadModePlaybackState = null;
+  const restore = payloadModeFeature.exit();
 
   setPayloadModeUI(false);
   setPayloadEditorReadOnly(false);
@@ -20071,7 +20055,7 @@ function getPlaybackSourceKey() {
   if (chordproMode && !chordproBlocks.length) return "chordpro-empty";
   const tuneText = getEditorValue();
   if (payloadMode) {
-    if (payloadModeView === "playback") {
+    if (payloadModeFeature.isPlaybackView()) {
       const offset = 0;
       const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
       const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
@@ -24273,7 +24257,7 @@ function getPlaybackPayload() {
   const skipGchords = playbackSkipGchordsOnce === true || (scopedOptions ? Boolean(scopedOptions.muteGchords) : false);
   const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
   if (payloadMode) {
-    if (payloadModeView === "playback") {
+    if (payloadModeFeature.isPlaybackView()) {
       // In payload mode the editor already contains the full payload text,
       // so playback indices should map 1:1 to editor offsets.
       return { text: String(tuneText || ""), offset: 0 };

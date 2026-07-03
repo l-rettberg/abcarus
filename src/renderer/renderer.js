@@ -6347,13 +6347,8 @@ function showIntonationExplorerPanel() {
 }
 
 function ensureToolPanelDefaultLeftPosition(panelEl) {
-  if (!panelEl || panelEl.__abcarusToolPanelDefaultLeftApplied) return;
+  if (!panelEl) return;
   const hasInlinePos = Boolean(panelEl.style.left || panelEl.style.top || panelEl.style.right || panelEl.style.bottom);
-  if (hasInlinePos) {
-    panelEl.__abcarusToolPanelDefaultLeftApplied = true;
-    return;
-  }
-  panelEl.__abcarusToolPanelDefaultLeftApplied = true;
   requestAnimationFrame(() => {
     try {
       const rect = panelEl.getBoundingClientRect();
@@ -6361,8 +6356,10 @@ function ensureToolPanelDefaultLeftPosition(panelEl) {
       const defaultTop = 72;
       const maxLeft = Math.max(0, window.innerWidth - rect.width);
       const maxTop = Math.max(0, window.innerHeight - rect.height);
-      const left = Math.max(0, Math.min(maxLeft, margin));
-      const top = Math.max(0, Math.min(maxTop, defaultTop));
+      const currentLeft = hasInlinePos && Number.isFinite(rect.left) ? rect.left : margin;
+      const currentTop = hasInlinePos && Number.isFinite(rect.top) ? rect.top : defaultTop;
+      const left = Math.max(0, Math.min(maxLeft, currentLeft));
+      const top = Math.max(0, Math.min(maxTop, currentTop));
       panelEl.style.left = `${left}px`;
       panelEl.style.top = `${top}px`;
       panelEl.style.right = "auto";
@@ -18334,6 +18331,7 @@ function wireMenuActions() {
           "toggleDebugMessages",
           "toggleAutoDump",
           "toggleNoteTypingPreview",
+          "openIntonationExplorer",
         ]);
         if (!allowed.has(actionType)) return;
       }
@@ -18574,7 +18572,9 @@ function wireMenuActions() {
       }
       else if (actionType === "alignBars") alignBarsInEditor();
       else if (actionType === "openIntonationExplorer") {
-        const enabled = Boolean(latestSettingsSnapshot && (latestSettingsSnapshot.makamToolsEnabled || latestSettingsSnapshot.studyToolsEnabled));
+        const enabled = latestSettingsSnapshot == null
+          ? true
+          : Boolean(latestSettingsSnapshot.makamToolsEnabled || latestSettingsSnapshot.studyToolsEnabled);
         if (!enabled) {
           showToast("Makam Tools are disabled. Enable in Settings → Options → Tools → Makam Tools.", 4200);
           return;

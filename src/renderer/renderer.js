@@ -155,6 +155,11 @@ import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
 import { createLayoutController } from "./app/layout_controller.js";
 import { createDiagnosticsController } from "./app/diagnostics_controller.js";
+import {
+  buildDebugDumpSnapshot as buildDebugDumpSnapshotCore,
+  safeJsonStringify,
+  safeString,
+} from "./app/debug_dump_builder.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -15045,304 +15050,143 @@ function nowCompactStamp() {
   return `${y}${m}${day}-${hh}${mm}${ss}`;
 }
 
-function safeString(value, maxLen = 250000) {
-  const s = String(value == null ? "" : value);
-  if (s.length <= maxLen) return s;
-  return `${s.slice(0, maxLen)}\n\n…(truncated ${s.length - maxLen} chars)…`;
-}
+function buildDebugDumpDrumDiagnostics() {
+  const nativeDrums = shouldUseNativeMidiDrums();
+  const tuneText = getEditorValue();
+  let preDrumRaw = String(tuneText || "");
+  let source = "payload-mode";
 
-function safeJsonStringify(value) {
-  const seen = new WeakSet();
-  return JSON.stringify(
-    value,
-    (k, v) => {
-      if (typeof v === "object" && v) {
-        if (seen.has(v)) return "[Circular]";
-        seen.add(v);
-      }
-      if (typeof v === "string" && v.length > 250000) return safeString(v);
-      return v;
+  if (!payloadMode) {
+    source = "normal";
+    const entry = getActiveFileEntry();
+    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
+    preDrumRaw = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
+    const gchordPreview = injectGchordOn(preDrumRaw, prefixPayload.offset || 0);
+    if (gchordPreview && gchordPreview.changed) preDrumRaw = gchordPreview.text;
+  }
+
+  if (!preDrumRaw) return null;
+
+  preDrumRaw = normalizeDollarLineBreaksForPlayback(preDrumRaw);
+  preDrumRaw = normalizeBlankLinesForPlayback(preDrumRaw);
+  const sanitized = sanitizeAbcForPlayback(preDrumRaw);
+  preDrumRaw = sanitized && sanitized.text ? sanitized.text : preDrumRaw;
+
+  const hasDrumDirective = /(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(preDrumRaw);
+  if (nativeDrums) {
+    return {
+      summary: "Native %%MIDI drum handling is enabled (no V:DRUM injection).",
+      source,
+      nativeDrums: true,
+      hasDrumDirective,
+    };
+  }
+
+  const normalized = normalizeLeadingInlineDirectivesForPlayback(preDrumRaw);
+  const normalizedChanged = normalized !== preDrumRaw;
+  const info = extractDrumPlaybackBars(normalized);
+  const expectedSig = computeExpectedBarSignatureFromInfo(info);
+  const drumVoice = buildDrumVoiceText(info);
+  const actualSig = extractBarSignatureFromText(drumVoice || "");
+  const diff = diffSignatures(expectedSig, actualSig);
+  const mismatchBar = diff && diff.ok === false && Number.isFinite(diff.index) ? diff.index + 1 : null;
+  const summary = diff && diff.ok
+    ? "Drum bar skeleton matches V:1."
+    : (mismatchBar != null
+      ? `Drum skeleton mismatch at bar ${mismatchBar}.`
+      : "Drum skeleton mismatch.");
+  const preview = drumVoice
+    ? drumVoice.split(/\r\n|\n|\r/).slice(0, 80).join("\n")
+    : "";
+  const lastInjection = lastDrumInjectResult ? {
+    changed: Boolean(lastDrumInjectResult.changed),
+    insertAtLine: lastDrumInjectResult.insertAtLine || null,
+    lineCount: lastDrumInjectResult.lineCount || 0,
+  } : null;
+  return {
+    summary,
+    source,
+    nativeDrums: false,
+    hasDrumDirective,
+    normalizedChanged,
+    lastInjectionActive: Boolean(lastDrumPlaybackActive),
+    lastInjection,
+    lastSignatureDiff: lastDrumSignatureDiff || null,
+    recomputed: {
+      mismatchBar,
+      bars: Array.isArray(info && info.bars) ? info.bars.length : 0,
+      patterns: Array.isArray(info && info.patterns) ? info.patterns.length : 0,
+      expectedBars: Array.isArray(expectedSig) ? expectedSig.length : 0,
+      actualBars: Array.isArray(actualSig) ? actualSig.length : 0,
+      signatureDiff: diff,
+      drumVoicePreview: safeString(preview, 12000),
     },
-    2
-  );
+  };
 }
 
 async function buildDebugDumpSnapshot({ reason = "" } = {}) {
-  let aboutInfo = null;
-  if (window.api && typeof window.api.getAboutInfo === "function") {
-    try { aboutInfo = await window.api.getAboutInfo(); } catch {}
-  }
-
-  const ctxPath = (activeTuneMeta && activeTuneMeta.path)
-    ? activeTuneMeta.path
-    : (currentDoc && currentDoc.path ? currentDoc.path : null);
-  const ctxBasename = (activeTuneMeta && activeTuneMeta.basename)
-    ? activeTuneMeta.basename
-    : (ctxPath ? safeBasename(ctxPath) : null);
-  const ctxX = (activeTuneMeta && activeTuneMeta.xNumber != null) ? activeTuneMeta.xNumber : null;
-  const ctxTitle = (activeTuneMeta && activeTuneMeta.title) ? activeTuneMeta.title : null;
-  const ctxId = (activeTuneMeta && activeTuneMeta.id) ? activeTuneMeta.id : null;
-  const ctxLabel = (() => {
-    const filePart = ctxBasename || (ctxPath ? safeBasename(ctxPath) : "");
-    const xPart = ctxX != null ? `X:${ctxX}` : "";
-    const titlePart = ctxTitle ? String(ctxTitle).trim() : "";
-    const mid = [xPart, titlePart].filter(Boolean).join(" ");
-    return [filePart, mid].filter(Boolean).join(" — ").trim() || null;
-  })();
-
-  const playbackDebug = (window.__abcarusPlaybackDebug && typeof window.__abcarusPlaybackDebug === "object")
-    ? window.__abcarusPlaybackDebug
-    : null;
-
-  const playbackPayload = (() => {
-    try {
-      if (lastPlaybackPayloadCache && lastPlaybackPayloadCache.text) {
-        return {
-          text: safeString(lastPlaybackPayloadCache.text, 350000),
-          offset: lastPlaybackPayloadCache.offset || 0,
-          cached: true,
-        };
-      }
-      const p = getPlaybackPayload();
-      return {
-        text: safeString(p && p.text ? p.text : "", 350000),
-        offset: p && p.offset ? p.offset : 0,
-        cached: false,
-      };
-    } catch (e) {
-      return { error: (e && e.message) ? e.message : String(e) };
-    }
-  })();
-
-  const workingCopyMeta = await (async () => {
-    try {
-      if (!window.api || typeof window.api.getWorkingCopyMeta !== "function") return { ok: false, error: "unavailable" };
-      const res = await window.api.getWorkingCopyMeta();
-      if (!res || !res.ok || !res.meta) return { ok: false, error: (res && res.error) ? String(res.error) : "No working copy open." };
-      return { ok: true, meta: res.meta };
-    } catch (e) {
-      return { ok: false, error: (e && e.message) ? e.message : String(e) };
-    }
-  })();
-
-  const drumDiagnostics = (() => {
-    try {
-      const nativeDrums = shouldUseNativeMidiDrums();
-      const tuneText = getEditorValue();
-      let preDrumRaw = String(tuneText || "");
-      let source = "payload-mode";
-
-      if (!payloadMode) {
-        source = "normal";
-        const entry = getActiveFileEntry();
-        const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-        preDrumRaw = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
-        const gchordPreview = injectGchordOn(preDrumRaw, prefixPayload.offset || 0);
-        if (gchordPreview && gchordPreview.changed) preDrumRaw = gchordPreview.text;
-      }
-
-      if (!preDrumRaw) return null;
-
-      preDrumRaw = normalizeDollarLineBreaksForPlayback(preDrumRaw);
-      preDrumRaw = normalizeBlankLinesForPlayback(preDrumRaw);
-      const sanitized = sanitizeAbcForPlayback(preDrumRaw);
-      preDrumRaw = sanitized && sanitized.text ? sanitized.text : preDrumRaw;
-
-      const hasDrumDirective = /(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(preDrumRaw);
-      if (nativeDrums) {
-        return {
-          summary: "Native %%MIDI drum handling is enabled (no V:DRUM injection).",
-          source,
-          nativeDrums: true,
-          hasDrumDirective,
-        };
-      }
-
-      const normalized = normalizeLeadingInlineDirectivesForPlayback(preDrumRaw);
-      const normalizedChanged = normalized !== preDrumRaw;
-      const info = extractDrumPlaybackBars(normalized);
-      const expectedSig = computeExpectedBarSignatureFromInfo(info);
-      const drumVoice = buildDrumVoiceText(info);
-      const actualSig = extractBarSignatureFromText(drumVoice || "");
-      const diff = diffSignatures(expectedSig, actualSig);
-      const mismatchBar = diff && diff.ok === false && Number.isFinite(diff.index) ? diff.index + 1 : null;
-      const summary = diff && diff.ok
-        ? "Drum bar skeleton matches V:1."
-        : (mismatchBar != null
-          ? `Drum skeleton mismatch at bar ${mismatchBar}.`
-          : "Drum skeleton mismatch.");
-      const preview = drumVoice
-        ? drumVoice.split(/\r\n|\n|\r/).slice(0, 80).join("\n")
-        : "";
-      const lastInjection = lastDrumInjectResult ? {
-        changed: Boolean(lastDrumInjectResult.changed),
-        insertAtLine: lastDrumInjectResult.insertAtLine || null,
-        lineCount: lastDrumInjectResult.lineCount || 0,
-      } : null;
-      return {
-        summary,
-        source,
-        nativeDrums: false,
-        hasDrumDirective,
-        normalizedChanged,
-        lastInjectionActive: Boolean(lastDrumPlaybackActive),
-        lastInjection,
-        lastSignatureDiff: lastDrumSignatureDiff || null,
-        recomputed: {
-          mismatchBar,
-          bars: Array.isArray(info && info.bars) ? info.bars.length : 0,
-          patterns: Array.isArray(info && info.patterns) ? info.patterns.length : 0,
-          expectedBars: Array.isArray(expectedSig) ? expectedSig.length : 0,
-          actualBars: Array.isArray(actualSig) ? actualSig.length : 0,
-          signatureDiff: diff,
-          drumVoicePreview: safeString(preview, 12000),
-        },
-      };
-    } catch (e) {
-      return { error: (e && e.message) ? e.message : String(e) };
-    }
-  })();
-
-  return {
-    kind: "abcarus-debug-dump",
-    createdAt: new Date().toISOString(),
-    reason: reason ? String(reason) : null,
-    context: {
-      label: ctxLabel,
-      filePath: ctxPath,
-      fileBasename: ctxBasename,
-      tuneId: ctxId,
-      xNumber: ctxX,
-      title: ctxTitle,
-    },
-    about: aboutInfo,
-    debugLog: debugLogBuffer.slice(),
-    recentActions: recentActions.slice(-20),
-    selection: editorView ? {
-      anchor: editorView.state.selection.main.anchor,
-      head: editorView.state.selection.main.head,
-    } : null,
-    document: {
-      currentDocPath: currentDoc ? (currentDoc.path || null) : null,
-      currentDocDirty: currentDoc ? Boolean(currentDoc.dirty) : null,
-      activeTuneMeta: activeTuneMeta ? {
-        id: activeTuneMeta.id || null,
-        path: activeTuneMeta.path || null,
-        basename: activeTuneMeta.basename || null,
-        xNumber: activeTuneMeta.xNumber || null,
-        title: activeTuneMeta.title || null,
-        startOffset: activeTuneMeta.startOffset || null,
-        endOffset: activeTuneMeta.endOffset || null,
-        startLine: activeTuneMeta.startLine || null,
-        endLine: activeTuneMeta.endLine || null,
-      } : null,
-      header: {
-        presence: (typeof computeHeaderPresence === "function") ? computeHeaderPresence() : null,
-        dirty: Boolean(headerDirty),
-        collapsed: Boolean(headerCollapsed),
-      },
-      editorText: safeString(getEditorValue(), 350000),
-      headerText: safeString(getHeaderEditorValue(), 250000),
-    },
-    workingCopy: {
-      snapshot: workingCopySnapshot ? {
-        path: workingCopySnapshot.path || null,
-        version: workingCopySnapshot.version || null,
-        dirty: Boolean(workingCopySnapshot.dirty),
-        encoding: workingCopySnapshot.encoding || null,
-        tuneCount: Array.isArray(workingCopySnapshot.tunes) ? workingCopySnapshot.tunes.length : null,
-      } : null,
-      meta: workingCopyMeta,
-    },
-    playback: {
-      followPipelineVersion: FOLLOW_PIPELINE_VERSION,
-      isPlaying: Boolean(isPlaying),
-      isPaused: Boolean(isPaused),
-      waitingForFirstNote: Boolean(waitingForFirstNote),
-      followPlayback: Boolean(followPlayback),
-      followVoiceId,
-      followVoiceIndex,
-      preferredVoiceId: playbackState ? (playbackState.preferredVoiceId || null) : null,
-      preferredVoiceIndex: playbackState && Number.isFinite(playbackState.preferredVoiceIndex) ? playbackState.preferredVoiceIndex : null,
-      voiceTimelineKeys: (playbackState && playbackState.voiceTimeline) ? {
-        byId: (playbackState.voiceTimeline.byId && typeof playbackState.voiceTimeline.byId === "object")
-          ? Object.keys(playbackState.voiceTimeline.byId).slice(0, 50)
-          : [],
-        byIndex: (playbackState.voiceTimeline.byIndex && typeof playbackState.voiceTimeline.byIndex === "object")
-          ? Object.keys(playbackState.voiceTimeline.byIndex).slice(0, 50)
-          : [],
-      } : null,
-      practiceTempoMultiplier: Number.isFinite(Number(practiceTempoMultiplier)) ? Number(practiceTempoMultiplier) : null,
-      playbackLoop: {
-        enabled: Boolean(playbackLoopEnabled),
-        fromMeasure: clampInt(playbackLoopFromMeasure, 0, 100000, 0),
-        toMeasure: clampInt(playbackLoopToMeasure, 0, 100000, 0),
-      },
-      soundfontName: soundfontName || null,
-      soundfontSource: soundfontSource || null,
-      soundfontReadyName: soundfontReadyName || null,
-      lastSoundfontApplied: lastSoundfontApplied || null,
-      playbackIndexOffset,
-      playbackRange: clonePlaybackRange(playbackRange),
-      activePlaybackRange: activePlaybackRange ? clonePlaybackRange(activePlaybackRange) : null,
-      activePlaybackEndAbcOffset,
-      lastStartPlaybackIdx,
-      resumeStartIdx,
-      desiredPlayerSpeed: Number.isFinite(Number(desiredPlayerSpeed)) ? Number(desiredPlayerSpeed) : null,
-      currentPlaybackPlan,
-      pendingPlaybackPlan,
-      lastPlaybackGuardMessage,
-      lastPlaybackAbortMessage,
-      lastPlaybackException: lastPlaybackException ? {
-        phase: lastPlaybackException.phase || null,
-        message: lastPlaybackException.message || null,
-        stack: lastPlaybackException.stack || null,
-      } : null,
-      payload: playbackPayload,
-      debugState: playbackDebug && typeof playbackDebug.getState === "function" ? playbackDebug.getState() : null,
-      timeline: playbackDebug && typeof playbackDebug.getTimeline === "function" ? playbackDebug.getTimeline() : null,
-      trace: playbackDebug && typeof playbackDebug.getTrace === "function" ? playbackDebug.getTrace() : playbackNoteTrace.slice(),
-      parseErrors: Array.isArray(playbackParseErrors) ? playbackParseErrors.slice(0, 200) : null,
-      sanitizeWarnings: Array.isArray(playbackSanitizeWarnings) ? playbackSanitizeWarnings.slice(0, 200) : null,
-      drumSignatureDiff: lastDrumSignatureDiff,
-      drumDiagnostics,
-      lastRhythmErrorSuggestion,
-    },
-    render: {
-      lastRenderPayload: lastRenderPayload ? {
-        offset: lastRenderPayload.offset || 0,
-        text: lastRenderPayload.text ? safeString(lastRenderPayload.text, 350000) : "",
-      } : null,
-      barMismatchMarkers: Array.isArray(barMismatchMarkers) ? {
-        count: barMismatchMarkers.length,
-        first: barMismatchMarkers.slice(0, 20),
-      } : null,
-    },
-    errors: {
-      count: Array.isArray(errorEntries) ? errorEntries.length : null,
-      activeHighlight: activeErrorHighlight ? {
-        id: activeErrorHighlight.id,
-        from: activeErrorHighlight.from,
-        to: activeErrorHighlight.to,
-        tuneId: activeErrorHighlight.tuneId,
-        filePath: activeErrorHighlight.filePath,
-        message: activeErrorHighlight.message,
-        messageKey: activeErrorHighlight.messageKey,
-        lastSvgRenderIdx: activeErrorHighlight.lastSvgRenderIdx,
-      } : null,
-      entries: Array.isArray(errorEntries)
-        ? errorEntries.slice(0, 200).map((e) => ({
-          message: e.message,
-          loc: e.loc || null,
-          tuneId: e.tuneId || null,
-          filePath: e.filePath || null,
-          xNumber: e.xNumber || null,
-          title: e.title || null,
-          count: e.count || 1,
-        }))
-        : null,
-    },
-  };
+  return buildDebugDumpSnapshotCore({
+    reason,
+    api: window.api,
+    windowRef: window,
+    activeTuneMeta,
+    currentDoc,
+    safeBasename,
+    debugLogBuffer,
+    recentActions,
+    editorView,
+    computeHeaderPresence,
+    headerDirty,
+    headerCollapsed,
+    getEditorValue,
+    getHeaderEditorValue,
+    workingCopySnapshot,
+    getWorkingCopyMeta: () => window.api && typeof window.api.getWorkingCopyMeta === "function"
+      ? window.api.getWorkingCopyMeta()
+      : { ok: false, error: "unavailable" },
+    getPlaybackPayload,
+    lastPlaybackPayloadCache,
+    buildDrumDiagnostics: buildDebugDumpDrumDiagnostics,
+    followPipelineVersion: FOLLOW_PIPELINE_VERSION,
+    isPlaying,
+    isPaused,
+    waitingForFirstNote,
+    followPlayback,
+    followVoiceId,
+    followVoiceIndex,
+    playbackState,
+    practiceTempoMultiplier,
+    playbackLoopEnabled,
+    playbackLoopFromMeasure,
+    playbackLoopToMeasure,
+    clampInt,
+    soundfontName,
+    soundfontSource,
+    soundfontReadyName,
+    lastSoundfontApplied,
+    playbackIndexOffset,
+    playbackRange,
+    activePlaybackRange,
+    activePlaybackEndAbcOffset,
+    lastStartPlaybackIdx,
+    resumeStartIdx,
+    desiredPlayerSpeed,
+    currentPlaybackPlan,
+    pendingPlaybackPlan,
+    lastPlaybackGuardMessage,
+    lastPlaybackAbortMessage,
+    lastPlaybackException,
+    clonePlaybackRange,
+    playbackNoteTrace,
+    playbackParseErrors,
+    playbackSanitizeWarnings,
+    lastDrumSignatureDiff,
+    lastRhythmErrorSuggestion,
+    lastRenderPayload,
+    barMismatchMarkers,
+    errorEntries,
+    activeErrorHighlight,
+  });
 }
 
 async function dumpDebugToFile(filePathArg) {

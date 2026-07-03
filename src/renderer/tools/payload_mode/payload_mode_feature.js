@@ -1,4 +1,34 @@
-export function createPayloadModeFeature() {
+import { createPayloadModeController } from "./payload_mode_controller.js";
+import { computePayloadTuneOffset } from "./payload_mode_model.mjs";
+
+export function createPayloadModeFeature({
+  elements = {},
+  lockElements = [],
+  getCopyText = () => ({ text: "", selectionText: "" }),
+  hasEditor = () => false,
+  getEditorText = () => "",
+  getEditorSelection = () => null,
+  setEditorText = () => {},
+  setEditorReadOnly = () => {},
+  setEditorCursor = () => {},
+  restoreEditorSelection = () => {},
+  getActiveTuneUid = () => "",
+  isRawMode = () => false,
+  isFocusModeEnabled = () => false,
+  getHeaderText = () => "",
+  sanitizeHeaderText = (text) => text,
+  buildHeaderPrefixWithLayerSpans = () => ({ text: "", spans: [] }),
+  buildPlaybackPayload = (text) => ({ text, spans: [] }),
+  stopPlayback = () => {},
+  resetPlaybackState = () => {},
+  clearBarMismatchMarkers = () => {},
+  refreshLayerDecorations = () => {},
+  scheduleRender = () => {},
+  scheduleLibraryTree = () => {},
+  showToast = () => {},
+  setStatus = () => {},
+} = {}) {
+  let enabled = false;
   let source = null;
   let layerSpans = [];
   let showLayers = false;
@@ -7,20 +37,42 @@ export function createPayloadModeFeature() {
   let playbackState = null;
 
   const normalizeSpans = (spans) => Array.isArray(spans) ? spans : [];
-
   const getView = () => view;
-
+  const isEnabled = () => enabled;
   const isPlaybackView = () => view === "playback";
 
-  const getRenderState = () => renderState;
+  const controller = createPayloadModeController({
+    bar: elements.bar,
+    renderTab: elements.renderTab,
+    playbackTab: elements.playbackTab,
+    copyButton: elements.copyButton,
+    exitButton: elements.exitButton,
+    lockElements,
+    getView,
+    getCopyText,
+    onExit: () => exit(),
+    onSetView: (nextView) => setView(nextView),
+    showToast,
+  });
 
-  const getLayerDecorationOptions = (enabled) => ({
-    payloadMode: Boolean(enabled),
+  const getLayerDecorationOptions = () => ({
+    payloadMode: enabled,
     showLayers,
     layerSpans,
   });
 
-  const enter = ({ sourceText, sourceSelection, tuneUid, payloadText, spans } = {}) => {
+  const setEnabled = (nextEnabled) => {
+    enabled = Boolean(nextEnabled);
+    controller.setEnabled(enabled);
+    refreshLayerDecorations();
+    try { scheduleLibraryTree(); } catch {}
+  };
+
+  const updateTabs = () => {
+    controller.updateTabs(view);
+  };
+
+  const enterState = ({ sourceText, sourceSelection, tuneUid, payloadText, spans } = {}) => {
     source = {
       text: String(sourceText || ""),
       selection: sourceSelection || null,
@@ -65,7 +117,7 @@ export function createPayloadModeFeature() {
     return renderState;
   };
 
-  const exit = () => {
+  const exitState = () => {
     const restore = source;
     source = null;
     layerSpans = [];
@@ -76,15 +128,116 @@ export function createPayloadModeFeature() {
     return restore;
   };
 
+  const setView = async (nextView) => {
+    if (!enabled) return;
+    const next = nextView === "playback" ? "playback" : "render";
+    const currentView = view;
+    if (currentView === next) return;
+    if (!hasEditor()) return;
+
+    if (currentView === "render") {
+      captureRenderEdit({
+        text: getEditorText(),
+        selection: getEditorSelection(),
+      });
+    }
+
+    if (next === "playback") {
+      const baseText = renderState && typeof renderState.text === "string"
+        ? renderState.text
+        : getEditorText();
+      const baseOffset = computePayloadTuneOffset(baseText);
+      const built = buildPlaybackPayload(baseText, baseOffset);
+      const nextPlaybackState = setPlaybackState({
+        text: built.text,
+        selection: null,
+        spans: built.spans || [],
+      });
+
+      updateTabs();
+      setEditorReadOnly(true);
+      setEditorText(nextPlaybackState.text || "");
+      setEditorCursor(computePayloadTuneOffset(nextPlaybackState.text || ""), { scrollIntoView: true });
+      refreshLayerDecorations();
+      scheduleRender({ clearOutput: true });
+      return;
+    }
+
+    const restore = setRenderView();
+    updateTabs();
+    setEditorReadOnly(false);
+    setEditorText(restore && typeof restore.text === "string" ? restore.text : "");
+    if (restore && restore.selection) restoreEditorSelection(restore.selection);
+    refreshLayerDecorations();
+    scheduleRender({ clearOutput: true });
+  };
+
+  const enter = async () => {
+    if (enabled) return;
+    if (isRawMode() || isFocusModeEnabled()) {
+      showToast("Payload Mode is available only in normal mode (exit Raw/Focus first).", 3600);
+      return;
+    }
+    if (!hasEditor()) return;
+    const tuneUid = getActiveTuneUid();
+    if (!tuneUid) {
+      showToast("No active tune.", 2200);
+      return;
+    }
+
+    try { stopPlayback(); } catch {}
+    resetPlaybackState();
+
+    const sourceText = getEditorText();
+    const sourceSelection = getEditorSelection();
+    const headerText = sanitizeHeaderText(getHeaderText());
+    const prefixPayload = buildHeaderPrefixWithLayerSpans(headerText, true, sourceText);
+    const payloadText = prefixPayload.text ? `${prefixPayload.text}${sourceText}` : sourceText;
+
+    enterState({
+      sourceText,
+      sourceSelection,
+      tuneUid,
+      payloadText,
+      spans: prefixPayload.spans || [],
+    });
+
+    setEnabled(true);
+    clearBarMismatchMarkers();
+    updateTabs();
+    setEditorReadOnly(false);
+    setEditorText(payloadText);
+    setEditorCursor(computePayloadTuneOffset(payloadText), { scrollIntoView: true });
+    scheduleRender({ clearOutput: true });
+    setStatus("OK");
+  };
+
+  const exit = async () => {
+    if (!enabled) return;
+    try { stopPlayback(); } catch {}
+    resetPlaybackState();
+
+    const restore = exitState();
+    setEnabled(false);
+    setEditorReadOnly(false);
+
+    if (restore && typeof restore.text === "string") {
+      setEditorText(restore.text);
+      if (restore.selection) restoreEditorSelection(restore.selection);
+    }
+    scheduleRender({ clearOutput: true });
+    setStatus("OK");
+  };
+
   return {
-    captureRenderEdit,
     enter,
     exit,
     getLayerDecorationOptions,
-    getRenderState,
     getView,
+    isEnabled,
     isPlaybackView,
-    setPlaybackState,
-    setRenderView,
+    setView,
+    updateTabs,
+    wire: () => controller.wire(),
   };
 }

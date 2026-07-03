@@ -119,7 +119,6 @@ import {
 } from "./tools/intonation_explorer/intonation_model.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
-import { createPayloadModeController } from "./tools/payload_mode/payload_mode_controller.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
 import {
   buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
@@ -506,8 +505,68 @@ let chordproPrevHeaderCollapsed = null;
 let chordproAvailabilityCache = null;
 let chordproAvailabilityInFlight = null;
 
-let payloadMode = false;
-const payloadModeFeature = createPayloadModeFeature();
+const payloadModeFeature = createPayloadModeFeature({
+  elements: {
+    bar: $payloadModeBar,
+    renderTab: $payloadModeTabRender,
+    playbackTab: $payloadModeTabPlayback,
+    copyButton: $payloadModeCopy,
+    exitButton: $payloadModeExit,
+  },
+  lockElements: [
+    $btnToggleLibrary,
+    $btnLibraryRefresh,
+    $btnLibraryClearFilter,
+    $groupBy,
+    $sortBy,
+    $sortTunesBy,
+    $librarySearch,
+    $fileTuneSelect,
+    $btnFileNew,
+    $btnNewTune,
+    $btnTemplates,
+    $btnFileOpen,
+    $btnFileSave,
+    $btnFileClose,
+    $btnToggleRaw,
+    $btnChordproPdf,
+    $btnToggleErrors,
+    $btnToggleFollow,
+    $btnToggleGlobals,
+    $fileHeaderToggle,
+    $fileHeaderSave,
+    $fileHeaderReload,
+    $xIssuesAutoFix,
+    $xIssuesJump,
+    $xIssuesCopy,
+  ],
+  getCopyText: getPayloadModeCopyText,
+  hasEditor: () => Boolean(editorView),
+  getEditorText: () => getEditorValue(),
+  getEditorSelection: () => editorView ? editorView.state.selection : null,
+  setEditorText: setPayloadModeEditorValue,
+  setEditorReadOnly: setPayloadEditorReadOnly,
+  setEditorCursor: setPayloadModeEditorCursor,
+  restoreEditorSelection: restorePayloadModeEditorSelection,
+  getActiveTuneUid: () => activeTuneUid,
+  isRawMode: () => rawMode,
+  isFocusModeEnabled: () => focusModeEnabled,
+  getHeaderText: () => {
+    const entry = getActiveFileEntry();
+    return entry ? getHeaderEditorValue() : "";
+  },
+  sanitizeHeaderText: sanitizeFileHeaderForInteractiveRender,
+  buildHeaderPrefixWithLayerSpans,
+  buildPlaybackPayload: buildPayloadModePlaybackPayload,
+  stopPlayback: stopPlaybackTransport,
+  resetPlaybackState,
+  clearBarMismatchMarkers: () => setBarMismatchMarkers([]),
+  refreshLayerDecorations: refreshPayloadLayerDecorations,
+  scheduleRender: scheduleRenderNow,
+  scheduleLibraryTree: () => scheduleRenderLibraryTree(sourceFiles),
+  showToast,
+  setStatus,
+});
 
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
 const printAllOptionsController = createPrintAllOptionsController({
@@ -556,6 +615,10 @@ const setListFeature = createSetListFeature({
   enableDraggable: enableDraggableModal,
 });
 
+function isPayloadMode() {
+  return payloadModeFeature.isEnabled();
+}
+
 function safeReadJsonLocalStorage(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -599,7 +662,7 @@ function abRevisionToken() {
 
 function isAbPlanValid() {
   if (!abPlan) return false;
-  if (rawMode || payloadMode) return false;
+  if (rawMode || isPayloadMode()) return false;
   if (abPlan.revisionToken !== abRevision) return false;
   if (!Number.isFinite(abPlan.startOffset) || !Number.isFinite(abPlan.endOffset)) return false;
   if (abPlan.endOffset - abPlan.startOffset < AB_MIN_LENGTH) return false;
@@ -820,7 +883,7 @@ function extendVisibleRangeToRepeatClose(text, start, end) {
 
 function getSelectionPlaybackRange() {
   if (!editorView) return null;
-  if (rawMode || payloadMode) return null;
+  if (rawMode || isPayloadMode()) return null;
   const sel = editorView.state.selection.main;
   const start = Math.min(sel.anchor, sel.head);
   const end = Math.max(sel.anchor, sel.head);
@@ -956,7 +1019,7 @@ async function playAbLoop() {
     showToast("Set A and B first.", 2200);
     return;
   }
-  if (rawMode || payloadMode) {
+  if (rawMode || isPayloadMode()) {
     showToast("Switch to tune mode to play A–B.", 2400);
     return;
   }
@@ -992,7 +1055,7 @@ async function playAbLoop() {
 async function playSelectionOnce() {
   const range = getSelectionPlaybackRange();
   if (!range) return false;
-  if (rawMode || payloadMode) return false;
+  if (rawMode || isPayloadMode()) return false;
   const selectionSettings = getSelectionPlaybackSettings();
   const max = editorView ? editorView.state.doc.length : 0;
   const start = Math.max(0, Math.min(max, range.startOffset));
@@ -2447,7 +2510,7 @@ function applyChordProActiveBlockEdit(blockText) {
 }
 
 function setLibraryControlsDisabled(disabled) {
-  const shouldDisable = Boolean(disabled || payloadMode);
+  const shouldDisable = Boolean(disabled || isPayloadMode());
   const disableIf = (el, value) => { if (el) el.disabled = value; };
   disableIf($btnToggleLibrary, shouldDisable);
   disableIf($btnLibraryRefresh, shouldDisable);
@@ -2772,7 +2835,7 @@ const WORKING_COPY_FULL_SYNC_DEBOUNCE_MS = 450;
 
 function scheduleWorkingCopyTuneSync() {
   if (rawMode) return;
-  if (payloadMode) return;
+  if (isPayloadMode()) return;
   if (chordproMode) return;
   if (!activeTuneUid) return;
   if (!activeTuneMeta || !activeTuneMeta.path) return;
@@ -2786,7 +2849,7 @@ function scheduleWorkingCopyTuneSync() {
 
 function scheduleWorkingCopyFullSync() {
   if (rawMode) return;
-  if (payloadMode) return;
+  if (isPayloadMode()) return;
   if (!chordproMode) return;
   if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
   const filePath = String(activeFilePath || (currentDoc && currentDoc.path) || "");
@@ -2800,7 +2863,7 @@ function scheduleWorkingCopyFullSync() {
 
 function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
   if (rawMode) return false;
-  if (payloadMode) return false;
+  if (isPayloadMode()) return false;
   if (!activeTuneMeta || !activeTuneMeta.path) return false;
   if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)) return false;
 
@@ -2851,7 +2914,7 @@ async function flushWorkingCopyTuneSync() {
     return { ok: false, error: "Tune sync is already running." };
   }
   if (rawMode) return { ok: false, skipped: true, reason: "raw_mode" };
-  if (payloadMode) return { ok: false, skipped: true, reason: "payload_mode" };
+  if (isPayloadMode()) return { ok: false, skipped: true, reason: "payload_mode" };
   if (chordproMode) return { ok: false, skipped: true, reason: "chordpro_mode" };
   if (!activeTuneUid) {
     // Some open paths (e.g., recents / stale library metadata) may not have a tuneUid yet.
@@ -2945,7 +3008,7 @@ async function flushWorkingCopyFullSync() {
     return;
   }
   if (rawMode) return;
-  if (payloadMode) return;
+  if (isPayloadMode()) return;
   if (!chordproMode) return;
   if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
 
@@ -3358,59 +3421,6 @@ const aboutModalController = createAboutModalController({
   logError: logErr,
 });
 const goToMeasureModalController = createGoToMeasureModalController();
-const payloadModeController = createPayloadModeController({
-  bar: $payloadModeBar,
-  renderTab: $payloadModeTabRender,
-  playbackTab: $payloadModeTabPlayback,
-  copyButton: $payloadModeCopy,
-  exitButton: $payloadModeExit,
-  lockElements: [
-    $btnToggleLibrary,
-    $btnLibraryRefresh,
-    $btnLibraryClearFilter,
-    $groupBy,
-    $sortBy,
-    $sortTunesBy,
-    $librarySearch,
-    $fileTuneSelect,
-    $btnFileNew,
-    $btnNewTune,
-    $btnTemplates,
-    $btnFileOpen,
-    $btnFileSave,
-    $btnFileClose,
-    $btnToggleRaw,
-    $btnChordproPdf,
-    $btnToggleErrors,
-    $btnToggleFollow,
-    $btnToggleGlobals,
-    $fileHeaderToggle,
-    $fileHeaderSave,
-    $fileHeaderReload,
-    $xIssuesAutoFix,
-    $xIssuesJump,
-    $xIssuesCopy,
-  ],
-  getView: () => payloadModeFeature.getView(),
-  getCopyText: () => {
-    if (!editorView) return { text: "", selectionText: "" };
-    const doc = editorView.state.doc;
-    const ranges = editorView.state.selection && editorView.state.selection.ranges
-      ? editorView.state.selection.ranges
-      : [];
-    let selectionText = "";
-    for (const r of ranges) {
-      if (r && Number.isFinite(r.from) && Number.isFinite(r.to) && r.from !== r.to) {
-        selectionText = doc.sliceString(r.from, r.to);
-        break;
-      }
-    }
-    return { text: selectionText || getEditorValue(), selectionText };
-  },
-  onExit: () => exitPayloadMode(),
-  onSetView: (view) => setPayloadModeView(view),
-  showToast,
-});
 
 const GROUP_LABELS = {
   file: "File",
@@ -4595,7 +4605,7 @@ function setIntonationHighlightRanges(ranges) {
 
 let payloadLayerVersion = 0;
 function getPayloadLayerDecorationOptions() {
-  return payloadModeFeature.getLayerDecorationOptions(payloadMode);
+  return payloadModeFeature.getLayerDecorationOptions();
 }
 
 const payloadLayerPlugin = ViewPlugin.fromClass(class {
@@ -5052,7 +5062,7 @@ function clearSvgIntonationNoteHighlight() {
 }
 
 function getIntonationSelectionScope() {
-  if (!editorView || rawMode || payloadMode) return null;
+  if (!editorView || rawMode || isPayloadMode()) return null;
   try {
     const sel = editorView.state && editorView.state.selection ? editorView.state.selection.main : null;
     if (!sel || sel.empty) return null;
@@ -6511,83 +6521,44 @@ function setRawModeUI(enabled) {
   updateSourceLinkPanel();
 }
 
-function setPayloadModeUI(enabled) {
-  payloadMode = Boolean(enabled);
-  payloadModeController.setEnabled(payloadMode);
-  refreshPayloadLayerDecorations();
-  // Ensure the library tree reflects locked state (disables tune/file buttons).
-  try { scheduleRenderLibraryTree(sourceFiles); } catch {}
-}
-
-function updatePayloadModeTabUI() {
-  payloadModeController.updateTabs(payloadModeFeature.getView());
-}
-
-async function setPayloadModeView(nextView) {
-  if (!payloadMode) return;
-  const next = nextView === "playback" ? "playback" : "render";
-  const currentView = payloadModeFeature.getView();
-  if (currentView === next) return;
-  if (!editorView) return;
-
-  if (currentView === "render") {
-    // Leaving render view: capture sandbox edits.
-    payloadModeFeature.captureRenderEdit({
-      text: getEditorValue(),
-      selection: editorView.state.selection,
-    });
-  }
-
-  if (next === "playback") {
-    // Build final playback payload from the current render payload.
-    const renderState = payloadModeFeature.getRenderState();
-    const baseText = renderState && typeof renderState.text === "string"
-      ? renderState.text
-      : getEditorValue();
-    const baseOffset = computePayloadTuneOffset(baseText);
-    const built = buildPlaybackPayloadForDiagnosticsFromRenderText(baseText, baseOffset);
-    const playbackState = payloadModeFeature.setPlaybackState({
-      text: built.text,
-      selection: null,
-      spans: built.spans || [],
-    });
-
-    updatePayloadModeTabUI();
-    setPayloadEditorReadOnly(true);
-
-    suppressDirty = true;
-    setEditorValue(playbackState.text || "");
-    suppressDirty = false;
-
-    try {
-      const offset = computePayloadTuneOffset(playbackState.text || "");
-      editorView.dispatch({
-        selection: { anchor: offset, head: offset },
-        scrollIntoView: true,
-      });
-    } catch {}
-
-    refreshPayloadLayerDecorations();
-    scheduleRenderNow({ clearOutput: true });
-    return;
-  }
-
-  // Switch to render view.
-  const restore = payloadModeFeature.setRenderView();
-  updatePayloadModeTabUI();
-  setPayloadEditorReadOnly(false);
-
-  suppressDirty = true;
-  setEditorValue(restore && typeof restore.text === "string" ? restore.text : "");
-  suppressDirty = false;
-  try {
-    if (restore && restore.selection) {
-      editorView.dispatch({ selection: restore.selection, scrollIntoView: false });
+function getPayloadModeCopyText() {
+  if (!editorView) return { text: "", selectionText: "" };
+  const doc = editorView.state.doc;
+  const ranges = editorView.state.selection && editorView.state.selection.ranges
+    ? editorView.state.selection.ranges
+    : [];
+  let selectionText = "";
+  for (const r of ranges) {
+    if (r && Number.isFinite(r.from) && Number.isFinite(r.to) && r.from !== r.to) {
+      selectionText = doc.sliceString(r.from, r.to);
+      break;
     }
-  } catch {}
+  }
+  return { text: selectionText || getEditorValue(), selectionText };
+}
 
-  refreshPayloadLayerDecorations();
-  scheduleRenderNow({ clearOutput: true });
+function setPayloadModeEditorValue(text) {
+  suppressDirty = true;
+  setEditorValue(text);
+  suppressDirty = false;
+}
+
+function setPayloadModeEditorCursor(pos, { scrollIntoView = true } = {}) {
+  if (!editorView) return;
+  try {
+    const safePos = Math.max(0, Math.min(Number(pos) || 0, editorView.state.doc.length));
+    editorView.dispatch({
+      selection: { anchor: safePos, head: safePos },
+      scrollIntoView,
+    });
+  } catch {}
+}
+
+function restorePayloadModeEditorSelection(selection) {
+  if (!editorView || !selection) return;
+  try {
+    editorView.dispatch({ selection, scrollIntoView: false });
+  } catch {}
 }
 
 function setPayloadEditorReadOnly(enabled) {
@@ -6910,7 +6881,7 @@ async function leaveRawModeForAction(contextLabel) {
   return true;
 }
 
-function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffset) {
+function buildPayloadModePlaybackPayload(renderText, renderOffset) {
   return buildPlaybackPayloadForDiagnosticsFromRenderTextCore(renderText, renderOffset, {
     injectGchordOn,
     shouldUseNativeMidiDrums,
@@ -6921,86 +6892,6 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
     expandRepeatsForPlayback,
     expandRepeats: window.__abcarusPlaybackExpandRepeats === true,
   });
-}
-
-async function enterPayloadMode() {
-  if (payloadMode) return;
-  if (rawMode || focusModeEnabled) {
-    showToast("Payload Mode is available only in normal mode (exit Raw/Focus first).", 3600);
-    return;
-  }
-  if (!editorView) return;
-  if (!activeTuneUid) {
-    showToast("No active tune.", 2200);
-    return;
-  }
-
-  try { stopPlaybackTransport(); } catch {}
-  resetPlaybackState();
-
-  const sourceText = getEditorValue();
-  const sourceSelection = editorView.state.selection;
-  const entry = getActiveFileEntry();
-  const headerTextRaw = entry ? getHeaderEditorValue() : "";
-  const headerText = sanitizeFileHeaderForInteractiveRender(headerTextRaw);
-  const prefixPayload = buildHeaderPrefixWithLayerSpans(headerText, true, sourceText);
-  const payloadText = prefixPayload.text ? `${prefixPayload.text}${sourceText}` : sourceText;
-
-  payloadModeFeature.enter({
-    sourceText,
-    sourceSelection,
-    tuneUid: activeTuneUid,
-    payloadText,
-    spans: prefixPayload.spans || [],
-  });
-
-  setPayloadModeUI(true);
-  setBarMismatchMarkers([]);
-  updatePayloadModeTabUI();
-  setPayloadEditorReadOnly(false);
-  suppressDirty = true;
-  setEditorValue(payloadText);
-  suppressDirty = false;
-
-  // Keep cursor at the start of the tune header by default (after any injected prefix).
-  try {
-    const offset = computePayloadTuneOffset(payloadText);
-    editorView.dispatch({
-      selection: { anchor: offset, head: offset },
-      scrollIntoView: true,
-    });
-  } catch {}
-
-  scheduleRenderNow({ clearOutput: true });
-  setStatus("OK");
-}
-
-async function exitPayloadMode() {
-  if (!payloadMode) return;
-  try { stopPlaybackTransport(); } catch {}
-  resetPlaybackState();
-
-  const restore = payloadModeFeature.exit();
-
-  setPayloadModeUI(false);
-  setPayloadEditorReadOnly(false);
-
-  if (restore && typeof restore.text === "string") {
-    suppressDirty = true;
-    setEditorValue(restore.text);
-    suppressDirty = false;
-    try {
-      if (restore.selection) {
-        editorView.dispatch({ selection: restore.selection, scrollIntoView: false });
-      }
-    } catch {}
-  }
-  scheduleRenderNow({ clearOutput: true });
-  setStatus("OK");
-}
-
-function ensurePayloadModeUiWired() {
-  payloadModeController.wire();
 }
 
 function toggleLineComments(view) {
@@ -7264,7 +7155,7 @@ function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel, opti
 function shouldHandleTypingPreviewChange(update) {
   if (!noteTypingPreviewEnabled) return false;
   if (!update || !update.docChanged) return false;
-  if (rawMode || payloadMode || chordproMode) return false;
+  if (rawMode || isPayloadMode() || chordproMode) return false;
   if (!editorView || update.view !== editorView) return false;
   if (!Array.isArray(update.transactions) || update.transactions.length !== 1) return false;
   const tr = update.transactions[0];
@@ -7835,18 +7726,18 @@ function initEditor() {
 	  ]);
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
-      if (!suppressDirty && !payloadMode && !currentDoc) {
+      if (!suppressDirty && !isPayloadMode() && !currentDoc) {
         currentDoc = createBlankDocument();
       }
       shouldHandleTypingPreviewChange(update);
       abRevision += 1;
       if (abPlan) clearAbPlan({ toast: true });
-      if (!suppressDirty && currentDoc && !payloadMode) {
+      if (!suppressDirty && currentDoc && !isPayloadMode()) {
         currentDoc.content = update.state.doc.toString();
         currentDoc.dirty = true;
         setDirtyIndicator(true);
       }
-      if (!suppressDirty && currentDoc && !payloadMode) {
+      if (!suppressDirty && currentDoc && !isPayloadMode()) {
         if (chordproMode) {
           if (chordproFullView) {
             chordproFullText = update.state.doc.toString();
@@ -7979,7 +7870,7 @@ function initEditor() {
 
   editorView.dom.addEventListener("copy", (e) => {
     try {
-      if (!payloadMode || !editorView) return;
+      if (!isPayloadMode() || !editorView) return;
       const selection = editorView.state.selection;
       if (!selection || selection.empty) return;
       const doc = editorView.state.doc;
@@ -8430,7 +8321,7 @@ function renderLibraryTree(files = null) {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "tree-label tree-rename";
-      input.disabled = payloadMode;
+      input.disabled = isPayloadMode();
       input.value = entry.label || "";
       input.dataset.filePath = entry.id;
       input.addEventListener("keydown", async (ev) => {
@@ -8451,7 +8342,7 @@ function renderLibraryTree(files = null) {
       const fileLabel = document.createElement("button");
       fileLabel.type = "button";
       fileLabel.className = "tree-label tree-file-label";
-      fileLabel.disabled = payloadMode;
+      fileLabel.disabled = isPayloadMode();
       fileLabel.dataset.filePath = entry.id;
       const labelText = document.createElement("span");
       labelText.className = "tree-label-text";
@@ -8533,7 +8424,7 @@ function renderLibraryTree(files = null) {
       button.type = "button";
       button.className = "tree-label tune-label";
       button.draggable = true;
-      button.disabled = payloadMode;
+      button.disabled = isPayloadMode();
       const labelNumber = tune.xNumber || String(tune.indexInFile);
       const title = tune.title || tune.preview || "";
       const composer = tune.composer ? ` - ${tune.composer}` : "";
@@ -8633,7 +8524,7 @@ async function selectTune(tuneId, options = {}) {
     skipConfirm: Boolean(options && options.skipConfirm),
     rawMode: Boolean(rawMode),
     focusMode: Boolean(focusModeEnabled),
-    payloadMode: Boolean(payloadMode),
+    payloadMode: Boolean(isPayloadMode()),
   });
   if (!options.skipConfirm) {
     const ok = await ensureSafeToAbandonCurrentDoc("switching tunes");
@@ -9417,7 +9308,7 @@ function startScanForErrorsFromToolbarEnable() {
 if ($btnFileNew) {
   $btnFileNew.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to create a new file.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to create a new file.", 2400); return; }
       if (rawMode) {
         const ok = await leaveRawModeForAction("creating a new file");
         if (!ok) return;
@@ -9429,7 +9320,7 @@ if ($btnFileNew) {
 if ($btnNewTune) {
   $btnNewTune.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to create/append tunes.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to create/append tunes.", 2400); return; }
       if (rawMode) {
         const ok = await leaveRawModeForAction("creating a new tune");
         if (!ok) return;
@@ -9441,7 +9332,7 @@ if ($btnNewTune) {
 if ($btnTemplates) {
   $btnTemplates.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to use templates.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to use templates.", 2400); return; }
       if (rawMode) {
         const ok = await leaveRawModeForAction("opening templates");
         if (!ok) return;
@@ -9458,7 +9349,7 @@ if ($btnChordproPdf) {
 if ($btnFileOpen) {
   $btnFileOpen.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to open files.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to open files.", 2400); return; }
       if (rawMode) {
         const ok = await leaveRawModeForAction("opening a file");
         if (!ok) return;
@@ -9470,7 +9361,7 @@ if ($btnFileOpen) {
 if ($btnFileSave) {
   $btnFileSave.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Payload Mode is diagnostics-only (no saves).", 2600); return; }
+      if (isPayloadMode()) { showToast("Payload Mode is diagnostics-only (no saves).", 2600); return; }
       await fileSave();
     } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
   });
@@ -9478,7 +9369,7 @@ if ($btnFileSave) {
 if ($btnFileClose) {
   $btnFileClose.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to close files.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to close files.", 2400); return; }
       await fileClose();
     } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
   });
@@ -9486,7 +9377,7 @@ if ($btnFileClose) {
 if ($btnToggleRaw) {
   $btnToggleRaw.addEventListener("click", async () => {
     try {
-      if (payloadMode) { showToast("Exit Payload Mode to switch Raw mode.", 2400); return; }
+      if (isPayloadMode()) { showToast("Exit Payload Mode to switch Raw mode.", 2400); return; }
       if (chordproMode) {
         setChordProFullView(!chordproFullView);
         return;
@@ -9511,7 +9402,7 @@ if ($fileTuneSelect) {
       if (Number.isFinite(idx)) setActiveChordProBlock(idx, { scroll: true });
       return;
     }
-    if (payloadMode) {
+    if (isPayloadMode()) {
       showToast("Exit Payload Mode to change tunes.", 2400);
       try { if (activeTuneUid || activeTuneId) $fileTuneSelect.value = rawMode ? activeTuneId : (activeTuneUid || activeTuneId); } catch {}
       return;
@@ -13956,7 +13847,7 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
 }
 
 function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0 } = {}) {
-  if (!editorView || rawMode || payloadMode || !errorsEnabled) {
+  if (!editorView || rawMode || isPayloadMode() || !errorsEnabled) {
     setBarMismatchMarkers([]);
     return;
   }
@@ -14558,7 +14449,7 @@ function nowCompactStamp() {
 function buildDebugDumpDrumDiagnostics() {
   return buildDrumDebugDiagnostics({
     tuneText: getEditorValue(),
-    isPayloadMode: payloadMode,
+    isPayloadMode: isPayloadMode(),
     hasActiveFileEntry: Boolean(getActiveFileEntry()),
     headerText: getHeaderEditorValue(),
     buildHeaderPrefix,
@@ -15282,7 +15173,7 @@ async function performSaveFlow() {
     isNewTuneDraft: Boolean(isNewTuneDraft),
     activeTunePath: activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : null,
     wcSnapshotPath: workingCopySnapshot && workingCopySnapshot.path ? String(workingCopySnapshot.path) : null,
-    payloadMode: Boolean(payloadMode),
+    payloadMode: Boolean(isPayloadMode()),
     rawMode: Boolean(rawMode),
     focusMode: Boolean(focusModeEnabled),
     saveIntent: session.intent,
@@ -17302,7 +17193,7 @@ async function importMidi() {
 
 async function fileSave() {
   if (!currentDoc) return;
-  if (payloadMode) {
+  if (isPayloadMode()) {
     showToast("Payload Mode is diagnostics-only (no saves).", 2600);
     return;
   }
@@ -17315,7 +17206,7 @@ async function fileSave() {
 
 async function fileSaveAs() {
   if (!currentDoc) return;
-  if (payloadMode) {
+  if (isPayloadMode()) {
     showToast("Exit Payload Mode to Save As.", 2400);
     return;
   }
@@ -17802,7 +17693,7 @@ function wireMenuActions() {
         ]);
         if (!allowed.has(actionType)) return;
       }
-      if (payloadMode) {
+      if (isPayloadMode()) {
         // Payload Mode is diagnostics-only. Keep actions that don't touch the library/working copy.
         const allowed = new Set([
           "openPayloadMode",
@@ -17898,7 +17789,7 @@ function wireMenuActions() {
       else if (actionType === "newTune") await fileNewTune();
       else if (actionType === "newFromTemplate") await fileNewFromTemplate();
       else if (actionType === "templatesModal") {
-        if (payloadMode) {
+        if (isPayloadMode()) {
           showToast("Exit Payload Mode to use templates.", 2400);
           return;
         }
@@ -17938,9 +17829,9 @@ function wireMenuActions() {
           showToast("Payload Mode is disabled. Enable in Settings → Options → Tools → Diagnostics.", 4200);
           return;
         }
-        ensurePayloadModeUiWired();
-        if (payloadMode) await exitPayloadMode();
-        else await enterPayloadMode();
+        payloadModeFeature.wire();
+        if (isPayloadMode()) await payloadModeFeature.exit();
+        else await payloadModeFeature.enter();
       }
       else if (actionType === "toggleDebugMessages") {
         const enabled = Boolean(action && action.value);
@@ -17989,7 +17880,7 @@ function wireMenuActions() {
       }
       else if (actionType === "abcHelpers") {
         if (!editorView) return;
-        if (payloadMode) {
+        if (isPayloadMode()) {
           showToast("Exit Payload Mode to use ABC Helpers.", 2400);
           return;
         }
@@ -18315,7 +18206,7 @@ if (window.api && typeof window.api.getSettings === "function") {
 		      updateErrorsFeatureUI();
 		      refreshHeaderLayers().catch(() => {});
 		      try {
-		        if (settings && settings.payloadModeEnabled) ensurePayloadModeUiWired();
+		        if (settings && settings.payloadModeEnabled) payloadModeFeature.wire();
 		      } catch {}
 		      showDisclaimerIfNeeded(settings);
 		      scheduleStartupLayoutReset();
@@ -18366,8 +18257,8 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	    refreshHeaderLayers().catch(() => {});
 	    try {
 	      const payloadEnabled = Boolean(settings && settings.payloadModeEnabled);
-	      if (payloadEnabled) ensurePayloadModeUiWired();
-	      if (!payloadEnabled && payloadMode) exitPayloadMode().catch(() => {});
+	      if (payloadEnabled) payloadModeFeature.wire();
+	      if (!payloadEnabled && isPayloadMode()) payloadModeFeature.exit().catch(() => {});
 	    } catch {}
 	    try {
 	      const makamEnabled = Boolean(settings && (settings.makamToolsEnabled || settings.studyToolsEnabled));
@@ -18587,7 +18478,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
 
   const mode = String(modeOverride || "insert");
   if (mode === "insert") {
-    if (payloadMode) {
+    if (isPayloadMode()) {
       showToast("Exit Payload Mode to insert a template.", 2400);
       return;
     }
@@ -18602,7 +18493,7 @@ async function insertSelectedTemplateFromModal(modeOverride = "") {
   }
 
   if (mode === "replace") {
-    if (payloadMode) {
+    if (isPayloadMode()) {
       showToast("Exit Payload Mode to replace a tune.", 2400);
       return;
     }
@@ -19526,7 +19417,7 @@ function getPlaybackSourceKey() {
   if (chordproMode && chordproFullView) return "chordpro-full";
   if (chordproMode && !chordproBlocks.length) return "chordpro-empty";
   const tuneText = getEditorValue();
-  if (payloadMode) {
+  if (isPayloadMode()) {
     if (payloadModeFeature.isPlaybackView()) {
       const offset = 0;
       const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
@@ -23728,7 +23619,7 @@ function getPlaybackPayload() {
   const skipDrums = playbackSkipDrumsOnce === true || (scopedOptions ? !Boolean(scopedOptions.allowMidiDrums) : false);
   const skipGchords = playbackSkipGchordsOnce === true || (scopedOptions ? Boolean(scopedOptions.muteGchords) : false);
   const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
-  if (payloadMode) {
+  if (isPayloadMode()) {
     if (payloadModeFeature.isPlaybackView()) {
       // In payload mode the editor already contains the full payload text,
       // so playback indices should map 1:1 to editor offsets.
@@ -23891,7 +23782,7 @@ function getPlaybackPayload() {
 }
 
 function getRenderPayload() {
-  if (payloadMode) {
+  if (isPayloadMode()) {
     const text = getEditorValue();
     const offset = computePayloadTuneOffset(text);
     const out = { text, offset };

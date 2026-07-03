@@ -92,9 +92,6 @@ import {
 } from "./note_preview/abc_note_parse.mjs";
 import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 import {
-  normalizeSourceUrl,
-} from "./source_link.js";
-import {
   isChordProFilePath,
   isChordProText,
   parseChordProBlocks,
@@ -106,7 +103,7 @@ import { buildDrumDebugDiagnostics } from "./tools/drum_helper/drum_debug_diagno
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
-import { createSourceLinkController } from "./tools/source_link/source_link_controller.js";
+import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createMakamDnaStore } from "./tools/makam_dna/makam_dna_store.js";
 import {
@@ -124,9 +121,6 @@ import {
   buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
   computePayloadTuneOffset,
 } from "./tools/payload_mode/payload_mode_model.mjs";
-import {
-  buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
-} from "./print/source_link_markup.js";
 import { createPrintAllOptionsController } from "./print/print_all_options_controller.js";
 import {
   buildPrintTuneLabel,
@@ -136,7 +130,6 @@ import {
   ensureOnePerPageDirective,
   sanitizeFileBaseName,
 } from "./print/print_helpers.js";
-import { createQrDataUrl } from "./print/qr_code.js";
 import {
   clampTranslateToViewport,
   formatTranslateXY,
@@ -4117,40 +4110,23 @@ function setTuneMetaText(text) {
   renderBufferStatus();
 }
 
-const sourceLinkController = createSourceLinkController({
+const sourceLinkFeature = createSourceLinkFeature({
   panel: $sourceLinkPanel,
+  api: window.api,
   parseAbcHeaderFields,
-  openExternalUrl,
-  previewYouTubeSource: async (url) => {
-    if (!window.api || typeof window.api.previewYouTubeSource !== "function") {
-      await openExternalUrl(url);
-      return { ok: true };
-    }
-    return await window.api.previewYouTubeSource(url);
-  },
   showToast,
   getEditorText: getEditorValue,
   hasEditor: () => Boolean(editorView),
   isDisabled: () => Boolean(rawMode || chordproMode),
+  shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
 });
 
-async function openExternalUrl(url) {
-  const target = normalizeSourceUrl(url);
-  if (!target || !window.api || typeof window.api.openExternal !== "function") return;
-  try {
-    const res = await window.api.openExternal(target);
-    if (!res || res.ok === false) showToast((res && res.error) ? String(res.error) : "Unable to open link.", 2600);
-  } catch (e) {
-    showToast(e && e.message ? e.message : "Unable to open link.", 2600);
-  }
-}
-
 function updateSourceLinkPanel() {
-  sourceLinkController.update();
+  sourceLinkFeature.update();
 }
 
 function scheduleSourceLinkPanelUpdate(delayMs = 250) {
-  sourceLinkController.scheduleUpdate(delayMs);
+  sourceLinkFeature.scheduleUpdate(delayMs);
 }
 
 function setDirtyIndicator(isDirty) {
@@ -13024,8 +13000,7 @@ function ensureAbc2svgModulesReady(content) {
 }
 
 async function buildPrintSourceLinkMarkup(abcText) {
-  const includeQr = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes);
-  return buildPrintSourceLinkMarkupCore(abcText, { includeQr, createQrDataUrl });
+  return sourceLinkFeature.buildPrintMarkup(abcText);
 }
 
 async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false } = {}) {

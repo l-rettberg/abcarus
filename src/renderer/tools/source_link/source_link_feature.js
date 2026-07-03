@@ -1,0 +1,69 @@
+import {
+  normalizeSourceUrl,
+} from "../../source_link.js";
+import {
+  buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
+} from "../../print/source_link_markup.js";
+import { createQrDataUrl } from "../../print/qr_code.js";
+import { createSourceLinkController } from "./source_link_controller.js";
+
+function createSourceLinkFeature({
+  panel,
+  api,
+  parseAbcHeaderFields,
+  getEditorText = () => "",
+  hasEditor = () => false,
+  isDisabled = () => false,
+  shouldIncludePrintQr = () => false,
+  showToast = () => {},
+} = {}) {
+  async function openExternalUrl(url) {
+    const target = normalizeSourceUrl(url);
+    if (!target || !api || typeof api.openExternal !== "function") return;
+    try {
+      const res = await api.openExternal(target);
+      if (!res || res.ok === false) {
+        showToast((res && res.error) ? String(res.error) : "Unable to open link.", 2600);
+      }
+    } catch (e) {
+      showToast(e && e.message ? e.message : "Unable to open link.", 2600);
+    }
+  }
+
+  async function previewYouTubeSource(url) {
+    if (!api || typeof api.previewYouTubeSource !== "function") {
+      await openExternalUrl(url);
+      return { ok: true };
+    }
+    return await api.previewYouTubeSource(url);
+  }
+
+  const controller = createSourceLinkController({
+    panel,
+    parseAbcHeaderFields,
+    openExternalUrl,
+    previewYouTubeSource,
+    showToast,
+    getEditorText,
+    hasEditor,
+    isDisabled,
+  });
+
+  async function buildPrintMarkup(abcText) {
+    return buildPrintSourceLinkMarkupCore(abcText, {
+      includeQr: Boolean(shouldIncludePrintQr()),
+      createQrDataUrl,
+    });
+  }
+
+  return {
+    buildPrintMarkup,
+    clear: () => controller.clear(),
+    scheduleUpdate: (delayMs = 250) => controller.scheduleUpdate(delayMs),
+    update: () => controller.update(),
+  };
+}
+
+export {
+  createSourceLinkFeature,
+};

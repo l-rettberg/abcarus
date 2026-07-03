@@ -30,6 +30,7 @@
     "test:abc2svg-playback": "node devtools/abc2svg_playback_harness/run_tests.js",
     "test:charset": "node devtools/charset_harness/run_tests.js",
     "test:focus-playback": "node devtools/focus_playback_harness/run_tests.js",
+    "test:payload-mode": "node devtools/payload_mode_harness/run_tests.mjs",
     "test:fileops": "node scripts/check_no_raw_fileops.mjs",
     "test:main-cli": "node scripts/check_main_cli_open.mjs",
     "test:file-associations": "node scripts/check_file_associations.mjs",

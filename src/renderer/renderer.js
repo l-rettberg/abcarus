@@ -117,6 +117,7 @@ import { createSetListController } from "./tools/set_list/set_list_controller.js
 import { createSourceLinkController } from "./tools/source_link/source_link_controller.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
+import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
@@ -7864,110 +7865,59 @@ function supportsMidiInput() {
   return typeof navigator !== "undefined" && typeof navigator.requestMIDIAccess === "function";
 }
 
-function formatMidiButtonLabel() {
-  if (!supportsMidiInput()) return "MIDI: unsupported";
-  if (!midiInputEnabled) return "MIDI: off";
-  if (midiInputMuted) return "MIDI: muted";
-  if (midiDeviceCount <= 0) return "MIDI: no device";
-  return "MIDI: on";
-}
-
-function setMidiCollapseState(el, expanded) {
-  if (!el) return;
-  const open = Boolean(expanded);
-  el.classList.toggle("is-collapsed", !open);
-  el.setAttribute("aria-hidden", open ? "false" : "true");
-}
+const midiInputPopoverController = createMidiInputPopoverController({
+  statusButton: $midiInputStatus,
+  popover: $midiInputPopover,
+  closeButton: $midiInputPopoverClose,
+  enabledControl: $midiInputEnabledCtl,
+  mutedControl: $midiInputMutedCtl,
+  keyAwareControl: $midiInputKeyAwareCtl,
+  gridControl: $midiInputGridCtl,
+  macroControl: $midiInputMacroCtl,
+  macroNote: $midiInputMacroNote,
+  stateHint: $midiInputStateHint,
+  enabledDependent: $midiInputEnabledDependent,
+  beepControl: $midiInputBeepCtl,
+  beepDurationWrap: $midiInputBeepDurationWrap,
+  notePreviewControl: $noteTypingPreviewCtl,
+  notePreviewDependent: $noteTypingPreviewDependent,
+  notePreviewTriggerControl: $noteTypingPreviewTriggerCtl,
+  previewSharedGroup: $midiPreviewSharedGroup,
+  volumeControl: $midiInputBeepVolumeCtl,
+  durationControl: $midiInputBeepDurationCtl,
+  setButtonText,
+  getState: () => ({
+    supported: supportsMidiInput(),
+    enabled: midiInputEnabled,
+    muted: midiInputMuted,
+    devices: midiDeviceCount,
+    keyAware: midiInputKeyAware,
+    grid: midiInputGrid,
+    macro: midiInputMacroEnabled,
+    beepEnabled: midiInputBeepEnabled,
+    beepDurationMs: midiInputBeepDurationMs,
+    notePreviewEnabled: noteTypingPreviewEnabled,
+    notePreviewVolume: noteTypingPreviewVolume,
+    notePreviewTrigger: noteTypingPreviewTrigger,
+  }),
+  onPatch: (patch) => applyMidiSettingsPatch(patch),
+  onUnlockAudio: () => unlockMidiAudioContext(),
+});
 
 function updateMidiInputUi() {
-  if (!$midiInputStatus) return;
-  const label = formatMidiButtonLabel();
-  setButtonText($midiInputStatus, label);
-  $midiInputStatus.title = "MIDI input controls";
-  $midiInputStatus.classList.remove("midi-on", "midi-muted", "midi-off");
-  if (!midiInputEnabled) $midiInputStatus.classList.add("midi-off");
-  else if (midiInputMuted) $midiInputStatus.classList.add("midi-muted");
-  else $midiInputStatus.classList.add("midi-on");
-  $midiInputStatus.classList.remove("hidden");
-  $midiInputStatus.style.display = "";
-
-  if ($midiInputEnabledCtl) $midiInputEnabledCtl.checked = midiInputEnabled;
-  setMidiCollapseState($midiInputEnabledDependent, midiInputEnabled);
-  if ($midiInputMutedCtl) {
-    $midiInputMutedCtl.checked = midiInputMuted;
-    $midiInputMutedCtl.disabled = !midiInputEnabled;
-    const mutedLabel = $midiInputMutedCtl.closest("label");
-    if (mutedLabel) mutedLabel.style.opacity = midiInputEnabled ? "1" : "0.6";
-  }
-  if ($midiInputKeyAwareCtl) $midiInputKeyAwareCtl.checked = midiInputKeyAware;
-  if ($midiInputGridCtl) $midiInputGridCtl.value = midiInputGrid;
-  if ($midiInputMacroCtl) $midiInputMacroCtl.checked = midiInputMacroEnabled;
-  if ($midiInputMacroNote) {
-    $midiInputMacroNote.style.display = midiInputMacroEnabled ? "" : "none";
-  }
-  if ($midiInputBeepCtl) $midiInputBeepCtl.checked = midiInputBeepEnabled;
-  setMidiCollapseState($midiInputBeepDurationWrap, midiInputEnabled && midiInputBeepEnabled);
-  if ($noteTypingPreviewCtl) $noteTypingPreviewCtl.checked = noteTypingPreviewEnabled;
-  setMidiCollapseState($noteTypingPreviewDependent, noteTypingPreviewEnabled);
-  if ($noteTypingPreviewTriggerCtl) {
-    $noteTypingPreviewTriggerCtl.value = noteTypingPreviewTrigger === "note" ? "note" : "delimiter";
-    $noteTypingPreviewTriggerCtl.disabled = !noteTypingPreviewEnabled;
-    const triggerRow = $noteTypingPreviewTriggerCtl.closest(".midi-popover-row");
-    if (triggerRow) triggerRow.style.opacity = noteTypingPreviewEnabled ? "1" : "0.6";
-  }
-  if ($midiInputBeepVolumeCtl) {
-    const mergedPreviewVolume = Math.round(Math.max(0, Math.min(1, noteTypingPreviewVolume)) * 100);
-    $midiInputBeepVolumeCtl.value = String(mergedPreviewVolume);
-  }
-  if ($midiInputBeepDurationCtl) $midiInputBeepDurationCtl.value = String(Math.round(midiInputBeepDurationMs));
-  setMidiCollapseState($midiPreviewSharedGroup, noteTypingPreviewEnabled || (midiInputEnabled && midiInputBeepEnabled));
-  if ($midiInputStateHint) {
-    let hint = "";
-    if (!supportsMidiInput()) hint = "MIDI input is unsupported in this environment.";
-    else if (!midiInputEnabled) hint = "Input is disabled.";
-    else if (midiDeviceCount <= 0) hint = "No MIDI device connected.";
-    else if (midiInputMuted) hint = "Input is muted; incoming notes are ignored.";
-    else hint = `Devices connected: ${midiDeviceCount}.`;
-    $midiInputStateHint.textContent = hint;
-  }
+  midiInputPopoverController.render();
 }
-
-function positionMidiInputPopover() {
-  if (!$midiInputPopover || !$midiInputStatus) return;
-  const rect = $midiInputStatus.getBoundingClientRect();
-  const pop = $midiInputPopover;
-  pop.style.left = "0px";
-  pop.style.top = "0px";
-  pop.classList.remove("hidden");
-  const popRect = pop.getBoundingClientRect();
-  let left = rect.left;
-  let top = rect.top - popRect.height - 8;
-  if (top < 8) top = rect.bottom + 8;
-  if (left + popRect.width > window.innerWidth - 8) {
-    left = Math.max(8, window.innerWidth - popRect.width - 8);
-  }
-  pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(top)}px`;
-}
-
-let midiPopoverOpen = false;
 
 function openMidiInputPopover() {
-  if (!$midiInputPopover) return;
-  midiPopoverOpen = true;
-  updateMidiInputUi();
-  positionMidiInputPopover();
+  midiInputPopoverController.open();
 }
 
 function closeMidiInputPopover() {
-  if (!$midiInputPopover) return;
-  midiPopoverOpen = false;
-  $midiInputPopover.classList.add("hidden");
+  midiInputPopoverController.close();
 }
 
 function toggleMidiInputPopover() {
-  if (midiPopoverOpen) closeMidiInputPopover();
-  else openMidiInputPopover();
+  midiInputPopoverController.toggle();
 }
 
 function getMidiInputStatus() {
@@ -10062,108 +10012,6 @@ if ($btnToggleLibrary) {
     toggleLibrary();
   });
 }
-
-if ($midiInputStatus) {
-  $midiInputStatus.addEventListener("click", (e) => {
-    if (e) e.preventDefault();
-    toggleMidiInputPopover();
-  });
-}
-
-if ($midiInputPopoverClose) {
-  $midiInputPopoverClose.addEventListener("click", () => {
-    closeMidiInputPopover();
-  });
-}
-
-if ($midiInputEnabledCtl) {
-  $midiInputEnabledCtl.addEventListener("change", () => {
-    applyMidiSettingsPatch({ midiInputEnabled: Boolean($midiInputEnabledCtl.checked) });
-  });
-}
-
-if ($midiInputMutedCtl) {
-  $midiInputMutedCtl.addEventListener("change", () => {
-    applyMidiSettingsPatch({ midiInputMuted: Boolean($midiInputMutedCtl.checked) });
-  });
-}
-
-if ($midiInputKeyAwareCtl) {
-  $midiInputKeyAwareCtl.addEventListener("change", () => {
-    applyMidiSettingsPatch({ midiInputKeyAware: Boolean($midiInputKeyAwareCtl.checked) });
-  });
-}
-
-if ($midiInputGridCtl) {
-  $midiInputGridCtl.addEventListener("change", () => {
-    applyMidiSettingsPatch({ midiInputGrid: String($midiInputGridCtl.value || "1/16") });
-  });
-}
-
-if ($midiInputMacroCtl) {
-  $midiInputMacroCtl.addEventListener("change", () => {
-    applyMidiSettingsPatch({ midiInputMacroEnabled: Boolean($midiInputMacroCtl.checked) });
-  });
-}
-
-if ($midiInputBeepCtl) {
-  $midiInputBeepCtl.addEventListener("change", async () => {
-    const enabled = Boolean($midiInputBeepCtl.checked);
-    applyMidiSettingsPatch({ midiInputBeepEnabled: enabled });
-    if (enabled) {
-      await unlockMidiAudioContext();
-    }
-  });
-}
-
-if ($noteTypingPreviewCtl) {
-  $noteTypingPreviewCtl.addEventListener("change", async () => {
-    const enabled = Boolean($noteTypingPreviewCtl.checked);
-    applyMidiSettingsPatch({ noteTypingPreviewEnabled: enabled });
-    if (enabled) {
-      await unlockMidiAudioContext();
-    }
-  });
-}
-
-if ($noteTypingPreviewTriggerCtl) {
-  $noteTypingPreviewTriggerCtl.addEventListener("change", () => {
-    const mode = String($noteTypingPreviewTriggerCtl.value || "") === "note" ? "note" : "delimiter";
-    applyMidiSettingsPatch({ noteTypingPreviewTrigger: mode });
-  });
-}
-
-if ($midiInputBeepVolumeCtl) {
-  $midiInputBeepVolumeCtl.addEventListener("input", () => {
-    const raw = Number($midiInputBeepVolumeCtl.value);
-    if (!Number.isFinite(raw)) return;
-    applyMidiSettingsPatch({ midiInputBeepVolume: raw / 100 });
-  });
-}
-
-if ($midiInputBeepDurationCtl) {
-  $midiInputBeepDurationCtl.addEventListener("input", () => {
-    const raw = Number($midiInputBeepDurationCtl.value);
-    if (!Number.isFinite(raw)) return;
-    applyMidiSettingsPatch({ midiInputBeepDuration: raw });
-  });
-}
-
-document.addEventListener("click", (e) => {
-  if (!midiPopoverOpen) return;
-  const target = e.target;
-  if ($midiInputPopover && $midiInputPopover.contains(target)) return;
-  if ($midiInputStatus && $midiInputStatus.contains(target)) return;
-  closeMidiInputPopover();
-}, true);
-
-document.addEventListener("keydown", (e) => {
-  if (!midiPopoverOpen) return;
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  closeMidiInputPopover();
-}, true);
 
 // Global Stop shortcut (Esc): stop playback if it is active.
 // Note: other Esc handlers (search, popovers, inputs) run in capture phase and will preventDefault/stopPropagation.

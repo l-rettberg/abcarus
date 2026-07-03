@@ -1516,7 +1516,9 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.confirmAppendToActiveFile = Boolean(next.confirmAppendToActiveFile);
   next.autoAlignBarsAfterTransforms = Boolean(next.autoAlignBarsAfterTransforms);
   next.editorHelpEnabled = Boolean(next.editorHelpEnabled);
-  next.makamToolsEnabled = Boolean(next.makamToolsEnabled || next.studyToolsEnabled);
+  next.supportMicrotonalNotation = Boolean(next.supportMicrotonalNotation || next.makamToolsEnabled || next.studyToolsEnabled);
+  next.makamToolsEnabled = Boolean(next.supportMicrotonalNotation);
+  next.studyToolsEnabled = Boolean(next.supportMicrotonalNotation);
   next.payloadModeEnabled = Boolean(next.payloadModeEnabled);
   {
     const rawMidiBackend = String(next.midiImportBackend || "").trim();
@@ -1546,7 +1548,8 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
     mainWindow.webContents.send("settings:changed", next);
   }
   if (patch && (
-    Object.prototype.hasOwnProperty.call(patch, "makamToolsEnabled")
+    Object.prototype.hasOwnProperty.call(patch, "supportMicrotonalNotation")
+    || Object.prototype.hasOwnProperty.call(patch, "makamToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "studyToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "payloadModeEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "mp3ExportTimidityPath")

@@ -406,14 +406,14 @@ function getSettingsSchema() {
       ui: { input: "checkbox" },
     },
     {
-      key: "makamToolsEnabled",
+      key: "supportMicrotonalNotation",
       type: "boolean",
       default: false,
       section: "Tools",
-      group: "Makam Tools",
+      group: "Microtonal notation",
       groupOrder: 5,
-      label: "Enable Makam Tools (microtone/EDO-53)",
-      help: "Enables optional microtone/EDO-53 analysis tools (Tools → Study). Disabled by default for most users.",
+      label: "Support microtonal notation",
+      help: "Enables optional makam/perde/EDO-53 tools such as Intonation Explorer and Makam DNA. Disabled by default for most users.",
       ui: { input: "checkbox" },
       advanced: true,
     },
@@ -453,7 +453,8 @@ function getSettingsSchema() {
       ui: { input: "number", min: 3, max: 50, step: 1 },
       advanced: true,
     },
-    // Back-compat: older builds used a different name for Makam Tools.
+    // Back-compat: older builds used different names for microtonal tools.
+    { key: "makamToolsEnabled", type: "boolean", default: false, section: "Tools", advanced: true, legacy: true },
     { key: "studyToolsEnabled", type: "boolean", default: false, section: "Tools", advanced: true, legacy: true },
     {
       key: "autoAlignBarsAfterTransforms",

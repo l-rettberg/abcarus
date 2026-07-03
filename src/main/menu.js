@@ -334,7 +334,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
-      ...((appState && appState.settings && (appState.settings.makamToolsEnabled || appState.settings.studyToolsEnabled))
+      ...((appState && appState.settings && (appState.settings.supportMicrotonalNotation || appState.settings.makamToolsEnabled || appState.settings.studyToolsEnabled))
         ? [
             {
               label: "Study",

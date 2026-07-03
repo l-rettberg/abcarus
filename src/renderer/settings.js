@@ -117,7 +117,7 @@ const FALLBACK_SCHEMA = [
   { key: "editorNotesBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Notes", ui: { input: "checkbox" } },
   { key: "editorLyricsBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Lyrics", ui: { input: "checkbox" } },
   { key: "useNativeTranspose", type: "boolean", default: true, section: "Tools", label: "Use native transpose", ui: { input: "checkbox" } },
-  { key: "makamToolsEnabled", type: "boolean", default: false, section: "Tools", group: "Makam Tools", groupOrder: 5, label: "Enable Makam Tools (microtone/EDO-53)", ui: { input: "checkbox" }, advanced: true },
+  { key: "supportMicrotonalNotation", type: "boolean", default: false, section: "Tools", group: "Microtonal notation", groupOrder: 5, label: "Support microtonal notation", help: "Enables optional makam/perde/EDO-53 tools such as Intonation Explorer and Makam DNA.", ui: { input: "checkbox" }, advanced: true },
   { key: "payloadModeEnabled", type: "boolean", default: false, section: "Tools", group: "Diagnostics", groupOrder: 6, label: "Enable Payload Mode (Diagnostics)", ui: { input: "checkbox" }, advanced: true },
   { key: "autoAlignBarsAfterTransforms", type: "boolean", default: false, section: "Tools", label: "Auto-align bars after transforms", ui: { input: "checkbox" }, advanced: true },
   { key: "abc2xmlArgs", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "abc2xml flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },

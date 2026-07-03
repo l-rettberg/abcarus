@@ -636,6 +636,10 @@ function isPayloadMode() {
   return payloadModeFeature.isEnabled();
 }
 
+function isMicrotonalNotationSupported(settings = latestSettingsSnapshot) {
+  return Boolean(settings && (settings.supportMicrotonalNotation || settings.makamToolsEnabled || settings.studyToolsEnabled));
+}
+
 function safeReadJsonLocalStorage(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -17208,9 +17212,9 @@ function wireMenuActions() {
       else if (actionType === "openIntonationExplorer") {
         const enabled = latestSettingsSnapshot == null
           ? true
-          : Boolean(latestSettingsSnapshot.makamToolsEnabled || latestSettingsSnapshot.studyToolsEnabled);
+          : isMicrotonalNotationSupported();
         if (!enabled) {
-          showToast("Makam Tools are disabled. Enable in Settings → Options → Tools → Makam Tools.", 4200);
+          showToast("Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
           return;
         }
         if (intonationExplorerVisible) hideIntonationExplorerPanel();
@@ -17537,8 +17541,8 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	      if (!payloadEnabled && isPayloadMode()) payloadModeFeature.exit().catch(() => {});
 	    } catch {}
 	    try {
-	      const makamEnabled = Boolean(settings && (settings.makamToolsEnabled || settings.studyToolsEnabled));
-	      if (!makamEnabled && intonationExplorerVisible) hideIntonationExplorerPanel();
+	      const microtonalEnabled = isMicrotonalNotationSupported(settings);
+	      if (!microtonalEnabled && intonationExplorerVisible) hideIntonationExplorerPanel();
 	    } catch {}
 	    showDisclaimerIfNeeded(settings);
     if (settings && prevHeader !== `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`) {

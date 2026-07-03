@@ -109,6 +109,8 @@ npm run test:truth-scale
 ```
 
 Details + checklist live in [docs/third-party-review.md](docs/third-party-review.md).
+The boundary rule is documented in [docs/third-party-policy.md](docs/third-party-policy.md):
+`third_party/**` is read-only except for coherent upstream upgrades, provenance/license metadata, and deterministic runtime locks.
 For a repeatable end-to-end “pipeline” (including required manual smoke tests and patch policy), use:
 - [docs/abc2svg-upgrade-playbook.md](docs/abc2svg-upgrade-playbook.md)
 
@@ -184,6 +186,9 @@ git push origin vX.Y.Z
 - Installed PBS runtimes and caches:
   - `third_party/python-embed/.cache/**`
   - `third_party/python-embed/*/(bin|lib|include|share)/**`
+- Third-party build state and temporary upgrade artifacts:
+  - `third_party/abc2svg/.ninja_*`
+  - `third_party/_upd/**`
 
 The canonical list lives in `.gitignore`; this section documents intent.
 

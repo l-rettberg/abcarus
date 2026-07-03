@@ -22,6 +22,9 @@ third_party/python-embed/.cache/
 # Local update artifacts (never commit)
 third_party/_upd/
 
+# Local abc2svg build state (never commit)
+third_party/abc2svg/.ninja_*
+
 # Brand drafts (never commit)
 assets/brand/_drafts/
 assets/brand/archives/

@@ -44,7 +44,7 @@ function assertExports(mod, required) {
 }
 
 async function buildToTmp(repoRoot, outName) {
-  const buildScript = path.resolve(repoRoot, "third_party", "codemirror", "build", "build.mjs");
+  const buildScript = path.resolve(repoRoot, "scripts", "codemirror", "build.mjs");
   const outPath = path.resolve("/tmp", outName);
   await execFileAsync(process.execPath, [buildScript, "--out", outPath], { cwd: repoRoot });
   return outPath;

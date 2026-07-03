@@ -10,6 +10,7 @@ status: "Accepted"
 
 ABCarus uses a vendored CodeMirror 6 bundle:
 - `third_party/codemirror/cm.js`
+- `third_party/codemirror/VERSION.txt`
 
 This file is treated as a third-party artifact:
 - no hand-editing in the repo,
@@ -38,11 +39,13 @@ Upgrades remain atomic:
 
 ## Implementation Notes
 
-- Recipe lives under `third_party/codemirror/`:
-  - `third_party/codemirror/build/entry.*` defines imports/exports
-  - `third_party/codemirror/build/build.mjs` builds the bundle
-  - [third_party/codemirror/BUILD.md](../../third_party/codemirror/BUILD.md) documents how to rebuild
+- The vendored third-party directory stays artifact-only:
+  - `third_party/codemirror/cm.js` is the runtime bundle
   - `third_party/codemirror/VERSION.txt` records upstream tag/commit and build tool versions
+- The project-owned recipe lives outside `third_party/`:
+  - `scripts/codemirror/entry.mjs` defines imports/exports
+  - `scripts/codemirror/build.mjs` builds the bundle
+  - [docs/vendor/codemirror-build.md](../vendor/codemirror-build.md) documents how to rebuild
 
 ## Upgrade Checklist
 

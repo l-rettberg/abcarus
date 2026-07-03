@@ -1,4 +1,4 @@
-# CodeMirror 6 vendored bundle (`cm.js`) — Build recipe
+# CodeMirror 6 Vendored Bundle (`cm.js`) Build Recipe
 
 ABCarus vendors a single-file CodeMirror 6 bundle at:
 - `third_party/codemirror/cm.js`
@@ -9,8 +9,8 @@ Policy:
 
 ## What this recipe provides
 
-- A deterministic bundling entry module: `third_party/codemirror/build/entry.mjs`
-- A build script that produces a single ESM file: `third_party/codemirror/build/build.mjs`
+- A deterministic bundling entry module: `scripts/codemirror/entry.mjs`
+- A build script that produces a single ESM file: `scripts/codemirror/build.mjs`
 - Version metadata: `third_party/codemirror/VERSION.txt`
 
 ## Prerequisites
@@ -21,7 +21,7 @@ Policy:
 ## Build (default output)
 
 ```bash
-node third_party/codemirror/build/build.mjs
+node scripts/codemirror/build.mjs
 ```
 
 Output:
@@ -30,7 +30,7 @@ Output:
 ## Build to a custom output path (recommended for comparison)
 
 ```bash
-node third_party/codemirror/build/build.mjs --out /tmp/abcarus-cm-test.mjs
+node scripts/codemirror/build.mjs --out /tmp/abcarus-cm-test.mjs
 ```
 
 Tip: use a `.mjs` extension for the temporary output if you want to inspect exports with Node.js.

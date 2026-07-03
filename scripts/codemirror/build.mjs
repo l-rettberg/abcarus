@@ -14,8 +14,8 @@ function parseArgs(argv) {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, "..", "..", "..");
-const entry = path.resolve(repoRoot, "third_party", "codemirror", "build", "entry.mjs");
+const repoRoot = path.resolve(here, "..", "..");
+const entry = path.resolve(here, "entry.mjs");
 
 const args = parseArgs(process.argv.slice(2));
 const outFile = path.resolve(args.out || path.resolve(repoRoot, "third_party", "codemirror", "cm.js"));

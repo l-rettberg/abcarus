@@ -5,7 +5,8 @@ This is the repeatable, “conveyor belt” method for upgrading `third_party/ab
 Principles:
 - One upgrade = one coherent checkpoint (easy to revert).
 - **Tolerant-read / strict-write**: avoid hidden transforms and undocumented patching.
-- Prefer upstream fixes; keep local patches small, explicit, and temporary.
+- Treat `third_party/abc2svg/**` as read-only vendored upstream.
+- Prefer upstream fixes; keep local patches exceptional, explicit, and temporary.
 
 Related docs:
 - Upgrade review framework: [docs/third-party-review.md](third-party-review.md)
@@ -59,6 +60,7 @@ Apply into `third_party/abc2svg/`:
 Guidelines:
 - Keep the change limited to `third_party/abc2svg/**` whenever feasible.
 - Do not “refactor around” the upgrade in the same commit.
+- Do not commit local build state (`.ninja_*`), workdirs, or downloaded archives.
 
 ---
 
@@ -110,6 +112,7 @@ If a specific bug motivated the upgrade, include its reproduction case as a mand
 ## 6) Local patch policy (if needed)
 
 If we patch abc2svg locally:
+- This is an exception to the normal read-only rule.
 - Keep it minimal and isolated.
 - Document it:
   - [NOTICE.md](../NOTICE.md) (if licensing/third-party notices need an update)

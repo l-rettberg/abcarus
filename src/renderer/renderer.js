@@ -105,16 +105,7 @@ import {
 import { buildDrumDebugDiagnostics } from "./tools/drum_helper/drum_debug_diagnostics.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
-import {
-  DEFAULT_SET_LIST_HEADER_TEXT,
-  insertSetListItemAt as insertSetListItemAtCore,
-  moveSetListItems,
-  normalizeSetListPageBreaks,
-  parseSetListSavedState,
-  removeSetListItemAt as removeSetListItemAtCore,
-  serializeSetListState,
-} from "./tools/set_list/set_list_model.js";
-import { createSetListController } from "./tools/set_list/set_list_controller.js";
+import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSourceLinkController } from "./tools/source_link/source_link_controller.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createMakamDnaStore } from "./tools/makam_dna/makam_dna_store.js";
@@ -139,8 +130,6 @@ import {
 } from "./print/source_link_markup.js";
 import { createPrintAllOptionsController } from "./print/print_all_options_controller.js";
 import {
-  buildPrintErrorCard,
-  buildPrintErrorSummary,
   buildPrintTuneLabel,
 } from "./print/error_markup.js";
 import {
@@ -149,11 +138,6 @@ import {
   sanitizeFileBaseName,
 } from "./print/print_helpers.js";
 import { createQrDataUrl } from "./print/qr_code.js";
-import {
-  buildSetListExportAbc as buildSetListExportAbcCore,
-  getSetListFileHeaderText as getSetListFileHeaderTextCore,
-  shouldInjectNewPageBeforeTune,
-} from "./print/set_list_markup.js";
 import {
   clampTranslateToViewport,
   formatTranslateXY,
@@ -525,14 +509,6 @@ let chordproAvailabilityInFlight = null;
 let payloadMode = false;
 const payloadModeFeature = createPayloadModeFeature();
 
-let setListItems = [];
-let setListPageBreaks = "perTune"; // perTune | none | auto
-let setListCompact = false;
-let setListHeaderText = DEFAULT_SET_LIST_HEADER_TEXT;
-
-const SET_LIST_STORAGE_KEY = "abcarus.setList.v1";
-let setListSaveTimer = null;
-
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
 const printAllOptionsController = createPrintAllOptionsController({
   modal: $printAllOptionsModal,
@@ -541,60 +517,42 @@ const printAllOptionsController = createPrintAllOptionsController({
   cancelButton: $printAllOptionsCancel,
   okButton: $printAllOptionsOk,
 });
-const setListController = createSetListController({
-  modal: $setListModal,
-  closeButton: $setListClose,
-  empty: $setListEmpty,
-  itemsList: $setListItems,
-  headerButton: $setListHeader,
-  clearButton: $setListClear,
-  saveAbcButton: $setListSaveAbc,
-  exportPdfButton: $setListExportPdf,
-  printButton: $setListPrint,
-  pageBreaksSelect: $setListPageBreaks,
-  compactCheckbox: $setListCompact,
-  headerModal: $setListHeaderModal,
-  headerCloseButton: $setListHeaderClose,
-  headerText: $setListHeaderText,
-  headerResetButton: $setListHeaderReset,
-  headerSaveButton: $setListHeaderSave,
-  defaultHeaderText: DEFAULT_SET_LIST_HEADER_TEXT,
-  getState: () => ({
-    items: setListItems,
-    pageBreaks: setListPageBreaks,
-    compact: setListCompact,
-  }),
-  getHeaderText: () => setListHeaderText,
-  onMoveItem: moveSetListItem,
-  onRemoveItem: removeSetListItem,
-  onAddTune: addTuneToSetListByTuneId,
-  onClear: () => {
-    setListItems = [];
-    scheduleSaveSetList();
+const setListFeature = createSetListFeature({
+  elements: {
+    modal: $setListModal,
+    closeButton: $setListClose,
+    empty: $setListEmpty,
+    itemsList: $setListItems,
+    headerButton: $setListHeader,
+    clearButton: $setListClear,
+    saveAbcButton: $setListSaveAbc,
+    exportPdfButton: $setListExportPdf,
+    printButton: $setListPrint,
+    pageBreaksSelect: $setListPageBreaks,
+    compactCheckbox: $setListCompact,
+    headerModal: $setListHeaderModal,
+    headerCloseButton: $setListHeaderClose,
+    headerText: $setListHeaderText,
+    headerResetButton: $setListHeaderReset,
+    headerSaveButton: $setListHeaderSave,
   },
-  onPageBreaksChange: (value) => {
-    setListPageBreaks = normalizeSetListPageBreaks(value, "perTune");
-    scheduleSaveSetList();
-  },
-  onCompactChange: (value) => {
-    setListCompact = Boolean(value);
-    scheduleSaveSetList();
-  },
-  onHeaderTextChange: (value) => {
-    setListHeaderText = String(value || "");
-    scheduleSaveSetList();
-  },
-  onSaveAbc: () => {
-    exportSetListAsAbc().catch(() => {});
-  },
-  onExportPdf: () => {
-    runPrintSetListAction("pdf").catch(() => {});
-  },
-  onPrint: () => {
-    runPrintSetListAction("print").catch(() => {});
-  },
-  confirm: (message) => window.confirm(message),
+  readStorage: safeReadJsonLocalStorage,
+  writeStorage: safeWriteJsonLocalStorage,
+  buildItemForTuneId: buildSetListItemForTuneId,
+  renderItemToSvg: renderSetListItemToSvg,
+  buildSourceLinkMarkup: buildPrintSourceLinkMarkup,
+  outputPrint: outputSetListPrintMarkup,
+  saveAbc: saveSetListAbcContent,
+  getExportBaseName: getSuggestedBaseName,
+  getPrintBaseName: getSongbookSuggestedBaseName,
+  ensureXNumberInAbc,
+  appendTuneToContent,
+  applyPrintDebugMarkup: applyPrintDebugMarkupCore,
+  sanitizeFileBaseName,
+  setStatus,
   showToast,
+  logError: logErr,
+  confirm: (message) => window.confirm(message),
   enableDraggable: enableDraggableModal,
 });
 
@@ -617,34 +575,6 @@ function safeWriteJsonLocalStorage(key, value) {
   }
 }
 
-function saveSetListToStorageNow() {
-  safeWriteJsonLocalStorage(SET_LIST_STORAGE_KEY, serializeSetListState({
-    items: setListItems,
-    pageBreaks: setListPageBreaks,
-    compact: setListCompact,
-    headerText: setListHeaderText,
-  }));
-}
-
-function scheduleSaveSetList() {
-  if (setListSaveTimer) clearTimeout(setListSaveTimer);
-  setListSaveTimer = setTimeout(() => {
-    setListSaveTimer = null;
-    saveSetListToStorageNow();
-  }, 250);
-}
-
-function loadSetListFromStorage() {
-  const state = parseSetListSavedState(safeReadJsonLocalStorage(SET_LIST_STORAGE_KEY));
-  if (!state) return;
-  setListPageBreaks = state.pageBreaks;
-  setListCompact = state.compact;
-  setListHeaderText = state.headerText;
-  setListItems = state.items;
-}
-
-loadSetListFromStorage();
-
 function loadPrintAllOptionsFromStorage() {
   printAllOptionsController.applySavedOptions(safeReadJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY));
 }
@@ -660,17 +590,6 @@ function persistPrintAllOptionsToStorageNow() {
 }
 
 loadPrintAllOptionsFromStorage();
-
-function getSetListFileHeaderText() {
-  return getSetListFileHeaderTextCore(setListHeaderText);
-}
-
-function shouldUseZeroPageMarginsForSetList() {
-  const header = String(setListHeaderText || "");
-  const hasLeft0 = /^\s*%%\s*leftmargin\s+0(\s|$)/im.test(header);
-  const hasRight0 = /^\s*%%\s*rightmargin\s+0(\s|$)/im.test(header);
-  return hasLeft0 && hasRight0;
-}
 
 // ---------------- A–B playback helpers ----------------
 
@@ -11483,9 +11402,8 @@ function initContextMenu() {
         : (menuTarget.type === "editor" ? activeTuneId : null);
       hideContextMenu();
       try {
-        await addTuneToSetListByTuneId(tuneId);
+        await setListFeature.addTuneById(tuneId);
         showToast("Added to Set List.", 2000);
-        if ($setListModal && $setListModal.classList.contains("open")) renderSetList();
       } catch (e) {
         showToast(e && e.message ? e.message : String(e), 5000);
       }
@@ -13593,153 +13511,6 @@ async function runPrintAllAction(type) {
   }
 }
 
-function getSetListSuggestedBaseName() {
-  const base = getSongbookSuggestedBaseName();
-  return sanitizeFileBaseName(`${base || "set-list"} - set-list`);
-}
-
-async function renderSetListSvgMarkupForPrint(options = {}) {
-  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
-  const includeIssueCards = options.includeIssueCards !== false;
-  const includeIssueSummary = options.includeIssueSummary !== false;
-  if (!Array.isArray(setListItems) || setListItems.length === 0) {
-    return { ok: false, error: "No tunes in Set List." };
-  }
-
-  const entry = { basename: "Set List" };
-  const blocks = [];
-  let current = [];
-  const summary = [];
-
-  const flush = () => {
-    if (!current.length) return;
-    blocks.push(current);
-    current = [];
-  };
-
-  const total = setListItems.length;
-  for (let i = 0; i < total; i += 1) {
-    const item = setListItems[i] || {};
-    const raw = String(item.text || "");
-    if (onProgress && (i % 5 === 0 || i === total - 1)) onProgress(i + 1, total);
-    if (!raw.trim()) continue;
-
-    const tune = {
-      id: item.sourceTuneId || item.id || "",
-      xNumber: String(i + 1),
-      title: item.title || "",
-      preview: item.title || `X:${i + 1}`,
-    };
-
-    const breakBefore = setListPageBreaks === "perTune"
-      ? i > 0
-      : shouldInjectNewPageBeforeTune(raw, { mode: setListPageBreaks, idx: i });
-    if (breakBefore) flush();
-
-    const renumbered = ensureXNumberInAbc(raw, i + 1);
-    const combinedHeader = `${getSetListFileHeaderText()}${item.headerText || ""}`;
-    const headerText = sanitizeFileHeaderForPerTuneRender(combinedHeader);
-    const prefix = buildHeaderPrefix(headerText, false, renumbered);
-    const block = prefix.text ? `${prefix.text}${renumbered}` : renumbered;
-    const context = { tuneLabel: buildPrintTuneLabel(tune) };
-    setErrorLineOffsetFromHeader(prefix.text);
-    const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
-    const tuneErrors = res.errors ? res.errors.slice() : [];
-    if (!res.ok && res.error) tuneErrors.push({ message: res.error });
-
-    if (tuneErrors.length) {
-      const uniqueKeys = new Set(tuneErrors.map((err) => {
-        const msg = err && err.message ? err.message : "Unknown error";
-        const loc = err && err.loc ? `Line ${err.loc.line}, Col ${err.loc.col}` : "";
-        return `${msg}|${loc}`;
-      }));
-      summary.push({ tune, count: uniqueKeys.size });
-      if (includeIssueCards) current.push(buildPrintErrorCard(entry, tune, tuneErrors).trim());
-    }
-
-    if (res.svg && res.svg.trim()) {
-      current.push(res.svg.trim());
-    }
-    const sourceMarkup = await buildPrintSourceLinkMarkup(block);
-    if (sourceMarkup) {
-      current.push(sourceMarkup);
-    }
-
-    if (setListPageBreaks === "perTune") flush();
-  }
-  flush();
-
-  if (!blocks.length) return { ok: false, error: "No SVG output produced." };
-
-  const parts = [];
-  if (includeIssueSummary && summary.length) {
-    parts.push(buildPrintErrorSummary(entry, summary, total).trim());
-  }
-  for (const block of blocks) {
-    parts.push(`<div class="print-tune">${block.join("\n")}</div>`);
-  }
-  const issues = {
-    totalTunes: total,
-    tunesWithIssues: summary.length,
-    totalErrors: summary.reduce((sum, item) => sum + (Number.isFinite(Number(item.count)) ? Number(item.count) : 0), 0),
-  };
-  return { ok: true, svg: parts.join("\n"), issues };
-}
-
-async function runPrintSetListAction(type) {
-  if (!window.api) return;
-  if (!Array.isArray(setListItems) || setListItems.length === 0) {
-    setStatus("No Set List to print.");
-    return;
-  }
-  setStatus("Rendering…");
-  const showIssuesInMarkup = type === "preview";
-  const renderRes = await renderSetListSvgMarkupForPrint({
-    includeIssueCards: showIssuesInMarkup,
-    includeIssueSummary: showIssuesInMarkup,
-    onProgress: (current, total) => {
-      setStatus(`Rendering tunes… ${current}/${total}`);
-    },
-  });
-  if (!renderRes.ok) {
-    setStatus("Error");
-    logErr(renderRes.error || "Unable to render.");
-    return;
-  }
-
-  let svgMarkup = applyPrintDebugMarkup(renderRes.svg);
-  const zeroMargins = shouldUseZeroPageMarginsForSetList();
-  if (zeroMargins) {
-    svgMarkup = `<!--abcarus:pdf-no-margins-->\n<style>body{padding:0 !important}</style>\n${svgMarkup}`;
-  }
-  if (setListCompact) {
-    svgMarkup = `<style>body{padding:12px !important}</style>\n${svgMarkup}`;
-  }
-  let res = null;
-  const suggestedName = getSetListSuggestedBaseName();
-  if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup, suggestedName);
-  } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, suggestedName);
-  } else if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup, suggestedName);
-  }
-
-  if (res && res.ok) {
-    setStatus("OK");
-    if (type === "pdf" && res.path) {
-      const issues = renderRes.issues || null;
-      const suffix = (issues && issues.tunesWithIssues)
-        ? ` (${issues.tunesWithIssues} tunes had issues; use Preview for details)`
-        : "";
-      showToast(`Exported PDF: ${res.path}${suffix}`);
-    }
-  } else if (res && res.error && res.error !== "Canceled") {
-    setStatus("Error");
-    logErr(res.error);
-  }
-}
-
 function setCurrentDocument(doc) {
   currentDoc = doc;
   updateUIFromDocument(doc);
@@ -14909,9 +14680,8 @@ document.addEventListener("set-list:add", (ev) => {
     const row = ev && ev.detail && ev.detail.row ? ev.detail.row : null;
     if (!row) return;
     const tuneId = row && row.tuneId ? String(row.tuneId) : "";
-    addTuneToSetListByTuneId(tuneId, { fallbackTitle: row.title, fallbackComposer: row.composer }).then(() => {
+    setListFeature.addTuneById(tuneId, { fallbackTitle: row.title, fallbackComposer: row.composer }).then(() => {
       showToast("Added to Set List.", 2000);
-      if ($setListModal && $setListModal.classList.contains("open")) renderSetList();
     }).catch((e) => {
       showToast(e && e.message ? e.message : String(e), 5000);
     });
@@ -14953,50 +14723,9 @@ async function openAbout() {
   await aboutModalController.open();
 }
 
-function renderSetList() {
-  setListController.render();
-}
-
-function openSetList() {
-  setListController.open();
-}
-
-function closeSetList() {
-  setListController.close();
-}
-
-function openSetListHeaderEditor() {
-  setListController.openHeaderEditor();
-}
-
-function closeSetListHeaderEditor() {
-  setListController.closeHeaderEditor();
-}
-
-function moveSetListItem(fromIndex, toIndex) {
-  const next = moveSetListItems(setListItems, fromIndex, toIndex);
-  if (next === setListItems) return;
-  setListItems = next;
-  scheduleSaveSetList();
-}
-
-function removeSetListItem(index) {
-  const next = removeSetListItemAtCore(setListItems, index);
-  if (next === setListItems) return;
-  setListItems = next;
-  scheduleSaveSetList();
-}
-
-function insertSetListItemAt(item, index) {
-  const next = insertSetListItemAtCore(setListItems, item, index);
-  if (next === setListItems) return;
-  setListItems = next;
-  scheduleSaveSetList();
-}
-
-async function addTuneToSetListByTuneId(
+async function buildSetListItemForTuneId(
   tuneId,
-  { fallbackTitle = "", fallbackComposer = "", insertIndex = null } = {}
+  { fallbackTitle = "", fallbackComposer = "" } = {}
 ) {
   const id = String(tuneId || "").trim();
   if (!id) throw new Error("Missing tune id.");
@@ -15036,9 +14765,7 @@ async function addTuneToSetListByTuneId(
     throw new Error(`Refusing to add: tune offsets look stale (expected X:${expectedX}). Refresh the library and try again.`);
   }
 
-  const entryId = `${id}::${Date.now()}::${Math.random().toString(16).slice(2)}`;
-  const newItem = {
-    id: entryId,
+  return {
     sourceTuneId: id,
     sourcePath: res.file.path,
     xNumber: res.tune.xNumber || "",
@@ -15046,40 +14773,44 @@ async function addTuneToSetListByTuneId(
     composer: res.tune.composer || fallbackComposer || "",
     headerText: entryHeader,
     text: slice,
-    addedAtMs: Date.now(),
   };
-  insertSetListItemAt(newItem, insertIndex);
 }
 
-function buildSetListExportAbc() {
-  return buildSetListExportAbcCore({
-    items: setListItems,
-    headerText: setListHeaderText,
-    pageBreaks: setListPageBreaks,
-    ensureXNumberInAbc,
-    appendTuneToContent,
-  });
+async function renderSetListItemToSvg({ abcText, headerText, tune } = {}) {
+  const body = String(abcText || "");
+  const sanitizedHeader = sanitizeFileHeaderForPerTuneRender(headerText);
+  const prefix = buildHeaderPrefix(sanitizedHeader, false, body);
+  const block = prefix.text ? `${prefix.text}${body}` : body;
+  const context = { tuneLabel: buildPrintTuneLabel(tune || {}) };
+  setErrorLineOffsetFromHeader(prefix.text);
+  const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
+  return { ...res, blockText: block };
 }
 
-async function exportSetListAsAbc() {
-  if (!Array.isArray(setListItems) || setListItems.length === 0) return;
-  const base = getSuggestedBaseName();
-  const suggestedName = `${base ? `${base}-` : ""}set-list.abc`;
+async function saveSetListAbcContent({ suggestedName, content } = {}) {
   const suggestedDir = getDefaultSaveDir();
-  const filePath = await showSaveDialog(suggestedName, suggestedDir);
-  if (!filePath) return;
-  const content = buildSetListExportAbc();
-  if (!content.trim()) {
-    showToast("Nothing to export.", 2400);
-    return;
-  }
-  const ok = await withFileLock(filePath, async () => {
+  const filePath = await showSaveDialog(suggestedName || "set-list.abc", suggestedDir);
+  if (!filePath) return false;
+  return withFileLock(filePath, async () => {
     const res = await writeFile(filePath, content);
     if (res && res.ok) return true;
     await showSaveError((res && res.error) ? res.error : "Unable to export set list.");
     return false;
   });
-  if (ok) showToast("Exported.", 2400);
+}
+
+async function outputSetListPrintMarkup({ type, svgMarkup, suggestedName } = {}) {
+  if (!window.api) return null;
+  if (type === "print" && typeof window.api.printDialog === "function") {
+    return window.api.printDialog(svgMarkup, suggestedName);
+  }
+  if (type === "pdf" && typeof window.api.exportPdf === "function") {
+    return window.api.exportPdf(svgMarkup, suggestedName);
+  }
+  if (type === "preview" && typeof window.api.printPreview === "function") {
+    return window.api.printPreview(svgMarkup, suggestedName);
+  }
+  return null;
 }
 
 function showDisclaimerIfNeeded(settings) {
@@ -18234,7 +17965,7 @@ function wireMenuActions() {
       else if (actionType === "libraryList") {
         openLibraryListFromCurrentLibraryIndex();
       }
-      else if (actionType === "setList") openSetList();
+      else if (actionType === "setList") setListFeature.open();
       else if (actionType === "toggleLibrary") toggleLibrary();
       else if (actionType === "toggleFocusMode") toggleFocusMode();
       else if (actionType === "toggleSplitOrientation") {

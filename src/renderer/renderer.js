@@ -117,6 +117,7 @@ import {
 import { createSetListController } from "./tools/set_list/set_list_controller.js";
 import { createSourceLinkController } from "./tools/source_link/source_link_controller.js";
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
+import { createMakamDnaStore } from "./tools/makam_dna/makam_dna_store.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
 import { createPayloadModeController } from "./tools/payload_mode/payload_mode_controller.js";
@@ -4758,143 +4759,31 @@ function populateIntonationExplorerMakams() {
   fill($intonationExplorerCompareMakam);
 }
 
-function normalizeMakamKey(name) {
-  const raw = String(name || "").trim();
-  if (!raw) return "";
-  const base = raw
-    .toLowerCase()
-    .replace(/[’']/g, "")
-    .replace(/\s+/g, " ");
-  const map = {
-    "ç": "c",
-    "ğ": "g",
-    "ı": "i",
-    "ş": "s",
-    "ö": "o",
-    "ü": "u",
-    "â": "a",
-    "î": "i",
-    "û": "u",
-  };
-  return base
-    .split("")
-    .map((ch) => (map[ch] ? map[ch] : ch))
-    .join("")
-    .replace(/[^a-z0-9 ]/g, "")
-    .trim();
-}
-
-let activeMakamDnaEntries = [];
-let activeMakamDnaUserText = "";
-let makamDnaLoaded = false;
-let builtinMakamDnaPromise = null;
+const makamDnaStore = createMakamDnaStore({
+  api: window.api,
+  onError: (e) => logErr(e && e.message ? e.message : String(e)),
+});
 
 function getMakamDnaEntries() {
-  return Array.isArray(activeMakamDnaEntries) ? activeMakamDnaEntries : [];
-}
-
-async function getBuiltinMakamDnaEntries() {
-  if (builtinMakamDnaPromise) return builtinMakamDnaPromise;
-  builtinMakamDnaPromise = import("./makam_dna/makam_dna.mjs")
-    .then((mod) => (Array.isArray(mod.BUILTIN_MAKAM_DNA) ? mod.BUILTIN_MAKAM_DNA : []))
-    .catch(() => []);
-  return builtinMakamDnaPromise;
-}
-
-function extractEntriesFromMakamDnaPayload(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return null;
-  if (Array.isArray(payload.entries)) return payload.entries;
-  if (payload.rawTable && Array.isArray(payload.rawTable.entries)) return payload.rawTable.entries;
-  return null;
+  return makamDnaStore.getEntries();
 }
 
 function parseMakamDnaText(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return { ok: false, error: "Empty JSON." };
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return { ok: false, error: e && e.message ? e.message : "Invalid JSON." };
-  }
-  const entries = extractEntriesFromMakamDnaPayload(parsed);
-  if (!Array.isArray(entries)) return { ok: false, error: "Expected an array (or an object with entries/rawTable.entries)." };
-  const cleaned = [];
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") continue;
-    const makam = String(entry.makam || "").trim();
-    if (!makam) continue;
-    cleaned.push(entry);
-  }
-  if (!cleaned.length) return { ok: false, error: "No valid entries (each entry must include a non-empty makam)." };
-  return { ok: true, entries: cleaned };
-}
-
-function formatMakamDnaForEditor(entries) {
-  const today = new Date();
-  const iso = Number.isFinite(today.getTime()) ? today.toISOString().slice(0, 10) : "";
-  const wrapper = {
-    schemaVersion: 1,
-    updatedAt: iso || "",
-    rawTable: {
-      note: "User-edited dataset (local). Entries are used by Intonation Explorer for makam overlays/labels.",
-      entries: Array.isArray(entries) ? entries : [],
-    },
-  };
-  return JSON.stringify(wrapper, null, 2);
+  return makamDnaStore.parseText(text);
 }
 
 async function ensureMakamDnaLoaded() {
-  if (makamDnaLoaded) return;
-  makamDnaLoaded = true;
-  activeMakamDnaEntries = await getBuiltinMakamDnaEntries();
-  if (!window.api || typeof window.api.getMakamDnaUser !== "function") return;
-  try {
-    const res = await window.api.getMakamDnaUser();
-    if (!res || !res.ok || !res.text) return;
-    const parsed = parseMakamDnaText(String(res.text || ""));
-    if (!parsed.ok) return;
-      activeMakamDnaEntries = parsed.entries;
-      activeMakamDnaUserText = String(res.text || "");
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-    }
-  }
-
-let makamDnaNameIndex = { idx: new Map(), sorted: [] };
+  await makamDnaStore.ensureLoaded();
+}
 
 function rebuildMakamDnaNameIndex() {
-  const names = getMakamDnaEntries()
-    .map((e) => String(e && e.makam ? e.makam : "").trim())
-    .filter(Boolean);
-  const sorted = names
-    .slice()
-    .sort((a, b) => normalizeMakamKey(b).length - normalizeMakamKey(a).length);
-  const idx = new Map();
-  for (const name of sorted) {
-    const key = normalizeMakamKey(name);
-    if (!key) continue;
-    if (!idx.has(key)) idx.set(key, name);
-  }
-  makamDnaNameIndex = { idx, sorted };
+  makamDnaStore.rebuildNameIndex();
 }
 
 rebuildMakamDnaNameIndex();
 
 function detectMakamFromTuneText(tuneText) {
-  const text = String(tuneText || "");
-  if (!text.trim()) return "";
-  const mT = text.match(/(?:^|\n)T:\s*([^\r\n]+)/);
-  const mR = text.match(/(?:^|\n)R:\s*([^\r\n]+)/);
-  const hay = normalizeMakamKey([mR ? mR[1] : "", mT ? mT[1] : ""].filter(Boolean).join(" "));
-  if (!hay) return "";
-  for (const name of makamDnaNameIndex.sorted) {
-    const key = normalizeMakamKey(name);
-    if (!key) continue;
-    if (hay.includes(key)) return name;
-  }
-  return "";
+  return makamDnaStore.detectFromTuneText(tuneText);
 }
 
 function normalizePerdeKey(name) {
@@ -5022,9 +4911,7 @@ function pickOverlayAbs53ForPerde(perdeName, { hint, observedMinAbs, observedMax
 }
 
 function getMakamDnaEntry(name) {
-  const target = String(name || "").trim().toLowerCase();
-  if (!target) return null;
-  return getMakamDnaEntries().find((e) => String(e.makam || "").trim().toLowerCase() === target) || null;
+  return makamDnaStore.getEntry(name);
 }
 
 function renderIntonationSeyirPlot({ noteEvents, baseStep, overlayMakamName } = {}) {
@@ -19039,11 +18926,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 async function applyUserMakamDnaTextAndRefresh(text) {
-  const parsed = parseMakamDnaText(text);
-  if (!parsed.ok) return { ok: false, error: parsed.error || "Invalid Makam DNA." };
-  activeMakamDnaEntries = parsed.entries;
-  activeMakamDnaUserText = String(text || "");
-  rebuildMakamDnaNameIndex();
+  const applied = makamDnaStore.applyUserText(text);
+  if (!applied.ok) return applied;
   populateIntonationExplorerMakams();
   if (intonationExplorerVisible) {
     try { await refreshIntonationExplorer(); } catch {}
@@ -19061,22 +18945,14 @@ const makamDnaController = createMakamDnaController({
   saveButton: $makamDnaSave,
   api: window.api,
   ensureLoaded: ensureMakamDnaLoaded,
-  getInitialText: () => {
-    // If no user dataset exists, show a formatted wrapper around the current in-memory entries.
-    return activeMakamDnaUserText && activeMakamDnaUserText.trim()
-      ? activeMakamDnaUserText
-      : formatMakamDnaForEditor(getMakamDnaEntries());
-  },
+  getInitialText: () => makamDnaStore.getInitialEditorText(),
   validateText: parseMakamDnaText,
   applyText: applyUserMakamDnaTextAndRefresh,
   resetBuiltin: async () => {
-    activeMakamDnaEntries = await getBuiltinMakamDnaEntries();
-    activeMakamDnaUserText = "";
-    makamDnaLoaded = true;
-    rebuildMakamDnaNameIndex();
+    const text = await makamDnaStore.resetBuiltin();
     populateIntonationExplorerMakams();
     if (intonationExplorerVisible) refreshIntonationExplorer().catch(() => {});
-    return formatMakamDnaForEditor(getMakamDnaEntries());
+    return text;
   },
   enableDraggable: enableDraggableModal,
   onSaved: () => {

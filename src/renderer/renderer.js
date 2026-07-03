@@ -102,6 +102,7 @@ import {
 import {
   parseDrumPattern,
 } from "./tools/drum_helper/drum_helper_model.js";
+import { buildDrumDebugDiagnostics } from "./tools/drum_helper/drum_debug_diagnostics.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import {
@@ -15051,77 +15052,28 @@ function nowCompactStamp() {
 }
 
 function buildDebugDumpDrumDiagnostics() {
-  const nativeDrums = shouldUseNativeMidiDrums();
-  const tuneText = getEditorValue();
-  let preDrumRaw = String(tuneText || "");
-  let source = "payload-mode";
-
-  if (!payloadMode) {
-    source = "normal";
-    const entry = getActiveFileEntry();
-    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-    preDrumRaw = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
-    const gchordPreview = injectGchordOn(preDrumRaw, prefixPayload.offset || 0);
-    if (gchordPreview && gchordPreview.changed) preDrumRaw = gchordPreview.text;
-  }
-
-  if (!preDrumRaw) return null;
-
-  preDrumRaw = normalizeDollarLineBreaksForPlayback(preDrumRaw);
-  preDrumRaw = normalizeBlankLinesForPlayback(preDrumRaw);
-  const sanitized = sanitizeAbcForPlayback(preDrumRaw);
-  preDrumRaw = sanitized && sanitized.text ? sanitized.text : preDrumRaw;
-
-  const hasDrumDirective = /(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(preDrumRaw);
-  if (nativeDrums) {
-    return {
-      summary: "Native %%MIDI drum handling is enabled (no V:DRUM injection).",
-      source,
-      nativeDrums: true,
-      hasDrumDirective,
-    };
-  }
-
-  const normalized = normalizeLeadingInlineDirectivesForPlayback(preDrumRaw);
-  const normalizedChanged = normalized !== preDrumRaw;
-  const info = extractDrumPlaybackBars(normalized);
-  const expectedSig = computeExpectedBarSignatureFromInfo(info);
-  const drumVoice = buildDrumVoiceText(info);
-  const actualSig = extractBarSignatureFromText(drumVoice || "");
-  const diff = diffSignatures(expectedSig, actualSig);
-  const mismatchBar = diff && diff.ok === false && Number.isFinite(diff.index) ? diff.index + 1 : null;
-  const summary = diff && diff.ok
-    ? "Drum bar skeleton matches V:1."
-    : (mismatchBar != null
-      ? `Drum skeleton mismatch at bar ${mismatchBar}.`
-      : "Drum skeleton mismatch.");
-  const preview = drumVoice
-    ? drumVoice.split(/\r\n|\n|\r/).slice(0, 80).join("\n")
-    : "";
-  const lastInjection = lastDrumInjectResult ? {
-    changed: Boolean(lastDrumInjectResult.changed),
-    insertAtLine: lastDrumInjectResult.insertAtLine || null,
-    lineCount: lastDrumInjectResult.lineCount || 0,
-  } : null;
-  return {
-    summary,
-    source,
-    nativeDrums: false,
-    hasDrumDirective,
-    normalizedChanged,
-    lastInjectionActive: Boolean(lastDrumPlaybackActive),
-    lastInjection,
-    lastSignatureDiff: lastDrumSignatureDiff || null,
-    recomputed: {
-      mismatchBar,
-      bars: Array.isArray(info && info.bars) ? info.bars.length : 0,
-      patterns: Array.isArray(info && info.patterns) ? info.patterns.length : 0,
-      expectedBars: Array.isArray(expectedSig) ? expectedSig.length : 0,
-      actualBars: Array.isArray(actualSig) ? actualSig.length : 0,
-      signatureDiff: diff,
-      drumVoicePreview: safeString(preview, 12000),
-    },
-  };
+  return buildDrumDebugDiagnostics({
+    tuneText: getEditorValue(),
+    isPayloadMode: payloadMode,
+    hasActiveFileEntry: Boolean(getActiveFileEntry()),
+    headerText: getHeaderEditorValue(),
+    buildHeaderPrefix,
+    injectGchordOn,
+    shouldUseNativeMidiDrums,
+    normalizeLeadingInlineDirectivesForPlayback,
+    normalizeDollarLineBreaksForPlayback,
+    normalizeBlankLinesForPlayback,
+    sanitizeAbcForPlayback,
+    extractDrumPlaybackBars,
+    computeExpectedBarSignatureFromInfo,
+    buildDrumVoiceText,
+    extractBarSignatureFromText,
+    diffSignatures,
+    lastDrumInjectResult,
+    lastDrumPlaybackActive,
+    lastDrumSignatureDiff,
+    safeString,
+  });
 }
 
 async function buildDebugDumpSnapshot({ reason = "" } = {}) {

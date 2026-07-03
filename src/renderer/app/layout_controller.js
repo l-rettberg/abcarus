@@ -1,0 +1,272 @@
+function clampRatio(value, fallback = 0.5) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(0.1, Math.min(0.9, v));
+}
+
+export function createLayoutController({
+  main,
+  divider,
+  sidebar,
+  rightSplit,
+  splitDivider,
+  editorPane,
+  renderPane,
+  sidebarBody,
+  sidebarSplit,
+  errorPane,
+  libraryTree,
+  toggleSplitButton,
+  minPaneWidth = 220,
+  minRightPaneWidth = 220,
+  minRightPaneHeight = 180,
+  minErrorPaneHeight = 120,
+  useErrorOverlay = true,
+  getLibraryVisible = () => false,
+  getSidebarWidth = () => 280,
+  setSidebarWidth = () => {},
+  saveLibraryPrefs = () => {},
+  saveLayoutPrefs = async () => {},
+} = {}) {
+  let rightSplitOrientation = "vertical";
+  let rightSplitRatioVertical = 0.5;
+  let rightSplitRatioHorizontal = 0.5;
+  let layoutPrefsSaveTimer = null;
+  let pendingLayoutPrefsPatch = null;
+  const layoutPrefsSaveDebounceMs = 300;
+
+  const scheduleSaveLayoutPrefs = (patch) => {
+    if (!patch || typeof patch !== "object") return;
+    pendingLayoutPrefsPatch = { ...(pendingLayoutPrefsPatch || {}), ...patch };
+    if (layoutPrefsSaveTimer) clearTimeout(layoutPrefsSaveTimer);
+    layoutPrefsSaveTimer = setTimeout(async () => {
+      const nextPatch = pendingLayoutPrefsPatch;
+      pendingLayoutPrefsPatch = null;
+      layoutPrefsSaveTimer = null;
+      if (!nextPatch) return;
+      try { await saveLayoutPrefs(nextPatch); } catch {}
+    }, layoutPrefsSaveDebounceMs);
+  };
+
+  const setPaneSizes = (leftWidth) => {
+    if (!main || !divider || !sidebar) return;
+    const total = main.clientWidth;
+    const dividerWidth = divider.offsetWidth || 6;
+    const min = Math.min(minPaneWidth, Math.max(0, (total - dividerWidth) / 2));
+    const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerWidth));
+    setSidebarWidth(clamped);
+    main.style.gridTemplateColumns = `${clamped}px ${dividerWidth}px 1fr`;
+    if (getLibraryVisible()) {
+      saveLibraryPrefs({ libraryPaneWidth: Math.round(clamped) });
+    }
+  };
+
+  const initPaneResizer = () => {
+    if (!main || !divider || !sidebar) return;
+    divider.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      divider.setPointerCapture(e.pointerId);
+      const startLeft = sidebar.getBoundingClientRect().width;
+      const startX = e.clientX;
+      const onMove = (ev) => setPaneSizes(startLeft + (ev.clientX - startX));
+      const onUp = () => {
+        divider.releasePointerCapture(e.pointerId);
+        divider.removeEventListener("pointermove", onMove);
+        divider.removeEventListener("pointerup", onUp);
+        divider.removeEventListener("pointercancel", onUp);
+        document.body.classList.remove("resizing");
+      };
+      document.body.classList.add("resizing");
+      divider.addEventListener("pointermove", onMove);
+      divider.addEventListener("pointerup", onUp);
+      divider.addEventListener("pointercancel", onUp);
+    });
+    window.addEventListener("resize", () => {
+      if (!getLibraryVisible()) return;
+      setPaneSizes(sidebar.getBoundingClientRect().width);
+    });
+  };
+
+  const applyRightSplitOrientation = (next) => {
+    const normalized = (next === "horizontal") ? "horizontal" : "vertical";
+    rightSplitOrientation = normalized;
+    document.body.classList.toggle("right-split-horizontal", normalized === "horizontal");
+    if (splitDivider) {
+      splitDivider.setAttribute("aria-orientation", normalized === "horizontal" ? "horizontal" : "vertical");
+    }
+    if (toggleSplitButton) {
+      toggleSplitButton.classList.toggle("toggle-active", normalized === "horizontal");
+      toggleSplitButton.setAttribute("aria-pressed", normalized === "horizontal" ? "true" : "false");
+      toggleSplitButton.title = normalized === "horizontal"
+        ? "Toggle split orientation (Ctrl+Alt+\\) - Horizontal"
+        : "Toggle split orientation (Ctrl+Alt+\\) - Vertical";
+    }
+  };
+
+  const applyRightSplitSizesFromRatio = () => {
+    if (!rightSplit || !splitDivider || !editorPane) return;
+    const dividerSize = (rightSplitOrientation === "horizontal")
+      ? (splitDivider.offsetHeight || 6)
+      : (splitDivider.offsetWidth || 6);
+
+    if (rightSplitOrientation === "horizontal") {
+      const total = rightSplit.clientHeight;
+      const min = Math.min(minRightPaneHeight, Math.max(0, (total - dividerSize) / 2));
+      const ratio = clampRatio(rightSplitRatioHorizontal, 0.5);
+      const wanted = (total - dividerSize) * ratio;
+      const clamped = Math.max(min, Math.min(wanted, total - min - dividerSize));
+      rightSplit.style.gridTemplateColumns = "1fr";
+      rightSplit.style.gridTemplateRows = `${Math.round(clamped)}px ${dividerSize}px 1fr`;
+    } else {
+      const total = rightSplit.clientWidth;
+      const min = Math.min(minRightPaneWidth, Math.max(0, (total - dividerSize) / 2));
+      const ratio = clampRatio(rightSplitRatioVertical, 0.5);
+      const wanted = (total - dividerSize) * ratio;
+      const clamped = Math.max(min, Math.min(wanted, total - min - dividerSize));
+      rightSplit.style.gridTemplateRows = "1fr";
+      rightSplit.style.gridTemplateColumns = `${Math.round(clamped)}px ${dividerSize}px 1fr`;
+    }
+  };
+
+  const setRightPaneSizes = (leftWidth, { rawMode = false } = {}) => {
+    if (!rightSplit || !splitDivider || !renderPane || !editorPane) return;
+    if (rawMode) {
+      rightSplit.style.gridTemplateColumns = "1fr";
+      rightSplit.style.gridTemplateRows = "1fr";
+      return;
+    }
+    if (rightSplitOrientation === "horizontal") {
+      const total = rightSplit.clientHeight;
+      const dividerHeight = splitDivider.offsetHeight || 6;
+      const min = Math.min(minRightPaneHeight, Math.max(0, (total - dividerHeight) / 2));
+      const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerHeight));
+      rightSplitRatioHorizontal = clampRatio((total - dividerHeight) ? (clamped / (total - dividerHeight)) : rightSplitRatioHorizontal, rightSplitRatioHorizontal);
+      rightSplit.style.gridTemplateColumns = "1fr";
+      rightSplit.style.gridTemplateRows = `${Math.round(clamped)}px ${dividerHeight}px 1fr`;
+      scheduleSaveLayoutPrefs({ layoutSplitRatioHorizontal: rightSplitRatioHorizontal });
+    } else {
+      const total = rightSplit.clientWidth;
+      const dividerWidth = splitDivider.offsetWidth || 6;
+      const min = Math.min(minRightPaneWidth, Math.max(0, (total - dividerWidth) / 2));
+      const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerWidth));
+      rightSplitRatioVertical = clampRatio((total - dividerWidth) ? (clamped / (total - dividerWidth)) : rightSplitRatioVertical, rightSplitRatioVertical);
+      rightSplit.style.gridTemplateRows = "1fr";
+      rightSplit.style.gridTemplateColumns = `${Math.round(clamped)}px ${dividerWidth}px 1fr`;
+      scheduleSaveLayoutPrefs({ layoutSplitRatioVertical: rightSplitRatioVertical });
+    }
+  };
+
+  const initRightPaneResizer = ({ isRawMode = () => false } = {}) => {
+    if (!rightSplit || !splitDivider || !renderPane || !editorPane) return;
+    splitDivider.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      splitDivider.setPointerCapture(e.pointerId);
+      const startRect = (rightSplitOrientation === "horizontal")
+        ? renderPane.getBoundingClientRect()
+        : editorPane.getBoundingClientRect();
+      const startSize = (rightSplitOrientation === "horizontal") ? startRect.height : startRect.width;
+      const startPos = (rightSplitOrientation === "horizontal") ? e.clientY : e.clientX;
+      const onMove = (ev) => {
+        const delta = (rightSplitOrientation === "horizontal") ? (ev.clientY - startPos) : (ev.clientX - startPos);
+        setRightPaneSizes(startSize + delta, { rawMode: Boolean(isRawMode()) });
+      };
+      const onUp = () => {
+        splitDivider.releasePointerCapture(e.pointerId);
+        splitDivider.removeEventListener("pointermove", onMove);
+        splitDivider.removeEventListener("pointerup", onUp);
+        splitDivider.removeEventListener("pointercancel", onUp);
+        document.body.classList.remove("resizing-cols");
+        document.body.classList.remove("resizing-rows");
+      };
+      if (rightSplitOrientation === "horizontal") document.body.classList.add("resizing-rows");
+      else document.body.classList.add("resizing-cols");
+      splitDivider.addEventListener("pointermove", onMove);
+      splitDivider.addEventListener("pointerup", onUp);
+      splitDivider.addEventListener("pointercancel", onUp);
+    });
+    window.addEventListener("resize", () => {
+      if (isRawMode()) {
+        rightSplit.style.gridTemplateColumns = "1fr";
+        rightSplit.style.gridTemplateRows = "1fr";
+        return;
+      }
+      applyRightSplitSizesFromRatio();
+    });
+  };
+
+  const resetRightPaneSplit = () => {
+    if (!rightSplit) return;
+    if (splitDivider) {
+      if (rightSplitOrientation === "horizontal") {
+        rightSplitRatioHorizontal = 0.5;
+        scheduleSaveLayoutPrefs({ layoutSplitRatioHorizontal: rightSplitRatioHorizontal });
+      } else {
+        rightSplitRatioVertical = 0.5;
+        scheduleSaveLayoutPrefs({ layoutSplitRatioVertical: rightSplitRatioVertical });
+      }
+    }
+    applyRightSplitSizesFromRatio();
+  };
+
+  const setSidebarSplitSizes = (topHeight) => {
+    if (useErrorOverlay) return;
+    if (!sidebarBody || !sidebarSplit || !errorPane || !libraryTree) return;
+    const total = sidebarBody.clientHeight;
+    const dividerHeight = sidebarSplit.offsetHeight || 6;
+    const min = Math.min(minErrorPaneHeight, Math.max(0, (total - dividerHeight) / 2));
+    const clamped = Math.max(min, Math.min(topHeight, total - min - dividerHeight));
+    sidebarBody.style.gridTemplateRows = `${clamped}px ${dividerHeight}px 1fr`;
+  };
+
+  const initSidebarResizer = () => {
+    if (useErrorOverlay) return;
+    if (!sidebarBody || !sidebarSplit || !errorPane || !libraryTree || !sidebar) return;
+    sidebarSplit.addEventListener("pointerdown", (e) => {
+      if (!sidebar.classList.contains("has-errors")) return;
+      e.preventDefault();
+      sidebarSplit.setPointerCapture(e.pointerId);
+      const startTop = libraryTree.getBoundingClientRect().height;
+      const startY = e.clientY;
+      const onMove = (ev) => setSidebarSplitSizes(startTop + (ev.clientY - startY));
+      const onUp = () => {
+        sidebarSplit.releasePointerCapture(e.pointerId);
+        sidebarSplit.removeEventListener("pointermove", onMove);
+        sidebarSplit.removeEventListener("pointerup", onUp);
+        sidebarSplit.removeEventListener("pointercancel", onUp);
+        document.body.classList.remove("resizing-rows");
+      };
+      document.body.classList.add("resizing-rows");
+      sidebarSplit.addEventListener("pointermove", onMove);
+      sidebarSplit.addEventListener("pointerup", onUp);
+      sidebarSplit.addEventListener("pointercancel", onUp);
+    });
+    window.addEventListener("resize", () => {
+      if (!sidebar.classList.contains("has-errors")) return;
+      setSidebarSplitSizes(libraryTree.getBoundingClientRect().height);
+    });
+  };
+
+  const setFromSettings = (settings) => {
+    if (!settings || typeof settings !== "object") return;
+    rightSplitRatioVertical = clampRatio(settings.layoutSplitRatioVertical, rightSplitRatioVertical);
+    rightSplitRatioHorizontal = clampRatio(settings.layoutSplitRatioHorizontal, rightSplitRatioHorizontal);
+    applyRightSplitOrientation(settings.layoutSplitOrientation === "horizontal" ? "horizontal" : "vertical");
+    applyRightSplitSizesFromRatio();
+  };
+
+  return {
+    applyRightSplitOrientation,
+    applyRightSplitSizesFromRatio,
+    getRightSplitOrientation: () => rightSplitOrientation,
+    getSidebarWidth,
+    initPaneResizer,
+    initRightPaneResizer,
+    initSidebarResizer,
+    resetRightPaneSplit,
+    scheduleSaveLayoutPrefs,
+    setFromSettings,
+    setPaneSizes,
+    setRightPaneSizes,
+    setSidebarSplitSizes,
+  };
+}

@@ -153,6 +153,7 @@ import { createGoToMeasureModalController } from "./app/go_to_measure_modal_cont
 import { enableDraggableModal } from "./app/draggable_modal.js";
 import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
+import { createLayoutController } from "./app/layout_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -2203,6 +2204,33 @@ const USE_ERROR_OVERLAY = true;
 const LIBRARY_SEARCH_DEBOUNCE_MS = 180;
 let settingsController = null;
 let disclaimerShown = false;
+const layoutController = createLayoutController({
+  main: $main,
+  divider: $divider,
+  sidebar: $sidebar,
+  rightSplit: $rightSplit,
+  splitDivider: $splitDivider,
+  editorPane: $editorPane,
+  renderPane: $renderPane,
+  sidebarBody: $sidebarBody,
+  sidebarSplit: $sidebarSplit,
+  errorPane: $errorPane,
+  libraryTree: $libraryTree,
+  toggleSplitButton: $btnToggleSplit,
+  minPaneWidth: MIN_PANE_WIDTH,
+  minRightPaneWidth: MIN_RIGHT_PANE_WIDTH,
+  minRightPaneHeight: MIN_RIGHT_PANE_HEIGHT,
+  minErrorPaneHeight: MIN_ERROR_PANE_HEIGHT,
+  useErrorOverlay: USE_ERROR_OVERLAY,
+  getLibraryVisible: () => isLibraryVisible,
+  getSidebarWidth: () => lastSidebarWidth,
+  setSidebarWidth: (value) => { lastSidebarWidth = value; },
+  saveLibraryPrefs: (patch) => scheduleSaveLibraryPrefs(patch),
+  saveLayoutPrefs: async (patch) => {
+    if (!window.api || typeof window.api.updateSettings !== "function") return;
+    await window.api.updateSettings(patch);
+  },
+});
 
 let decorationCatalogEnrichment = null;
 let decorationCatalogEnrichmentTried = false;
@@ -2233,81 +2261,17 @@ async function loadDecorationCatalogEnrichment() {
 }
 
 function setPaneSizes(leftWidth) {
-  if (!$main || !$divider || !$sidebar) return;
-  const total = $main.clientWidth;
-  const dividerWidth = $divider.offsetWidth || 6;
-  const min = Math.min(MIN_PANE_WIDTH, Math.max(0, (total - dividerWidth) / 2));
-  const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerWidth));
-  lastSidebarWidth = clamped;
-  $main.style.gridTemplateColumns = `${clamped}px ${dividerWidth}px 1fr`;
-  if (isLibraryVisible) {
-    scheduleSaveLibraryPrefs({ libraryPaneWidth: Math.round(clamped) });
-  }
+  layoutController.setPaneSizes(leftWidth);
 }
 
 function initPaneResizer() {
-  if (!$main || !$divider || !$sidebar) return;
-
-  $divider.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    $divider.setPointerCapture(e.pointerId);
-
-    const startLeft = $sidebar.getBoundingClientRect().width;
-    const startX = e.clientX;
-
-    const onMove = (ev) => {
-      setPaneSizes(startLeft + (ev.clientX - startX));
-    };
-
-    const onUp = (ev) => {
-      $divider.releasePointerCapture(e.pointerId);
-      $divider.removeEventListener("pointermove", onMove);
-      $divider.removeEventListener("pointerup", onUp);
-      $divider.removeEventListener("pointercancel", onUp);
-      document.body.classList.remove("resizing");
-    };
-
-    document.body.classList.add("resizing");
-    $divider.addEventListener("pointermove", onMove);
-    $divider.addEventListener("pointerup", onUp);
-    $divider.addEventListener("pointercancel", onUp);
-  });
-
-  window.addEventListener("resize", () => {
-    if (!isLibraryVisible) return;
-    setPaneSizes($sidebar.getBoundingClientRect().width);
-  });
+  layoutController.initPaneResizer();
 }
 
-let lastEditorWidth = 320;
-let lastEditorHeight = 240;
-let rightSplitOrientation = "vertical"; // "vertical" | "horizontal"
-let rightSplitRatioVertical = 0.5;
-let rightSplitRatioHorizontal = 0.5;
 let suppressFollowScrollUntilMs = 0;
 
-let layoutPrefsSaveTimer = null;
-let pendingLayoutPrefsPatch = null;
-const LAYOUT_PREFS_SAVE_DEBOUNCE_MS = 300;
-
-function clampRatio(value, fallback = 0.5) {
-  const v = Number(value);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(0.1, Math.min(0.9, v));
-}
-
 function scheduleSaveLayoutPrefs(patch) {
-  if (!patch || typeof patch !== "object") return;
-  if (!window.api || typeof window.api.updateSettings !== "function") return;
-  pendingLayoutPrefsPatch = { ...(pendingLayoutPrefsPatch || {}), ...patch };
-  if (layoutPrefsSaveTimer) clearTimeout(layoutPrefsSaveTimer);
-  layoutPrefsSaveTimer = setTimeout(async () => {
-    const nextPatch = pendingLayoutPrefsPatch;
-    pendingLayoutPrefsPatch = null;
-    layoutPrefsSaveTimer = null;
-    if (!nextPatch) return;
-    try { await window.api.updateSettings(nextPatch); } catch {}
-  }, LAYOUT_PREFS_SAVE_DEBOUNCE_MS);
+  layoutController.scheduleSaveLayoutPrefs(patch);
 }
 
 function isNormalModeForSplitToggle() {
@@ -2315,180 +2279,38 @@ function isNormalModeForSplitToggle() {
 }
 
 function applyRightSplitOrientation(next) {
-  const normalized = (next === "horizontal") ? "horizontal" : "vertical";
-  rightSplitOrientation = normalized;
-  document.body.classList.toggle("right-split-horizontal", normalized === "horizontal");
-  if ($splitDivider) {
-    $splitDivider.setAttribute("aria-orientation", normalized === "horizontal" ? "horizontal" : "vertical");
-  }
-  if ($btnToggleSplit) {
-    $btnToggleSplit.classList.toggle("toggle-active", normalized === "horizontal");
-    $btnToggleSplit.setAttribute("aria-pressed", normalized === "horizontal" ? "true" : "false");
-    $btnToggleSplit.title = normalized === "horizontal"
-      ? "Toggle split orientation (Ctrl+Alt+\\) — Horizontal"
-      : "Toggle split orientation (Ctrl+Alt+\\) — Vertical";
-  }
+  layoutController.applyRightSplitOrientation(next);
 }
 
 function applyRightSplitSizesFromRatio() {
-  if (!$rightSplit || !$splitDivider || !$editorPane) return;
   if (rawMode) {
-    $rightSplit.style.gridTemplateColumns = "1fr";
-    $rightSplit.style.gridTemplateRows = "1fr";
+    if ($rightSplit) {
+      $rightSplit.style.gridTemplateColumns = "1fr";
+      $rightSplit.style.gridTemplateRows = "1fr";
+    }
     return;
   }
-  const dividerSize = (rightSplitOrientation === "horizontal")
-    ? ($splitDivider.offsetHeight || 6)
-    : ($splitDivider.offsetWidth || 6);
-
-  if (rightSplitOrientation === "horizontal") {
-    const total = $rightSplit.clientHeight;
-    const min = Math.min(MIN_RIGHT_PANE_HEIGHT, Math.max(0, (total - dividerSize) / 2));
-    const ratio = clampRatio(rightSplitRatioHorizontal, 0.5);
-    const wanted = (total - dividerSize) * ratio;
-    const clamped = Math.max(min, Math.min(wanted, total - min - dividerSize));
-    lastEditorHeight = clamped;
-    $rightSplit.style.gridTemplateColumns = "1fr";
-    $rightSplit.style.gridTemplateRows = `${Math.round(clamped)}px ${dividerSize}px 1fr`;
-  } else {
-    const total = $rightSplit.clientWidth;
-    const min = Math.min(MIN_RIGHT_PANE_WIDTH, Math.max(0, (total - dividerSize) / 2));
-    const ratio = clampRatio(rightSplitRatioVertical, 0.5);
-    const wanted = (total - dividerSize) * ratio;
-    const clamped = Math.max(min, Math.min(wanted, total - min - dividerSize));
-    lastEditorWidth = clamped;
-    $rightSplit.style.gridTemplateRows = "1fr";
-    $rightSplit.style.gridTemplateColumns = `${Math.round(clamped)}px ${dividerSize}px 1fr`;
-  }
+  layoutController.applyRightSplitSizesFromRatio();
 }
 
 function setRightPaneSizes(leftWidth) {
-  if (!$rightSplit || !$splitDivider || !$renderPane || !$editorPane) return;
-  if (rawMode) {
-    $rightSplit.style.gridTemplateColumns = "1fr";
-    $rightSplit.style.gridTemplateRows = "1fr";
-    return;
-  }
-  if (rightSplitOrientation === "horizontal") {
-    const total = $rightSplit.clientHeight;
-    const dividerHeight = $splitDivider.offsetHeight || 6;
-    const min = Math.min(MIN_RIGHT_PANE_HEIGHT, Math.max(0, (total - dividerHeight) / 2));
-    const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerHeight));
-    lastEditorHeight = clamped;
-    rightSplitRatioHorizontal = clampRatio((total - dividerHeight) ? (clamped / (total - dividerHeight)) : rightSplitRatioHorizontal, rightSplitRatioHorizontal);
-    $rightSplit.style.gridTemplateColumns = "1fr";
-    $rightSplit.style.gridTemplateRows = `${Math.round(clamped)}px ${dividerHeight}px 1fr`;
-    scheduleSaveLayoutPrefs({ layoutSplitRatioHorizontal: rightSplitRatioHorizontal });
-  } else {
-    const total = $rightSplit.clientWidth;
-    const dividerWidth = $splitDivider.offsetWidth || 6;
-    const min = Math.min(MIN_RIGHT_PANE_WIDTH, Math.max(0, (total - dividerWidth) / 2));
-    const clamped = Math.max(min, Math.min(leftWidth, total - min - dividerWidth));
-    lastEditorWidth = clamped;
-    rightSplitRatioVertical = clampRatio((total - dividerWidth) ? (clamped / (total - dividerWidth)) : rightSplitRatioVertical, rightSplitRatioVertical);
-    $rightSplit.style.gridTemplateRows = "1fr";
-    $rightSplit.style.gridTemplateColumns = `${Math.round(clamped)}px ${dividerWidth}px 1fr`;
-    scheduleSaveLayoutPrefs({ layoutSplitRatioVertical: rightSplitRatioVertical });
-  }
+  layoutController.setRightPaneSizes(leftWidth, { rawMode });
 }
 
 function initRightPaneResizer() {
-  if (!$rightSplit || !$splitDivider || !$renderPane || !$editorPane) return;
-  $splitDivider.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    $splitDivider.setPointerCapture(e.pointerId);
-    const startRect = (rightSplitOrientation === "horizontal")
-      ? $renderPane.getBoundingClientRect()
-      : $editorPane.getBoundingClientRect();
-    const startSize = (rightSplitOrientation === "horizontal") ? startRect.height : startRect.width;
-    const startPos = (rightSplitOrientation === "horizontal") ? e.clientY : e.clientX;
-
-    const onMove = (ev) => {
-      const delta = (rightSplitOrientation === "horizontal") ? (ev.clientY - startPos) : (ev.clientX - startPos);
-      setRightPaneSizes(startSize + delta);
-    };
-
-    const onUp = (ev) => {
-      $splitDivider.releasePointerCapture(e.pointerId);
-      $splitDivider.removeEventListener("pointermove", onMove);
-      $splitDivider.removeEventListener("pointerup", onUp);
-      $splitDivider.removeEventListener("pointercancel", onUp);
-      document.body.classList.remove("resizing-cols");
-      document.body.classList.remove("resizing-rows");
-    };
-
-    if (rightSplitOrientation === "horizontal") document.body.classList.add("resizing-rows");
-    else document.body.classList.add("resizing-cols");
-    $splitDivider.addEventListener("pointermove", onMove);
-    $splitDivider.addEventListener("pointerup", onUp);
-    $splitDivider.addEventListener("pointercancel", onUp);
-  });
-
-  window.addEventListener("resize", () => {
-    applyRightSplitSizesFromRatio();
-  });
+  layoutController.initRightPaneResizer({ isRawMode: () => rawMode });
 }
 
 function resetRightPaneSplit() {
-  if (!$rightSplit) return;
-  if ($splitDivider) {
-    if (rightSplitOrientation === "horizontal") {
-      rightSplitRatioHorizontal = 0.5;
-      scheduleSaveLayoutPrefs({ layoutSplitRatioHorizontal: rightSplitRatioHorizontal });
-    } else {
-      rightSplitRatioVertical = 0.5;
-      scheduleSaveLayoutPrefs({ layoutSplitRatioVertical: rightSplitRatioVertical });
-    }
-  }
-  applyRightSplitSizesFromRatio();
+  layoutController.resetRightPaneSplit();
 }
 
-let lastErrorHeight = 180;
-
 function setSidebarSplitSizes(topHeight) {
-  if (USE_ERROR_OVERLAY) return;
-  if (!$sidebarBody || !$sidebarSplit || !$errorPane || !$libraryTree) return;
-  const total = $sidebarBody.clientHeight;
-  const dividerHeight = $sidebarSplit.offsetHeight || 6;
-  const min = Math.min(MIN_ERROR_PANE_HEIGHT, Math.max(0, (total - dividerHeight) / 2));
-  const clamped = Math.max(min, Math.min(topHeight, total - min - dividerHeight));
-  lastErrorHeight = total - clamped - dividerHeight;
-  $sidebarBody.style.gridTemplateRows = `${clamped}px ${dividerHeight}px 1fr`;
+  layoutController.setSidebarSplitSizes(topHeight);
 }
 
 function initSidebarResizer() {
-  if (USE_ERROR_OVERLAY) return;
-  if (!$sidebarBody || !$sidebarSplit || !$errorPane || !$libraryTree) return;
-
-  $sidebarSplit.addEventListener("pointerdown", (e) => {
-    if (!$sidebar.classList.contains("has-errors")) return;
-    e.preventDefault();
-    $sidebarSplit.setPointerCapture(e.pointerId);
-    const startTop = $libraryTree.getBoundingClientRect().height;
-    const startY = e.clientY;
-
-    const onMove = (ev) => {
-      setSidebarSplitSizes(startTop + (ev.clientY - startY));
-    };
-
-    const onUp = (ev) => {
-      $sidebarSplit.releasePointerCapture(e.pointerId);
-      $sidebarSplit.removeEventListener("pointermove", onMove);
-      $sidebarSplit.removeEventListener("pointerup", onUp);
-      $sidebarSplit.removeEventListener("pointercancel", onUp);
-      document.body.classList.remove("resizing-rows");
-    };
-
-    document.body.classList.add("resizing-rows");
-    $sidebarSplit.addEventListener("pointermove", onMove);
-    $sidebarSplit.addEventListener("pointerup", onUp);
-    $sidebarSplit.addEventListener("pointercancel", onUp);
-  });
-
-  window.addEventListener("resize", () => {
-    if (!$sidebar.classList.contains("has-errors")) return;
-    setSidebarSplitSizes($libraryTree.getBoundingClientRect().height);
-  });
+  layoutController.initSidebarResizer();
 }
 
 let libraryIndex = null;
@@ -22865,11 +22687,7 @@ function setFollowFromSettings(settings) {
 
 function setLayoutFromSettings(settings) {
   if (!settings || typeof settings !== "object") return;
-  const orientation = (settings.layoutSplitOrientation === "horizontal") ? "horizontal" : "vertical";
-  rightSplitRatioVertical = clampRatio(settings.layoutSplitRatioVertical, rightSplitRatioVertical);
-  rightSplitRatioHorizontal = clampRatio(settings.layoutSplitRatioHorizontal, rightSplitRatioHorizontal);
-  applyRightSplitOrientation(orientation);
-  applyRightSplitSizesFromRatio();
+  layoutController.setFromSettings(settings);
 }
 
 function setSplitOrientation(nextOrientation, { persist = true, userAction = false } = {}) {
@@ -22878,12 +22696,13 @@ function setSplitOrientation(nextOrientation, { persist = true, userAction = fal
     showToast("Exit Focus/Raw mode to change split orientation.", 2400);
     return false;
   }
-  if (rightSplitOrientation === next) return true;
+  const currentOrientation = layoutController.getRightSplitOrientation();
+  if (currentOrientation === next) return true;
   // Persist the current zoom under the current split orientation before switching.
   try {
     const currentZoom = readRenderZoomCss();
     if (Number.isFinite(currentZoom) && currentZoom > 0) {
-      const key = (rightSplitOrientation === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
+      const key = (currentOrientation === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
       const prev = latestSettingsSnapshot && latestSettingsSnapshot[key] != null ? Number(latestSettingsSnapshot[key]) : null;
       if (!Number.isFinite(prev) || Math.abs(prev - currentZoom) > 0.0001) {
         scheduleSaveLayoutPrefs({ [key]: currentZoom });
@@ -22915,7 +22734,7 @@ function setSplitOrientation(nextOrientation, { persist = true, userAction = fal
 }
 
 function toggleSplitOrientation({ userAction = false } = {}) {
-  const next = rightSplitOrientation === "horizontal" ? "vertical" : "horizontal";
+  const next = layoutController.getRightSplitOrientation() === "horizontal" ? "vertical" : "horizontal";
   return setSplitOrientation(next, { persist: true, userAction });
 }
 

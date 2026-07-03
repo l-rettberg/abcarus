@@ -154,6 +154,7 @@ import { enableDraggableModal } from "./app/draggable_modal.js";
 import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
 import { createLayoutController } from "./app/layout_controller.js";
+import { createDiagnosticsController } from "./app/diagnostics_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -1877,87 +1878,37 @@ function highlightSvgAtEditorOffset(editorOffset) {
   return true;
 }
 
-const debugLogBuffer = [];
+let diagnosticsController = null;
+
 function recordDebugLog(level, args, stackOverride) {
-  // Debug log capture is opt-in to keep hot paths lean.
-  // Enable via DevTools: `window.__abcarusDebugLog = true` then reload.
-  if (window.__abcarusDebugLog !== true) return;
-  const entry = {
-    ts: new Date().toISOString(),
-    level,
-    message: Array.isArray(args) ? args.map((a) => {
-      if (a instanceof Error) return a.stack || a.message || String(a);
-      try { return typeof a === "string" ? a : JSON.stringify(a); } catch { return String(a); }
-    }).join(" ") : String(args || ""),
-    stack: stackOverride || null,
-  };
-  debugLogBuffer.push(entry);
-  if (debugLogBuffer.length > 300) debugLogBuffer.splice(0, debugLogBuffer.length - 300);
+  if (diagnosticsController) diagnosticsController.recordDebugLog(level, args, stackOverride);
 }
 
-// Always-on, lightweight action trace for troubleshooting "what just happened?" without requiring DevTools flags.
-// Captured into debug dumps (last N entries). Keep this sparse: no keystroke-level events.
-const recentActions = [];
 function recordRecentAction(type, details) {
-  try {
-    const entry = {
-      ts: new Date().toISOString(),
-      type: String(type || "event"),
-      details: details && typeof details === "object" ? details : (details != null ? { value: String(details) } : null),
-    };
-    recentActions.push(entry);
-    if (recentActions.length > 200) recentActions.splice(0, recentActions.length - 200);
-  } catch {}
+  if (diagnosticsController) diagnosticsController.recordRecentAction(type, details);
 }
 
 function perfNowMs() {
-  try {
-    return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-  } catch {
-    return Date.now();
-  }
+  return diagnosticsController ? diagnosticsController.perfNowMs() : Date.now();
 }
 
 function isIntonationPerfEnabled() {
-  try {
-    // Enable via DevTools (no reload required): `window.__abcarusPerfIntonation = true`
-    return window.__abcarusPerfIntonation === true;
-  } catch {
-    return false;
-  }
+  try { return window.__abcarusPerfIntonation === true; } catch { return false; }
 }
 
 function logIntonationPerf(label, data) {
-  if (!isIntonationPerfEnabled()) return;
-  try {
-    if (data !== undefined) console.log(`[perf:intonation] ${label}`, data);
-    else console.log(`[perf:intonation] ${label}`);
-  } catch {}
+  if (diagnosticsController) diagnosticsController.logIntonationPerf(label, data);
 }
 
-const STARTUP_PERF_T0_MS = perfNowMs();
 function isStartupPerfEnabled() {
-  try {
-    return (window.api && window.api.startupPerfEnabled === true) || window.__abcarusPerfStartup === true;
-  } catch {
-    return false;
-  }
+  return diagnosticsController ? diagnosticsController.isStartupPerfEnabled() : false;
 }
 function logStartupPerf(label, data) {
-  if (!isStartupPerfEnabled()) return;
-  try {
-    const ms = Math.round(perfNowMs() - STARTUP_PERF_T0_MS);
-    if (data !== undefined) console.log(`[startup:renderer] +${ms}ms ${label}`, data);
-    else console.log(`[startup:renderer] +${ms}ms ${label}`);
-  } catch {}
+  if (diagnosticsController) diagnosticsController.logStartupPerf(label, data);
 }
 
 function reportStartupStatus(text) {
-  try {
-    if (window.api && typeof window.api.reportStartupStatus === "function") {
-      window.api.reportStartupStatus(String(text || "")).catch(() => {});
-    }
-  } catch {}
+  if (diagnosticsController) diagnosticsController.reportStartupStatus(text);
 }
 
 function abbreviatePathForLog(fullPath, tailSegments = 3) {
@@ -2026,14 +1977,20 @@ const devConfig = (() => {
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
 const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") !== "0";
-let autoDumpLastAtMs = 0;
-let autoDumpSeq = 0;
-let autoWcDumpLastAtMs = 0;
-let autoWcDumpSeq = 0;
-try {
-  const savedSeq = Number(localStorage.getItem("abcarusWcDumpSeq") || 0);
-  if (Number.isFinite(savedSeq) && savedSeq > 0) autoWcDumpSeq = savedSeq;
-} catch {}
+diagnosticsController = createDiagnosticsController({
+  api: window.api,
+  storage: typeof localStorage !== "undefined" ? localStorage : null,
+  autoDumpDefaultEnabled: AUTO_DUMP_DEFAULT_ENABLED,
+  autoWcDumpDefaultEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.autoWcDumpsEnabled),
+  getAutoWcDumpLimit,
+  getSuggestedDebugDumpDir: computeSuggestedDebugDumpDir,
+  writeDebugDumpSnapshotToPath,
+  nowCompactStamp,
+  safeString,
+});
+diagnosticsController.installConsoleCapture();
+const debugLogBuffer = diagnosticsController.debugLogBuffer;
+const recentActions = diagnosticsController.recentActions;
 
 // ---------------------------------------------------------------------------
 // A–B playback (Issue #21, MVP)
@@ -2046,19 +2003,6 @@ let abDecorationsVersion = 0;
 let abVoiceIds = [];
 let playbackAbMutedVoices = null;
 let playbackScopedOptions = null; // transient per-start options for selection/ab/focus
-
-function shouldAutoDump() {
-  // Runtime override via DevTools (no reload): window.__abcarusAutoDumpOnError = true/false
-  if (window.__abcarusAutoDumpOnError === true) return true;
-  if (window.__abcarusAutoDumpOnError === false) return false;
-  return AUTO_DUMP_DEFAULT_ENABLED;
-}
-
-function shouldAutoWcDump() {
-  if (window.__abcarusAutoWcDump === true) return true;
-  if (window.__abcarusAutoWcDump === false) return false;
-  return Boolean(latestSettingsSnapshot && latestSettingsSnapshot.autoWcDumpsEnabled);
-}
 
 function getAutoWcDumpLimit() {
   const raw = latestSettingsSnapshot && Number.isFinite(Number(latestSettingsSnapshot.autoWcDumpsLimit))
@@ -2076,12 +2020,6 @@ function shouldUseNativeMidiDrums() {
     return Boolean(latestSettingsSnapshot.playbackNativeMidiDrums);
   }
   return NATIVE_MIDI_DRUMS_DEFAULT_ENABLED;
-}
-
-function sanitizeDumpSlug(raw) {
-  const base = String(raw || "").trim().toLowerCase() || "event";
-  const cleaned = base.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return cleaned || "event";
 }
 
 function computeSuggestedDebugDumpDir() {
@@ -2117,69 +2055,12 @@ async function writeDebugDumpSnapshotToPath(filePath, { silent = false, reason =
 }
 
 function scheduleAutoDump(reason, extra) {
-  if (!shouldAutoDump()) return;
-  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-  if (now - autoDumpLastAtMs < 6000) return;
-  autoDumpLastAtMs = now;
-  const seq = (autoDumpSeq += 1);
-  const slug = sanitizeDumpSlug(reason);
-  const fileName = `abcarus-auto-${nowCompactStamp()}-${slug}-${seq}.json`;
-  const dir = computeSuggestedDebugDumpDir();
-  if (!dir || !window.api || typeof window.api.mkdirp !== "function" || typeof window.api.pathJoin !== "function") return;
-  const target = window.api.pathJoin(dir, fileName);
-  window.api.mkdirp(dir).then(() => {
-    writeDebugDumpSnapshotToPath(target, { silent: true, reason: `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}` }).catch(() => {});
-  }).catch(() => {});
+  if (diagnosticsController) diagnosticsController.scheduleAutoDump(reason, extra);
 }
 
 function scheduleAutoWcDump(reason, extra) {
-  if (!shouldAutoWcDump()) return;
-  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-  if (now - autoWcDumpLastAtMs < 1500) return;
-  autoWcDumpLastAtMs = now;
-  const seq = (autoWcDumpSeq += 1);
-  try { localStorage.setItem("abcarusWcDumpSeq", String(autoWcDumpSeq)); } catch {}
-  const limit = getAutoWcDumpLimit();
-  const idx = ((seq - 1) % limit) + 1;
-  const slug = sanitizeDumpSlug(reason);
-  const fileName = `abcarus-wc-${idx}.json`;
-  const dir = computeSuggestedDebugDumpDir();
-  if (!dir || !window.api || typeof window.api.mkdirp !== "function" || typeof window.api.pathJoin !== "function") return;
-  const target = window.api.pathJoin(dir, fileName);
-  const reasonText = `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}`;
-  window.api.mkdirp(dir).then(() => {
-    writeDebugDumpSnapshotToPath(target, { silent: true, reason: `auto-wc ${reasonText}` }).catch(() => {});
-  }).catch(() => {});
+  if (diagnosticsController) diagnosticsController.scheduleAutoWcDump(reason, extra);
 }
-
-(() => {
-  // Console wrapping is opt-in to avoid overhead and surprising global side effects.
-  // Enable via DevTools: `window.__abcarusDebugLog = true` then reload.
-  if (window.__abcarusDebugLog !== true) return;
-  if (window.__abcarusConsoleWrapped) return;
-  window.__abcarusConsoleWrapped = true;
-  const origErr = console.error.bind(console);
-  const origWarn = console.warn.bind(console);
-  console.error = (...args) => {
-    try { recordDebugLog("error", args); } catch {}
-    origErr(...args);
-  };
-  console.warn = (...args) => {
-    try { recordDebugLog("warn", args); } catch {}
-    origWarn(...args);
-  };
-  window.addEventListener("error", (e) => {
-    try {
-      recordDebugLog("window.error", [e && e.message ? e.message : "Window error"], e && e.error ? (e.error.stack || e.error.message) : null);
-    } catch {}
-  });
-  window.addEventListener("unhandledrejection", (e) => {
-    try {
-      const reason = e && e.reason ? e.reason : null;
-      recordDebugLog("unhandledrejection", [reason && reason.message ? reason.message : String(reason || "Unhandled rejection")], reason && reason.stack ? reason.stack : null);
-    } catch {}
-  });
-})();
 
 // Auto-dumps are cheap when disabled and invaluable when debugging: opt-in via ABCARUS_DEV_AUTO_DUMP=1.
 window.addEventListener("error", (e) => {

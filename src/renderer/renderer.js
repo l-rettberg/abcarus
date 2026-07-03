@@ -78,18 +78,11 @@ import {
   sortTunes as sortTunesCore,
 } from "./library/sorting_filtering.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
-import { NotePreviewAudio } from "./audio/note_preview_audio.mjs";
 import {
   normalizeSuggestedKeyName,
   parseAbcHeaderFields,
   parseTuneIdentityFields,
 } from "./abc/header_fields.js";
-import {
-  findCompletedNoteTokenBeforePosition,
-  isRangeInsideInlineField,
-  parseAbcNoteToken,
-  parseHeadersNear,
-} from "./note_preview/abc_note_parse.mjs";
 import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 import {
   isChordProFilePath,
@@ -115,7 +108,7 @@ import {
   resolveTonalBaseInput,
 } from "./tools/intonation_explorer/intonation_model.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
-import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
+import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
 import {
   buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
@@ -6954,116 +6947,7 @@ function getFocusedEditorView() {
   return editorView || headerEditorView || null;
 }
 
-// --- MIDI input (minimal MVP, dev-toggle via window.__abcarusMidiInput) ---
-let midiInputEnabled = false;
-let midiInputMuted = false;
-let midiAccess = null;
-let midiInitPromise = null;
-let midiDeviceCount = 0;
-let midiWarnedUnsupported = false;
-let midiInputKeyAware = false;
-let midiInputGrid = "1/16";
-let midiInputMacroEnabled = true;
-let midiInputBeepEnabled = false;
-let midiInputBeepVolume = 0.2;
-let midiInputBeepDurationMs = 140;
-const midiBeepAudio = new NotePreviewAudio();
-let noteTypingPreviewEnabled = false;
-let noteTypingPreviewVolume = 0.22;
-let noteTypingPreviewLengthMode = "typed";
-let noteTypingPreviewTrigger = "delimiter";
-let noteTypingPreviewEnvelope = "short";
-let noteTypingPreviewRetriggerDuration = true;
-let noteTypingPreviewSkipMicrotones = true;
-let noteTypingPreviewLastKey = "";
-const noteTypingPreviewAudio = new NotePreviewAudio();
-const MIDI_PREVIEW_VOLUME_SYNC_KEYS = ["midiInputBeepVolume", "noteTypingPreviewVolume"];
-
-const MIDI_MACRO_MAP = new Map([
-  [24, " "],   // space
-  [26, "|"],   // barline
-  [27, "/"],   // slash
-  [28, "2"],   // digit 2
-  [29, "3"],   // digit 3
-  [30, "4"],   // digit 4
-  [31, "(3"],  // triplet
-  [32, "|:"],  // repeat start
-  [33, ":|"],  // repeat end
-  [34, "||"],  // double bar
-  [35, "|]"],  // final bar
-]);
-
-function supportsMidiInput() {
-  return typeof navigator !== "undefined" && typeof navigator.requestMIDIAccess === "function";
-}
-
-const midiInputPopoverController = createMidiInputPopoverController({
-  statusButton: $midiInputStatus,
-  popover: $midiInputPopover,
-  closeButton: $midiInputPopoverClose,
-  enabledControl: $midiInputEnabledCtl,
-  mutedControl: $midiInputMutedCtl,
-  keyAwareControl: $midiInputKeyAwareCtl,
-  gridControl: $midiInputGridCtl,
-  macroControl: $midiInputMacroCtl,
-  macroNote: $midiInputMacroNote,
-  stateHint: $midiInputStateHint,
-  enabledDependent: $midiInputEnabledDependent,
-  beepControl: $midiInputBeepCtl,
-  beepDurationWrap: $midiInputBeepDurationWrap,
-  notePreviewControl: $noteTypingPreviewCtl,
-  notePreviewDependent: $noteTypingPreviewDependent,
-  notePreviewTriggerControl: $noteTypingPreviewTriggerCtl,
-  previewSharedGroup: $midiPreviewSharedGroup,
-  volumeControl: $midiInputBeepVolumeCtl,
-  durationControl: $midiInputBeepDurationCtl,
-  setButtonText,
-  getState: () => ({
-    supported: supportsMidiInput(),
-    enabled: midiInputEnabled,
-    muted: midiInputMuted,
-    devices: midiDeviceCount,
-    keyAware: midiInputKeyAware,
-    grid: midiInputGrid,
-    macro: midiInputMacroEnabled,
-    beepEnabled: midiInputBeepEnabled,
-    beepDurationMs: midiInputBeepDurationMs,
-    notePreviewEnabled: noteTypingPreviewEnabled,
-    notePreviewVolume: noteTypingPreviewVolume,
-    notePreviewTrigger: noteTypingPreviewTrigger,
-  }),
-  onPatch: (patch) => applyMidiSettingsPatch(patch),
-  onUnlockAudio: () => unlockMidiAudioContext(),
-});
-
-function updateMidiInputUi() {
-  midiInputPopoverController.render();
-}
-
-function openMidiInputPopover() {
-  midiInputPopoverController.open();
-}
-
-function closeMidiInputPopover() {
-  midiInputPopoverController.close();
-}
-
-function toggleMidiInputPopover() {
-  midiInputPopoverController.toggle();
-}
-
-function getMidiInputStatus() {
-  return {
-    enabled: midiInputEnabled,
-    muted: midiInputMuted,
-    ready: Boolean(midiAccess),
-    devices: midiDeviceCount,
-    supported: supportsMidiInput(),
-    keyAware: midiInputKeyAware,
-    grid: midiInputGrid,
-    macro: midiInputMacroEnabled,
-  };
-}
+// --- MIDI input / typing preview ---
 
 function getActiveEditorViewForMidi() {
   const activeEl = document.activeElement;
@@ -7088,7 +6972,7 @@ function insertEditorTextAtCursor(text, userEvent = "input") {
   return true;
 }
 
-function deleteEditorCharBeforeCursor() {
+function deleteEditorCharBeforeCursorForMidi() {
   const view = getActiveEditorViewForMidi();
   if (!view) return false;
   const sel = view.state.selection.main;
@@ -7110,506 +6994,85 @@ function deleteEditorCharBeforeCursor() {
   return true;
 }
 
-async function unlockMidiAudioContext() {
-  return midiBeepAudio.unlock();
+const midiInputFeature = createMidiInputFeature({
+  elements: {
+    statusButton: $midiInputStatus,
+    popover: $midiInputPopover,
+    closeButton: $midiInputPopoverClose,
+    enabledControl: $midiInputEnabledCtl,
+    mutedControl: $midiInputMutedCtl,
+    keyAwareControl: $midiInputKeyAwareCtl,
+    gridControl: $midiInputGridCtl,
+    macroControl: $midiInputMacroCtl,
+    macroNote: $midiInputMacroNote,
+    stateHint: $midiInputStateHint,
+    enabledDependent: $midiInputEnabledDependent,
+    beepControl: $midiInputBeepCtl,
+    beepDurationWrap: $midiInputBeepDurationWrap,
+    notePreviewControl: $noteTypingPreviewCtl,
+    notePreviewDependent: $noteTypingPreviewDependent,
+    notePreviewTriggerControl: $noteTypingPreviewTriggerCtl,
+    previewSharedGroup: $midiPreviewSharedGroup,
+    volumeControl: $midiInputBeepVolumeCtl,
+    durationControl: $midiInputBeepDurationCtl,
+  },
+  api: window.api,
+  setButtonText,
+  showToast,
+  getActiveEditorView: getActiveEditorViewForMidi,
+  insertTextAtCursor: insertEditorTextAtCursor,
+  deleteCharBeforeCursor: deleteEditorCharBeforeCursorForMidi,
+  getDefaultLen,
+  gcdInt,
+  isTypingPreviewBlocked: () => Boolean(rawMode || isPayloadMode() || chordproMode),
+  isMainEditorUpdate: (update) => Boolean(editorView && update && update.view === editorView),
+  refreshCursorStatus,
+  hasCursorStatus: () => Boolean(lastCursorStatus),
+});
+midiInputFeature.exposeDebugApi();
+
+function updateMidiInputUi() {
+  midiInputFeature.updateUi();
 }
 
-function playMidiBeep(noteNumber) {
-  if (!midiInputBeepEnabled) return;
-  midiBeepAudio.playMidiNote(noteNumber, {
-    durationMs: midiInputBeepDurationMs,
-    volume: midiInputBeepVolume,
-    minDurationMs: 40,
-    maxDurationMs: 400,
-    profile: "short",
-  }).catch(() => {});
+function openMidiInputPopover() {
+  midiInputFeature.openPopover();
 }
 
-function isTypingPreviewAllowedOnLine(lineText, tokenStartRel, tokenEndRel, options = {}) {
-  const text = String(lineText || "");
-  const allowAdjacentNoteLetters = Boolean(options && options.allowAdjacentNoteLetters);
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  if (/^%/.test(trimmed)) return false;
-  if (/^%%/.test(trimmed)) return false;
-  if (/^[A-Za-z]:/.test(trimmed)) return false; // header/info lines (X:, T:, K:, ...)
-  if (/^[Ww]:/.test(trimmed)) return false; // lyrics lines
-  if (isRangeInsideInlineField(text, tokenStartRel, tokenEndRel)) return false; // [P:...], [K:...], [V:...], ...
+function closeMidiInputPopover() {
+  midiInputFeature.closePopover();
+}
 
-  // Do not preview while typing inside quoted chord symbols/annotations.
-  const left = text.slice(0, Math.max(0, tokenEndRel));
-  const quoteCount = (left.match(/"/g) || []).length;
-  if ((quoteCount % 2) === 1) return false;
+function toggleMidiInputPopover() {
+  midiInputFeature.togglePopover();
+}
 
-  const before = tokenStartRel > 0 ? text[tokenStartRel - 1] : "";
-  // If token starts in the middle of a word, skip.
-  if (before && /[A-Za-z]/.test(before)) {
-    const adjacentNoteLetters = /[A-Ga-g]/.test(before) && /[A-Ga-g]/.test(text[tokenStartRel] || "");
-    if (!(allowAdjacentNoteLetters && adjacentNoteLetters)) return false;
-  }
-  return true;
+function getMidiInputStatus() {
+  return midiInputFeature.getStatus();
+}
+
+function unlockMidiAudioContext() {
+  return midiInputFeature.unlockAudioContext();
 }
 
 function shouldHandleTypingPreviewChange(update) {
-  if (!noteTypingPreviewEnabled) return false;
-  if (!update || !update.docChanged) return false;
-  if (rawMode || isPayloadMode() || chordproMode) return false;
-  if (!editorView || update.view !== editorView) return false;
-  if (!Array.isArray(update.transactions) || update.transactions.length !== 1) return false;
-  const tr = update.transactions[0];
-  if (!tr || tr.isUserEvent("delete") || tr.isUserEvent("input.paste")) return false;
-  let changeCount = 0;
-  let insertFrom = -1;
-  let inserted = "";
-  let hasDelete = false;
-  tr.changes.iterChanges((fromA, toA, fromB, _toB, text) => {
-    changeCount += 1;
-    if (fromA !== toA) hasDelete = true;
-    insertFrom = fromB;
-    inserted += String(text || "");
-  });
-  if (hasDelete || changeCount !== 1 || inserted.length !== 1) return false;
-  const mode = noteTypingPreviewTrigger === "note" ? "note" : "delimiter";
-  let tokenInfo = null;
-  if (mode === "delimiter") {
-    if (!/[ \t|\n]/.test(inserted)) return false;
-    tokenInfo = findCompletedNoteTokenBeforePosition(update.state.doc, insertFrom);
-    if (tokenInfo) {
-      const line = update.state.doc.lineAt(tokenInfo.from);
-      const startRel = tokenInfo.from - line.from;
-      const endRel = tokenInfo.to - line.from;
-      if (!isTypingPreviewAllowedOnLine(line.text, startRel, endRel)) return false;
-    }
-  } else {
-    const line = update.state.doc.lineAt(insertFrom + 1);
-    const rel = insertFrom - line.from;
-    const text = String(line.text || "");
-    if (rel < 0 || rel >= text.length) return false;
-
-    if (/[A-Ga-g]/.test(inserted)) {
-      if (!/[A-Ga-g]/.test(text[rel])) return false;
-      // Immediate mode previews only the note typed at the cursor (plus optional accidental
-      // prefix right before it), so successive letters don't collapse into one invalid token.
-      let start = rel;
-      while (start > 0 && /[\^_=]/.test(text[start - 1])) start -= 1;
-      tokenInfo = {
-        token: text.slice(start, rel + 1),
-        from: line.from + start,
-        to: line.from + rel + 1,
-      };
-      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1, { allowAdjacentNoteLetters: true })) return false;
-    } else if (noteTypingPreviewRetriggerDuration && /[0-9/]/.test(inserted)) {
-      // Retrigger the current note token when duration suffix is typed (C -> C4, C/ ...).
-      // For contiguous notes (e.g. d4e4f4), bind to the nearest note letter on the left.
-      let noteIdx = rel;
-      while (noteIdx >= 0 && !/[A-Ga-g]/.test(text[noteIdx])) noteIdx -= 1;
-      if (noteIdx < 0) return false;
-      let start = noteIdx;
-      while (start > 0 && /[\^_=]/.test(text[start - 1])) start -= 1;
-      const token = text.slice(start, rel + 1);
-      if (!/^[\^_=]*[A-Ga-g][',]*[0-9/]*$/.test(token)) return false;
-      tokenInfo = {
-        token,
-        from: line.from + start,
-        to: line.from + rel + 1,
-      };
-      if (!isTypingPreviewAllowedOnLine(text, start, rel + 1, { allowAdjacentNoteLetters: true })) return false;
-    } else {
-      return false;
-    }
-  }
-  if (!tokenInfo || !tokenInfo.token) return false;
-  const dedupeKey = `${mode}:${tokenInfo.from}:${tokenInfo.to}:${tokenInfo.token}`;
-  if (dedupeKey === noteTypingPreviewLastKey) return false;
-  const context = parseHeadersNear(update.state.doc, tokenInfo.from);
-  const parsed = parseAbcNoteToken(tokenInfo.token, context, {
-    lengthMode: noteTypingPreviewLengthMode,
-    skipMicrotones: noteTypingPreviewSkipMicrotones,
-  });
-  if (!parsed || !Number.isFinite(parsed.midi) || !Number.isFinite(parsed.durationMs)) return false;
-  noteTypingPreviewLastKey = dedupeKey;
-  noteTypingPreviewAudio.playMidiNote(parsed.midi, {
-    durationMs: parsed.durationMs,
-    volume: noteTypingPreviewVolume,
-    minDurationMs: 60,
-    maxDurationMs: 2500,
-    profile: noteTypingPreviewEnvelope,
-  }).catch(() => {});
-  return true;
+  return midiInputFeature.handleTypingPreviewChange(update);
 }
 
-function approxFraction(value, maxDen = 64) {
-  if (!Number.isFinite(value) || value <= 0) return { num: 1, den: 1 };
-  let best = { num: 1, den: 1, err: Math.abs(value - 1) };
-  for (let den = 1; den <= maxDen; den += 1) {
-    const num = Math.round(value * den);
-    const err = Math.abs(value - (num / den));
-    if (err < best.err) best = { num, den, err };
-    if (err === 0) break;
-  }
-  const div = gcdInt(best.num, best.den);
-  return { num: best.num / div, den: best.den / div };
-}
-
-function getGridLengthValue(grid) {
-  const value = String(grid || "").trim();
-  if (value === "1/8") return 1 / 8;
-  if (value === "1/16") return 1 / 16;
-  if (value === "1/32") return 1 / 32;
-  return 0;
-}
-
-function getNoteLengthSuffixForGrid(view) {
-  const gridLen = getGridLengthValue(midiInputGrid);
-  if (!gridLen) return "";
-  const text = view && view.state && view.state.doc ? view.state.doc.toString() : "";
-  const defaultLen = getDefaultLen(text);
-  if (!Number.isFinite(defaultLen) || defaultLen <= 0) return "";
-  const ratio = gridLen / defaultLen;
-  if (!Number.isFinite(ratio) || ratio <= 0) return "";
-  const { num, den } = approxFraction(ratio, 64);
-  if (num === den) return "";
-  if (den === 1) return String(num);
-  if (num === 1) {
-    if ((den & (den - 1)) === 0) {
-      const slashes = Math.round(Math.log2(den));
-      return "/".repeat(Math.max(1, slashes));
-    }
-    return `/${den}`;
-  }
-  return `${num}/${den}`;
-}
-
-function parseKeySignature(text) {
-  const match = String(text || "").match(/(?:^|\\n)K:\\s*([^\\r\\n]+)/i);
-  if (!match) return { sharps: [], flats: [], preferSharps: true };
-  const raw = String(match[1] || "").trim();
-  const token = raw.split(/\\s+/)[0] || raw;
-  const m = token.match(/^([A-Ga-g])([#b]?)(.*)$/);
-  if (!m) return { sharps: [], flats: [], preferSharps: true };
-  const letter = m[1].toUpperCase();
-  const acc = m[2] || "";
-  const tail = (m[3] || "").toLowerCase();
-  const isMinor = tail.startsWith("m") && !tail.startsWith("maj");
-  const key = `${letter}${acc}${isMinor ? "m" : ""}`;
-  const majorSharps = ["C", "G", "D", "A", "E", "B", "F#", "C#"];
-  const majorFlats = ["C", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"];
-  const minorSharps = ["Am", "Em", "Bm", "F#m", "C#m", "G#m", "D#m", "A#m"];
-  const minorFlats = ["Am", "Dm", "Gm", "Cm", "Fm", "Bbm", "Ebm", "Abm"];
-  const sharpOrder = ["F", "C", "G", "D", "A", "E", "B"];
-  const flatOrder = ["B", "E", "A", "D", "G", "C", "F"];
-  let sharps = [];
-  let flats = [];
-  if (isMinor) {
-    const idxSharp = minorSharps.indexOf(key);
-    const idxFlat = minorFlats.indexOf(key);
-    if (idxSharp > 0) sharps = sharpOrder.slice(0, idxSharp);
-    if (idxFlat > 0) flats = flatOrder.slice(0, idxFlat);
-  } else {
-    const idxSharp = majorSharps.indexOf(key);
-    const idxFlat = majorFlats.indexOf(key);
-    if (idxSharp > 0) sharps = sharpOrder.slice(0, idxSharp);
-    if (idxFlat > 0) flats = flatOrder.slice(0, idxFlat);
-  }
-  if (sharps.length && flats.length) {
-    // Prefer the larger set (unlikely but defensive).
-    if (sharps.length >= flats.length) flats = [];
-    else sharps = [];
-  }
-  const preferSharps = sharps.length > 0 || flats.length === 0;
-  return { sharps, flats, preferSharps };
-}
-
-function midiNoteToAbc(noteNumber, { preferSharps = true } = {}) {
-  const note = Number(noteNumber);
-  if (!Number.isFinite(note)) return "";
-  const pc = ((note % 12) + 12) % 12;
-  const octave = Math.floor(note / 12) - 1; // MIDI: C4=60 -> octave 4
-  const sharpNames = ["C", "^C", "D", "^D", "E", "F", "^F", "G", "^G", "A", "^A", "B"];
-  const flatNames = ["C", "_D", "D", "_E", "E", "F", "_G", "G", "_A", "A", "_B", "B"];
-  const name = (preferSharps ? sharpNames : flatNames)[pc];
-  const accidental = name.length > 1 ? name[0] : "";
-  const letter = name.length > 1 ? name.slice(1) : name;
-  const base = octave >= 5 ? letter.toLowerCase() : letter.toUpperCase();
-  const suffix = octave >= 5 ? "'".repeat(octave - 5) : ",".repeat(Math.max(0, 4 - octave));
-  return `${accidental}${base}${suffix}`;
-}
-
-function midiNoteToAbcKeyAware(noteNumber, view) {
-  const note = Number(noteNumber);
-  if (!Number.isFinite(note)) return "";
-  const text = view && view.state && view.state.doc ? view.state.doc.toString() : "";
-  const sig = parseKeySignature(text);
-  const preferSharps = sig.preferSharps;
-  const noteText = midiNoteToAbc(note, { preferSharps });
-  if (!noteText) return "";
-  const acc = noteText[0] === "^" || noteText[0] === "_" || noteText[0] === "=" ? noteText[0] : "";
-  const core = acc ? noteText.slice(1) : noteText;
-  const letter = core[0] ? core[0].toUpperCase() : "";
-  if (!letter) return noteText;
-  if (!acc) {
-    if (sig.sharps.includes(letter) || sig.flats.includes(letter)) return `=${core}`;
-    return noteText;
-  }
-  if (acc === "^" && sig.sharps.includes(letter)) return core;
-  if (acc === "_" && sig.flats.includes(letter)) return core;
-  return noteText;
-}
-
-function handleMidiMacro(noteNumber) {
-  if (!midiInputMacroEnabled) return false;
-  if (noteNumber === 25) {
-    return deleteEditorCharBeforeCursor();
-  }
-  const macro = MIDI_MACRO_MAP.get(noteNumber);
-  if (!macro) return false;
-  if (midiInputBeepEnabled) playMidiBeep(noteNumber);
-  return insertEditorTextAtCursor(macro);
-}
-
-function handleMidiMessage(event) {
-  try {
-    if (!midiInputEnabled || midiInputMuted) return;
-    if (!event || !event.data || event.data.length < 3) return;
-    const status = event.data[0] & 0xf0;
-    if (status !== 0x90) return; // NOTE_ON only
-    const note = event.data[1];
-    const velocity = event.data[2];
-    if (!velocity) return; // ignore NOTE_ON with velocity 0
-    if (handleMidiMacro(note)) return;
-    if (note < 36 || note > 96) return;
-    const view = getActiveEditorViewForMidi();
-    if (!view) return;
-    const abc = midiInputKeyAware ? midiNoteToAbcKeyAware(note, view) : midiNoteToAbc(note);
-    if (!abc) return;
-    const lengthSuffix = getNoteLengthSuffixForGrid(view);
-    if (midiInputBeepEnabled) playMidiBeep(note);
-    insertEditorTextAtCursor(`${abc}${lengthSuffix}`);
-  } catch (e) {
-    // Keep MIDI failures silent; users can disable via dev toggle.
-  }
-}
-
-function refreshMidiInputs() {
-  if (!midiAccess) return;
-  let count = 0;
-  try {
-    for (const input of midiAccess.inputs.values()) {
-      count += 1;
-      input.onmidimessage = handleMidiMessage;
-    }
-  } catch {}
-  midiDeviceCount = count;
-  updateMidiInputUi();
-  if (lastCursorStatus) refreshCursorStatus();
-}
-
-function setMidiInputEnabled(next, { notify = true } = {}) {
-  const desired = Boolean(next);
-  if (midiInputEnabled === desired) return;
-  midiInputEnabled = desired;
-  if (midiInputEnabled) initMidiInput();
-  if (notify) {
-    try { showToast(midiInputEnabled ? "MIDI input enabled." : "MIDI input disabled.", 2000); } catch {}
-  }
-  updateMidiInputUi();
-  if (lastCursorStatus) refreshCursorStatus();
-}
-
-function setMidiInputMuted(next, { notify = true } = {}) {
-  const desired = Boolean(next);
-  if (midiInputMuted === desired) return;
-  midiInputMuted = desired;
-  if (notify) {
-    try { showToast(midiInputMuted ? "MIDI input muted." : "MIDI input unmuted.", 2000); } catch {}
-  }
-  updateMidiInputUi();
-  if (lastCursorStatus) refreshCursorStatus();
-}
-
-function setMidiInputGrid(next) {
-  const value = String(next || "").trim();
-  if (value === "1/8" || value === "1/16" || value === "1/32") {
-    midiInputGrid = value;
-  } else {
-    midiInputGrid = "1/16";
-  }
-}
-
-function applyMidiSettingsPatch(patch, { notify = false } = {}) {
-  if (!patch || typeof patch !== "object") return;
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputEnabled")) {
-    setMidiInputEnabled(Boolean(patch.midiInputEnabled), { notify });
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputMuted")) {
-    setMidiInputMuted(Boolean(patch.midiInputMuted), { notify });
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputKeyAware")) {
-    midiInputKeyAware = Boolean(patch.midiInputKeyAware);
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputGrid")) {
-    setMidiInputGrid(patch.midiInputGrid);
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputMacroEnabled")) {
-    midiInputMacroEnabled = Boolean(patch.midiInputMacroEnabled);
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepEnabled")) {
-    midiInputBeepEnabled = Boolean(patch.midiInputBeepEnabled);
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")) {
-    const raw = Number(patch.midiInputBeepVolume);
-    if (Number.isFinite(raw)) midiInputBeepVolume = Math.max(0, Math.min(1, raw));
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "midiInputBeepDuration")) {
-    const raw = Number(patch.midiInputBeepDuration);
-    if (Number.isFinite(raw)) midiInputBeepDurationMs = Math.max(40, Math.min(400, raw));
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewEnabled")) {
-    noteTypingPreviewEnabled = Boolean(patch.noteTypingPreviewEnabled);
-    if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")) {
-    const raw = Number(patch.noteTypingPreviewVolume);
-    if (Number.isFinite(raw)) noteTypingPreviewVolume = Math.max(0, Math.min(1, raw));
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")
-    && !Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")
-  ) {
-    noteTypingPreviewVolume = midiInputBeepVolume;
-    patch.noteTypingPreviewVolume = noteTypingPreviewVolume;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewVolume")
-    && !Object.prototype.hasOwnProperty.call(patch, "midiInputBeepVolume")
-  ) {
-    midiInputBeepVolume = noteTypingPreviewVolume;
-    patch.midiInputBeepVolume = midiInputBeepVolume;
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewLengthMode")) {
-    noteTypingPreviewLengthMode = String(patch.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewTrigger")) {
-    noteTypingPreviewTrigger = String(patch.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewEnvelope")) {
-    noteTypingPreviewEnvelope = String(patch.noteTypingPreviewEnvelope || "") === "medium" ? "medium" : "short";
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewRetriggerDuration")) {
-    noteTypingPreviewRetriggerDuration = patch.noteTypingPreviewRetriggerDuration !== false;
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "noteTypingPreviewSkipMicrotones")) {
-    noteTypingPreviewSkipMicrotones = Boolean(patch.noteTypingPreviewSkipMicrotones);
-  }
-  updateMidiInputUi();
-  if (window.api && typeof window.api.updateSettings === "function") {
-    const persistedPatch = {};
-    for (const [k, v] of Object.entries(patch)) persistedPatch[k] = v;
-    if (
-      Object.prototype.hasOwnProperty.call(persistedPatch, "midiInputBeepVolume")
-      || Object.prototype.hasOwnProperty.call(persistedPatch, "noteTypingPreviewVolume")
-    ) {
-      const merged = Object.prototype.hasOwnProperty.call(persistedPatch, "noteTypingPreviewVolume")
-        ? persistedPatch.noteTypingPreviewVolume
-        : persistedPatch.midiInputBeepVolume;
-      if (Number.isFinite(Number(merged))) {
-        const normalized = Math.max(0, Math.min(1, Number(merged)));
-        for (const key of MIDI_PREVIEW_VOLUME_SYNC_KEYS) persistedPatch[key] = normalized;
-      }
-    }
-    window.api.updateSettings(persistedPatch).catch(() => {});
-  }
+function applyMidiSettingsPatch(patch, options = {}) {
+  return midiInputFeature.applySettingsPatch(patch, options);
 }
 
 function toggleMidiInputSetting() {
-  const next = !midiInputEnabled;
-  setMidiInputEnabled(next, { notify: true });
-  if (window.api && typeof window.api.updateSettings === "function") {
-    window.api.updateSettings({ midiInputEnabled: next }).catch(() => {});
-  }
-  if (next) openMidiInputPopover();
-  if (midiInputBeepEnabled) unlockMidiAudioContext();
+  midiInputFeature.toggleInputSetting();
 }
 
 function toggleMidiMuteSetting() {
-  const next = !midiInputMuted;
-  setMidiInputMuted(next, { notify: true });
-  if (window.api && typeof window.api.updateSettings === "function") {
-    window.api.updateSettings({ midiInputMuted: next }).catch(() => {});
-  }
-  openMidiInputPopover();
+  midiInputFeature.toggleMuteSetting();
 }
 
-async function initMidiInput() {
-  if (midiAccess || midiInitPromise) return midiInitPromise;
-  if (!supportsMidiInput()) {
-    if (!midiWarnedUnsupported) {
-      midiWarnedUnsupported = true;
-      try { showToast("MIDI input not supported in this environment.", 2400); } catch {}
-    }
-    return null;
-  }
-  midiInitPromise = navigator.requestMIDIAccess({ sysex: false })
-    .then((access) => {
-      midiAccess = access;
-      midiInitPromise = null;
-      refreshMidiInputs();
-      try {
-        midiAccess.onstatechange = () => refreshMidiInputs();
-      } catch {}
-      if (lastCursorStatus) refreshCursorStatus();
-      return midiAccess;
-    })
-    .catch((err) => {
-      midiInitPromise = null;
-      try { showToast("MIDI input failed to initialize.", 2400); } catch {}
-      return null;
-    });
-  return midiInitPromise;
-}
-
-if (!window.__abcarusMidiInput) {
-  window.__abcarusMidiInput = {
-    enable: async () => {
-      setMidiInputEnabled(true, { notify: false });
-      await initMidiInput();
-      return getMidiInputStatus();
-    },
-    disable: () => {
-      setMidiInputEnabled(false, { notify: false });
-      return getMidiInputStatus();
-    },
-    toggle: async () => {
-      setMidiInputEnabled(!midiInputEnabled, { notify: false });
-      if (midiInputEnabled) await initMidiInput();
-      return getMidiInputStatus();
-    },
-    mute: () => {
-      setMidiInputMuted(true, { notify: false });
-      return getMidiInputStatus();
-    },
-    unmute: () => {
-      setMidiInputMuted(false, { notify: false });
-      return getMidiInputStatus();
-    },
-    toggleMute: () => {
-      setMidiInputMuted(!midiInputMuted, { notify: false });
-      return getMidiInputStatus();
-    },
-    setKeyAware: (value) => {
-      midiInputKeyAware = Boolean(value);
-      return getMidiInputStatus();
-    },
-    setGrid: (value) => {
-      setMidiInputGrid(value);
-      return getMidiInputStatus();
-    },
-    setMacros: (value) => {
-      midiInputMacroEnabled = Boolean(value);
-      return getMidiInputStatus();
-    },
-    status: () => getMidiInputStatus(),
-  };
+function initMidiInput() {
+  return midiInputFeature.init();
 }
 
 function initEditor() {
@@ -21557,36 +21020,11 @@ function setDrumVelocityFromSettings(settings) {
 }
 
 function setMidiInputFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  midiInputKeyAware = Boolean(settings.midiInputKeyAware);
-  midiInputMacroEnabled = settings.midiInputMacroEnabled !== false;
-  midiInputBeepEnabled = Boolean(settings.midiInputBeepEnabled);
-  midiInputBeepVolume = Number.isFinite(Number(settings.midiInputBeepVolume))
-    ? Math.max(0, Math.min(1, Number(settings.midiInputBeepVolume)))
-    : midiInputBeepVolume;
-  midiInputBeepDurationMs = Number.isFinite(Number(settings.midiInputBeepDuration))
-    ? Math.max(40, Math.min(400, Number(settings.midiInputBeepDuration)))
-    : midiInputBeepDurationMs;
-  setMidiInputGrid(settings.midiInputGrid);
-  setMidiInputEnabled(Boolean(settings.midiInputEnabled), { notify: false });
-  setMidiInputMuted(Boolean(settings.midiInputMuted), { notify: false });
-  updateMidiInputUi();
+  midiInputFeature.applyMidiSettings(settings);
 }
 
 function setNoteTypingPreviewFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  noteTypingPreviewEnabled = Boolean(settings.noteTypingPreviewEnabled);
-  noteTypingPreviewVolume = Number.isFinite(Number(settings.noteTypingPreviewVolume))
-    ? Math.max(0, Math.min(1, Number(settings.noteTypingPreviewVolume)))
-    : noteTypingPreviewVolume;
-  midiInputBeepVolume = noteTypingPreviewVolume;
-  noteTypingPreviewLengthMode = String(settings.noteTypingPreviewLengthMode || "") === "base" ? "base" : "typed";
-  noteTypingPreviewTrigger = String(settings.noteTypingPreviewTrigger || "") === "note" ? "note" : "delimiter";
-  noteTypingPreviewEnvelope = String(settings.noteTypingPreviewEnvelope || "") === "medium" ? "medium" : "short";
-  noteTypingPreviewRetriggerDuration = settings.noteTypingPreviewRetriggerDuration !== false;
-  noteTypingPreviewSkipMicrotones = settings.noteTypingPreviewSkipMicrotones !== false;
-  if (!noteTypingPreviewEnabled) noteTypingPreviewLastKey = "";
-  updateMidiInputUi();
+  midiInputFeature.applyNoteTypingPreviewSettings(settings);
 }
 
 function resetSoundfontCache() {

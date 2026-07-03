@@ -8,6 +8,7 @@ const { applyMenu } = require("./menu");
 const { registerIpcHandlers } = require("./ipc");
 const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
+const { normalizeMicrotonalSettings } = require("./settings_normalize");
 const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
 
@@ -1516,9 +1517,7 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.confirmAppendToActiveFile = Boolean(next.confirmAppendToActiveFile);
   next.autoAlignBarsAfterTransforms = Boolean(next.autoAlignBarsAfterTransforms);
   next.editorHelpEnabled = Boolean(next.editorHelpEnabled);
-  next.supportMicrotonalNotation = Boolean(next.supportMicrotonalNotation || next.makamToolsEnabled || next.studyToolsEnabled);
-  next.makamToolsEnabled = Boolean(next.supportMicrotonalNotation);
-  next.studyToolsEnabled = Boolean(next.supportMicrotonalNotation);
+  normalizeMicrotonalSettings(next, patch);
   next.payloadModeEnabled = Boolean(next.payloadModeEnabled);
   {
     const rawMidiBackend = String(next.midiImportBackend || "").trim();

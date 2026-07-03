@@ -12,8 +12,11 @@ function assert(cond, msg) {
 
 function main() {
   const schemaPath = path.resolve(__dirname, "../../src/main/settings_schema.js");
+  const normalizePath = path.resolve(__dirname, "../../src/main/settings_normalize.js");
   // eslint-disable-next-line global-require, import/no-dynamic-require
   const { getSettingsSchema, getDefaultSettings } = require(schemaPath);
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  const { normalizeMicrotonalSettings } = require(normalizePath);
 
   const schema = getSettingsSchema();
   assert(Array.isArray(schema) && schema.length > 0, "schema must be a non-empty array");
@@ -54,6 +57,30 @@ function main() {
       actual === expected,
       `unexpected default for ${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
     );
+  }
+
+  {
+    const next = {
+      supportMicrotonalNotation: false,
+      makamToolsEnabled: true,
+      studyToolsEnabled: true,
+    };
+    normalizeMicrotonalSettings(next, { supportMicrotonalNotation: false });
+    assert(next.supportMicrotonalNotation === false, "canonical microtonal OFF patch must override legacy aliases");
+    assert(next.makamToolsEnabled === false, "legacy makam alias must sync to canonical OFF");
+    assert(next.studyToolsEnabled === false, "legacy study alias must sync to canonical OFF");
+  }
+
+  {
+    const next = {
+      supportMicrotonalNotation: false,
+      makamToolsEnabled: true,
+      studyToolsEnabled: false,
+    };
+    normalizeMicrotonalSettings(next, {});
+    assert(next.supportMicrotonalNotation === true, "legacy makam alias must enable canonical microtonal setting");
+    assert(next.makamToolsEnabled === true, "legacy makam alias must remain synced ON");
+    assert(next.studyToolsEnabled === true, "legacy study alias must sync ON when canonical is ON");
   }
 
   console.log("% PASS settings schema sanity");

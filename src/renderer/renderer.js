@@ -118,6 +118,7 @@ import { createSourceLinkController } from "./tools/source_link/source_link_cont
 import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
 import { createTemplatesController } from "./tools/templates/templates_controller.js";
 import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
+import { createPayloadModeController } from "./tools/payload_mode/payload_mode_controller.js";
 import {
   buildPrintSourceLinkMarkup as buildPrintSourceLinkMarkupCore,
 } from "./print/source_link_markup.js";
@@ -506,7 +507,6 @@ let payloadModeShowLayers = false;
 let payloadModeView = "render"; // render | playback
 let payloadModeRenderState = null; // { text, selection, spans }
 let payloadModePlaybackState = null; // { text, selection, spans }
-let payloadModeUiWired = false;
 
 let setListItems = [];
 let setListPageBreaks = "perTune"; // perTune | none | auto
@@ -3721,6 +3721,59 @@ const aboutModalController = createAboutModalController({
   logError: logErr,
 });
 const goToMeasureModalController = createGoToMeasureModalController();
+const payloadModeController = createPayloadModeController({
+  bar: $payloadModeBar,
+  renderTab: $payloadModeTabRender,
+  playbackTab: $payloadModeTabPlayback,
+  copyButton: $payloadModeCopy,
+  exitButton: $payloadModeExit,
+  lockElements: [
+    $btnToggleLibrary,
+    $btnLibraryRefresh,
+    $btnLibraryClearFilter,
+    $groupBy,
+    $sortBy,
+    $sortTunesBy,
+    $librarySearch,
+    $fileTuneSelect,
+    $btnFileNew,
+    $btnNewTune,
+    $btnTemplates,
+    $btnFileOpen,
+    $btnFileSave,
+    $btnFileClose,
+    $btnToggleRaw,
+    $btnChordproPdf,
+    $btnToggleErrors,
+    $btnToggleFollow,
+    $btnToggleGlobals,
+    $fileHeaderToggle,
+    $fileHeaderSave,
+    $fileHeaderReload,
+    $xIssuesAutoFix,
+    $xIssuesJump,
+    $xIssuesCopy,
+  ],
+  getView: () => payloadModeView,
+  getCopyText: () => {
+    if (!editorView) return { text: "", selectionText: "" };
+    const doc = editorView.state.doc;
+    const ranges = editorView.state.selection && editorView.state.selection.ranges
+      ? editorView.state.selection.ranges
+      : [];
+    let selectionText = "";
+    for (const r of ranges) {
+      if (r && Number.isFinite(r.from) && Number.isFinite(r.to) && r.from !== r.to) {
+        selectionText = doc.sliceString(r.from, r.to);
+        break;
+      }
+    }
+    return { text: selectionText || getEditorValue(), selectionText };
+  },
+  onExit: () => exitPayloadMode(),
+  onSetView: (view) => setPayloadModeView(view),
+  showToast,
+});
 
 const GROUP_LABELS = {
   file: "File",
@@ -7085,61 +7138,16 @@ function setRawModeUI(enabled) {
   updateSourceLinkPanel();
 }
 
-function updatePayloadModeInteractionLock() {
-  const locked = payloadMode;
-  const disable = (el) => { if (el) el.disabled = locked; };
-
-  // Allow transport controls; block file/library/tool actions to avoid confusing authority.
-  disable($btnToggleLibrary);
-  disable($btnLibraryRefresh);
-  disable($btnLibraryClearFilter);
-  disable($groupBy);
-  disable($sortBy);
-  disable($sortTunesBy);
-  disable($librarySearch);
-  disable($fileTuneSelect);
-
-  disable($btnFileNew);
-  disable($btnNewTune);
-  disable($btnTemplates);
-  disable($btnFileOpen);
-  disable($btnFileSave);
-  disable($btnFileClose);
-  disable($btnToggleRaw);
-  disable($btnChordproPdf);
-
-  disable($btnToggleErrors);
-  disable($btnToggleFollow);
-  disable($btnToggleGlobals);
-  disable($fileHeaderToggle);
-  disable($fileHeaderSave);
-  disable($fileHeaderReload);
-
-  disable($xIssuesAutoFix);
-  disable($xIssuesJump);
-  disable($xIssuesCopy);
-}
-
 function setPayloadModeUI(enabled) {
   payloadMode = Boolean(enabled);
-  document.body.classList.toggle("payload-mode", payloadMode);
-  if ($payloadModeBar) $payloadModeBar.classList.toggle("hidden", !payloadMode);
-  updatePayloadModeInteractionLock();
+  payloadModeController.setEnabled(payloadMode);
   refreshPayloadLayerDecorations();
   // Ensure the library tree reflects locked state (disables tune/file buttons).
   try { scheduleRenderLibraryTree(sourceFiles); } catch {}
 }
 
 function updatePayloadModeTabUI() {
-  const isRender = payloadModeView === "render";
-  if ($payloadModeTabRender) {
-    $payloadModeTabRender.classList.toggle("is-active", isRender);
-    $payloadModeTabRender.setAttribute("aria-selected", isRender ? "true" : "false");
-  }
-  if ($payloadModeTabPlayback) {
-    $payloadModeTabPlayback.classList.toggle("is-active", !isRender);
-    $payloadModeTabPlayback.setAttribute("aria-selected", isRender ? "false" : "true");
-  }
+  payloadModeController.updateTabs(payloadModeView);
 }
 
 async function setPayloadModeView(nextView) {
@@ -7711,55 +7719,7 @@ async function exitPayloadMode() {
 }
 
 function ensurePayloadModeUiWired() {
-  if (payloadModeUiWired) return;
-  payloadModeUiWired = true;
-
-  if ($payloadModeExit) {
-    $payloadModeExit.addEventListener("click", () => {
-      exitPayloadMode().catch(() => {});
-    });
-  }
-  if ($payloadModeTabRender) {
-    $payloadModeTabRender.addEventListener("click", () => {
-      setPayloadModeView("render").catch(() => {});
-    });
-  }
-  if ($payloadModeTabPlayback) {
-    $payloadModeTabPlayback.addEventListener("click", () => {
-      setPayloadModeView("playback").catch(() => {});
-    });
-  }
-  if ($payloadModeCopy) {
-    $payloadModeCopy.addEventListener("click", async () => {
-      try {
-        if (!editorView) return;
-        const doc = editorView.state.doc;
-        const ranges = editorView.state.selection && editorView.state.selection.ranges
-          ? editorView.state.selection.ranges
-          : [];
-        let selectionText = "";
-        for (const r of ranges) {
-          if (r && Number.isFinite(r.from) && Number.isFinite(r.to) && r.from !== r.to) {
-            selectionText = doc.sliceString(r.from, r.to);
-            break;
-          }
-        }
-        const text = selectionText || getEditorValue();
-        if (text && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-          if (selectionText) {
-            showToast("Copied selection.", 1600);
-          } else {
-            showToast(payloadModeView === "playback" ? "Copied playback payload." : "Copied render payload.", 1800);
-          }
-        } else {
-          showToast("Clipboard not available.", 2200);
-        }
-      } catch {
-        showToast("Copy failed.", 2200);
-      }
-    });
-  }
+  payloadModeController.wire();
 }
 
 function toggleLineComments(view) {

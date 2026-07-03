@@ -117,7 +117,7 @@ import {
   pickAutoBaseStep,
   resolveTonalBaseInput,
 } from "./tools/intonation_explorer/intonation_model.js";
-import { createTemplatesController } from "./tools/templates/templates_controller.js";
+import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputPopoverController } from "./tools/midi_input/midi_input_popover_controller.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
 import {
@@ -3334,33 +3334,38 @@ let libraryUiStateTimer = null;
 let libraryUiStateDirty = false;
 const LIBRARY_UI_STATE_DEBOUNCE_MS = 300;
 
-const templatesController = createTemplatesController({
-  modal: $templatesModal,
-  list: $templatesList,
-  search: $templatesSearch,
-  folderLabel: $templatesFolderLabel,
-  previewTitle: $templatesPreviewTitle,
-  previewText: $templatesPreviewText,
-  closeButton: $templatesClose,
-  cancelButton: $templatesCancel,
-  manageButton: $templatesManage,
-  reloadButton: $templatesReload,
-  insertButton: $templatesInsert,
-  replaceButton: $templatesReplace,
-  appendButton: $templatesAppend,
-  editButton: $templatesEdit,
+const templatesFeature = createTemplatesFeature({
+  elements: {
+    modal: $templatesModal,
+    list: $templatesList,
+    search: $templatesSearch,
+    folderLabel: $templatesFolderLabel,
+    previewTitle: $templatesPreviewTitle,
+    previewText: $templatesPreviewText,
+    closeButton: $templatesClose,
+    cancelButton: $templatesCancel,
+    manageButton: $templatesManage,
+    reloadButton: $templatesReload,
+    insertButton: $templatesInsert,
+    replaceButton: $templatesReplace,
+    appendButton: $templatesAppend,
+    editButton: $templatesEdit,
+  },
   api: window.api,
   readFile,
   safeBasename,
   enableDraggableModal,
   logError: (message) => logErr(message),
   showToast,
-  onInsert: () => insertSelectedTemplateFromModal("insert"),
-  onReplace: () => insertSelectedTemplateFromModal("replace"),
-  onAppend: () => insertSelectedTemplateFromModal("append"),
-  onPreviewContextMenu: (ev, { fullText, selectionText } = {}) => {
-    showContextMenuAt(ev.clientX, ev.clientY, { type: "templatesPreview", fullText, selectionText });
-  },
+  getActiveFileEntry,
+  isPayloadMode,
+  ensureXNumberInAbc,
+  ensureSafeToAbandonCurrentDoc,
+  insertTextAtEditorSelection,
+  setEditorText: setEditorValue,
+  appendTuneTextToFile: appendTuneTextToFileNow,
+  showContextMenuAt,
+  showSaveError,
 });
 
 const libraryViewStore = createLibraryViewStore({
@@ -18458,57 +18463,8 @@ async function openMakamDnaModal() {
   await makamDnaController.open();
 }
 
-async function insertSelectedTemplateFromModal(modeOverride = "") {
-  const item = templatesController.getSelectedItem();
-  if (!item) return;
-  const entry = getActiveFileEntry();
-  if (!entry || !entry.path) {
-    showToast("Open/select a file first.", 2600);
-    return;
-  }
-
-  let slice = await templatesController.getSelectedText();
-  if (!slice.trim()) {
-    await showSaveError("Template is empty.");
-    return;
-  }
-  if (!/^[\t ]*X:/m.test(slice)) {
-    slice = ensureXNumberInAbc(slice, "");
-  }
-
-  const mode = String(modeOverride || "insert");
-  if (mode === "insert") {
-    if (isPayloadMode()) {
-      showToast("Exit Payload Mode to insert a template.", 2400);
-      return;
-    }
-    const ok = await ensureSafeToAbandonCurrentDoc("inserting a template");
-    if (!ok) return;
-    if (!/[\r\n]$/.test(slice)) slice = `${slice}\n`;
-    const inserted = insertTextAtEditorSelection(slice);
-    if (!inserted) return;
-    showToast("Template inserted.", 1800);
-    templatesController.close();
-    return;
-  }
-
-  if (mode === "replace") {
-    if (isPayloadMode()) {
-      showToast("Exit Payload Mode to replace a tune.", 2400);
-      return;
-    }
-    setEditorValue(slice.trimEnd());
-    showToast("Template replaced current tune.", 2200);
-    templatesController.close();
-    return;
-  }
-
-  const appended = await appendTuneTextToFileNow(entry.path, slice, { toastOk: "Template appended." });
-  if (appended) templatesController.close();
-}
-
 async function openTemplatesModal() {
-  await templatesController.open();
+  await templatesFeature.open();
 }
 
 initContextMenu();

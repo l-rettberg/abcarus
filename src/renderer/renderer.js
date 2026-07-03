@@ -121,7 +121,7 @@ import {
   buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
   computePayloadTuneOffset,
 } from "./tools/payload_mode/payload_mode_model.mjs";
-import { createPrintAllOptionsController } from "./print/print_all_options_controller.js";
+import { createPrintAllFeature } from "./print/print_all_feature.js";
 import {
   buildPrintTuneLabel,
 } from "./print/error_markup.js";
@@ -562,12 +562,43 @@ const payloadModeFeature = createPayloadModeFeature({
 });
 
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
-const printAllOptionsController = createPrintAllOptionsController({
-  modal: $printAllOptionsModal,
-  pageBreaksSelect: $printAllPageBreaks,
-  rememberCheckbox: $printAllRemember,
-  cancelButton: $printAllOptionsCancel,
-  okButton: $printAllOptionsOk,
+const printAllFeature = createPrintAllFeature({
+  elements: {
+    optionsModal: $printAllOptionsModal,
+    pageBreaksSelect: $printAllPageBreaks,
+    rememberCheckbox: $printAllRemember,
+    cancelButton: $printAllOptionsCancel,
+    okButton: $printAllOptionsOk,
+  },
+  api: window.api,
+  readStorage: safeReadJsonLocalStorage,
+  writeStorage: safeWriteJsonLocalStorage,
+  storageKey: PRINT_ALL_OPTIONS_STORAGE_KEY,
+  getActiveFileEntry,
+  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  confirmUnsavedChanges,
+  performSaveFlow,
+  getFileContent: getFileContentCached,
+  getEffectiveHeaderText: () => getHeaderEditorValue(),
+  sanitizeHeaderText: sanitizeFileHeaderForPerTuneRender,
+  buildHeaderPrefix,
+  collectHeaderKeys,
+  pathsEqual,
+  getActiveFilePath: () => activeFilePath,
+  renderAbcToSvgMarkup,
+  buildSourceLinkMarkup: buildPrintSourceLinkMarkup,
+  applyPrintDebugMarkup,
+  getPrintBaseName: getSongbookSuggestedBaseName,
+  setErrorLineOffsetFromHeader,
+  setLibraryErrorIndexForTune,
+  setStatus,
+  showToast,
+  logError: logErr,
+  getDebugEnabled: () => Boolean(window.__abcarusDebugPrintAll),
+  onDebug: (debugInfo, svg) => {
+    console.info("[print-all]", debugInfo);
+    window.__abcarusDebugPrintAllSvg = svg;
+  },
 });
 const setListFeature = createSetListFeature({
   elements: {
@@ -631,21 +662,7 @@ function safeWriteJsonLocalStorage(key, value) {
   }
 }
 
-function loadPrintAllOptionsFromStorage() {
-  printAllOptionsController.applySavedOptions(safeReadJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY));
-}
-
-function persistPrintAllOptionsToStorageNow() {
-  const patch = printAllOptionsController.getPatch();
-  safeWriteJsonLocalStorage(PRINT_ALL_OPTIONS_STORAGE_KEY, {
-    version: "1",
-    savedAtMs: Date.now(),
-    pageBreaks: patch.printAllPageBreaks,
-    askEachTime: !!patch.printAllAskEachTime,
-  });
-}
-
-loadPrintAllOptionsFromStorage();
+printAllFeature.loadOptionsFromStorage();
 
 // ---------------- A–B playback helpers ----------------
 
@@ -13190,196 +13207,12 @@ async function getFileContentCached(filePath) {
   return { ok: true, data: content };
 }
 
-async function renderPrintAllSvgMarkup(entry, content, options = {}) {
-  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
-  const pageBreaks = String(options.pageBreaks || "perTune");
-  if (!entry || !entry.tunes || !entry.tunes.length) {
-    return { ok: false, error: "No tunes to print." };
-  }
-  const debug = Boolean(window.__abcarusDebugPrintAll);
-  const debugInfo = debug ? {
-    file: entry.path || "",
-    totalTunes: entry.tunes.length,
-    rendered: 0,
-    skipped: 0,
-    tunes: [],
-  } : null;
-  const blocks = [];
-  let current = [];
-  const flush = () => {
-    if (!current.length) return;
-    blocks.push(current);
-    current = [];
-  };
-  const summary = [];
-  for (let i = 0; i < entry.tunes.length; i += 1) {
-    const tune = entry.tunes[i];
-    if (onProgress && (i % 5 === 0 || i === entry.tunes.length - 1)) {
-      onProgress(i + 1, entry.tunes.length);
-    }
-    if (!tune || !Number.isFinite(tune.startOffset) || !Number.isFinite(tune.endOffset)) {
-      if (debugInfo) debugInfo.skipped += 1;
-      continue;
-    }
-    const tuneText = String(content || "").slice(tune.startOffset, tune.endOffset);
-    if (!tuneText.trim()) {
-      if (debugInfo) debugInfo.skipped += 1;
-      continue;
-    }
-
-    const breakBefore = (pageBreaks === "perTune") ? (i > 0) : false;
-    if (breakBefore) flush();
-
-    const effectiveHeader = (entry && entry.path && pathsEqual(entry.path, activeFilePath)) ? getHeaderEditorValue() : (entry.headerText || "");
-    const headerText = sanitizeFileHeaderForPerTuneRender(effectiveHeader);
-    const prefix = buildHeaderPrefix(headerText, false, tuneText);
-    const block = prefix.text ? `${prefix.text}${tuneText}` : tuneText;
-    const meta = debugInfo ? {
-      id: tune.id,
-      xNumber: tune.xNumber,
-      title: tune.title || "",
-      startOffset: tune.startOffset,
-      endOffset: tune.endOffset,
-      hasX: /^\s*X:/.test(tuneText),
-      headerKeys: collectHeaderKeys(tuneText).size,
-      blockLength: block.length,
-    } : null;
-    const context = {
-      tuneId: tune.id,
-      filePath: entry.path || null,
-      fileBasename: entry.basename || "",
-      tuneLabel: buildPrintTuneLabel(tune),
-      xNumber: tune.xNumber || "",
-      title: tune.title || "",
-      skipMeasureRange: true,
-    };
-    setErrorLineOffsetFromHeader(prefix.text);
-    const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
-    const tuneErrors = res.errors ? res.errors.slice() : [];
-    if (!res.ok && res.error) {
-      tuneErrors.push({ message: res.error });
-      logErr(res.error, null, context);
-    }
-    const tuneMarkup = [];
-    if (res.svg && res.svg.trim()) {
-      tuneMarkup.push(res.svg.trim());
-    }
-    const sourceMarkup = await buildPrintSourceLinkMarkup(block);
-    if (sourceMarkup) tuneMarkup.push(sourceMarkup);
-    if (tuneErrors.length) {
-      const uniqueKeys = new Set(tuneErrors.map((err) => {
-        const msg = err && err.message ? err.message : "Unknown error";
-        const loc = err && err.loc ? `Line ${err.loc.line}, Col ${err.loc.col}` : "";
-        return `${msg}|${loc}`;
-      }));
-      summary.push({ tune, count: uniqueKeys.size });
-      setLibraryErrorIndexForTune(tune.id, uniqueKeys.size);
-    } else {
-      setLibraryErrorIndexForTune(tune.id, 0);
-    }
-    if (tuneMarkup.length) {
-      current.push(tuneMarkup.join("\n"));
-      if (debugInfo && meta) {
-        meta.svgLength = res.svg.length;
-        debugInfo.rendered += 1;
-        debugInfo.tunes.push(meta);
-      }
-    } else if (debugInfo && meta) {
-      meta.svgLength = 0;
-      debugInfo.tunes.push(meta);
-      debugInfo.skipped += 1;
-    }
-  }
-  setErrorLineOffsetFromHeader("");
-  flush();
-  if (!blocks.length) return { ok: false, error: "No SVG output produced." };
-  const svg = blocks.map((b) => `<div class="print-tune">${b.join("\n")}</div>`).join("\n");
-  if (debugInfo) {
-    debugInfo.pageBreaks = pageBreaks;
-    debugInfo.svgParts = blocks.length;
-    console.info("[print-all]", debugInfo);
-    window.__abcarusDebugPrintAllSvg = svg;
-  }
-  return { ok: true, svg };
-}
-
-async function getPrintAllPageBreaksForAction() {
-  const res = await printAllOptionsController.getPageBreaksForAction();
-  if (!res || !res.pageBreaks) return null;
-
-  // Persist in settings (preferred) and localStorage (fallback / older builds).
-  if (res.patch) {
-    try {
-      if (window.api && typeof window.api.updateSettings === "function") {
-        await window.api.updateSettings(res.patch);
-      }
-    } catch {}
-    persistPrintAllOptionsToStorageNow();
-  }
-  return res.pageBreaks;
-}
-
 function setPrintAllFromSettings(settings) {
-  printAllOptionsController.applySettings(settings);
+  printAllFeature.applySettings(settings);
 }
 
 async function runPrintAllAction(type) {
-  if (!window.api) return;
-  const pageBreaks = await getPrintAllPageBreaksForAction();
-  if (!pageBreaks) return;
-  const entry = getActiveFileEntry();
-  if (!entry || !entry.path) {
-    setStatus("No active file to print.");
-    return;
-  }
-  if (currentDoc && currentDoc.dirty) {
-    const choice = await confirmUnsavedChanges("printing all tunes");
-    if (choice === "cancel") return;
-    if (choice === "save") {
-      const ok = await performSaveFlow();
-      if (!ok) return;
-    }
-  }
-
-  const contentRes = await getFileContentCached(entry.path);
-  if (!contentRes.ok) {
-    setStatus("Error");
-    logErr(contentRes.error || "Unable to read file.");
-    return;
-  }
-  setStatus("Rendering…");
-  const renderRes = await renderPrintAllSvgMarkup(entry, contentRes.data || "", {
-    pageBreaks,
-    onProgress: (current, total) => {
-      setStatus(`Rendering tunes… ${current}/${total}`);
-    },
-  });
-  if (!renderRes.ok) {
-    setStatus("Error");
-    logErr(renderRes.error || "Unable to render.");
-    return;
-  }
-  const svgMarkup = applyPrintDebugMarkup(renderRes.svg);
-
-  let res = null;
-  const suggestedName = getSongbookSuggestedBaseName();
-  if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup, suggestedName);
-  } else if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup, suggestedName);
-  } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, suggestedName);
-  }
-
-  if (res && res.ok) {
-    setStatus("OK");
-    if (type === "pdf" && res.path) {
-      showToast(`Exported PDF: ${res.path}`);
-    }
-  } else if (res && res.error) {
-    setStatus("Error");
-    logErr(res.error);
-  }
+  await printAllFeature.runAction(type);
 }
 
 function setCurrentDocument(doc) {

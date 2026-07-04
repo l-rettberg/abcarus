@@ -37,6 +37,7 @@ function createChordProFeature(host) {
     setEditorValue(text);
     setSuppressDirty(false);
   };
+  const clearRenderOutput = (status) => call(h.clearRenderOutput, status);
 
   function setLibraryControlsDisabled(disabled) {
     const shouldDisable = Boolean(disabled || call(h.isPayloadMode));
@@ -294,11 +295,13 @@ function createChordProFeature(host) {
       fullText = String(fullText || "");
       setEditorValueSilently(fullText);
       setCurrentDocContent(fullText);
+      clearRenderOutput("ChordPro full view.");
     } else {
       const active = getActiveBlock();
       const blockText = active ? active.text : "";
       setEditorValueSilently(String(blockText || ""));
       setCurrentDocContent(String(blockText || ""));
+      if (!active) clearRenderOutput("No ABC blocks.");
     }
     updateBadge();
     call(h.updatePlaybackInteractionLock);
@@ -371,7 +374,9 @@ function createChordProFeature(host) {
     fullText = String(text || "");
     updateStateFromFullText(fullText);
     const activeBlock = getActiveBlock();
-    const blockText = activeBlock ? activeBlock.text : "";
+    fullView = !activeBlock;
+    if (elements.rawButton) elements.rawButton.classList.toggle("toggle-active", fullView);
+    const blockText = activeBlock ? activeBlock.text : fullText;
     setEditorValueSilently(String(blockText || ""));
 
     const nextDoc = { path: p, content: String(blockText || ""), dirty: false };
@@ -390,7 +395,8 @@ function createChordProFeature(host) {
     updateSelectOptions();
     call(h.updateFileHeaderPanel);
     call(h.updateHeaderStateUI);
-    call(h.scheduleRenderNow, { clearOutput: true });
+    if (activeBlock) call(h.scheduleRenderNow, { clearOutput: true });
+    else clearRenderOutput("No ABC blocks.");
 
     try {
       const avail = await getAvailability();

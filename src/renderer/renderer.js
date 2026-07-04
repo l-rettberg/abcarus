@@ -586,6 +586,7 @@ const chordProFeature = createChordProFeature({
   refreshWorkingCopySnapshot,
   getActiveFilePath: () => activeFilePath,
   setStatus,
+  clearRenderOutput,
 });
 
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
@@ -11605,6 +11606,16 @@ function setRenderBusy(next) {
   } catch {}
 }
 
+function clearRenderOutput(statusText = "Ready") {
+  setBarMismatchMarkers([]);
+  setStatus(statusText || "Ready");
+  if ($out) $out.innerHTML = "";
+  invalidateNoteHighlightIndexCache();
+  setRenderBusy(false);
+  updateLibraryErrorIndexFromCurrentErrors();
+  reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+}
+
 function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
   if (rawMode || chordProFeature.isFullView()) return;
   renderRequestToken += 1;
@@ -11719,21 +11730,11 @@ function renderNow() {
   setRenderBusy(true);
   const currentText = getEditorValue();
   if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
-    setBarMismatchMarkers([]);
-    setStatus("ChordPro full view.");
-    if ($out) $out.innerHTML = "";
-    invalidateNoteHighlightIndexCache();
-    setRenderBusy(false);
-    updateLibraryErrorIndexFromCurrentErrors();
-    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+    clearRenderOutput("ChordPro full view.");
     return;
   }
   if (chordProFeature.isEnabled() && !chordProFeature.hasBlocks()) {
-    setBarMismatchMarkers([]);
-    setStatus("No ABC blocks.");
-    setRenderBusy(false);
-    updateLibraryErrorIndexFromCurrentErrors();
-    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+    clearRenderOutput("No ABC blocks.");
     return;
   }
   if (!currentText.trim()) {

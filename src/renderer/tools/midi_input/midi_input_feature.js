@@ -29,8 +29,35 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, raw));
 }
 
+function resolveDefaultElements(documentRef) {
+  const doc = documentRef || (typeof document !== "undefined" ? document : null);
+  const byId = (id) => (doc && typeof doc.getElementById === "function" ? doc.getElementById(id) : null);
+  return {
+    statusButton: byId("midiInputStatus"),
+    popover: byId("midiInputPopover"),
+    closeButton: byId("midiInputPopoverClose"),
+    enabledControl: byId("midiInputEnabledCtl"),
+    mutedControl: byId("midiInputMutedCtl"),
+    keyAwareControl: byId("midiInputKeyAwareCtl"),
+    gridControl: byId("midiInputGridCtl"),
+    macroControl: byId("midiInputMacroCtl"),
+    macroNote: byId("midiInputMacroNote"),
+    stateHint: byId("midiInputStateHint"),
+    enabledDependent: byId("midiInputEnabledDependent"),
+    beepControl: byId("midiInputBeepCtl"),
+    beepDurationWrap: byId("midiInputBeepDurationWrap"),
+    notePreviewControl: byId("noteTypingPreviewCtl"),
+    notePreviewDependent: byId("noteTypingPreviewDependent"),
+    notePreviewTriggerControl: byId("noteTypingPreviewTriggerCtl"),
+    previewSharedGroup: byId("midiPreviewSharedGroup"),
+    volumeControl: byId("midiInputBeepVolumeCtl"),
+    durationControl: byId("midiInputBeepDurationCtl"),
+  };
+}
+
 function createMidiInputFeature({
-  elements = {},
+  elements = null,
+  documentRef = null,
   api,
   setButtonText,
   showToast = () => {},
@@ -55,6 +82,7 @@ function createMidiInputFeature({
   navigatorRef = () => (typeof navigator !== "undefined" ? navigator : null),
   windowRef = () => (typeof window !== "undefined" ? window : null),
 } = {}) {
+  const resolvedElements = elements || resolveDefaultElements(documentRef);
   let midiInputEnabled = false;
   let midiInputMuted = false;
   let midiAccess = null;
@@ -84,25 +112,25 @@ function createMidiInputFeature({
   }
 
   const popoverController = createMidiInputPopoverController({
-    statusButton: elements.statusButton,
-    popover: elements.popover,
-    closeButton: elements.closeButton,
-    enabledControl: elements.enabledControl,
-    mutedControl: elements.mutedControl,
-    keyAwareControl: elements.keyAwareControl,
-    gridControl: elements.gridControl,
-    macroControl: elements.macroControl,
-    macroNote: elements.macroNote,
-    stateHint: elements.stateHint,
-    enabledDependent: elements.enabledDependent,
-    beepControl: elements.beepControl,
-    beepDurationWrap: elements.beepDurationWrap,
-    notePreviewControl: elements.notePreviewControl,
-    notePreviewDependent: elements.notePreviewDependent,
-    notePreviewTriggerControl: elements.notePreviewTriggerControl,
-    previewSharedGroup: elements.previewSharedGroup,
-    volumeControl: elements.volumeControl,
-    durationControl: elements.durationControl,
+    statusButton: resolvedElements.statusButton,
+    popover: resolvedElements.popover,
+    closeButton: resolvedElements.closeButton,
+    enabledControl: resolvedElements.enabledControl,
+    mutedControl: resolvedElements.mutedControl,
+    keyAwareControl: resolvedElements.keyAwareControl,
+    gridControl: resolvedElements.gridControl,
+    macroControl: resolvedElements.macroControl,
+    macroNote: resolvedElements.macroNote,
+    stateHint: resolvedElements.stateHint,
+    enabledDependent: resolvedElements.enabledDependent,
+    beepControl: resolvedElements.beepControl,
+    beepDurationWrap: resolvedElements.beepDurationWrap,
+    notePreviewControl: resolvedElements.notePreviewControl,
+    notePreviewDependent: resolvedElements.notePreviewDependent,
+    notePreviewTriggerControl: resolvedElements.notePreviewTriggerControl,
+    previewSharedGroup: resolvedElements.previewSharedGroup,
+    volumeControl: resolvedElements.volumeControl,
+    durationControl: resolvedElements.durationControl,
     setButtonText,
     getState: () => ({
       supported: supportsMidiInput(),

@@ -134,25 +134,6 @@ const $cursorStatus = document.getElementById("cursorStatus");
 const $bufferStatus = document.getElementById("bufferStatus");
 const $toolStatus = document.getElementById("toolStatus");
 const $hoverStatus = document.getElementById("hoverStatus");
-const $midiInputStatus = document.getElementById("midiInputStatus");
-const $midiInputPopover = document.getElementById("midiInputPopover");
-const $midiInputPopoverClose = document.getElementById("midiInputPopoverClose");
-const $midiInputEnabledCtl = document.getElementById("midiInputEnabledCtl");
-const $midiInputMutedCtl = document.getElementById("midiInputMutedCtl");
-const $midiInputKeyAwareCtl = document.getElementById("midiInputKeyAwareCtl");
-const $midiInputGridCtl = document.getElementById("midiInputGridCtl");
-const $midiInputMacroCtl = document.getElementById("midiInputMacroCtl");
-const $midiInputMacroNote = document.getElementById("midiInputMacroNote");
-const $midiInputStateHint = document.getElementById("midiInputStateHint");
-const $midiInputEnabledDependent = document.getElementById("midiInputEnabledDependent");
-const $midiInputBeepCtl = document.getElementById("midiInputBeepCtl");
-const $midiInputBeepDurationWrap = document.getElementById("midiInputBeepDurationWrap");
-const $noteTypingPreviewCtl = document.getElementById("noteTypingPreviewCtl");
-const $noteTypingPreviewDependent = document.getElementById("noteTypingPreviewDependent");
-const $noteTypingPreviewTriggerCtl = document.getElementById("noteTypingPreviewTriggerCtl");
-const $midiPreviewSharedGroup = document.getElementById("midiPreviewSharedGroup");
-const $midiInputBeepVolumeCtl = document.getElementById("midiInputBeepVolumeCtl");
-const $midiInputBeepDurationCtl = document.getElementById("midiInputBeepDurationCtl");
 const $main = document.querySelector("main");
 const $divider = document.getElementById("paneDivider");
 const $editorPane = document.querySelector(".editor-pane");
@@ -5588,27 +5569,7 @@ function deleteEditorCharBeforeCursorForMidi() {
 }
 
 const midiInputFeature = createMidiInputFeature({
-  elements: {
-    statusButton: $midiInputStatus,
-    popover: $midiInputPopover,
-    closeButton: $midiInputPopoverClose,
-    enabledControl: $midiInputEnabledCtl,
-    mutedControl: $midiInputMutedCtl,
-    keyAwareControl: $midiInputKeyAwareCtl,
-    gridControl: $midiInputGridCtl,
-    macroControl: $midiInputMacroCtl,
-    macroNote: $midiInputMacroNote,
-    stateHint: $midiInputStateHint,
-    enabledDependent: $midiInputEnabledDependent,
-    beepControl: $midiInputBeepCtl,
-    beepDurationWrap: $midiInputBeepDurationWrap,
-    notePreviewControl: $noteTypingPreviewCtl,
-    notePreviewDependent: $noteTypingPreviewDependent,
-    notePreviewTriggerControl: $noteTypingPreviewTriggerCtl,
-    previewSharedGroup: $midiPreviewSharedGroup,
-    volumeControl: $midiInputBeepVolumeCtl,
-    durationControl: $midiInputBeepDurationCtl,
-  },
+  documentRef: document,
   api: window.api,
   setButtonText,
   showToast,
@@ -5624,50 +5585,6 @@ const midiInputFeature = createMidiInputFeature({
 });
 midiInputFeature.exposeDebugApi();
 
-function updateMidiInputUi() {
-  midiInputFeature.updateUi();
-}
-
-function openMidiInputPopover() {
-  midiInputFeature.openPopover();
-}
-
-function closeMidiInputPopover() {
-  midiInputFeature.closePopover();
-}
-
-function toggleMidiInputPopover() {
-  midiInputFeature.togglePopover();
-}
-
-function getMidiInputStatus() {
-  return midiInputFeature.getStatus();
-}
-
-function unlockMidiAudioContext() {
-  return midiInputFeature.unlockAudioContext();
-}
-
-function shouldHandleTypingPreviewChange(update) {
-  return midiInputFeature.handleTypingPreviewChange(update);
-}
-
-function applyMidiSettingsPatch(patch, options = {}) {
-  return midiInputFeature.applySettingsPatch(patch, options);
-}
-
-function toggleMidiInputSetting() {
-  midiInputFeature.toggleInputSetting();
-}
-
-function toggleMidiMuteSetting() {
-  midiInputFeature.toggleMuteSetting();
-}
-
-function initMidiInput() {
-  return midiInputFeature.init();
-}
-
 function initEditor() {
   if (editorView || !$editorHost) return;
   const completionTooltipOpen = (view) => {
@@ -5682,10 +5599,10 @@ function initEditor() {
     { key: "Mod-f", run: openFindPanel },
     { key: "Ctrl-h", run: openReplacePanel },
     { key: "Mod-h", run: openReplacePanel },
-    { key: "Ctrl-Alt-i", run: () => { toggleMidiInputSetting(); return true; } },
-    { key: "Mod-Alt-i", run: () => { toggleMidiInputSetting(); return true; } },
-    { key: "Ctrl-Alt-m", run: () => { toggleMidiMuteSetting(); return true; } },
-    { key: "Mod-Alt-m", run: () => { toggleMidiMuteSetting(); return true; } },
+    { key: "Ctrl-Alt-i", run: () => { midiInputFeature.toggleInputSetting(); return true; } },
+    { key: "Mod-Alt-i", run: () => { midiInputFeature.toggleInputSetting(); return true; } },
+    { key: "Ctrl-Alt-m", run: () => { midiInputFeature.toggleMuteSetting(); return true; } },
+    { key: "Mod-Alt-m", run: () => { midiInputFeature.toggleMuteSetting(); return true; } },
     { key: "Ctrl-Alt-g", run: gotoLine },
     { key: "Mod-Alt-g", run: gotoLine },
     { key: "Ctrl-g", run: () => { goToMeasureFromMenu().catch(() => {}); return true; } },
@@ -5783,7 +5700,7 @@ function initEditor() {
       if (!suppressDirty && !isPayloadMode() && !currentDoc) {
         currentDoc = createBlankDocument();
       }
-      shouldHandleTypingPreviewChange(update);
+      midiInputFeature.handleTypingPreviewChange(update);
       abRevision += 1;
       if (abPlan) clearAbPlan({ toast: true });
       if (!suppressDirty && currentDoc && !isPayloadMode()) {
@@ -15528,7 +15445,7 @@ function wireMenuActions() {
       else if (actionType === "playGotoMeasure") await goToMeasureFromMenu();
       else if (actionType === "toggleNoteTypingPreview") {
         const next = Boolean(action && action.value);
-        applyMidiSettingsPatch({ noteTypingPreviewEnabled: next });
+        midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: next });
         try { showToast(next ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
       }
       else if (actionType === "resetLayout") resetLayout();
@@ -15655,8 +15572,8 @@ if (window.api && typeof window.api.getSettings === "function") {
 	    setSoundfontFromSettings(settings);
 	    setDrumVelocityFromSettings(settings);
       setPlaybackFxFromSettings(settings);
-      setMidiInputFromSettings(settings);
-      setNoteTypingPreviewFromSettings(settings);
+      midiInputFeature.applyMidiSettings(settings);
+      midiInputFeature.applyNoteTypingPreviewSettings(settings);
 	        setLayoutFromSettings(settings);
 		      setFollowFromSettings(settings);
 		      setLoopFromSettings(settings);
@@ -15705,8 +15622,8 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 		    setSoundfontFromSettings(settings);
 		    setDrumVelocityFromSettings(settings);
       setPlaybackFxFromSettings(settings);
-      setMidiInputFromSettings(settings);
-      setNoteTypingPreviewFromSettings(settings);
+      midiInputFeature.applyMidiSettings(settings);
+      midiInputFeature.applyNoteTypingPreviewSettings(settings);
       setLayoutFromSettings(settings);
 	    setFollowFromSettings(settings);
 	    setLoopFromSettings(settings);
@@ -19156,14 +19073,6 @@ function setDrumVelocityFromSettings(settings) {
     }
   }
   drumVelocityMap = base;
-}
-
-function setMidiInputFromSettings(settings) {
-  midiInputFeature.applyMidiSettings(settings);
-}
-
-function setNoteTypingPreviewFromSettings(settings) {
-  midiInputFeature.applyNoteTypingPreviewSettings(settings);
 }
 
 function resetSoundfontCache() {

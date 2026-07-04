@@ -6,6 +6,8 @@ async function assertSaveIntentGuards() {
   const src = await readFile(rendererPath, "utf8");
   const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
+  const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
+  const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
 
   if (!src.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in renderer.");
@@ -57,7 +59,10 @@ async function assertSaveIntentGuards() {
   if (!src.includes("startOffset = firstMeasureOffset;")) {
     throw new Error("Focus segment mode must apply first-measure fallback start.");
   }
-  if (!src.includes("let playbackScopedOptions = null;")) {
+  if (
+    !src.includes("let playbackScopedOptions = null;")
+    && !selectionPlaybackRuntime.includes("let scopedOptions = null;")
+  ) {
     throw new Error("Missing scoped playback options state.");
   }
   if (!src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {

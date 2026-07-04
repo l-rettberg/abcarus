@@ -113,6 +113,7 @@ import {
   stripGchordDirectives,
   stripRepeatsLengthSafe,
 } from "./playback/selection_playback_model.js";
+import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import {
   buildPrintTuneLabel,
@@ -684,6 +685,7 @@ function safeWriteJsonLocalStorage(key, value) {
 }
 
 printAllFeature.loadOptionsFromStorage();
+const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 
 // ---------------- A–B playback helpers ----------------
 
@@ -803,21 +805,7 @@ function getSelectionPlaybackRange() {
 }
 
 function withTempPlaybackFlags(flags, fn) {
-  const prevStrip = window.__abcarusPlaybackStripChordSymbols;
-  const prevExpand = window.__abcarusPlaybackExpandRepeats;
-  const prevSkipDrums = playbackSkipDrumsOnce;
-  if (flags && flags.stripChords !== undefined) window.__abcarusPlaybackStripChordSymbols = !!flags.stripChords;
-  if (flags && flags.expandRepeats !== undefined) window.__abcarusPlaybackExpandRepeats = !!flags.expandRepeats;
-  if (flags && flags.skipDrums !== undefined) playbackSkipDrumsOnce = !!flags.skipDrums;
-  const restore = () => {
-    window.__abcarusPlaybackStripChordSymbols = prevStrip;
-    window.__abcarusPlaybackExpandRepeats = prevExpand;
-    playbackSkipDrumsOnce = prevSkipDrums;
-  };
-  const result = fn();
-  if (result && typeof result.then === "function") return result.finally(restore);
-  restore();
-  return result;
+  return selectionPlaybackRuntime.runWithTempFlags(flags, fn, window);
 }
 
 function setAbPoint(which) {
@@ -868,9 +856,9 @@ async function playAbLoop() {
     return;
   }
   if (abPlan.mutedVoices && Object.values(abPlan.mutedVoices).some(Boolean)) {
-    playbackAbMutedVoices = { ...abPlan.mutedVoices };
+    selectionPlaybackRuntime.setAbMutedVoiceMap(abPlan.mutedVoices);
   } else {
-    playbackAbMutedVoices = null;
+    selectionPlaybackRuntime.clearAbMutedVoices();
   }
   const text = getEditorValue();
   deriveAbVoices(text);
@@ -892,7 +880,7 @@ async function playAbLoop() {
     await startPlaybackFromRange({ startOffset: abPlan.startOffset, endOffset: abPlan.endOffset, origin: "ab", loop: true });
   } finally {
     window.__abcarusPlaybackStripChordSymbols = prevStripChord;
-    playbackAbMutedVoices = null;
+    selectionPlaybackRuntime.clearAbMutedVoices();
   }
 }
 
@@ -907,16 +895,11 @@ async function playSelectionOnce() {
   const sel = editorView.state.selection.main;
   const text = getEditorValue();
   if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;
-  selectionPlaybackCursor = Math.min(sel.anchor, sel.head);
-  selectionPlaybackSelection = { anchor: sel.anchor, head: sel.head };
-  selectionPlaybackActive = true;
+  selectionPlaybackRuntime.captureSelection(sel);
   if (selectionSettings.mutedVoices && selectionSettings.mutedVoices.length) {
-    playbackAbMutedVoices = selectionSettings.mutedVoices.reduce((acc, id) => {
-      acc[id] = true;
-      return acc;
-    }, {});
+    selectionPlaybackRuntime.setAbMutedVoiceIds(selectionSettings.mutedVoices);
   } else {
-    playbackAbMutedVoices = null;
+    selectionPlaybackRuntime.clearAbMutedVoices();
   }
   if (!selectionSettings.suppressRepeats && hasRepeatTokensInSlice(text, start, end)) {
     showToast("Range crosses repeat; consider enabling Suppress repeats.", 3600);
@@ -929,7 +912,7 @@ async function playSelectionOnce() {
     await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
   } finally {
     window.__abcarusPlaybackStripChordSymbols = prevStripChord;
-    playbackAbMutedVoices = null;
+    selectionPlaybackRuntime.clearAbMutedVoices();
   }
   return true;
 }
@@ -963,9 +946,6 @@ const FOCUS_LOOP_DEFAULT_FROM = 0;
 const FOCUS_LOOP_DEFAULT_TO = 0;
 let currentPlaybackPlan = null;
 let pendingPlaybackPlan = null;
-let selectionPlaybackCursor = null;
-let selectionPlaybackSelection = null; // {anchor, head}
-let selectionPlaybackActive = false;
 let playbackSkipGchordsOnce = false;
 let playbackIgnoreRepeatsOnce = false;
 let transportPlayheadOffset = 0; // editor offset used for next transport start
@@ -991,8 +971,6 @@ let activeErrorNavIndex = -1;
 let lastNoErrorsToastAtMs = 0;
 let abDecorations = Decoration.none;
 let abMarkers = null; // {start,end}
-let playbackSkipDrumsOnce = false;
-let playbackSelectionMode = false;
 
 function normalizeErrorMessageForMatch(message) {
   const msg = String(message || "").trim();
@@ -1916,8 +1894,6 @@ let abPlan = null; // {mode, startOffset, endOffset, mutedVoices, suppressRepeat
 let abRevision = 0;
 let abDecorationsVersion = 0;
 let abVoiceIds = [];
-let playbackAbMutedVoices = null;
-let playbackScopedOptions = null; // transient per-start options for selection/ab/focus
 
 function getAutoWcDumpLimit() {
   const raw = latestSettingsSnapshot && Number.isFinite(Number(latestSettingsSnapshot.autoWcDumpsLimit))
@@ -6458,9 +6434,7 @@ async function selectTune(tuneId, options = {}) {
     endOffset: sliceEnd,
   }, { suppressRecent: options.suppressRecent || false });
   // Reset playback/selection state on tune switch to avoid leaking selection-mode playback flags.
-  selectionPlaybackCursor = null;
-  selectionPlaybackSelection = null;
-  selectionPlaybackActive = false;
+  selectionPlaybackRuntime.clearSelectionCapture();
   resetPlaybackState();
   setPlaybackRange({ startOffset: 0, endOffset: null, origin: "cursor", loop: false });
   if (editorView) {
@@ -16438,15 +16412,8 @@ function stopPlaybackFromGuard(message) {
   updatePlayButton();
   clearNoteSelection();
   resetPlaybackUiState();
-  if (wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
-    const len = editorView.state.doc.length;
-    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
-    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
-    editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
-  }
-  selectionPlaybackCursor = null;
-  selectionPlaybackSelection = null;
-  selectionPlaybackActive = false;
+  if (wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
+  selectionPlaybackRuntime.clearSelectionCapture();
 }
 
 function clonePlaybackRange(r) {
@@ -16988,15 +16955,8 @@ function resetPlaybackState() {
   pendingPlaybackPlan = null;
   clearNoteSelection();
   resetPlaybackUiState();
-  if (selectionPlaybackActive && editorView) {
-    const len = editorView.state.doc.length;
-    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
-    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
-    if (anchor != null) editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
-  }
-  selectionPlaybackCursor = null;
-  selectionPlaybackSelection = null;
-  selectionPlaybackActive = false;
+  if (selectionPlaybackRuntime.shouldRestoreSelection()) selectionPlaybackRuntime.restoreSelection(editorView);
+  selectionPlaybackRuntime.clearSelectionCapture();
   updatePlayButton();
   setSoundfontCaption();
 }
@@ -17353,14 +17313,9 @@ function ensurePlayer() {
           startPlaybackFromRange(loopRange).catch(() => {});
         });
       }
-      if (!shouldLoop && wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
-        const len = editorView.state.doc.length;
-        const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
-        const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
-        editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
-        selectionPlaybackCursor = null;
-        selectionPlaybackSelection = null;
-        selectionPlaybackActive = false;
+      if (!shouldLoop && wasSelectionOrigin) {
+        selectionPlaybackRuntime.restoreSelection(editorView);
+        selectionPlaybackRuntime.clearSelectionCapture();
       }
     },
     onnote: (i, on) => {
@@ -17885,15 +17840,8 @@ function stopPlaybackTransport() {
   setSoundfontCaption();
 
   // Transport: explicit Stop resets internal playhead to 0.
-  if (wasSelectionOrigin && selectionPlaybackCursor != null && editorView) {
-    const len = editorView.state.doc.length;
-    const anchor = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.anchor)) : selectionPlaybackCursor;
-    const head = selectionPlaybackSelection ? Math.max(0, Math.min(len, selectionPlaybackSelection.head)) : anchor;
-    editorView.dispatch({ selection: { anchor, head }, scrollIntoView: false });
-  }
-  selectionPlaybackCursor = null;
-  selectionPlaybackSelection = null;
-  selectionPlaybackActive = false;
+  if (wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
+  selectionPlaybackRuntime.clearSelectionCapture();
 
   // When stopping normal playback, collapse any transient 1-char selection created by Follow.
   // Otherwise the next "Play" can be misinterpreted as "play selection once".
@@ -20677,10 +20625,8 @@ function getPlaybackPayload() {
   }
   const tuneText = getEditorValue();
   const lineOffsetBase = chordProFeature.isEnabled() ? 0 : null;
-  const scopedOptions = playbackScopedOptions && typeof playbackScopedOptions === "object"
-    ? playbackScopedOptions
-    : null;
-  const skipDrums = playbackSkipDrumsOnce === true || (scopedOptions ? !Boolean(scopedOptions.allowMidiDrums) : false);
+  const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
+  const skipDrums = selectionPlaybackRuntime.getSkipDrumsOnce() || (scopedOptions ? !Boolean(scopedOptions.allowMidiDrums) : false);
   const skipGchords = playbackSkipGchordsOnce === true || (scopedOptions ? Boolean(scopedOptions.muteGchords) : false);
   const ignoreRepeats = playbackIgnoreRepeatsOnce === true;
   if (isPayloadMode()) {
@@ -20727,7 +20673,7 @@ function getPlaybackPayload() {
     assertCleanAbcText(payload.text, "playback payload");
     return payload;
   }
-  if (playbackSelectionMode) {
+  if (selectionPlaybackRuntime.isSelectionMode()) {
     const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
     const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
     const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
@@ -20963,7 +20909,7 @@ async function preparePlayback() {
   const fxInjected = injectPlaybackMidiFxControls(playbackPayload.text, playbackPayload.offset || 0);
   const playbackPayloadText = fxInjected.text;
   const playbackPayloadOffset = fxInjected.offset;
-  const selectionMode = playbackSelectionMode === true;
+  const selectionMode = selectionPlaybackRuntime.isSelectionMode();
   const nativeMidiDrums = shouldUseNativeMidiDrums();
   lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayloadText || ""}`) || /\[\s*P\s*:/i.test(playbackPayloadText || "");
   if (Array.isArray(playbackSanitizeWarnings) && playbackSanitizeWarnings.length) {
@@ -21004,9 +20950,7 @@ async function preparePlayback() {
     );
   }
   let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
-  const scopedOptions = playbackScopedOptions && typeof playbackScopedOptions === "object"
-    ? playbackScopedOptions
-    : null;
+  const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
   if (scopedOptions) {
     if (!scopedOptions.allowMidiDrums) {
       playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
@@ -21014,8 +20958,9 @@ async function preparePlayback() {
     if (scopedOptions.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
     if (scopedOptions.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
     let effectiveMuted = null;
-    if (playbackAbMutedVoices && Object.values(playbackAbMutedVoices).some(Boolean)) {
-      effectiveMuted = playbackAbMutedVoices;
+    const mutedVoiceMap = selectionPlaybackRuntime.getAbMutedVoiceMap();
+    if (mutedVoiceMap && Object.values(mutedVoiceMap).some(Boolean)) {
+      effectiveMuted = mutedVoiceMap;
     } else if (Array.isArray(scopedOptions.mutedVoices) && scopedOptions.mutedVoices.length) {
       effectiveMuted = scopedOptions.mutedVoices.reduce((acc, id) => {
         acc[String(id)] = true;
@@ -21132,17 +21077,17 @@ async function preparePlayback() {
   }
 
   let tunes = abc.tunes || [];
-  if (!tunes.length && (playbackIgnoreRepeatsOnce || playbackSkipDrumsOnce || playbackSkipGchordsOnce)) {
+  if (!tunes.length && (playbackIgnoreRepeatsOnce || selectionPlaybackRuntime.getSkipDrumsOnce() || playbackSkipGchordsOnce)) {
     const attemptFallbackParse = (label, override) => {
       const prevIgnore = playbackIgnoreRepeatsOnce;
-      const prevSkipDrums = playbackSkipDrumsOnce;
+      const prevSkipDrums = selectionPlaybackRuntime.getSkipDrumsOnce();
       const prevSkipGchords = playbackSkipGchordsOnce;
       try {
         if (override && Object.prototype.hasOwnProperty.call(override, "ignoreRepeats")) {
           playbackIgnoreRepeatsOnce = !!override.ignoreRepeats;
         }
         if (override && Object.prototype.hasOwnProperty.call(override, "skipDrums")) {
-          playbackSkipDrumsOnce = !!override.skipDrums;
+          selectionPlaybackRuntime.setSkipDrumsOnce(override.skipDrums);
         }
         if (override && Object.prototype.hasOwnProperty.call(override, "skipGchords")) {
           playbackSkipGchordsOnce = !!override.skipGchords;
@@ -21175,7 +21120,7 @@ async function preparePlayback() {
         }
       } finally {
         playbackIgnoreRepeatsOnce = prevIgnore;
-        playbackSkipDrumsOnce = prevSkipDrums;
+        selectionPlaybackRuntime.setSkipDrumsOnce(prevSkipDrums);
         playbackSkipGchordsOnce = prevSkipGchords;
       }
       return false;
@@ -21188,7 +21133,7 @@ async function preparePlayback() {
       }
     }
     // Second: allow drums/gchords if still no tunes.
-    if (!tunes.length && (playbackSkipDrumsOnce || playbackSkipGchordsOnce)) {
+    if (!tunes.length && (selectionPlaybackRuntime.getSkipDrumsOnce() || playbackSkipGchordsOnce)) {
       attemptFallbackParse("Selection playback: drums/gchords enabled (fallback).", { skipDrums: false, skipGchords: false });
     }
   }
@@ -21526,23 +21471,22 @@ async function startPlaybackFromRange(rangeOverride) {
   const selectionMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab");
   const scopedMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab" || rangeOrigin === "focus");
   if (rangeOrigin === "focus" || rangeOrigin === "selection") {
-    playbackScopedOptions = getSelectionPlaybackSettings();
+    selectionPlaybackRuntime.setScopedOptions(getSelectionPlaybackSettings());
   } else if (rangeOrigin === "ab") {
-    const abMuted = playbackAbMutedVoices && typeof playbackAbMutedVoices === "object"
-      ? Object.keys(playbackAbMutedVoices).filter((k) => playbackAbMutedVoices[k])
-      : [];
-    playbackScopedOptions = {
+    const abMuted = selectionPlaybackRuntime.getAbMutedVoiceIds();
+    selectionPlaybackRuntime.setScopedOptions({
       allowMidiDrums: true,
       muteGchords: window.__abcarusPlaybackStripChordSymbols === true,
       suppressRepeats: true,
       mutedVoices: abMuted,
-    };
+    });
   } else {
-    playbackScopedOptions = null;
+    selectionPlaybackRuntime.clearScopedOptions();
   }
   if (range && typeof range === "object") {
-    if (playbackScopedOptions && typeof playbackScopedOptions.suppressRepeats === "boolean") {
-      range.suppressRepeats = Boolean(playbackScopedOptions.suppressRepeats);
+    const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
+    if (scopedOptions && typeof scopedOptions.suppressRepeats === "boolean") {
+      range.suppressRepeats = Boolean(scopedOptions.suppressRepeats);
     } else if (typeof range.suppressRepeats !== "boolean") {
       range.suppressRepeats = null;
     }
@@ -21565,7 +21509,7 @@ async function startPlaybackFromRange(rangeOverride) {
 		      const desired = soundfontName || "TimGM6mb.sf2";
 	      setSoundfontCaption("Loading...");
 	      updateSoundfontLoadingStatus(desired);
-		      playbackSelectionMode = Boolean(selectionMode);
+		      selectionPlaybackRuntime.setSelectionMode(selectionMode);
 		      await preparePlayback();
 		    } else {
 		      await ensureSoundfontReady();
@@ -21586,8 +21530,8 @@ async function startPlaybackFromRange(rangeOverride) {
 		    }
 		    return;
 		  } finally {
-		    playbackSelectionMode = false;
-        playbackScopedOptions = null;
+		    selectionPlaybackRuntime.setSelectionMode(false);
+        selectionPlaybackRuntime.clearScopedOptions();
 		  }
   if (startToken !== playbackStartToken) return;
 

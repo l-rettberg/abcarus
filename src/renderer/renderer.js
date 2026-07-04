@@ -27,6 +27,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
@@ -1059,8 +1060,7 @@ function updateErrorsFeatureUI() {
   }
   if ($errorsFocusMessage) {
     if (!errorsEnabled) {
-      $errorsFocusMessage.hidden = true;
-      $errorsFocusMessage.textContent = "";
+      clearErrorFocusMessage();
     }
   }
 }
@@ -2819,6 +2819,14 @@ const errorsListController = createErrorsListController({
       if (Number.isFinite(renderIdx)) highlightRenderNoteAtIndex(renderIdx);
     }
   },
+});
+const errorsFocusMessageController = createErrorsFocusMessageController({
+  element: $errorsFocusMessage,
+  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
+  getNavItems: getSortedErrorsForNav,
+  computeErrorId,
+  parseMeterParts,
+  computeMeasureStats: computeMeasureStatsAt,
 });
 const goToMeasureModalController = createGoToMeasureModalController();
 
@@ -7140,49 +7148,11 @@ function shouldComputeMeasureStatsAt(editorText, anchorOffset) {
 }
 
 function setErrorFocusMessage(entry, from) {
-  if (!$errorsFocusMessage) return;
-  if (!editorView) return;
-  const navItems = getSortedErrorsForNav();
-  const navId = computeErrorId(entry);
-  const navIdx = navId ? navItems.findIndex((x) => x.id === navId) : -1;
-  const navPrefix = (navIdx !== -1 && navItems.length) ? `${navIdx + 1}/${navItems.length} ` : "";
-
-  const text = editorView.state.doc.toString();
-  const parts = parseMeterParts(text);
-  const stats = computeMeasureStatsAt(text, from);
-
-  let msg = entry && entry.message ? String(entry.message) : "";
-  // Strip abc2svg location prefixes like "out:35:67 Error:" and any X:... wrapper.
-  msg = msg.replace(/^\s*\w+:\d+:\d+\s+/i, "").trim();
-  msg = msg.replace(/^\s*(warning|error)\s*:\s*/i, "").trim();
-  msg = msg.replace(/^\s*X:\s*\d+\s+[^:]*:\s*/i, "").trim();
-  msg = msg.replace(/\s+\(abc2svg\)\s*$/i, "").trim();
-
-  let out = "";
-  const suppressBeatsPrefix = /^meter mismatch:/i.test(msg) || /^repeat marker\b/i.test(msg);
-  if (!suppressBeatsPrefix && parts && stats && Number.isFinite(stats.actualWhole)) {
-    const expectedBeats = parts.num;
-    const actualBeats = stats.actualWhole * parts.den;
-    const diff = actualBeats - expectedBeats;
-    if (Number.isFinite(diff) && Math.abs(diff) >= 0.01) {
-      out = `Beats: ${actualBeats.toFixed(2)} (expected ${expectedBeats}, Δ ${diff.toFixed(2)})`;
-    }
-  }
-  if (msg) {
-    out = out ? `${out} — ${msg}` : msg;
-  }
-
-  const final = out ? `${navPrefix}${out}`.trim() : "";
-  $errorsFocusMessage.textContent = final;
-  $errorsFocusMessage.hidden = !final;
-  $errorsFocusMessage.title = msg || "";
+  errorsFocusMessageController.set(entry, from);
 }
 
 function clearErrorFocusMessage() {
-  if (!$errorsFocusMessage) return;
-  $errorsFocusMessage.textContent = "";
-  $errorsFocusMessage.hidden = true;
-  $errorsFocusMessage.title = "";
+  errorsFocusMessageController.clear();
 }
 
 function isDebugMessagesEnabled() {
@@ -7275,10 +7245,7 @@ function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) 
 
 function updateErrorsIndicatorAndPopover() {
   if (!errorsEnabled) {
-    if ($errorsFocusMessage) {
-      $errorsFocusMessage.textContent = "";
-      $errorsFocusMessage.hidden = true;
-    }
+    clearErrorFocusMessage();
     errorsPopoverController.updateIndicator({ enabled: false });
     return;
   }

@@ -30,6 +30,7 @@ import {
 import { createErrorsActivationController } from "./editor/errors_activation_controller.js";
 import { createErrorsCollection } from "./editor/errors_collection.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
+import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createMeasureErrorState } from "./editor/errors_measure_state.js";
 import {
@@ -2758,6 +2759,22 @@ const errorsActivationController = createErrorsActivationController({
   setFocusMessage: setErrorFocusMessage,
   refreshPopover: () => errorsPopoverController.refresh(),
   highlightSvgAtEditorOffset,
+  logError: (...args) => console.error(...args),
+});
+const errorsJumpController = createErrorsJumpController({
+  isEnabled: () => errorsEnabled,
+  showToast,
+  getEditorView: () => editorView,
+  openTuneFromLibrarySelection: (selection) => {
+    if (typeof window.openTuneFromLibrarySelection !== "function") return Promise.resolve(null);
+    return window.openTuneFromLibrarySelection(selection);
+  },
+  selectTune,
+  setPendingPlaybackRangeOrigin: (origin) => { pendingPlaybackRangeOrigin = origin; },
+  setActiveHighlight: setActiveErrorHighlight,
+  highlightState: errorsHighlightState,
+  highlightSvgAtEditorOffset,
+  applyPlaybackRangeFromError,
   logError: (...args) => console.error(...args),
 });
 const aboutModalController = createAboutModalController({
@@ -7197,78 +7214,7 @@ function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = 
 }
 
 async function jumpToError(errItem) {
-  if (!errItem) return;
-  if (!errorsEnabled) {
-    showToast("Errors disabled");
-    return;
-  }
-  const targetFilePath = errItem.filePath || null;
-  const targetTuneId = errItem.tuneId || null;
-  if (targetFilePath && targetTuneId && typeof window.openTuneFromLibrarySelection === "function") {
-    const res = await window.openTuneFromLibrarySelection({ filePath: targetFilePath, tuneId: targetTuneId });
-    if (!res || !res.ok) return;
-  } else if (targetTuneId) {
-    await selectTune(targetTuneId);
-  }
-
-  if (!editorView) return;
-  const doc = editorView.state.doc;
-  const docLen = doc.length;
-  let errorStartOffset = Number(errItem.errorStartOffset);
-  let errorEndOffset = Number(errItem.errorEndOffset);
-  if (!Number.isFinite(errorStartOffset) || !Number.isFinite(errorEndOffset) || errorEndOffset <= errorStartOffset) {
-    // Fallback for errors that don't have measureRange: use line/col location if available.
-    const loc = errItem.loc || null;
-    if (loc && Number.isFinite(loc.line)) {
-      const lineNo = Math.max(1, Math.min(doc.lines, Number(loc.line)));
-      const line = doc.line(lineNo);
-      const col = Number.isFinite(loc.col) ? Math.max(1, Number(loc.col)) : 1;
-      const pos = Math.max(line.from, Math.min(line.to, line.from + col - 1));
-      errorStartOffset = pos;
-      errorEndOffset = Math.max(
-        Math.min(line.to, pos + 16),
-        Math.min(pos + 1, docLen)
-      );
-    }
-  }
-  if (!Number.isFinite(errorStartOffset) || !Number.isFinite(errorEndOffset) || errorEndOffset <= errorStartOffset) {
-    console.error("[abcarus] Error activation missing/invalid offsets:", {
-      errorStartOffset: errItem.errorStartOffset,
-      errorEndOffset: errItem.errorEndOffset,
-      loc: errItem.loc || null,
-    });
-    return;
-  }
-  if (errorStartOffset < 0 || errorEndOffset > docLen) {
-    console.error("[abcarus] Error activation offsets out of bounds:", { errorStartOffset, errorEndOffset, docLen });
-    return;
-  }
-  pendingPlaybackRangeOrigin = "error";
-  setActiveErrorHighlight(errItem, errorStartOffset, errorEndOffset);
-  errorsHighlightState.setSuppressClear(true);
-  const effects = [];
-  if (typeof EditorView.scrollIntoView === "function") {
-    try {
-      effects.push(EditorView.scrollIntoView(errorStartOffset, { y: "center" }));
-    } catch {}
-  }
-  editorView.dispatch({
-    selection: EditorSelection.cursor(errorStartOffset),
-    effects,
-    scrollIntoView: true,
-  });
-  setTimeout(() => { errorsHighlightState.setSuppressClear(false); }, 0);
-  editorView.focus();
-
-  // Best-effort: scroll notation to the same location.
-  if (!highlightSvgAtEditorOffset(errorStartOffset)) {
-    requestAnimationFrame(() => { highlightSvgAtEditorOffset(errorStartOffset); });
-  }
-
-  const msg = String(errItem.message || "");
-  if (/bad measure duration/i.test(msg)) {
-    applyPlaybackRangeFromError({ ...errItem, errorStartOffset, errorEndOffset });
-  }
+  await errorsJumpController.jumpToError(errItem);
 }
 
 function applyPlaybackRangeFromError(errItem) {

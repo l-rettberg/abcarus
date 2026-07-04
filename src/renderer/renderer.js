@@ -16672,6 +16672,8 @@ async function togglePlayPauseEffective() {
     return;
   }
 
+  if (await playSelectionOnce()) return;
+
   const plan = pendingPlaybackPlan || buildTransportPlaybackPlan();
   if (plan && plan.invalid) {
     pendingPlaybackPlan = null;
@@ -16785,6 +16787,7 @@ async function transportPlay() {
     });
     return;
   }
+  if (await playSelectionOnce()) return;
   const startOffset = getEditorMeasureStartOffset();
   await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
 }

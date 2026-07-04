@@ -47,17 +47,16 @@ import { createErrorsPopoverController } from "./editor/errors_popover_controlle
 import { createErrorsReporterController } from "./editor/errors_reporter_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
-  buildSortedErrorsForNav,
   computeErrorId,
   getErrorGroupKey,
   getErrorGroupLabel as getErrorGroupLabelCore,
-  normalizeErrors,
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
 import { createErrorsNavigationController } from "./editor/errors_navigation_controller.js";
 import { createErrorsTuneScanController } from "./editor/errors_tune_scan_controller.js";
 import { createErrorsSvgHighlightController } from "./editor/errors_svg_highlight_controller.js";
+import { createErrorsRuntimeState } from "./editor/errors_runtime_state.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -505,7 +504,6 @@ let headerDirty = false;
 let suppressHeaderDirty = false;
 let lastHeaderToastFilePath = null;
 let headerEditorFilePath = null;
-let lastErrors = [];
 let isNewTuneDraft = false;
 let rawMode = false;
 let rawModeFilePath = null;
@@ -797,6 +795,12 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
+const errorsRuntimeState = createErrorsRuntimeState({
+  isEnabled: isErrorsEnabled,
+  clearFocusMessage: clearErrorFocusMessage,
+  updateIndicator: (options) => errorsPopoverController.updateIndicator(options),
+  syncActiveNavIndex: () => syncActiveErrorNavIndex(),
+});
 const errorsSvgHighlightController = createErrorsSvgHighlightController({
   highlightState: errorsHighlightState,
   getOutputElement: () => $out,
@@ -1043,7 +1047,7 @@ let lastSvgPlayheadSvg = null;
 let lastSvgPlayheadXCenter = null;
 
 function getSortedErrorsForNav() {
-  return buildSortedErrorsForNav(lastErrors);
+  return errorsRuntimeState.getSortedErrorsForNav();
 }
 
 function syncActiveErrorNavIndex(sortedItemsArg) {
@@ -2682,7 +2686,7 @@ const errorsPopoverController = createErrorsPopoverController({
   popover: $errorsPopover,
   titleElement: $errorsPopoverTitle,
   listElement: $errorsListPopover,
-  getErrors: () => lastErrors,
+  getErrors: () => errorsRuntimeState.getErrors(),
   getActiveErrorId: () => {
     const active = errorsHighlightState.getActive();
     return active && active.id ? active.id : "";
@@ -7088,18 +7092,11 @@ function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) 
 }
 
 function updateErrorsIndicatorAndPopover() {
-  if (!isErrorsEnabled()) {
-    clearErrorFocusMessage();
-    errorsPopoverController.updateIndicator({ enabled: false });
-    return;
-  }
-  errorsPopoverController.updateIndicator({ enabled: true });
+  errorsRuntimeState.updateIndicatorAndPopover();
 }
 
 function setScanErrors(errorsArray) {
-  lastErrors = normalizeErrors(errorsArray);
-  updateErrorsIndicatorAndPopover();
-  syncActiveErrorNavIndex();
+  errorsRuntimeState.setErrors(errorsArray);
 }
 
 function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = {}) {

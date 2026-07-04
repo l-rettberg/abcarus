@@ -21,6 +21,43 @@ function buildPracticeBarDecorations(state, range) {
   return buildSingleRangeMarkDecorations(state, range, "cm-practice-bar");
 }
 
+function createTextWidget(className, text) {
+  return {
+    eq(other) {
+      return Boolean(other && other.className === className && other.text === text);
+    },
+    toDOM() {
+      const el = document.createElement("span");
+      el.className = className;
+      el.textContent = text;
+      return el;
+    },
+    className,
+    text,
+  };
+}
+
+function buildAbDecorations(state, markers) {
+  if (!state || !state.doc || !markers || !Number.isFinite(markers.start) || !Number.isFinite(markers.end)) {
+    return Decoration.none;
+  }
+  const builder = new RangeSetBuilder();
+  const max = state.doc.length;
+  const start = Math.max(0, Math.min(max, Math.floor(markers.start)));
+  const end = Math.max(start, Math.min(max, Math.floor(markers.end)));
+  const rangeTo = Math.max(start + 1, end);
+  builder.add(start, rangeTo, Decoration.mark({ class: "cm-ab-range" }));
+  builder.add(start, start + 1, Decoration.widget({
+    side: -1,
+    widget: createTextWidget("cm-ab-marker cm-ab-marker-a", "A"),
+  }));
+  builder.add(Math.max(start, end - 1), Math.max(start, end - 1) + 1, Decoration.widget({
+    side: 1,
+    widget: createTextWidget("cm-ab-marker cm-ab-marker-b", "B"),
+  }));
+  return builder.finish();
+}
+
 function buildMeasureErrorDecorations(state, ranges) {
   if (!ranges || !ranges.length) return Decoration.none;
   const builder = new RangeSetBuilder();
@@ -181,6 +218,7 @@ function buildPayloadLayerDecorations(state, { payloadMode, showLayers, layerSpa
 }
 
 export {
+  buildAbDecorations,
   buildBarMismatchDecorations,
   buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,

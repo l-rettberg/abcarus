@@ -5,8 +5,6 @@ import {
   basicSetup,
   Compartment,
   keymap,
-  Decoration,
-  RangeSetBuilder,
   ViewPlugin,
   indentUnit,
   openSearchPanel,
@@ -33,6 +31,7 @@ import { createErrorsPopoverController } from "./editor/errors_popover_controlle
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
+  buildAbDecorations,
   buildBarMismatchDecorations,
   buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
@@ -3950,41 +3949,6 @@ function setMeasureErrorRanges(ranges) {
     selection: editorView.state.selection,
     scrollIntoView: false,
   });
-}
-
-function buildAbDecorations(state, markers) {
-  if (!state || !state.doc || !markers || !Number.isFinite(markers.start) || !Number.isFinite(markers.end)) {
-    return Decoration.none;
-  }
-  const builder = new RangeSetBuilder();
-  const max = state.doc.length;
-  const start = Math.max(0, Math.min(max, Math.floor(markers.start)));
-  const end = Math.max(start, Math.min(max, Math.floor(markers.end)));
-  const rangeTo = Math.max(start + 1, end);
-  builder.add(start, rangeTo, Decoration.mark({ class: "cm-ab-range" }));
-  builder.add(start, start + 1, Decoration.widget({
-    side: -1,
-    widget: new class extends WidgetType {
-      toDOM() {
-        const el = document.createElement("span");
-        el.className = "cm-ab-marker cm-ab-marker-a";
-        el.textContent = "A";
-        return el;
-      }
-    }(),
-  }));
-  builder.add(Math.max(start, end - 1), Math.max(start, end - 1) + 1, Decoration.widget({
-    side: 1,
-    widget: new class extends WidgetType {
-      toDOM() {
-        const el = document.createElement("span");
-        el.className = "cm-ab-marker cm-ab-marker-b";
-        el.textContent = "B";
-        return el;
-      }
-    }(),
-  }));
-  return builder.finish();
 }
 
 const abPlugin = ViewPlugin.fromClass(class {

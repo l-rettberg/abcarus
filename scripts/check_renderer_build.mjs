@@ -122,11 +122,14 @@ async function assertSaveIntentGuards() {
     throw new Error("performSimpleTuneSave() must keep any open working copy aligned after disk save.");
   }
 
-  const ensureStart = src.indexOf("function ensureXNumberInAbc(abcText, xNumber)");
-  const ensureEnd = src.indexOf("function renumberXLinesConsecutive(", ensureStart);
-  if (ensureStart < 0 || ensureEnd < 0) throw new Error("Unable to isolate ensureXNumberInAbc().");
-  const ensureFnCode = src.slice(ensureStart, ensureEnd);
-  const ensureXNumberInAbc = new Function(`${ensureFnCode}; return ensureXNumberInAbc;`)();
+  const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");
+  const textTransformsModule = { exports: {} };
+  const textTransformsCode = textTransformsSrc.replace(
+    /export\s+\{[\s\S]*?\};\s*$/,
+    "module.exports = { ensureXNumberInAbc };",
+  );
+  new Function("module", "exports", textTransformsCode)(textTransformsModule, textTransformsModule.exports);
+  const { ensureXNumberInAbc } = textTransformsModule.exports;
 
   const input = [
     "%Rude Mechanicals tune library: www.rudemex.co.uk",

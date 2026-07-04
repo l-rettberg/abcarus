@@ -3394,7 +3394,6 @@ let startupUiLoading = true;
 let startupSettingsApplied = false;
 let startupAutoLoadStarted = false;
 let startupRecentOpenStarted = false;
-const STARTUP_LOADING_WATCHDOG_MS = 12000;
 
 function markStartupUiReady() {
   if (!startupUiLoading) return;
@@ -3411,17 +3410,6 @@ function markStartupSettingsApplied() {
     renderUnifiedStatus();
   }
 }
-
-setTimeout(() => {
-  if (!startupUiLoading) return;
-  startupAutoLoadStarted = false;
-  startupRecentOpenStarted = false;
-  startupUiLoading = false;
-  renderUnifiedStatus();
-  try {
-    console.warn("[abcarus] Startup loading watchdog cleared a stale Loading status.");
-  } catch {}
-}, STARTUP_LOADING_WATCHDOG_MS);
 
 function computeWorkingCopyFileState() {
   const filePath = rawMode
@@ -6499,11 +6487,6 @@ async function loadLibraryFromFolder(folder) {
 		    setScanStatus("Scan failed");
 		    logErr((e && e.stack) ? e.stack : String(e));
         markStartupUiReady();
-		  } finally {
-        startupAutoLoadStarted = false;
-        if (startupUiLoading && (startupSettingsApplied || !(window.api && typeof window.api.getSettings === "function"))) {
-          markStartupUiReady();
-        }
 		  }
 }
 
@@ -14671,20 +14654,12 @@ loadLastRecentEntry()
     // If settings are unavailable, fall back to Ready only when there was no recent to open.
     if (!didStart && !(window.api && typeof window.api.getSettings === "function")) {
       markStartupUiReady();
-    } else if (didStart) {
-      startupRecentOpenStarted = false;
-      if (startupSettingsApplied || !(window.api && typeof window.api.getSettings === "function")) {
-        markStartupUiReady();
-      } else {
-        renderUnifiedStatus();
-      }
     } else {
       renderUnifiedStatus();
     }
   })
   .catch(() => {
     // Keep loading until settings apply decides, unless settings are unavailable.
-    startupRecentOpenStarted = false;
     if (!(window.api && typeof window.api.getSettings === "function")) markStartupUiReady();
     else renderUnifiedStatus();
   });

@@ -364,7 +364,7 @@ async function assertSepIsPrestrippedForRender() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
   const start = src.indexOf("function stripSepForRender(text)");
-  const end = src.indexOf("function parseBarToken(rawToken)", start);
+  const end = src.indexOf("let pendingRenderTimer", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate %%sep render helper.");
 
   const module = { exports: {} };

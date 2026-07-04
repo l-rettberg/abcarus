@@ -35,6 +35,7 @@ import { createErrorsFocusMessageController } from "./editor/errors_focus_messag
 import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
 import { createErrorsLifecycleController } from "./editor/errors_lifecycle_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
+import { createErrorsMeasureHighlightController } from "./editor/errors_measure_highlight_controller.js";
 import { createMeasureErrorState } from "./editor/errors_measure_state.js";
 import { createErrorsPlaybackRangeController } from "./editor/errors_playback_range_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
@@ -718,6 +719,11 @@ const errorsBarMismatchController = createErrorsBarMismatchController({
       scrollIntoView: false,
     });
   },
+});
+const errorsMeasureHighlightController = createErrorsMeasureHighlightController({
+  getOutputElement: () => $out,
+  getEditorRanges: () => measureErrorState.getRanges(),
+  getRenderRanges: () => errorsReporterController.getMeasureRenderRanges(),
 });
 const errorsReporterController = createErrorsReporterController({
   collection: errorsCollection,
@@ -8905,44 +8911,7 @@ function setErrorLineOffsetFromHeader(headerText) {
 }
 
 function applyMeasureHighlights(renderOffset) {
-  if (!$out) return;
-  const notes = $out.querySelectorAll(".note-hl, .bar-hl");
-  for (const note of notes) note.classList.remove("measure-error");
-  const measureErrorRenderRanges = errorsReporterController.getMeasureRenderRanges();
-  const useRenderRanges = measureErrorRenderRanges && measureErrorRenderRanges.length;
-  const editorRanges = measureErrorState.getRanges();
-  if (!useRenderRanges && !editorRanges.length) return;
-  const ranges = useRenderRanges
-    ? measureErrorRenderRanges
-    : editorRanges.map((range) => ({
-      start: range.start + (renderOffset || 0),
-      end: range.end + (renderOffset || 0),
-    }));
-  const barEls = Array.from($out.querySelectorAll(".bar-hl"));
-  if (barEls.length) {
-    for (const bar of barEls) {
-      const start = Number(bar.dataset && bar.dataset.start);
-      if (!Number.isFinite(start)) continue;
-      const hit = ranges.some((range) => start >= range.start && start < range.end);
-      if (hit) bar.classList.add("measure-error");
-    }
-    return;
-  }
-  const noteEls = Array.from($out.querySelectorAll(".note-hl"));
-  for (const range of ranges) {
-    let first = null;
-    let last = null;
-    for (const note of noteEls) {
-      const start = Number(note.dataset && note.dataset.start);
-      if (!Number.isFinite(start)) continue;
-      if (start >= range.start && start < range.end) {
-        if (!first) first = note;
-        last = note;
-      }
-    }
-    if (first) first.classList.add("measure-error");
-    if (last && last !== first) last.classList.add("measure-error");
-  }
+  errorsMeasureHighlightController.apply(renderOffset);
 }
 
 function isMeasureCheckEnabled() {

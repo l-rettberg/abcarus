@@ -77,7 +77,6 @@ import {
   parseAbcHeaderFields,
   parseTuneIdentityFields,
 } from "./abc/header_fields.js";
-import { suggestMakamCandidates } from "./makam_suggestion.mjs";
 import { createPerdeService } from "./microtonal/perde_service.js";
 import {
   isChordProFilePath,
@@ -93,16 +92,7 @@ import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_co
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
 import { createMicrotonalToolsFeature } from "./tools/microtonal/microtonal_tools_feature.js";
-import {
-  buildIntonationRowsFromEntries,
-  formatAeuLabel,
-  mod53,
-  parseTonalBaseFromK,
-  pickAutoBaseStep,
-  resolveTonalBaseInput,
-  scanIntonationEntries as scanIntonationEntriesCore,
-} from "./tools/intonation_explorer/intonation_model.js";
-import { createIntonationCopyController } from "./tools/intonation_explorer/intonation_copy_controller.js";
+import { createIntonationExplorerFeature } from "./tools/intonation_explorer/intonation_explorer_feature.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
@@ -267,29 +257,6 @@ const $fileNameMeta = document.getElementById("fileNameMeta");
 const $sourceLinkPanel = document.getElementById("sourceLinkPanel");
 const $sidebarSplit = document.getElementById("sidebarSplit");
 const $toast = document.getElementById("toast");
-const $intonationExplorerPanel = document.getElementById("intonationExplorerPanel");
-const $intonationExplorerClose = document.getElementById("intonationExplorerClose");
-const $intonationExplorerMore = document.getElementById("intonationExplorerMore");
-const $intonationExplorerMenu = document.getElementById("intonationExplorerMenu");
-const $intonationExplorerBaseMode = document.getElementById("intonationExplorerBaseMode");
-const $intonationExplorerBaseManual = document.getElementById("intonationExplorerBaseManual");
-const $intonationExplorerDeclaredMakam = document.getElementById("intonationExplorerDeclaredMakam");
-const $intonationExplorerCompareMakam = document.getElementById("intonationExplorerCompareMakam");
-const $intonationExplorerSort = document.getElementById("intonationExplorerSort");
-const $intonationExplorerSkipGrace = document.getElementById("intonationExplorerSkipGrace");
-const $intonationExplorerRefresh = document.getElementById("intonationExplorerRefresh");
-const $intonationExplorerStatus = document.getElementById("intonationExplorerStatus");
-const $intonationExplorerTableBody = document.getElementById("intonationExplorerTableBody");
-const $intonationExplorerPlot = document.getElementById("intonationExplorerPlot");
-const $intonationExplorerPlotOverlay = document.getElementById("intonationExplorerPlotOverlay");
-const $intonationExplorerPlotLine = document.getElementById("intonationExplorerPlotLine");
-const $intonationExplorerPlotPoints = document.getElementById("intonationExplorerPlotPoints");
-const $intonationExplorerPlotLegend = document.getElementById("intonationExplorerPlotLegend");
-const $intonationExplorerDnaText = document.getElementById("intonationExplorerDnaText");
-const $intonationExplorerCopyDna = document.getElementById("intonationExplorerCopyDna");
-const $intonationExplorerCopyPitchSet = document.getElementById("intonationExplorerCopyPitchSet");
-const $intonationExplorerEditMakamDna = document.getElementById("intonationExplorerEditMakamDna");
-const $intonationExplorerCandidates = document.getElementById("intonationExplorerCandidates");
 const $errorsIndicator = document.getElementById("errorsIndicator");
 const $errorsFocusMessage = document.getElementById("errorsFocusMessage");
 const $errorsPopover = document.getElementById("errorsPopover");
@@ -4623,61 +4590,7 @@ function refreshPayloadLayerDecorations() {
   });
 }
 
-const DEFAULT_INT_BASE = "pc53=0";
-let intonationExplorerVisible = false;
-let intonationExplorerRows = [];
-let intonationExplorerActiveStep = null;
-let intonationExplorerBaseStep = 0;
-let intonationExplorerBaseLabel = "pc53=0";
-let intonationExplorerBaseMode = "auto";
-let intonationExplorerSortMode = "first";
-let intonationExplorerSkipGraceNotes = true;
-let intonationExplorerIs53 = false;
-let intonationExplorerDeclaredMakam = "";
-let intonationExplorerCompareMakam = "";
-let intonationExplorerAutoMakamApplied = false;
-let intonationExplorerRoleAbs53Map = null;
-let intonationCopyController = null;
-let lastIntonationDnaSource = null; // lazy-built on Copy (avoid heavy work on every refresh)
-
-function setIntonationExplorerDnaUi({ dnaText, pitchSetText } = {}) {
-  if (intonationCopyController) intonationCopyController.setReady({ dnaText, pitchSetText });
-}
-
-function clearIntonationExplorerPlot() {
-  if ($intonationExplorerPlotLine) $intonationExplorerPlotLine.setAttribute("points", "");
-  if ($intonationExplorerPlotOverlay) $intonationExplorerPlotOverlay.innerHTML = "";
-  if ($intonationExplorerPlotPoints) $intonationExplorerPlotPoints.innerHTML = "";
-  if ($intonationExplorerPlotLegend) $intonationExplorerPlotLegend.textContent = "";
-}
-
-function populateIntonationExplorerMakams() {
-  const list = getMakamDnaEntries();
-  const names = list
-    .map((e) => String(e && e.makam ? e.makam : "").trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-
-  const fill = (selectEl) => {
-    if (!selectEl) return;
-    const current = String(selectEl.value || "");
-    selectEl.textContent = "";
-    const none = document.createElement("option");
-    none.value = "";
-    none.textContent = "None";
-    selectEl.appendChild(none);
-    for (const name of names) {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      selectEl.appendChild(opt);
-    }
-    selectEl.value = current;
-  };
-
-  fill($intonationExplorerDeclaredMakam);
-  fill($intonationExplorerCompareMakam);
-}
+let intonationExplorerFeature = null;
 
 const microtonalToolsFeature = createMicrotonalToolsFeature({
   makamDna: {
@@ -4694,229 +4607,16 @@ const microtonalToolsFeature = createMicrotonalToolsFeature({
   logError: (e) => logErr(e && e.message ? e.message : String(e)),
   showToast: (message, timeout) => showToast(message, timeout),
   onMakamDnaChanged: async () => {
-    populateIntonationExplorerMakams();
-    if (intonationExplorerVisible) {
-      try { await refreshIntonationExplorer(); } catch {}
+    if (intonationExplorerFeature) {
+      intonationExplorerFeature.populateMakams();
+      if (intonationExplorerFeature.isVisible()) {
+        try { await intonationExplorerFeature.refresh(); } catch {}
+      }
     }
   },
 });
 
-function getMakamDnaEntries() {
-  return microtonalToolsFeature.getMakamDnaEntries();
-}
-
-async function ensureMakamDnaLoaded() {
-  await microtonalToolsFeature.ensureMakamDnaLoaded();
-}
-
-function detectMakamFromTuneText(tuneText) {
-  return microtonalToolsFeature.detectMakamFromTuneText(tuneText);
-}
-
 const perdeService = createPerdeService();
-const ensurePerdeApisLoaded = () => perdeService.ensureApisLoaded();
-const ensurePerdeNameIndexLoaded = () => perdeService.ensureNameIndexLoaded();
-const parseMakamDnaPerdeField = (fieldText) => perdeService.parseMakamDnaPerdeField(fieldText);
-const pickOverlayAbs53ForPerde = (perdeName, options) => perdeService.pickOverlayAbs53(perdeName, options);
-const resolvePerdeNameSafe = (args) => perdeService.resolveName(args);
-const resolvePerdeNamesFromAbcTokenSafe = (token) => perdeService.resolveNamesFromAbcToken(token);
-const resolvePerdePc53Candidates = (perdeName) => perdeService.resolvePc53Candidates(perdeName);
-
-function getMakamDnaEntry(name) {
-  return microtonalToolsFeature.getMakamDnaEntry(name);
-}
-
-function renderIntonationSeyirPlot({ noteEvents, baseStep, overlayMakamName } = {}) {
-  if (!$intonationExplorerPlot || !$intonationExplorerPlotLine || !$intonationExplorerPlotPoints) return;
-  const events = Array.isArray(noteEvents) ? noteEvents : [];
-  if (!events.length) {
-    clearIntonationExplorerPlot();
-    return;
-  }
-  // Compress consecutive repeats (abs53) to reveal motion.
-  const compressed = [];
-  for (const e of events) {
-    const last = compressed.length ? compressed[compressed.length - 1] : null;
-    if (last && Number(last.abs53) === Number(e.abs53)) continue;
-    compressed.push(e);
-  }
-  if (compressed.length < 2) {
-    clearIntonationExplorerPlot();
-    return;
-  }
-
-  const absVals = compressed.map((e) => Number(e.abs53)).filter((n) => Number.isFinite(n));
-  const minAbs = absVals.length ? Math.min(...absVals) : null;
-  const maxAbs = absVals.length ? Math.max(...absVals) : null;
-  if (!Number.isFinite(minAbs) || !Number.isFinite(maxAbs) || maxAbs === minAbs) {
-    clearIntonationExplorerPlot();
-    return;
-  }
-
-  const vb = $intonationExplorerPlot.viewBox && $intonationExplorerPlot.viewBox.baseVal
-    ? $intonationExplorerPlot.viewBox.baseVal
-    : { width: 360, height: 120 };
-  const w = Number(vb.width) || 360;
-  const h = Number(vb.height) || 120;
-  const padX = 8;
-  const padY = 10;
-  const innerW = Math.max(1, w - padX * 2);
-  const innerH = Math.max(1, h - padY * 2);
-
-  const toX = (i) => padX + (i / (compressed.length - 1)) * innerW;
-  const toY = (abs53) => padY + ((maxAbs - abs53) / (maxAbs - minAbs)) * innerH;
-
-  const points = compressed.map((e, i) => `${toX(i).toFixed(2)},${toY(Number(e.abs53)).toFixed(2)}`).join(" ");
-  $intonationExplorerPlotLine.setAttribute("points", points);
-
-  // Overlay: durak / guclu / yeden as horizontal guides (manual compare mode).
-  if ($intonationExplorerPlotOverlay) $intonationExplorerPlotOverlay.innerHTML = "";
-  const overlayEntry = overlayMakamName ? getMakamDnaEntry(overlayMakamName) : null;
-  if ($intonationExplorerPlotOverlay && overlayEntry) {
-    const mkLine = (y, color, dash, label) => {
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(padX));
-      line.setAttribute("x2", String(w - padX));
-      line.setAttribute("y1", String(y));
-      line.setAttribute("y2", String(y));
-      line.setAttribute("stroke", color);
-      line.setAttribute("stroke-width", "1.2");
-      if (dash) line.setAttribute("stroke-dasharray", dash);
-      line.setAttribute("opacity", "0.75");
-      if (label) line.setAttribute("data-label", label);
-      return line;
-    };
-
-    const durak = parseMakamDnaPerdeField(overlayEntry.durak);
-    const guclu = parseMakamDnaPerdeField(overlayEntry.guclu);
-    const yeden = parseMakamDnaPerdeField(overlayEntry.yeden);
-
-    const durakAbs = pickOverlayAbs53ForPerde(durak.name, { hint: durak.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
-    const gucluAbs = pickOverlayAbs53ForPerde(guclu.name, { hint: guclu.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
-    const yedenAbs = pickOverlayAbs53ForPerde(yeden.name, { hint: yeden.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
-
-    const overlayLabels = [];
-    if (Number.isFinite(durakAbs)) {
-      const y = toY(durakAbs);
-      $intonationExplorerPlotOverlay.appendChild(mkLine(y, "rgba(20,110,60,1)", "", `Durak: ${durak.name}`));
-      overlayLabels.push(`Durak: ${durak.name}`);
-    }
-    if (Number.isFinite(gucluAbs)) {
-      const y = toY(gucluAbs);
-      $intonationExplorerPlotOverlay.appendChild(mkLine(y, "rgba(60,120,210,1)", "5,4", `Güçlü: ${guclu.name}`));
-      overlayLabels.push(`Güçlü: ${guclu.name}`);
-    }
-    if (Number.isFinite(yedenAbs)) {
-      const y = toY(yedenAbs);
-      $intonationExplorerPlotOverlay.appendChild(mkLine(y, "rgba(210,120,60,1)", "2,4", `Yeden: ${yeden.name}`));
-      overlayLabels.push(`Yeden: ${yeden.name}`);
-    }
-    if ($intonationExplorerPlotLegend) {
-      const overlayName = String(overlayEntry.makam || "");
-      $intonationExplorerPlotLegend.textContent = overlayLabels.length
-        ? `Overlay: ${overlayName} (${overlayLabels.join(" · ")})`
-        : `Overlay: ${overlayName}`;
-    }
-  } else if ($intonationExplorerPlotLegend) {
-    const relBase = Number.isFinite(baseStep) ? formatAeuLabel(mod53(baseStep)) : "pc53=0";
-    $intonationExplorerPlotLegend.textContent = `Observed trajectory (base ${relBase})`;
-  }
-
-  // Turning points (cap to keep it readable).
-  if ($intonationExplorerPlotPoints) $intonationExplorerPlotPoints.innerHTML = "";
-  const turning = [];
-  for (let i = 1; i + 1 < compressed.length; i += 1) {
-    const a = Number(compressed[i - 1].abs53);
-    const b = Number(compressed[i].abs53);
-    const c = Number(compressed[i + 1].abs53);
-    if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
-    if (b > a && b > c) turning.push({ kind: "peak", idx: i, e: compressed[i] });
-    else if (b < a && b < c) turning.push({ kind: "trough", idx: i, e: compressed[i] });
-  }
-  // Sample turning points across the whole tune (avoid clustering at the start).
-  const TURN_CAP = 24;
-  let sampledTurning = turning;
-  if (turning.length > TURN_CAP) {
-    const picked = [];
-    const used = new Set();
-    for (let i = 0; i < TURN_CAP; i += 1) {
-      const t = TURN_CAP === 1 ? 0 : (i / (TURN_CAP - 1));
-      const j = Math.round(t * (turning.length - 1));
-      if (used.has(j)) continue;
-      used.add(j);
-      picked.push(turning[j]);
-    }
-    sampledTurning = picked;
-  }
-  const important = [
-    { kind: "start", idx: 0, e: compressed[0] },
-    ...sampledTurning,
-    { kind: "end", idx: compressed.length - 1, e: compressed[compressed.length - 1] },
-  ];
-
-  const mkPoint = (it) => {
-    const e = it.e || {};
-    const abs53 = Number(e.abs53);
-    if (!Number.isFinite(abs53)) return null;
-    const cx = toX(it.idx);
-    const cy = toY(abs53);
-    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    c.setAttribute("cx", cx.toFixed(2));
-    c.setAttribute("cy", cy.toFixed(2));
-    c.setAttribute("r", it.kind === "start" || it.kind === "end" ? "5.2" : "4.4");
-    let fill = "rgba(0,0,0,0.5)";
-    if (it.kind === "peak") fill = "rgba(200,60,60,0.9)";
-    if (it.kind === "trough") fill = "rgba(60,110,210,0.9)";
-    if (it.kind === "start") fill = "rgba(30,140,70,0.95)";
-    if (it.kind === "end") fill = "rgba(0,0,0,0.8)";
-    c.setAttribute("fill", fill);
-    c.setAttribute("stroke", "rgba(255,255,255,0.9)");
-    c.setAttribute("stroke-width", "1.2");
-    const pc = formatAeuLabel(mod53(e.pc53 || 0));
-    c.setAttribute("data-kind", it.kind);
-    c.setAttribute("data-start", String(e.start ?? ""));
-    c.setAttribute("data-end", String(e.end ?? ""));
-    const perde = intonationExplorerIs53 ? (resolvePerdeNameSafe({ pc53: mod53(e.pc53 || 0), octave: e.octave }) || "") : "";
-    const role = (intonationExplorerRoleAbs53Map && intonationExplorerRoleAbs53Map.get(String(abs53))) ? intonationExplorerRoleAbs53Map.get(String(abs53)) : "";
-    const perdePart = perde ? `; perde=${perde}` : "";
-	    const rolePart = role ? `; role=${role}` : "";
-	    c.setAttribute("title", `${it.kind}: ${String(e.spelling || "")} (pc53=${pc})${perdePart}${rolePart}`);
-	    c.style.cursor = "pointer";
-	    c.addEventListener("mouseenter", () => {
-	      try {
-	        if (Number.isFinite(Number(abs53))) activateIntonationExplorerRow(abs53);
-	      } catch {}
-	    });
-	    c.addEventListener("click", () => {
-	      if (!Number.isFinite(Number(e.start))) return;
-	      try {
-	        // Sync table + multi-occurrence highlights for this pitch.
-        activateIntonationExplorerRow(abs53);
-      } catch {}
-      try {
-        // Also scroll to the exact note instance the turning point came from.
-        const off = Number(e.start);
-        const endOff = Number(e.end) || off + 1;
-        highlightSvgIntonationNotesByRanges([{ start: off, end: endOff }]);
-      } catch {}
-      try {
-        const off = Number(e.start);
-        if (editorView && Number.isFinite(off)) {
-          const docLen = editorView.state && editorView.state.doc ? editorView.state.doc.length : 0;
-          const safeOff = Math.max(0, Math.min(docLen, off));
-          editorView.dispatch({ selection: { anchor: safeOff, head: safeOff }, scrollIntoView: true });
-          try { editorView.focus(); } catch {}
-        }
-      } catch {}
-    });
-    return c;
-  };
-
-  for (const it of important) {
-    const el = mkPoint(it);
-    if (el && $intonationExplorerPlotPoints) $intonationExplorerPlotPoints.appendChild(el);
-  }
-}
 
 let lastSvgIntonationBarEls = [];
 let lastSvgIntonationNoteEls = [];
@@ -4950,50 +4650,6 @@ function getIntonationSelectionScope() {
     return { start, end, label: "selection" };
   } catch {
     return null;
-  }
-}
-
-function scanIntonationEntries(snapshot, { skipGraceNotes = true, scope = null } = {}) {
-  const activeTune = resolveTuneEntryFromSnapshot(snapshot, {
-    tuneUid: activeTuneUid,
-    tuneIndex: activeTuneIndex,
-    startOffset: activeTuneMeta && activeTuneMeta.startOffset,
-  });
-  return scanIntonationEntriesCore(snapshot, {
-    activeTune,
-    skipGraceNotes,
-    scope,
-    perfEnabled: isIntonationPerfEnabled(),
-    nowMs: perfNowMs,
-    logPerf: logIntonationPerf,
-  });
-}
-
-  function formatPerdeNameForIntonationRow(row, { is53 } = {}) {
-    if (!is53) return "";
-    const fromToken = resolvePerdeNamesFromAbcTokenSafe(row.abcSpelling).filter(Boolean);
-    if (fromToken.length) return fromToken.join(" / ");
-    return resolvePerdeNameSafe({ pc53: row.absStep, octave: row.octave }) || "";
-  }
-
-intonationCopyController = createIntonationCopyController({
-  copyDnaButton: $intonationExplorerCopyDna,
-  copyPitchSetButton: $intonationExplorerCopyPitchSet,
-  menu: $intonationExplorerMenu,
-  clipboard: navigator && navigator.clipboard ? navigator.clipboard : null,
-  getSource: () => lastIntonationDnaSource,
-  formatPerdeName: formatPerdeNameForIntonationRow,
-  showToast: (message, timeout) => showToast(message, timeout),
-  logError: (e) => logErr(e && e.message ? e.message : String(e)),
-});
-
-function updateIntonationBaseUi() {
-  const mode = ($intonationExplorerBaseMode && $intonationExplorerBaseMode.value) || "auto";
-  intonationExplorerBaseMode = mode;
-  if ($intonationExplorerBaseManual) {
-    const manual = mode === "manual";
-    $intonationExplorerBaseManual.disabled = !manual;
-    $intonationExplorerBaseManual.setAttribute("aria-disabled", manual ? "false" : "true");
   }
 }
 
@@ -5097,400 +4753,50 @@ function highlightSvgIntonationNotesAtEditorOffsets(offsets) {
   return lastSvgIntonationNoteEls.length > 0;
 }
 
-function renderIntonationExplorerRows(rows, { is53, roleAbs53Map } = {}) {
-  if (!$intonationExplorerTableBody) return;
-  $intonationExplorerTableBody.innerHTML = "";
-  const list = Array.isArray(rows) ? rows : [];
-  if (!list.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 4;
-    td.textContent = "No pitch classes detected.";
-    td.style.fontStyle = "italic";
-    tr.appendChild(td);
-    $intonationExplorerTableBody.appendChild(tr);
-    return;
-  }
-  for (const row of list) {
-    const tr = document.createElement("tr");
-    tr.tabIndex = 0;
-    tr.dataset.step = String(row.step);
-    tr.title = `pc53 rel=${formatAeuLabel(row.normalizedStep)}; abs=${formatAeuLabel(row.absStep)}`;
-    if (intonationExplorerActiveStep != null && String(row.step) === String(intonationExplorerActiveStep)) {
-      tr.classList.add("active");
-    }
-	    const pc = document.createElement("td");
-	    const pcRel = document.createElement("span");
-	    const relLabel = formatAeuLabel(row.normalizedStep);
-	    const absLabel = formatAeuLabel(row.absStep);
-	    pcRel.textContent = relLabel;
-	    pc.append(pcRel);
-	    if (relLabel !== absLabel) {
-	      const pcAbs = document.createElement("span");
-	      pcAbs.textContent = ` (${absLabel})`;
-	      pcAbs.className = "subtle";
-	      pc.appendChild(pcAbs);
-	    }
-    const perde = document.createElement("td");
-    let perdeName = "";
-    if (is53) {
-      const fromToken = resolvePerdeNamesFromAbcTokenSafe(row.abcSpelling).filter(Boolean);
-      if (fromToken.length) {
-        perdeName = fromToken.join(" / ");
-      } else {
-        perdeName = resolvePerdeNameSafe({ pc53: row.absStep, octave: row.octave }) || "";
-      }
-    }
-	    if (!is53) {
-	      perde.textContent = "";
-	      perde.title = "";
-	      perde.classList.remove("subtle");
-	    } else {
-	      const role = (roleAbs53Map && roleAbs53Map.get(String(row.step))) ? roleAbs53Map.get(String(row.step)) : "";
-	      perde.textContent = perdeName || "??";
-	      if (role) {
-	        const badge = document.createElement("span");
-	        badge.className = "intonation-role";
-	        badge.textContent = role;
-	        perde.appendChild(badge);
-	      }
-	      if (!perdeName) {
-	        perde.title = `No Perde label yet for token=${String(row.abcSpelling || "")} (pc53=${formatAeuLabel(row.absStep)}).`;
-	        perde.classList.add("subtle");
-	      } else {
-        perde.title = "";
-        perde.classList.remove("subtle");
-      }
-    }
-    const abc = document.createElement("td");
-    abc.textContent = row.abcSpelling || "";
-    const weight = document.createElement("td");
-    weight.textContent = String(row.count || 0);
-    tr.append(pc, perde, abc, weight);
-    tr.addEventListener("click", () => {
-      activateIntonationExplorerRow(row.step);
-    });
-    tr.addEventListener("keydown", (event) => {
-      if (!event || (event.key !== "Enter" && event.key !== " ")) return;
-      event.preventDefault();
-      activateIntonationExplorerRow(row.step);
-    });
-    $intonationExplorerTableBody.appendChild(tr);
-  }
-}
-
-function renderMakamCandidateSuggestions(candidates) {
-  if (!$intonationExplorerCandidates) return;
-  $intonationExplorerCandidates.innerHTML = "";
-  const list = Array.isArray(candidates) ? candidates : [];
-  if (!list.length) {
-    const empty = document.createElement("div");
-    empty.className = "makam-candidate-empty";
-    empty.textContent = "No candidates yet.";
-    $intonationExplorerCandidates.appendChild(empty);
-    return;
-  }
-  for (const candidate of list) {
-    const item = document.createElement("details");
-    item.className = "makam-candidate";
-    const summary = document.createElement("summary");
-    const title = document.createElement("span");
-    title.className = "makam-candidate-title";
-    title.textContent = String(candidate.makam || "");
-    const confidence = document.createElement("span");
-    confidence.className = "makam-candidate-confidence";
-    confidence.textContent = String(candidate.confidence || "Possible");
-    summary.append(title, confidence);
-    item.appendChild(summary);
-
-    const evidenceList = document.createElement("div");
-    evidenceList.className = "makam-candidate-evidence";
-    for (const ev of Array.isArray(candidate.evidence) ? candidate.evidence : []) {
-      const row = document.createElement("div");
-      row.className = "makam-candidate-evidence-row";
-      const label = document.createElement("span");
-      label.className = "makam-candidate-evidence-label";
-      label.textContent = String(ev.label || ev.kind || "");
-      const detail = document.createElement("span");
-      detail.className = "makam-candidate-evidence-detail";
-      detail.textContent = String(ev.detail || "");
-      row.append(label, detail);
-      evidenceList.appendChild(row);
-    }
-    const actions = document.createElement("div");
-    actions.className = "makam-candidate-actions";
-    const declared = document.createElement("button");
-    declared.type = "button";
-    declared.dataset.action = "declared";
-    declared.dataset.makam = String(candidate.makam || "");
-    declared.textContent = "Use as Declared";
-    const compare = document.createElement("button");
-    compare.type = "button";
-    compare.dataset.action = "compare";
-    compare.dataset.makam = String(candidate.makam || "");
-    compare.textContent = "Compare Overlay";
-    actions.append(declared, compare);
-    item.append(evidenceList, actions);
-    $intonationExplorerCandidates.appendChild(item);
-  }
-}
-
-function setIntonationExplorerStatus(message, { error } = {}) {
-  if (!$intonationExplorerStatus) return;
-  $intonationExplorerStatus.textContent = String(message || "");
-  $intonationExplorerStatus.classList.toggle("error", Boolean(error));
-}
-
-function highlightScoreFromRange(range) {
-  if (!range || !Number.isFinite(range.start)) return;
-  if (lastSvgIntonationNoteEls && lastSvgIntonationNoteEls.length) {
-    maybeScrollRenderToNote(lastSvgIntonationNoteEls[0]);
-    return;
-  }
-  if (lastSvgIntonationBarEls && lastSvgIntonationBarEls.length) maybeScrollRenderToNote(lastSvgIntonationBarEls[0]);
-}
-
-function activateIntonationExplorerRow(step) {
-  const target = (intonationExplorerRows || []).find((r) => String(r.step) === String(step));
-  if (!target) return;
-  intonationExplorerActiveStep = target.step;
-  renderIntonationExplorerRows(intonationExplorerRows, { is53: intonationExplorerIs53, roleAbs53Map: intonationExplorerRoleAbs53Map });
-  try {
-    const tr = $intonationExplorerTableBody
-      ? $intonationExplorerTableBody.querySelector(`tr[data-step="${CSS.escape(String(target.step))}"]`)
-      : null;
-    if (tr && tr.scrollIntoView) tr.scrollIntoView({ block: "nearest" });
-  } catch {}
-  setIntonationHighlightRanges(target.ranges);
-  const offsets = (target.ranges || []).map((r) => r && r.start);
-  const noteOk = highlightSvgIntonationNotesAtEditorOffsets(offsets);
-  if (!noteOk) highlightSvgIntonationBarsAtEditorOffsets(offsets);
-  highlightScoreFromRange(target.ranges && target.ranges[0]);
-  const label = target.abcSpelling ? `${target.abcSpelling} / pc53=${formatAeuLabel(target.normalizedStep)}` : `pc53=${formatAeuLabel(target.normalizedStep)}`;
-  setIntonationExplorerStatus(`Highlighting ${label} (${target.count} hits)`);
-}
-
-async function refreshIntonationExplorer() {
-  if (!intonationExplorerVisible) return;
-  if (rawMode) {
-    setIntonationExplorerStatus("Intonation Explorer is not available in Raw mode.", { error: true });
-    return;
-  }
-  const perfOn = isIntonationPerfEnabled();
-  const tAll0 = perfOn ? perfNowMs() : 0;
-  setIntonationExplorerStatus("Refreshing…");
-  try {
-	    const tSnap0 = perfOn ? perfNowMs() : 0;
-	    const snapshot = await refreshWorkingCopySnapshot();
-	    if (perfOn) logIntonationPerf("snapshot", { ms: Math.round(perfNowMs() - tSnap0) });
-	    if (!snapshot || snapshot.text == null) {
-	      intonationExplorerRows = [];
-	      intonationExplorerActiveStep = null;
-      intonationExplorerIs53 = false;
-		    renderIntonationExplorerRows([], { is53: false });
-		    setIntonationHighlightRanges([]);
-		    clearSvgIntonationBarHighlight();
-		    clearSvgIntonationNoteHighlight();
-        lastIntonationDnaSource = null;
-        setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
-        renderMakamCandidateSuggestions([]);
-        clearIntonationExplorerPlot();
-		    setIntonationExplorerStatus("Unable to load working copy snapshot.", { error: true });
-		    return;
-		  }
-		    const tScan0 = perfOn ? perfNowMs() : 0;
-        const scope = getIntonationSelectionScope();
-		    const scanned = scanIntonationEntries(snapshot, { skipGraceNotes: intonationExplorerSkipGraceNotes, scope });
-		    if (perfOn) {
-		      logIntonationPerf("scan", {
-		        ms: Math.round(perfNowMs() - tScan0),
-		        entries: scanned && scanned.entries ? scanned.entries.length : 0,
-		        notes: scanned && scanned.noteEvents ? scanned.noteEvents.length : 0,
-		        is53: Boolean(scanned && scanned.is53),
-		      });
-		    }
-		  if (scanned.error) {
-		      intonationExplorerRows = [];
-		      intonationExplorerActiveStep = null;
-	      intonationExplorerIs53 = false;
-		    renderIntonationExplorerRows([], { is53: false });
-		    setIntonationHighlightRanges([]);
-		    clearSvgIntonationBarHighlight();
-		    clearSvgIntonationNoteHighlight();
-        lastIntonationDnaSource = null;
-        setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
-        renderMakamCandidateSuggestions([]);
-        clearIntonationExplorerPlot();
-		    setIntonationExplorerStatus(scanned.error, { error: true });
-		    return;
-			  }
-		      intonationExplorerIs53 = Boolean(scanned.is53);
-		      if (intonationExplorerIs53) {
-		        try { await ensurePerdeApisLoaded(); } catch {}
-		      }
-			    updateIntonationBaseUi();
-		    const fullText = String(snapshot.text || "");
-		    const tuneText = scanned.tune ? fullText.slice(scanned.tune.start, scanned.tune.end) : "";
-        const scopeLabel = scanned.scope && scanned.scope.type === "selection" ? "selection" : "tune";
-
-	    // Best-effort auto-fill: if the tune text contains a recognizable makam name,
-	    // preselect both dropdowns once (convenience only).
-	    try {
-	      if (!intonationExplorerAutoMakamApplied && !intonationExplorerDeclaredMakam && !intonationExplorerCompareMakam) {
-	        const detected = detectMakamFromTuneText(tuneText);
-	        if (detected) {
-	          intonationExplorerAutoMakamApplied = true;
-	          intonationExplorerDeclaredMakam = detected;
-	          intonationExplorerCompareMakam = detected;
-	          if ($intonationExplorerDeclaredMakam) $intonationExplorerDeclaredMakam.value = detected;
-	          if ($intonationExplorerCompareMakam) $intonationExplorerCompareMakam.value = detected;
-	        }
-	      }
-	    } catch {}
-	    const mode = intonationExplorerBaseMode || "auto";
-	    let base = 0;
-	    let label = "pc53=0";
-	    if (mode === "manual") {
-      const rawManual = ($intonationExplorerBaseManual && $intonationExplorerBaseManual.value) || DEFAULT_INT_BASE;
-      const resolved = resolveTonalBaseInput(rawManual);
-      if (!resolved.ok) {
-        setIntonationExplorerStatus(resolved.error, { error: true });
-        return;
-      }
-      base = resolved.base;
-      label = resolved.label;
-	    } else if (mode === "fromK") {
-	      const resolved = parseTonalBaseFromK(tuneText);
-	      if (!resolved.ok) {
-	        setIntonationExplorerStatus(resolved.error, { error: true });
-	        return;
-	      }
-      base = resolved.base;
-      label = `K:${resolved.label}`;
-    } else {
-      base = pickAutoBaseStep(scanned.entries);
-      label = `Auto pc53=${formatAeuLabel(base)}`;
-	    }
-	    intonationExplorerBaseStep = base;
-	    intonationExplorerBaseLabel = label;
-		    const tRows0 = perfOn ? perfNowMs() : 0;
-		    const rows = buildIntonationRowsFromEntries(scanned.entries, base, { sortMode: intonationExplorerSortMode });
-		    if (perfOn) logIntonationPerf("rows", { ms: Math.round(perfNowMs() - tRows0), rows: rows.length });
-		    intonationExplorerRows = rows;
-		    intonationExplorerActiveStep = null;
-
-			    // Optional: tag observed steps that match the declared makam roles (durak/güçlü/yeden).
-			    const tRoles0 = perfOn ? perfNowMs() : 0;
-				    let roleAbs53Map = null;
-				    try {
-				      const entry = getMakamDnaEntry(intonationExplorerDeclaredMakam);
-			      const events = Array.isArray(scanned.noteEvents) ? scanned.noteEvents : [];
-			      const absVals = events.map((ev) => Number(ev.abs53)).filter((n) => Number.isFinite(n));
-			      const observedMinAbs = absVals.length ? Math.min(...absVals) : null;
-			      const observedMaxAbs = absVals.length ? Math.max(...absVals) : null;
-				      if (entry && (entry.durak || entry.guclu || entry.yeden)) {
-				        try { await ensurePerdeNameIndexLoaded(); } catch {}
-				        const durak = parseMakamDnaPerdeField(entry.durak);
-				        const guclu = parseMakamDnaPerdeField(entry.guclu);
-				        const yeden = parseMakamDnaPerdeField(entry.yeden);
-				        const durakAbs = durak && durak.name ? pickOverlayAbs53ForPerde(durak.name, { hint: durak.hint, observedMinAbs, observedMaxAbs }) : null;
-				        const gucluAbs = guclu && guclu.name ? pickOverlayAbs53ForPerde(guclu.name, { hint: guclu.hint, observedMinAbs, observedMaxAbs }) : null;
-				        const yedenAbs = yeden && yeden.name ? pickOverlayAbs53ForPerde(yeden.name, { hint: yeden.hint, observedMinAbs, observedMaxAbs }) : null;
-			        roleAbs53Map = new Map();
-			        if (Number.isFinite(durakAbs)) roleAbs53Map.set(String(durakAbs), "durak");
-			        if (Number.isFinite(gucluAbs)) roleAbs53Map.set(String(gucluAbs), "güçlü");
-			        if (Number.isFinite(yedenAbs)) roleAbs53Map.set(String(yedenAbs), "yeden");
-			      }
-			    } catch {}
-		    intonationExplorerRoleAbs53Map = roleAbs53Map;
-		    if (perfOn) logIntonationPerf("roles", { ms: Math.round(perfNowMs() - tRoles0), has: Boolean(roleAbs53Map && roleAbs53Map.size) });
-		    const tRender0 = perfOn ? perfNowMs() : 0;
-		    renderIntonationExplorerRows(rows, { is53: intonationExplorerIs53, roleAbs53Map: intonationExplorerRoleAbs53Map });
-		    if (perfOn) logIntonationPerf("renderTable", { ms: Math.round(perfNowMs() - tRender0) });
-        try {
-          await ensurePerdeNameIndexLoaded();
-          const candidates = suggestMakamCandidates({
-            tuneText,
-            rows,
-            noteEvents: scanned.noteEvents,
-            baseStep: intonationExplorerBaseStep,
-            makamEntries: getMakamDnaEntries(),
-            resolvePerdePc53: resolvePerdePc53Candidates,
-            maxCandidates: 5,
-          });
-          renderMakamCandidateSuggestions(candidates);
-        } catch (e) {
-          logErr(e && e.message ? e.message : String(e));
-          renderMakamCandidateSuggestions([]);
-        }
-		    setIntonationHighlightRanges([]);
-		    clearSvgIntonationBarHighlight();
-		    clearSvgIntonationNoteHighlight();
-		    const sortLabel = `sort:${String(intonationExplorerSortMode || "count")}`;
-	      const modeLabel = intonationExplorerIs53 ? "EDO-53" : "EDO-12";
-		    setIntonationExplorerStatus(`Base ${intonationExplorerBaseLabel} (${scopeLabel}; ${rows.length} classes; ${sortLabel}; ${modeLabel})`);
-
-      // Keep DNA/pitchSet generation lazy: only build it when the user clicks Copy.
-      lastIntonationDnaSource = {
-        tuneText,
-        rows,
-        noteEvents: scanned.noteEvents,
-        baseStep: intonationExplorerBaseStep,
-        baseLabel: intonationExplorerBaseLabel,
-        is53: intonationExplorerIs53,
-        scopeLabel,
-      };
-      setIntonationExplorerDnaUi({ dnaText: "ready", pitchSetText: "ready" });
-
-      // Minimal "seyir" plot (observed trajectory + optional DNA overlay).
-      try {
-        const tPlot0 = perfOn ? perfNowMs() : 0;
-        renderIntonationSeyirPlot({
-          noteEvents: scanned.noteEvents,
-          baseStep: intonationExplorerBaseStep,
-          overlayMakamName: intonationExplorerCompareMakam,
-        });
-        if (perfOn) logIntonationPerf("plot", { ms: Math.round(perfNowMs() - tPlot0) });
-      } catch {}
-      if (perfOn) logIntonationPerf("total", { ms: Math.round(perfNowMs() - tAll0) });
-	  } catch (err) {
-	    const msg = (err && err.message) ? String(err.message) : String(err || "");
-      setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
-      renderMakamCandidateSuggestions([]);
-      clearIntonationExplorerPlot();
-	    setIntonationExplorerStatus(msg ? `Unable to refresh the explorer: ${msg}` : "Unable to refresh the explorer.", { error: true });
-	    logErr(err);
-	  }
-}
-
-function showIntonationExplorerPanel() {
-  if (!$intonationExplorerPanel) return;
-  enableDraggableToolPanel($intonationExplorerPanel);
-  intonationExplorerVisible = true;
-  $intonationExplorerPanel.classList.remove("hidden");
-  $intonationExplorerPanel.setAttribute("aria-hidden", "false");
-  ensureToolPanelDefaultLeftPosition($intonationExplorerPanel);
-  setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
-  renderMakamCandidateSuggestions([]);
-  clearIntonationExplorerPlot();
-  if ($intonationExplorerBaseMode) $intonationExplorerBaseMode.value = "auto";
-  if ($intonationExplorerBaseManual && !$intonationExplorerBaseManual.value) $intonationExplorerBaseManual.value = DEFAULT_INT_BASE;
-  if ($intonationExplorerSort) $intonationExplorerSort.value = "first";
-  if ($intonationExplorerSkipGrace) $intonationExplorerSkipGrace.checked = true;
-  intonationExplorerSortMode = "first";
-  intonationExplorerSkipGraceNotes = true;
-  intonationExplorerAutoMakamApplied = false;
-  intonationExplorerRoleAbs53Map = null;
-  Promise.resolve()
-    .then(() => ensureMakamDnaLoaded())
-    .then(() => {
-      populateIntonationExplorerMakams();
-    })
-    .finally(() => {
-      updateIntonationBaseUi();
-      refreshIntonationExplorer().catch(() => {});
-    });
-}
+intonationExplorerFeature = createIntonationExplorerFeature({
+  elements: {
+    document,
+  },
+  host: {
+    clearSvgBarHighlight: clearSvgIntonationBarHighlight,
+    clearSvgNoteHighlight: clearSvgIntonationNoteHighlight,
+    enableDraggableToolPanel,
+    ensureToolPanelDefaultLeftPosition,
+    focusEditorAt: (offset) => {
+      if (!editorView || !Number.isFinite(offset)) return;
+      const docLen = editorView.state && editorView.state.doc ? editorView.state.doc.length : 0;
+      const safeOff = Math.max(0, Math.min(docLen, offset));
+      editorView.dispatch({ selection: { anchor: safeOff, head: safeOff }, scrollIntoView: true });
+      try { editorView.focus(); } catch {}
+    },
+    getSelectionScope: getIntonationSelectionScope,
+    highlightBarsAtOffsets: highlightSvgIntonationBarsAtEditorOffsets,
+    highlightNotesAtOffsets: highlightSvgIntonationNotesAtEditorOffsets,
+    isPerfEnabled: isIntonationPerfEnabled,
+    isRawMode: () => rawMode,
+    logError: (e) => logErr(e && e.message ? e.message : String(e)),
+    logPerf: logIntonationPerf,
+    nowMs: perfNowMs,
+    refreshWorkingCopySnapshot,
+    resolveActiveTune: (snapshot) => resolveTuneEntryFromSnapshot(snapshot, {
+      tuneUid: activeTuneUid,
+      tuneIndex: activeTuneIndex,
+      startOffset: activeTuneMeta && activeTuneMeta.startOffset,
+    }),
+    scrollToCurrentHighlight: () => {
+      const note = lastSvgIntonationNoteEls && lastSvgIntonationNoteEls.length ? lastSvgIntonationNoteEls[0] : null;
+      const bar = lastSvgIntonationBarEls && lastSvgIntonationBarEls.length ? lastSvgIntonationBarEls[0] : null;
+      if (note) maybeScrollRenderToNote(note);
+      else if (bar) maybeScrollRenderToNote(bar);
+    },
+    setHighlightRanges: setIntonationHighlightRanges,
+    showToast: (message, timeout) => showToast(message, timeout),
+  },
+  microtonalTools: microtonalToolsFeature,
+  perdeService,
+  clipboard: navigator && navigator.clipboard ? navigator.clipboard : null,
+});
+intonationExplorerFeature.wire();
 
 function ensureToolPanelDefaultLeftPosition(panelEl) {
   if (!panelEl) return;
@@ -5512,21 +4818,6 @@ function ensureToolPanelDefaultLeftPosition(panelEl) {
       panelEl.style.bottom = "auto";
     } catch {}
   });
-}
-
-function hideIntonationExplorerPanel() {
-  if (!$intonationExplorerPanel) return;
-  intonationExplorerVisible = false;
-  $intonationExplorerPanel.classList.add("hidden");
-  $intonationExplorerPanel.setAttribute("aria-hidden", "true");
-  if ($intonationExplorerMenu) $intonationExplorerMenu.classList.add("hidden");
-  setIntonationExplorerStatus("");
-  setIntonationHighlightRanges([]);
-  clearSvgIntonationBarHighlight();
-  clearSvgIntonationNoteHighlight();
-  setIntonationExplorerDnaUi({ dnaText: "", pitchSetText: "" });
-  renderMakamCandidateSuggestions([]);
-  clearIntonationExplorerPlot();
 }
 
 function getHeaderEditorValue() {
@@ -16695,8 +15986,7 @@ function wireMenuActions() {
           showToast("Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
           return;
         }
-        if (intonationExplorerVisible) hideIntonationExplorerPanel();
-        else showIntonationExplorerPanel();
+        intonationExplorerFeature.toggle();
       }
 		      else if (actionType === "dumpDebug") dumpDebugToFile().catch(() => {});
 		      else if (actionType === "settings" && settingsController) settingsController.openSettings();
@@ -16760,103 +16050,6 @@ function wireMenuActions() {
 }
 
 wireMenuActions();
-
-if ($intonationExplorerClose) {
-  $intonationExplorerClose.addEventListener("click", () => {
-    hideIntonationExplorerPanel();
-  });
-}
-if ($intonationExplorerRefresh) {
-  $intonationExplorerRefresh.addEventListener("click", () => {
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerDeclaredMakam) {
-  $intonationExplorerDeclaredMakam.addEventListener("change", () => {
-    intonationExplorerDeclaredMakam = ($intonationExplorerDeclaredMakam && $intonationExplorerDeclaredMakam.value) || "";
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerCompareMakam) {
-  $intonationExplorerCompareMakam.addEventListener("change", () => {
-    intonationExplorerCompareMakam = ($intonationExplorerCompareMakam && $intonationExplorerCompareMakam.value) || "";
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerMore && $intonationExplorerMenu) {
-  const hideMenu = () => {
-    try { $intonationExplorerMenu.classList.add("hidden"); } catch {}
-  };
-  const toggleMenu = () => {
-    try { $intonationExplorerMenu.classList.toggle("hidden"); } catch {}
-  };
-  $intonationExplorerMore.addEventListener("click", (ev) => {
-    try { if (ev) ev.stopPropagation(); } catch {}
-    toggleMenu();
-  });
-  document.addEventListener("click", (ev) => {
-    if (!$intonationExplorerMenu || $intonationExplorerMenu.classList.contains("hidden")) return;
-    const t = ev && ev.target ? ev.target : null;
-    if (t && ($intonationExplorerMenu.contains(t) || $intonationExplorerMore.contains(t))) return;
-    hideMenu();
-  });
-  document.addEventListener("keydown", (ev) => {
-    if (!$intonationExplorerMenu || $intonationExplorerMenu.classList.contains("hidden")) return;
-    if (!ev || ev.key !== "Escape") return;
-    try { ev.preventDefault(); } catch {}
-    hideMenu();
-  });
-}
-if ($intonationExplorerEditMakamDna) {
-  $intonationExplorerEditMakamDna.addEventListener("click", async () => {
-    try { if ($intonationExplorerMenu) $intonationExplorerMenu.classList.add("hidden"); } catch {}
-    await openMakamDnaModal();
-  });
-}
-if ($intonationExplorerCandidates) {
-  $intonationExplorerCandidates.addEventListener("click", (event) => {
-    const target = event && event.target && event.target.closest ? event.target.closest("button[data-action][data-makam]") : null;
-    if (!target) return;
-    const makam = String(target.dataset.makam || "");
-    if (!makam) return;
-    if (target.dataset.action === "declared") {
-      intonationExplorerDeclaredMakam = makam;
-      if ($intonationExplorerDeclaredMakam) $intonationExplorerDeclaredMakam.value = makam;
-      refreshIntonationExplorer().catch(() => {});
-      return;
-    }
-    if (target.dataset.action === "compare") {
-      intonationExplorerCompareMakam = makam;
-      if ($intonationExplorerCompareMakam) $intonationExplorerCompareMakam.value = makam;
-      refreshIntonationExplorer().catch(() => {});
-    }
-  });
-}
-if ($intonationExplorerBaseMode) {
-  $intonationExplorerBaseMode.addEventListener("change", () => {
-    updateIntonationBaseUi();
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerBaseManual) {
-  $intonationExplorerBaseManual.addEventListener("keydown", (event) => {
-    if (!event || event.key !== "Enter") return;
-    event.preventDefault();
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerSort) {
-  $intonationExplorerSort.addEventListener("change", () => {
-    intonationExplorerSortMode = ($intonationExplorerSort && $intonationExplorerSort.value) || "count";
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
-if ($intonationExplorerSkipGrace) {
-  $intonationExplorerSkipGrace.addEventListener("change", () => {
-    intonationExplorerSkipGraceNotes = Boolean($intonationExplorerSkipGrace && $intonationExplorerSkipGrace.checked);
-    refreshIntonationExplorer().catch(() => {});
-  });
-}
 
 if (window.api && typeof window.api.onAppRequestQuit === "function") {
   window.api.onAppRequestQuit(() => {
@@ -16961,7 +16154,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	    } catch {}
 	    try {
 	      const microtonalEnabled = isMicrotonalNotationSupported(settings);
-	      if (!microtonalEnabled && intonationExplorerVisible) hideIntonationExplorerPanel();
+	      if (!microtonalEnabled && intonationExplorerFeature && intonationExplorerFeature.isVisible()) intonationExplorerFeature.close();
 	    } catch {}
 	    showDisclaimerIfNeeded(settings);
     if (settings && prevHeader !== `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`) {
@@ -17110,10 +16303,6 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   dumpDebugToFile().catch(() => {});
 });
-
-async function openMakamDnaModal() {
-  await microtonalToolsFeature.openMakamDnaModal();
-}
 
 async function openTemplatesModal() {
   await templatesFeature.open();

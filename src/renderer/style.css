@@ -2318,6 +2318,14 @@ svg {
   margin: 0;
 }
 
+.tool-panel-actions {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 #intonationExplorerRefresh {
   padding: 6px 12px;
   border-radius: var(--radius-1);

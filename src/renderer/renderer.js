@@ -947,6 +947,23 @@ function getSelectionPlaybackSettings() {
   return abSelectionPlaybackController.getSelectionSettings();
 }
 
+function isFocusBoundedPlaybackScope() {
+  return Boolean(focusModeEnabled)
+    && (
+      clampInt(playbackLoopFromMeasure, 0, 100000, 0) > 0
+      || clampInt(playbackLoopToMeasure, 0, 100000, 0) > 0
+    );
+}
+
+function getScopedPlaybackSettingsForOrigin(origin) {
+  const settings = getSelectionPlaybackSettings();
+  if (String(origin || "") !== "focus" || !isFocusBoundedPlaybackScope()) return settings;
+  return {
+    ...settings,
+    suppressRepeats: true,
+  };
+}
+
 function getSelectionPlaybackRange() {
   return abSelectionPlaybackController.getSelectionRange();
 }
@@ -15437,7 +15454,7 @@ function getVisibleFocusRenderRange() {
 }
 
 function getFocusPlaybackState() {
-  const selectionSettings = getSelectionPlaybackSettings();
+  const selectionSettings = getScopedPlaybackSettingsForOrigin("focus");
   return {
     fromMeasure: Number(playbackLoopFromMeasure),
     toMeasure: Number(playbackLoopToMeasure),
@@ -15585,7 +15602,8 @@ function updatePracticeUi() {
 
   if ($selectionSuppressWrap) $selectionSuppressWrap.hidden = !focusModeEnabled;
   if ($selectionSuppressEnabled && document.activeElement !== $selectionSuppressEnabled) {
-    const enabled = Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionSuppressRepeats !== false);
+    const enabled = isFocusBoundedPlaybackScope()
+      || Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionSuppressRepeats !== false);
     $selectionSuppressEnabled.checked = enabled;
   }
   if ($selectionGchordsWrap) $selectionGchordsWrap.hidden = !focusModeEnabled;
@@ -16845,7 +16863,7 @@ async function startPlaybackFromRange(rangeOverride) {
   const selectionMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab");
   const scopedMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab" || rangeOrigin === "focus");
   if (rangeOrigin === "focus" || rangeOrigin === "selection") {
-    selectionPlaybackRuntime.setScopedOptions(getSelectionPlaybackSettings());
+    selectionPlaybackRuntime.setScopedOptions(getScopedPlaybackSettingsForOrigin(rangeOrigin));
   } else if (rangeOrigin === "ab") {
     const abMuted = selectionPlaybackRuntime.getAbMutedVoiceIds();
     selectionPlaybackRuntime.setScopedOptions({

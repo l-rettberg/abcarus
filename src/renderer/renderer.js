@@ -27,6 +27,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsCollection } from "./editor/errors_collection.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createMeasureErrorState } from "./editor/errors_measure_state.js";
@@ -707,9 +708,14 @@ const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
+const errorsCollection = createErrorsCollection();
 const measureErrorState = createMeasureErrorState();
 
 // ---------------- A–B playback helpers ----------------
+
+function getErrorEntries() {
+  return errorsCollection.getEntries();
+}
 
 function isAbPlanValid() {
   return abLoopRuntime.isPlanValid({ rawMode, payloadMode: isPayloadMode() });
@@ -1656,7 +1662,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getLastRhythmErrorSuggestion: () => lastRhythmErrorSuggestion,
   getLastRenderPayload: () => lastRenderPayload,
   getBarMismatchMarkers: () => barMismatchMarkers,
-  getErrorEntries: () => errorEntries,
+  getErrorEntries: () => getErrorEntries(),
   getActiveErrorHighlight: () => errorsHighlightState.getActive(),
   getActiveFileEntry,
   isPayloadMode,
@@ -2806,7 +2812,7 @@ const aboutModalController = createAboutModalController({
 });
 const errorsListController = createErrorsListController({
   listElement: $errorList,
-  getErrors: () => errorEntries,
+  getErrors: () => getErrorEntries(),
   getActiveTuneId: () => activeTuneId,
   getGroupKey: getErrorGroupKey,
   getGroupLabel: getErrorGroupLabel,
@@ -3383,7 +3389,7 @@ function clearErrorIndexForFile(entry) {
 function updateLibraryErrorIndexFromCurrentErrors() {
   if (!activeTuneId) return;
   let count = 0;
-  for (const entry of errorEntries) {
+  for (const entry of getErrorEntries()) {
     if (entry.tuneId === activeTuneId) count += entry.count || 1;
   }
   setLibraryErrorIndexForTune(activeTuneId, count);
@@ -7229,14 +7235,14 @@ function setScanErrors(errorsArray) {
 function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = {}) {
   const activeErrorHighlight = errorsHighlightState.getActive();
   if (!activeErrorHighlight || !editorView) return;
-  if (!Array.isArray(errorEntries) || !errorEntries.length) {
+  if (!Array.isArray(getErrorEntries()) || !getErrorEntries().length) {
     // Only clear when we know a render completed and produced no errors.
     if (renderSucceeded) {
       clearActiveErrorHighlight("resolved");
     }
     return;
   }
-  const candidates = errorEntries.filter((e) => {
+  const candidates = getErrorEntries().filter((e) => {
     if (!e) return false;
     if (activeErrorHighlight.tuneId && e.tuneId && e.tuneId !== activeErrorHighlight.tuneId) return false;
     if (activeErrorHighlight.filePath && e.filePath && e.filePath !== activeErrorHighlight.filePath) return false;
@@ -8512,8 +8518,6 @@ function alignBarsInEditor() {
   setStatus("OK");
 }
 
-const errorEntries = [];
-const errorEntryMap = new Map();
 const libraryErrorIndex = new Map();
 let lastNoteSelection = [];
 let pendingCursorNoteHighlightRaf = null;
@@ -8529,8 +8533,7 @@ function showErrorsVisible(visible) {
 
 function clearErrors() {
   if (!errorsEnabled) {
-    errorEntries.length = 0;
-    errorEntryMap.clear();
+    errorsCollection.clear();
     lastDrumMismatchErrorKey = null;
     lastDrumMismatchTuneId = null;
     if ($errorList) $errorList.textContent = "";
@@ -8540,8 +8543,7 @@ function clearErrors() {
     setScanErrors([]);
     return;
   }
-  errorEntries.length = 0;
-  errorEntryMap.clear();
+  errorsCollection.clear();
   lastDrumMismatchErrorKey = null;
   lastDrumMismatchTuneId = null;
   if ($errorList) $errorList.textContent = "";
@@ -9914,22 +9916,17 @@ function addError(message, locOverride, contextOverride) {
   }
 
   const key = buildErrorEntryKey(entry);
-  const existing = errorEntryMap.get(key);
-  if (existing) {
-    if (!noRepeatCount) existing.count += 1;
+  const added = errorsCollection.add(entry, key, { noRepeatCount });
+  if (added.existing) {
     renderErrorList();
     showErrorsVisible(true);
-    setScanErrors(errorEntries);
-    return existing;
+    setScanErrors(getErrorEntries());
+    return added.entry;
   }
-  entry.errorKey = key;
-  entry.index = errorEntries.length;
-  errorEntries.push(entry);
-  errorEntryMap.set(key, entry);
   renderErrorList();
   showErrorsVisible(true);
-  setScanErrors(errorEntries);
-  return entry;
+  setScanErrors(getErrorEntries());
+  return added.entry;
 }
 
 function logErr(m, loc, context) {
@@ -9939,19 +9936,11 @@ function logErr(m, loc, context) {
 
 function clearDrumMismatchError() {
   if (!lastDrumMismatchErrorKey) return;
-  const entry = errorEntryMap.get(lastDrumMismatchErrorKey);
+  const entry = errorsCollection.deleteByKey(lastDrumMismatchErrorKey);
   if (entry) {
-    errorEntryMap.delete(lastDrumMismatchErrorKey);
-    const idx = errorEntries.indexOf(entry);
-    if (idx !== -1) {
-      errorEntries.splice(idx, 1);
-      for (let i = 0; i < errorEntries.length; i += 1) {
-        errorEntries[i].index = i;
-      }
-    }
     renderErrorList();
     showErrorsVisible(true);
-    setScanErrors(errorEntries);
+    setScanErrors(getErrorEntries());
   }
   lastDrumMismatchErrorKey = null;
   lastDrumMismatchTuneId = null;
@@ -10013,7 +10002,7 @@ function ensureDrumMismatchErrorVisible() {
       actualToken: recomputed.actualToken,
     };
   }
-  if (lastDrumMismatchErrorKey && errorEntryMap.has(lastDrumMismatchErrorKey)) return;
+  if (lastDrumMismatchErrorKey && errorsCollection.hasKey(lastDrumMismatchErrorKey)) return;
   const mismatchBar = Number.isFinite(lastDrumMismatchInfo.mismatchBar) ? lastDrumMismatchInfo.mismatchBar : null;
   const lineIdx = Number.isFinite(lastDrumMismatchInfo.lineIndex) ? lastDrumMismatchInfo.lineIndex : null;
   const loc = Number.isFinite(lineIdx) ? { line: lineIdx + 1, col: 1 } : null;
@@ -10377,7 +10366,7 @@ async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false }
   setScanErrorButtonState(false);
   setScanErrorButtonActive(tuneErrorFilter);
   buildTuneSelectOptions(entry);
-  setScanErrors(errorEntries);
+  setScanErrors(getErrorEntries());
   setStatus("OK");
 }
 

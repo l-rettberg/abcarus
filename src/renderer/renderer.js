@@ -3394,6 +3394,7 @@ let startupUiLoading = true;
 let startupSettingsApplied = false;
 let startupAutoLoadStarted = false;
 let startupRecentOpenStarted = false;
+const STARTUP_LOADING_WATCHDOG_MS = 12000;
 
 function markStartupUiReady() {
   if (!startupUiLoading) return;
@@ -3410,6 +3411,17 @@ function markStartupSettingsApplied() {
     renderUnifiedStatus();
   }
 }
+
+setTimeout(() => {
+  if (!startupUiLoading) return;
+  startupAutoLoadStarted = false;
+  startupRecentOpenStarted = false;
+  startupUiLoading = false;
+  renderUnifiedStatus();
+  try {
+    console.warn("[abcarus] Startup loading watchdog cleared a stale Loading status.");
+  } catch {}
+}, STARTUP_LOADING_WATCHDOG_MS);
 
 function computeWorkingCopyFileState() {
   const filePath = rawMode

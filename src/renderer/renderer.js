@@ -57,6 +57,7 @@ import {
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
 import { createErrorsNavigationController } from "./editor/errors_navigation_controller.js";
 import { createErrorsTuneScanController } from "./editor/errors_tune_scan_controller.js";
+import { createErrorsSvgHighlightController } from "./editor/errors_svg_highlight_controller.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -796,6 +797,16 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
+const errorsSvgHighlightController = createErrorsSvgHighlightController({
+  highlightState: errorsHighlightState,
+  getOutputElement: () => $out,
+  getRenderPaneElement: () => $renderPane,
+  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
+  findMeasureRangeAt,
+  mapEditorOffsetToRenderIdx,
+  pickClosestNoteElement,
+  maybeScrollRenderToNote,
+});
 const errorsCollection = createErrorsCollection();
 const measureErrorState = createMeasureErrorState();
 const errorsBarMismatchController = createErrorsBarMismatchController({
@@ -1096,7 +1107,7 @@ const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
 });
 
 function clearSvgErrorActivationHighlight() {
-  errorsHighlightState.clearSvgElements("svg-error-activation");
+  errorsSvgHighlightController.clear();
 }
 
 function clearSvgPracticeBarHighlight() {
@@ -1393,64 +1404,7 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
 }
 
 function highlightSvgAtEditorOffset(editorOffset) {
-  if (!$out || !$renderPane) return false;
-  if (!Number.isFinite(editorOffset)) return false;
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
-    : 0;
-  const renderIdx = mapEditorOffsetToRenderIdx(editorOffset);
-
-  // Prefer measure-wide highlighting when possible (easier to spot than a single glyph).
-  if (editorView) {
-    try {
-      const editorText = editorView.state.doc.toString();
-      const measure = findMeasureRangeAt(editorText, editorOffset);
-      const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
-      if (measure && barEls.length) {
-        const start = mapEditorOffsetToRenderIdx(measure.start);
-        const end = mapEditorOffsetToRenderIdx(measure.end);
-        const hits = barEls.filter((el) => {
-          const s = Number(el.dataset && el.dataset.start);
-          return Number.isFinite(s) && s >= start && s < end;
-        });
-        if (hits.length) {
-          clearSvgErrorActivationHighlight();
-          const activeEls = errorsHighlightState.setSvgElements(hits);
-          for (const el of activeEls) {
-            try { el.classList.add("svg-error-activation"); } catch {}
-          }
-          const chosen = pickClosestNoteElement(activeEls);
-          if (chosen) maybeScrollRenderToNote(chosen);
-          errorsHighlightState.setLastSvgRenderIdx(start);
-          return true;
-        }
-      }
-    } catch {}
-  }
-
-  let els = $out.querySelectorAll("._" + renderIdx + "_");
-  if ((!els || !els.length) && Number.isFinite(renderIdx)) {
-    // Small, deterministic fallback: search backward for a nearby mapped glyph.
-    // This helps when the error points into a token but the SVG mapping only exists at the token start.
-    const maxBack = 200;
-    for (let d = 1; d <= maxBack; d += 1) {
-      const probe = renderIdx - d;
-      if (probe < 0) break;
-      els = $out.querySelectorAll("._" + probe + "_");
-      if (els && els.length) break;
-    }
-  }
-  if (!els || !els.length) return false;
-
-  clearSvgErrorActivationHighlight();
-  const activeEls = errorsHighlightState.setSvgElements(Array.from(els));
-  for (const el of activeEls) {
-    try { el.classList.add("svg-error-activation"); } catch {}
-  }
-  const chosen = pickClosestNoteElement(activeEls);
-  if (chosen) maybeScrollRenderToNote(chosen);
-  errorsHighlightState.setLastSvgRenderIdx(renderIdx);
-  return true;
+  return errorsSvgHighlightController.highlightAtEditorOffset(editorOffset);
 }
 
 let diagnosticsController = null;

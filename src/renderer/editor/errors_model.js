@@ -301,6 +301,7 @@ export {
   computeErrorId,
   countErrorLineOffsetFromHeader,
   findErrorSourceRangeForMessage,
+  getTextIndexFromLoc,
   getErrorGroupKey,
   getErrorGroupLabel,
   normalizeErrors,

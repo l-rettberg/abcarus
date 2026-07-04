@@ -38,15 +38,11 @@ import {
   suggestPlaybackRangeForRhythmErrorText,
 } from "./editor/errors_playback_range_model.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
+import { createErrorsReporterController } from "./editor/errors_reporter_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
-  buildActiveTuneErrorContext,
-  buildErrorEntry,
-  buildErrorEntryKey,
   buildSortedErrorsForNav,
   computeErrorId,
-  countErrorLineOffsetFromHeader,
-  findErrorSourceRangeForMessage,
   getErrorGroupKey,
   getErrorGroupLabel as getErrorGroupLabelCore,
   normalizeErrors,
@@ -717,6 +713,24 @@ const errorsHighlightState = createErrorsHighlightState();
 const errorsCollection = createErrorsCollection();
 const errorsScanState = createErrorsScanState();
 const measureErrorState = createMeasureErrorState();
+const errorsReporterController = createErrorsReporterController({
+  collection: errorsCollection,
+  measureErrorState,
+  safeBasename,
+  isEnabled: () => errorsEnabled,
+  isMeasureCheckEnabled,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getEditorText: getEditorValue,
+  getRenderPayload,
+  getLastRenderPayload: () => lastRenderPayload,
+  findMeasureRangeAt,
+  mapRenderIdxToEditorOffset,
+  setMeasureErrorRanges,
+  renderErrorList,
+  showErrorsVisible,
+  setScanErrors,
+  getEntries: getErrorEntries,
+});
 
 // ---------------- A–B playback helpers ----------------
 
@@ -1828,8 +1842,6 @@ let libraryFullScanInFlight = false;
 let libraryFullScanToken = "";
 let suppressRecentEntries = false;
 let toastTimer = null;
-let errorLineOffset = 0;
-let measureErrorRenderRanges = [];
 let barMismatchMarkers = [];
 let barMismatchVersion = 0;
 let lastRenderPayload = null;
@@ -8385,25 +8397,9 @@ function showErrorsVisible(visible) {
 }
 
 function clearErrors() {
-  if (!errorsEnabled) {
-    errorsCollection.clear();
-    lastDrumMismatchErrorKey = null;
-    lastDrumMismatchTuneId = null;
-    if ($errorList) $errorList.textContent = "";
-    showErrorsVisible(false);
-    measureErrorRenderRanges = [];
-    setMeasureErrorRanges([]);
-    setScanErrors([]);
-    return;
-  }
-  errorsCollection.clear();
   lastDrumMismatchErrorKey = null;
   lastDrumMismatchTuneId = null;
-  if ($errorList) $errorList.textContent = "";
-  showErrorsVisible(false);
-  measureErrorRenderRanges = [];
-  setMeasureErrorRanges([]);
-  setScanErrors([]);
+  errorsReporterController.clear();
 }
 
 let contextMenu = null;
@@ -9001,13 +8997,14 @@ async function moveTuneToFile(tuneId, targetPath) {
 }
 
 function setErrorLineOffsetFromHeader(headerText) {
-  errorLineOffset = countErrorLineOffsetFromHeader(headerText);
+  errorsReporterController.setLineOffsetFromHeader(headerText);
 }
 
 function applyMeasureHighlights(renderOffset) {
   if (!$out) return;
   const notes = $out.querySelectorAll(".note-hl, .bar-hl");
   for (const note of notes) note.classList.remove("measure-error");
+  const measureErrorRenderRanges = errorsReporterController.getMeasureRenderRanges();
   const useRenderRanges = measureErrorRenderRanges && measureErrorRenderRanges.length;
   const editorRanges = measureErrorState.getRanges();
   if (!useRenderRanges && !editorRanges.length) return;
@@ -9660,71 +9657,11 @@ function renderErrorList() {
 }
 
 function addError(message, locOverride, contextOverride) {
-  if (!errorsEnabled) return;
-  const baseContext = buildActiveTuneErrorContext(activeTuneMeta, { safeBasename });
-  const context = contextOverride
-    ? { ...(baseContext || {}), ...contextOverride }
-    : baseContext;
-  const noRepeatCount = Boolean(context && context.noRepeatCount);
-  const entry = buildErrorEntry(message, {
-    locOverride,
-    context,
-    lineOffset: errorLineOffset,
-  });
-  if (!Number.isFinite(entry.errorStartOffset) || !Number.isFinite(entry.errorEndOffset) || entry.errorEndOffset <= entry.errorStartOffset) {
-    const sourceRange = findErrorSourceRangeForMessage(getEditorValue(), entry.message, entry.loc);
-    if (sourceRange && Number.isFinite(sourceRange.start) && Number.isFinite(sourceRange.end) && sourceRange.end > sourceRange.start) {
-      entry.errorStartOffset = sourceRange.start;
-      entry.errorEndOffset = sourceRange.end;
-    }
-  }
-  const allowMeasureRange = !(context && context.skipMeasureRange);
-  if (allowMeasureRange && entry.renderLoc && /Bad measure duration/i.test(entry.message) && isMeasureCheckEnabled()) {
-    const payload = lastRenderPayload || getRenderPayload();
-    const renderText = payload && payload.text ? payload.text : getEditorValue();
-    const renderOffset = payload && payload.offset ? payload.offset : 0;
-    const renderIdx = getTextIndexFromLoc(renderText, entry.renderLoc);
-    if (Number.isFinite(renderIdx)) {
-      const renderRange = findMeasureRangeAt(renderText, renderIdx);
-      if (renderRange && renderRange.end > renderRange.start) {
-        const editorStart = mapRenderIdxToEditorOffset(renderRange.start);
-        const editorEnd = mapRenderIdxToEditorOffset(renderRange.end);
-        const editorRange = (editorStart >= 0 && editorEnd > editorStart)
-          ? { start: editorStart, end: editorEnd }
-          : null;
-        entry.measureRange = editorRange;
-        const renderDupe = measureErrorRenderRanges.some((r) => r.start === renderRange.start && r.end === renderRange.end);
-        if (!renderDupe) {
-          measureErrorRenderRanges.push(renderRange);
-        }
-        if (editorRange) {
-          const editorRanges = measureErrorState.getRanges();
-          const dupe = editorRanges.some((r) => r.start === editorRange.start && r.end === editorRange.end);
-          if (!dupe) {
-            setMeasureErrorRanges([...editorRanges, editorRange]);
-          }
-        }
-      }
-    }
-  }
-
-  const key = buildErrorEntryKey(entry);
-  const added = errorsCollection.add(entry, key, { noRepeatCount });
-  if (added.existing) {
-    renderErrorList();
-    showErrorsVisible(true);
-    setScanErrors(getErrorEntries());
-    return added.entry;
-  }
-  renderErrorList();
-  showErrorsVisible(true);
-  setScanErrors(getErrorEntries());
-  return added.entry;
+  return errorsReporterController.add(message, locOverride, contextOverride);
 }
 
 function logErr(m, loc, context) {
-  if (!errorsEnabled) return;
-  addError(m, loc, context);
+  return errorsReporterController.log(m, loc, context);
 }
 
 function clearDrumMismatchError() {
@@ -10833,7 +10770,7 @@ function renderNow() {
     compatMap: null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
-    errorLineOffset = renderPayload.lineOffset;
+    errorsReporterController.setLineOffset(renderPayload.lineOffset);
   } else {
     setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
   }
@@ -20239,7 +20176,7 @@ async function preparePlayback() {
   }
   playbackIndexOffset = playbackPayloadOffset || 0;
   if (Number.isFinite(playbackPayload.lineOffset)) {
-    errorLineOffset = playbackPayload.lineOffset;
+    errorsReporterController.setLineOffset(playbackPayload.lineOffset);
   } else {
     setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackIndexOffset));
   }
@@ -20403,7 +20340,7 @@ async function preparePlayback() {
         const retryPayload = getPlaybackPayload();
         playbackIndexOffset = retryPayload.offset || 0;
         if (Number.isFinite(retryPayload.lineOffset)) {
-          errorLineOffset = retryPayload.lineOffset;
+          errorsReporterController.setLineOffset(retryPayload.lineOffset);
         } else {
           setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackIndexOffset));
         }

@@ -6487,6 +6487,11 @@ async function loadLibraryFromFolder(folder) {
 		    setScanStatus("Scan failed");
 		    logErr((e && e.stack) ? e.stack : String(e));
         markStartupUiReady();
+		  } finally {
+        startupAutoLoadStarted = false;
+        if (startupUiLoading && (startupSettingsApplied || !(window.api && typeof window.api.getSettings === "function"))) {
+          markStartupUiReady();
+        }
 		  }
 }
 

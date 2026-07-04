@@ -38,14 +38,18 @@ import {
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
+  buildActiveTuneErrorContext,
+  buildErrorEntry,
   buildErrorEntryKey,
   buildSortedErrorsForNav,
   computeErrorId,
+  countErrorLineOffsetFromHeader,
   findErrorSourceRangeForMessage,
   getErrorGroupKey,
   getErrorGroupLabel as getErrorGroupLabelCore,
   normalizeErrors,
   normalizeErrorMessageForMatch,
+  parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
@@ -9147,26 +9151,8 @@ async function moveTuneToFile(tuneId, targetPath) {
   }
 }
 
-function parseErrorLocation(message) {
-  const text = String(message);
-  let match = text.match(/:(\d+):(\d+)/);
-  if (match) {
-    return { line: Number(match[1]), col: Number(match[2]) };
-  }
-  match = text.match(/line\s+(\d+)\s*[,;]?\s*col(?:umn)?\s+(\d+)/i);
-  if (match) {
-    return { line: Number(match[1]), col: Number(match[2]) };
-  }
-  return null;
-}
-
 function setErrorLineOffsetFromHeader(headerText) {
-  if (!headerText || !String(headerText).trim()) {
-    errorLineOffset = 0;
-    return;
-  }
-  const trimmed = String(headerText).replace(/[\r\n]+$/, "");
-  errorLineOffset = trimmed ? trimmed.split(/\r\n|\n|\r/).length : 0;
+  errorLineOffset = countErrorLineOffsetFromHeader(headerText);
 }
 
 function applyMeasureHighlights(renderOffset) {
@@ -9816,13 +9802,6 @@ async function goToMeasureFromMenu() {
   setStatus(`Go to measure: ${n}`);
 }
 
-function buildErrorTuneLabel(meta) {
-  if (!meta) return "";
-  const xPart = meta.xNumber ? `X:${meta.xNumber}` : "";
-  const title = meta.title || "";
-  return `${xPart} ${title}`.trim() || meta.id || "";
-}
-
 function getErrorGroupLabel(entry) {
   return getErrorGroupLabelCore(entry, { safeBasename });
 }
@@ -9833,51 +9812,16 @@ function renderErrorList() {
 
 function addError(message, locOverride, contextOverride) {
   if (!errorsEnabled) return;
-  const renderLoc = locOverride || parseErrorLocation(message);
-  const baseContext = activeTuneMeta ? {
-    tuneId: activeTuneMeta.id,
-    filePath: activeTuneMeta.path || null,
-    fileBasename: activeTuneMeta.basename || (activeTuneMeta.path ? safeBasename(activeTuneMeta.path) : ""),
-    tuneLabel: buildErrorTuneLabel(activeTuneMeta),
-    xNumber: activeTuneMeta.xNumber || "",
-    title: activeTuneMeta.title || "",
-  } : null;
+  const baseContext = buildActiveTuneErrorContext(activeTuneMeta, { safeBasename });
   const context = contextOverride
     ? { ...(baseContext || {}), ...contextOverride }
     : baseContext;
-  const contextSource = context && context.source ? String(context.source) : "";
-  const contextStart = context && Number.isFinite(context.errorStartOffset) ? Number(context.errorStartOffset) : null;
-  const contextEnd = context && Number.isFinite(context.errorEndOffset) ? Number(context.errorEndOffset) : null;
-  const contextBarNumber = context && Number.isFinite(context.barNumber) ? Number(context.barNumber) : null;
-  const skipLineOffset = Boolean(context && context.skipLineOffset);
   const noRepeatCount = Boolean(context && context.noRepeatCount);
-  const entry = {
-    message: String(message),
-    loc: renderLoc ? { line: renderLoc.line, col: renderLoc.col } : null,
-    renderLoc: renderLoc ? { line: renderLoc.line, col: renderLoc.col } : null,
-    tuneId: context ? context.tuneId || null : null,
-    filePath: context ? context.filePath || null : null,
-    fileBasename: context ? context.fileBasename || "" : "",
-    tuneLabel: context ? context.tuneLabel || "" : "",
-    xNumber: context ? context.xNumber || "" : "",
-    title: context ? context.title || "" : "",
-    source: contextSource || "abc2svg",
-    errorStartOffset: contextStart,
-    errorEndOffset: contextEnd,
-    barNumber: contextBarNumber,
-    count: 1,
-    index: -1,
-  };
-  if (entry.loc && errorLineOffset && !skipLineOffset) {
-    if (entry.loc.line <= errorLineOffset) {
-      entry.loc = null;
-    } else {
-      entry.loc = {
-        line: entry.loc.line - errorLineOffset,
-        col: entry.loc.col,
-      };
-    }
-  }
+  const entry = buildErrorEntry(message, {
+    locOverride,
+    context,
+    lineOffset: errorLineOffset,
+  });
   if (!Number.isFinite(entry.errorStartOffset) || !Number.isFinite(entry.errorEndOffset) || entry.errorEndOffset <= entry.errorStartOffset) {
     const sourceRange = findErrorSourceRangeForMessage(getEditorValue(), entry.message, entry.loc);
     if (sourceRange && Number.isFinite(sourceRange.start) && Number.isFinite(sourceRange.end) && sourceRange.end > sourceRange.start) {

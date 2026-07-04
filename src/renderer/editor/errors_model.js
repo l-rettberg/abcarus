@@ -11,6 +11,87 @@ function normalizeErrorMessageForMatch(message) {
   return lower;
 }
 
+function parseErrorLocation(message) {
+  const text = String(message);
+  let match = text.match(/:(\d+):(\d+)/);
+  if (match) {
+    return { line: Number(match[1]), col: Number(match[2]) };
+  }
+  match = text.match(/line\s+(\d+)\s*[,;]?\s*col(?:umn)?\s+(\d+)/i);
+  if (match) {
+    return { line: Number(match[1]), col: Number(match[2]) };
+  }
+  return null;
+}
+
+function countErrorLineOffsetFromHeader(headerText) {
+  if (!headerText || !String(headerText).trim()) return 0;
+  const trimmed = String(headerText).replace(/[\r\n]+$/, "");
+  return trimmed ? trimmed.split(/\r\n|\n|\r/).length : 0;
+}
+
+function buildErrorTuneLabel(meta) {
+  if (!meta) return "";
+  const xPart = meta.xNumber ? `X:${meta.xNumber}` : "";
+  const title = meta.title || "";
+  return `${xPart} ${title}`.trim() || meta.id || "";
+}
+
+function buildActiveTuneErrorContext(meta, { safeBasename } = {}) {
+  if (!meta) return null;
+  const basename = meta.basename || (meta.path && typeof safeBasename === "function" ? safeBasename(meta.path) : "");
+  return {
+    tuneId: meta.id,
+    filePath: meta.path || null,
+    fileBasename: basename,
+    tuneLabel: buildErrorTuneLabel(meta),
+    xNumber: meta.xNumber || "",
+    title: meta.title || "",
+  };
+}
+
+function applyErrorLineOffsetToLoc(loc, lineOffset, { skipLineOffset = false } = {}) {
+  if (!loc || !lineOffset || skipLineOffset) return loc ? { line: loc.line, col: loc.col } : null;
+  if (loc.line <= lineOffset) return null;
+  return {
+    line: loc.line - lineOffset,
+    col: loc.col,
+  };
+}
+
+function buildErrorEntry(message, {
+  locOverride,
+  context,
+  lineOffset = 0,
+} = {}) {
+  const renderLoc = locOverride || parseErrorLocation(message);
+  const ctx = context || null;
+  const contextSource = ctx && ctx.source ? String(ctx.source) : "";
+  const contextStart = ctx && Number.isFinite(ctx.errorStartOffset) ? Number(ctx.errorStartOffset) : null;
+  const contextEnd = ctx && Number.isFinite(ctx.errorEndOffset) ? Number(ctx.errorEndOffset) : null;
+  const contextBarNumber = ctx && Number.isFinite(ctx.barNumber) ? Number(ctx.barNumber) : null;
+  const skipLineOffset = Boolean(ctx && ctx.skipLineOffset);
+  const entry = {
+    message: String(message),
+    loc: renderLoc ? { line: renderLoc.line, col: renderLoc.col } : null,
+    renderLoc: renderLoc ? { line: renderLoc.line, col: renderLoc.col } : null,
+    tuneId: ctx ? ctx.tuneId || null : null,
+    filePath: ctx ? ctx.filePath || null : null,
+    fileBasename: ctx ? ctx.fileBasename || "" : "",
+    tuneLabel: ctx ? ctx.tuneLabel || "" : "",
+    xNumber: ctx ? ctx.xNumber || "" : "",
+    title: ctx ? ctx.title || "" : "",
+    source: contextSource || "abc2svg",
+    errorStartOffset: contextStart,
+    errorEndOffset: contextEnd,
+    barNumber: contextBarNumber,
+    count: 1,
+    index: -1,
+  };
+  entry.loc = applyErrorLineOffsetToLoc(entry.loc, lineOffset, { skipLineOffset });
+  return entry;
+}
+
 function getTextIndexFromLoc(text, loc) {
   if (!text || !loc || !Number.isFinite(loc.line)) return null;
   const lineTarget = Math.max(1, Number(loc.line));
@@ -213,11 +294,16 @@ function buildErrorEntryKey(entry) {
 
 export {
   buildSortedErrorsForNav,
+  buildActiveTuneErrorContext,
   buildErrorEntryKey,
+  buildErrorEntry,
+  buildErrorTuneLabel,
   computeErrorId,
+  countErrorLineOffsetFromHeader,
   findErrorSourceRangeForMessage,
   getErrorGroupKey,
   getErrorGroupLabel,
   normalizeErrors,
   normalizeErrorMessageForMatch,
+  parseErrorLocation,
 };

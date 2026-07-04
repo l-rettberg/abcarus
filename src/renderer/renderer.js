@@ -31,6 +31,7 @@ import { createErrorsActivationController } from "./editor/errors_activation_con
 import { createErrorsCollection } from "./editor/errors_collection.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
+import { createErrorsLifecycleController } from "./editor/errors_lifecycle_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createMeasureErrorState } from "./editor/errors_measure_state.js";
 import { createErrorsPlaybackRangeController } from "./editor/errors_playback_range_controller.js";
@@ -713,7 +714,7 @@ const errorsReporterController = createErrorsReporterController({
   collection: errorsCollection,
   measureErrorState,
   safeBasename,
-  isEnabled: () => errorsEnabled,
+  isEnabled: isErrorsEnabled,
   isMeasureCheckEnabled,
   getActiveTuneMeta: () => activeTuneMeta,
   getEditorText: getEditorValue,
@@ -728,7 +729,7 @@ const errorsReporterController = createErrorsReporterController({
   getEntries: getErrorEntries,
 });
 const errorsPlaybackRangeController = createErrorsPlaybackRangeController({
-  isEnabled: () => errorsEnabled,
+  isEnabled: isErrorsEnabled,
   isPlaying: () => isPlaying,
   getEditorText: () => editorView ? editorView.state.doc.toString() : "",
   findMeasureRangeAt,
@@ -738,7 +739,7 @@ const errorsPlaybackRangeController = createErrorsPlaybackRangeController({
   logError: (...args) => console.error(...args),
 });
 const errorsTuneScanController = createErrorsTuneScanController({
-  isEnabled: () => errorsEnabled,
+  isEnabled: isErrorsEnabled,
   isDirty: () => Boolean(currentDoc && currentDoc.dirty),
   confirmUnsavedChanges,
   performSaveFlow,
@@ -759,6 +760,32 @@ const errorsTuneScanController = createErrorsTuneScanController({
   setStatus,
   onIdleIndexChanged: updateFileContext,
 });
+const errorsLifecycleController = createErrorsLifecycleController({
+  toggleButton: $btnToggleErrors,
+  prevButton: $btnPrevMeasure,
+  nextButton: $btnNextMeasure,
+  scanButton: $scanErrorTunes,
+  indicator: $errorsIndicator,
+  focusMessage: $errorsFocusMessage,
+  setButtonText,
+  closePopover: () => errorsPopoverController.close(),
+  clearActiveHighlight: clearActiveErrorHighlight,
+  cancelTuneScan: () => errorsTuneScanController.cancel(),
+  clearTuneScanFilter: () => errorsTuneScanController.clearFilter(),
+  setScanButtonActive,
+  setScanButtonState: setScanErrorButtonState,
+  clearBarMismatchMarkers: () => setBarMismatchMarkers([]),
+  clearErrors,
+  updateFileContext,
+  getPlaybackRange: () => playbackRange,
+  setPlaybackRange,
+  updateLibraryStatus,
+  updateIndicatorAndPopover: updateErrorsIndicatorAndPopover,
+  clearFocusMessage: clearErrorFocusMessage,
+  refreshErrorsNow,
+  scheduleRenderNow,
+  ensureDrumMismatchErrorVisible,
+});
 
 // ---------------- A–B playback helpers ----------------
 
@@ -772,6 +799,10 @@ function isTuneErrorFilterActive() {
 
 function isTuneErrorScanInFlight() {
   return errorsTuneScanController.isInFlight();
+}
+
+function isErrorsEnabled() {
+  return errorsLifecycleController.isEnabled();
 }
 
 function isAbPlanValid() {
@@ -974,8 +1005,6 @@ let playbackIgnoreRepeatsOnce = false;
 let transportPlayheadOffset = 0; // editor offset used for next transport start
 let transportJumpHighlightActive = false;
 let suppressTransportJumpClearOnce = false;
-let errorsEnabled = false;
-
 let practiceBarHighlightRange = null; // {from,to} editor offsets
 let practiceBarHighlightVersion = 0;
 let lastSvgPracticeBarEls = [];
@@ -994,7 +1023,7 @@ function syncActiveErrorNavIndex(sortedItemsArg) {
 }
 
 async function activateErrorByNav(delta) {
-  if (!errorsEnabled) return;
+  if (!isErrorsEnabled()) return;
   if (isPlaying || isPaused) {
     showToast("Stop playback to navigate errors");
     return;
@@ -1019,79 +1048,15 @@ function setActiveErrorHighlight(entry, from, to) {
 }
 
 function clearErrorsFeatureState() {
-  errorsPopoverController.close();
-  clearActiveErrorHighlight("docReplaced");
-  errorsTuneScanController.cancel();
-  errorsTuneScanController.clearFilter();
-  setScanErrorButtonActive(false);
-  setScanErrorButtonState(false);
-  setBarMismatchMarkers([]);
-  clearErrors();
-  // Ensure any "errors-only" filtering in the tune dropdown is cleared immediately.
-  updateFileContext();
-  // Leaving "Errors" mode should also leave looped error playback mode.
-  try {
-    setPlaybackRange({
-      startOffset: playbackRange.startOffset,
-      endOffset: playbackRange.endOffset,
-      origin: playbackRange.origin || "cursor",
-      loop: false,
-    });
-  } catch {}
-  updateLibraryStatus();
-  updateErrorsIndicatorAndPopover();
+  errorsLifecycleController.clearFeatureState();
 }
 
 function updateErrorsFeatureUI() {
-  if ($btnToggleErrors) {
-    $btnToggleErrors.classList.toggle("toggle-active", Boolean(errorsEnabled));
-    setButtonText($btnToggleErrors, "Errors");
-    $btnToggleErrors.setAttribute("aria-pressed", errorsEnabled ? "true" : "false");
-  }
-  if ($btnPrevMeasure) {
-    $btnPrevMeasure.hidden = !errorsEnabled;
-    $btnPrevMeasure.disabled = !errorsEnabled;
-  }
-  if ($btnNextMeasure) {
-    $btnNextMeasure.hidden = !errorsEnabled;
-    $btnNextMeasure.disabled = !errorsEnabled;
-  }
-  if ($scanErrorTunes) {
-    $scanErrorTunes.hidden = !errorsEnabled;
-    $scanErrorTunes.disabled = !errorsEnabled;
-  }
-  if ($errorsIndicator) {
-    if (!errorsEnabled) {
-      $errorsIndicator.hidden = true;
-      $errorsIndicator.disabled = true;
-    }
-  }
-  if ($errorsFocusMessage) {
-    if (!errorsEnabled) {
-      clearErrorFocusMessage();
-    }
-  }
+  errorsLifecycleController.updateUi();
 }
 
 function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
-  const enabled = Boolean(next);
-  if (enabled === errorsEnabled) {
-    updateErrorsFeatureUI();
-    return;
-  }
-  errorsEnabled = enabled;
-  if (!errorsEnabled) {
-    clearErrorsFeatureState();
-  } else {
-    // On enable: lightweight refresh so errors appear immediately.
-    if (triggerRefresh) {
-      refreshErrorsNow();
-    } else {
-      scheduleRenderNow();
-    }
-    ensureDrumMismatchErrorVisible();
-  }
-  updateErrorsFeatureUI();
+  errorsLifecycleController.setEnabled(next, { triggerRefresh });
 }
 
 const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
@@ -2807,7 +2772,7 @@ const errorsActivationController = createErrorsActivationController({
   logError: (...args) => console.error(...args),
 });
 const errorsJumpController = createErrorsJumpController({
-  isEnabled: () => errorsEnabled,
+  isEnabled: () => isErrorsEnabled(),
   showToast,
   getEditorView: () => editorView,
   openTuneFromLibrarySelection: (selection) => {
@@ -4556,7 +4521,7 @@ function refreshErrorsNow() {
     showToast("Raw mode: switch to tune mode for errors.", 2200);
     return;
   }
-  if (!errorsEnabled) {
+  if (!isErrorsEnabled()) {
     showToast("Errors disabled");
     return;
   }
@@ -6784,7 +6749,7 @@ if ($btnLibraryRefresh) {
 
 if ($scanErrorTunes) {
   $scanErrorTunes.addEventListener("click", () => {
-    if (!errorsEnabled) {
+    if (!isErrorsEnabled()) {
       showToast("Errors disabled");
       return;
     }
@@ -6813,7 +6778,7 @@ if ($scanErrorTunes) {
 }
 
 function startScanForErrorsFromToolbarEnable() {
-  if (!errorsEnabled) return;
+  if (!isErrorsEnabled()) return;
   if (rawMode) return;
   if (isPlaying || isPaused) {
     showToast("Stop playback to scan errors");
@@ -7223,7 +7188,7 @@ function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) 
 }
 
 function updateErrorsIndicatorAndPopover() {
-  if (!errorsEnabled) {
+  if (!isErrorsEnabled()) {
     clearErrorFocusMessage();
     errorsPopoverController.updateIndicator({ enabled: false });
     return;
@@ -9705,7 +9670,7 @@ function computeDrumMismatchInfoFromEditor() {
 }
 
 function ensureDrumMismatchErrorVisible() {
-  if (!errorsEnabled) return;
+  if (!isErrorsEnabled()) return;
   if (!lastDrumMismatchInfo || !lastDrumSignatureDiff || lastDrumSignatureDiff.ok) {
     const recomputed = computeDrumMismatchInfoFromEditor();
     if (!recomputed || recomputed.ok) {
@@ -10035,7 +10000,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
         const ready = await ensureAbc2svgModulesReady(renderText);
         if (!ready) return { ok: false, error: "ABC modules failed to load." };
         const svgParts = [];
-        if (errorsEnabled && isTuneErrorScanInFlight()) {
+        if (isErrorsEnabled() && isTuneErrorScanInFlight()) {
           const keyWarn = detectKeyFieldNotLastBeforeBody(renderText);
           if (keyWarn && keyWarn.detail) {
             const msg = `Warning: ${keyWarn.detail}`;
@@ -10580,7 +10545,7 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
 }
 
 function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0 } = {}) {
-  if (!editorView || rawMode || isPayloadMode() || !errorsEnabled) {
+  if (!editorView || rawMode || isPayloadMode() || !isErrorsEnabled()) {
     setBarMismatchMarkers([]);
     return;
   }
@@ -10613,7 +10578,7 @@ function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffse
 }
 
 function addBarMismatchErrorsFromMarkers(markers) {
-  if (!errorsEnabled || !editorView) return;
+  if (!isErrorsEnabled() || !editorView) return;
   if (!Array.isArray(markers) || markers.length === 0) return;
   const docLen = editorView.state.doc.length;
   const clamp = (value) => Math.max(0, Math.min(docLen, Math.floor(Number(value) || 0)));
@@ -21201,7 +21166,7 @@ if ($btnToggleFollow) {
 
 if ($btnToggleErrors) {
   $btnToggleErrors.addEventListener("click", async () => {
-    const next = !errorsEnabled;
+    const next = !isErrorsEnabled();
     if (!next) {
       if (window.api && typeof window.api.updateSettings === "function") {
         window.api.updateSettings({ errorsEnabled: false }).catch(() => {});

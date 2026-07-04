@@ -28,6 +28,7 @@ import {
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
 import { createErrorsActivationController } from "./editor/errors_activation_controller.js";
+import { createErrorsBarMismatchController } from "./editor/errors_bar_mismatch_controller.js";
 import { createErrorsCollection } from "./editor/errors_collection.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
@@ -52,7 +53,6 @@ import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
   buildAbDecorations,
-  buildBarMismatchDecorations,
   buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
   buildPayloadLayerDecorations,
@@ -506,7 +506,7 @@ const payloadModeFeature = createPayloadModeFeature({
   buildPlaybackPayload: buildPayloadModePlaybackPayload,
   stopPlayback: stopPlaybackTransport,
   resetPlaybackState,
-  clearBarMismatchMarkers: () => setBarMismatchMarkers([]),
+  clearBarMismatchMarkers: () => errorsBarMismatchController.setMarkers([]),
   refreshLayerDecorations: refreshPayloadLayerDecorations,
   scheduleRender: scheduleRenderNow,
   scheduleLibraryTree: () => scheduleRenderLibraryTree(sourceFiles),
@@ -710,6 +710,15 @@ const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
 const errorsCollection = createErrorsCollection();
 const measureErrorState = createMeasureErrorState();
+const errorsBarMismatchController = createErrorsBarMismatchController({
+  dispatchEditorRefresh: () => {
+    if (!editorView) return;
+    editorView.dispatch({
+      selection: editorView.state.selection,
+      scrollIntoView: false,
+    });
+  },
+});
 const errorsReporterController = createErrorsReporterController({
   collection: errorsCollection,
   measureErrorState,
@@ -774,7 +783,7 @@ const errorsLifecycleController = createErrorsLifecycleController({
   clearTuneScanFilter: () => errorsTuneScanController.clearFilter(),
   setScanButtonActive,
   setScanButtonState: setScanErrorButtonState,
-  clearBarMismatchMarkers: () => setBarMismatchMarkers([]),
+  clearBarMismatchMarkers: () => errorsBarMismatchController.setMarkers([]),
   clearErrors,
   updateFileContext,
   getPlaybackRange: () => playbackRange,
@@ -1623,7 +1632,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getLastDrumSignatureDiff: () => lastDrumSignatureDiff,
   getLastRhythmErrorSuggestion: () => errorsPlaybackRangeController.getLastSuggestion(),
   getLastRenderPayload: () => lastRenderPayload,
-  getBarMismatchMarkers: () => barMismatchMarkers,
+  getBarMismatchMarkers: () => errorsBarMismatchController.getMarkers(),
   getErrorEntries: () => getErrorEntries(),
   getActiveErrorHighlight: () => errorsHighlightState.getActive(),
   getActiveFileEntry,
@@ -1834,8 +1843,6 @@ let libraryFullScanInFlight = false;
 let libraryFullScanToken = "";
 let suppressRecentEntries = false;
 let toastTimer = null;
-let barMismatchMarkers = [];
-let barMismatchVersion = 0;
 let lastRenderPayload = null;
 let noteHighlightIndexCache = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
@@ -3824,43 +3831,10 @@ function refreshAbMarkers() {
   }
 }
 
-const barMismatchPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = barMismatchVersion;
-    this.decorations = buildBarMismatchDecorations(view.state, barMismatchMarkers);
-  }
-  update(update) {
-    if (update.docChanged && barMismatchMarkers && barMismatchMarkers.length) {
-      try {
-        const max = update.state.doc.length;
-        const mapped = [];
-        for (const marker of barMismatchMarkers) {
-          if (!marker || !Number.isFinite(marker.offset)) continue;
-          const nextOffset = update.changes.mapPos(Number(marker.offset), 1);
-          if (!Number.isFinite(nextOffset)) continue;
-          const clamped = Math.max(0, Math.min(max, nextOffset));
-          mapped.push({ ...marker, offset: clamped });
-        }
-        barMismatchMarkers = mapped;
-      } catch {}
-    }
-    if (update.docChanged || this.version !== barMismatchVersion) {
-      this.version = barMismatchVersion;
-      this.decorations = buildBarMismatchDecorations(update.state, barMismatchMarkers);
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
+const barMismatchPlugin = errorsBarMismatchController.plugin;
 
 function setBarMismatchMarkers(markers) {
-  barMismatchMarkers = Array.isArray(markers) ? markers : [];
-  barMismatchVersion += 1;
-  if (!editorView) return;
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
+  errorsBarMismatchController.setMarkers(markers);
 }
 
 let intonationHighlightRanges = [];
@@ -10655,7 +10629,7 @@ function renderNow() {
   } else {
     setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
   }
-  addBarMismatchErrorsFromMarkers(barMismatchMarkers);
+  addBarMismatchErrorsFromMarkers(errorsBarMismatchController.getMarkers());
   setStatus("Rendering…");
 
   try {

@@ -134,6 +134,7 @@ import {
   stripRepeatsLengthSafe,
 } from "./playback/selection_playback_model.js";
 import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
+import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import {
@@ -708,6 +709,34 @@ function safeWriteJsonLocalStorage(key, value) {
 printAllFeature.loadOptionsFromStorage();
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
+const abSelectionPlaybackController = createAbSelectionPlaybackController({
+  abLoopRuntime,
+  selectionPlaybackRuntime,
+  getSettings: () => ({
+    ...(latestSettingsSnapshot || {}),
+    selectionLoopElement: $selectionLoopEnabled,
+    selectionSuppressElement: $selectionSuppressEnabled,
+    selectionGchordsElement: $selectionGchordsEnabled,
+    selectionDrumsElement: $selectionDrumsEnabled,
+    selectionMutedVoicesElement: $selectionMutedVoices,
+  }),
+  getEditorView: () => editorView,
+  getEditorText: getEditorValue,
+  isRawMode: () => rawMode,
+  isPayloadMode,
+  isPlaying: () => isPlaying,
+  getActivePlaybackRange: () => activePlaybackRange,
+  setPlaybackRange,
+  startPlaybackFromRange,
+  stopPlayback: stopPlaybackTransport,
+  refreshMarkers: refreshAbMarkers,
+  showToast,
+  parseMutedVoiceSetting,
+  hasIntentionalSelectionPlaybackSpan,
+  hasRepeatTokensInSlice,
+  buildSelectionPlaybackToast,
+  globalObject: window,
+});
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
 const errorsCollection = createErrorsCollection();
@@ -830,169 +859,59 @@ function isErrorsEnabled() {
 }
 
 function isAbPlanValid() {
-  return abLoopRuntime.isPlanValid({ rawMode, payloadMode: isPayloadMode() });
+  return abSelectionPlaybackController.isPlanValid();
 }
 
-function updateAbUi() {}
+function updateAbUi() {
+  abSelectionPlaybackController.updateUi();
+}
 
 function clearAbPlan({ toast } = {}) {
-  const had = abLoopRuntime.clearPlan();
-  refreshAbMarkers();
-  toggleAbOptionsPopover(false);
-  updateAbUi();
-  if (had && toast) showToast("Markers cleared (score changed)", 2400);
-  if (isPlaying && activePlaybackRange && activePlaybackRange.origin === "ab") {
-    stopPlaybackTransport();
-  }
+  abSelectionPlaybackController.clearPlan({ toast });
 }
 
 function setAbPlanRange(startOffset, endOffset) {
-  if (!editorView) return;
-  const max = editorView.state.doc.length;
-  const plan = abLoopRuntime.setPlanRange(startOffset, endOffset, max);
-  if (!plan) {
-    showToast("Select a longer region for A–B.", 2200);
-    return;
-  }
-  refreshAbMarkers();
-  updateAbUi();
-  refreshAbOptionsUi();
+  abSelectionPlaybackController.setRange(startOffset, endOffset);
 }
 
 function setAbPlanOptions(opts = {}) {
-  if (!abLoopRuntime.setPlanOptions(opts)) return;
-  updateAbUi();
-  refreshAbOptionsUi();
+  abSelectionPlaybackController.setOptions(opts);
 }
 
-function toggleAbOptionsPopover() {}
-function refreshAbOptionsUi() {}
+function toggleAbOptionsPopover() {
+  abSelectionPlaybackController.toggleOptionsPopover();
+}
+
+function refreshAbOptionsUi() {
+  abSelectionPlaybackController.refreshOptionsUi();
+}
 
 function getSelectionPlaybackSettings() {
-  const settings = latestSettingsSnapshot || {};
-  const loopFromUi = $selectionLoopEnabled ? Boolean($selectionLoopEnabled.checked) : null;
-  const suppressFromUi = $selectionSuppressEnabled ? Boolean($selectionSuppressEnabled.checked) : null;
-  const gchordsFromUi = $selectionGchordsEnabled ? Boolean($selectionGchordsEnabled.checked) : null;
-  const drumsFromUi = $selectionDrumsEnabled ? Boolean($selectionDrumsEnabled.checked) : null;
-  const mutedFromUi = $selectionMutedVoices
-    ? parseMutedVoiceSetting(String($selectionMutedVoices.value || ""))
-    : null;
-  return {
-    loop: (loopFromUi != null) ? loopFromUi : Boolean(settings.playbackSelectionLoopEnabled),
-    suppressRepeats: (suppressFromUi != null) ? suppressFromUi : (settings.playbackSelectionSuppressRepeats !== false),
-    muteGchords: (gchordsFromUi != null) ? !gchordsFromUi : Boolean(settings.playbackSelectionMuteGchords),
-    allowMidiDrums: (drumsFromUi != null) ? drumsFromUi : Boolean(settings.playbackSelectionAllowMidiDrums),
-    mutedVoices: Array.isArray(mutedFromUi) ? mutedFromUi : parseMutedVoiceSetting(settings.playbackSelectionMutedVoices),
-  };
+  return abSelectionPlaybackController.getSelectionSettings();
 }
 
 function getSelectionPlaybackRange() {
-  if (!editorView) return null;
-  if (rawMode || isPayloadMode()) return null;
-  const sel = editorView.state.selection.main;
-  const start = Math.min(sel.anchor, sel.head);
-  const end = Math.max(sel.anchor, sel.head);
-  if (end <= start) return null;
-  return { startOffset: start, endOffset: end };
+  return abSelectionPlaybackController.getSelectionRange();
 }
 
 function withTempPlaybackFlags(flags, fn) {
-  return selectionPlaybackRuntime.runWithTempFlags(flags, fn, window);
+  return abSelectionPlaybackController.withTempPlaybackFlags(flags, fn);
 }
 
 function setAbPoint(which) {
-  if (!editorView) return;
-  const pos = editorView.state.selection.main.head;
-  const plan = abLoopRuntime.setPoint(which, pos);
-  refreshAbMarkers();
-  if (plan && Number.isFinite(plan.startOffset) && Number.isFinite(plan.endOffset) && plan.endOffset !== plan.startOffset) {
-    setAbPlanRange(plan.startOffset, plan.endOffset);
-  } else {
-    updateAbUi();
-  }
+  abSelectionPlaybackController.setPoint(which);
 }
 
 function setAbFromSelection() {
-  if (!editorView) return;
-  const sel = editorView.state.selection.main;
-  const start = Math.min(sel.anchor, sel.head);
-  const end = Math.max(sel.anchor, sel.head);
-  setAbPlanRange(start, end);
+  abSelectionPlaybackController.setFromSelection();
 }
 
 async function playAbLoop() {
-  const plan = abLoopRuntime.getPlan();
-  if (plan && plan.revisionToken !== abLoopRuntime.getRevisionToken()) {
-    clearAbPlan({ toast: true });
-    return;
-  }
-  if (!isAbPlanValid()) {
-    showToast("Set A and B first.", 2200);
-    return;
-  }
-  if (rawMode || isPayloadMode()) {
-    showToast("Switch to tune mode to play A–B.", 2400);
-    return;
-  }
-  if (plan.mutedVoices && Object.values(plan.mutedVoices).some(Boolean)) {
-    selectionPlaybackRuntime.setAbMutedVoiceMap(plan.mutedVoices);
-  } else {
-    selectionPlaybackRuntime.clearAbMutedVoices();
-  }
-  const text = getEditorValue();
-  const hasRepeats = hasRepeatTokensInSlice(text, plan.startOffset, plan.endOffset);
-  if (!plan.suppressRepeats && hasRepeats) {
-    showToast("Range crosses repeat; suppress repeats or adjust B.", 3600);
-    return;
-  }
-
-  const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
-  if (plan.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
-  try {
-    setPlaybackRange({
-      startOffset: plan.startOffset,
-      endOffset: plan.endOffset,
-      origin: "ab",
-      loop: true,
-    });
-    await startPlaybackFromRange({ startOffset: plan.startOffset, endOffset: plan.endOffset, origin: "ab", loop: true });
-  } finally {
-    window.__abcarusPlaybackStripChordSymbols = prevStripChord;
-    selectionPlaybackRuntime.clearAbMutedVoices();
-  }
+  await abSelectionPlaybackController.playAbLoop();
 }
 
 async function playSelectionOnce() {
-  const range = getSelectionPlaybackRange();
-  if (!range) return false;
-  if (rawMode || isPayloadMode()) return false;
-  const selectionSettings = getSelectionPlaybackSettings();
-  const max = editorView ? editorView.state.doc.length : 0;
-  const start = Math.max(0, Math.min(max, range.startOffset));
-  const end = Math.max(start + 1, Math.min(max, range.endOffset));
-  const sel = editorView.state.selection.main;
-  const text = getEditorValue();
-  if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;
-  selectionPlaybackRuntime.captureSelection(sel);
-  if (selectionSettings.mutedVoices && selectionSettings.mutedVoices.length) {
-    selectionPlaybackRuntime.setAbMutedVoiceIds(selectionSettings.mutedVoices);
-  } else {
-    selectionPlaybackRuntime.clearAbMutedVoices();
-  }
-  if (!selectionSettings.suppressRepeats && hasRepeatTokensInSlice(text, start, end)) {
-    showToast("Range crosses repeat; consider enabling Suppress repeats.", 3600);
-  }
-  const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
-  if (selectionSettings.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
-  try {
-    showToast(buildSelectionPlaybackToast(selectionSettings), 2600);
-    setPlaybackRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
-    await startPlaybackFromRange({ startOffset: start, endOffset: end, origin: "selection", loop: selectionSettings.loop });
-  } finally {
-    window.__abcarusPlaybackStripChordSymbols = prevStripChord;
-    selectionPlaybackRuntime.clearAbMutedVoices();
-  }
-  return true;
+  return abSelectionPlaybackController.playSelectionOnce();
 }
 
 // PlaybackRange must be initialized before initEditor() runs (selection listeners fire early).

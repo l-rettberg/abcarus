@@ -8,6 +8,8 @@ async function assertSaveIntentGuards() {
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
   const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
   const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
+  const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
+  const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
 
   if (!src.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in renderer.");
@@ -35,10 +37,16 @@ async function assertSaveIntentGuards() {
   ) {
     throw new Error("Missing selection intent gate helper.");
   }
-  if (!src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")) {
+  if (
+    !src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")
+    && !abSelectionPlaybackController.includes("!hasIntentionalSelectionPlaybackSpan(text, start, end)")
+  ) {
     throw new Error("playSelectionOnce() must gate accidental selections.");
   }
-  if (!src.includes("buildSelectionPlaybackToast(selectionSettings)")) {
+  if (
+    !src.includes("buildSelectionPlaybackToast(selectionSettings)")
+    && !abSelectionPlaybackController.includes("buildSelectionPlaybackToast(selectionSettings)")
+  ) {
     throw new Error("Selection playback must show active flags toast.");
   }
   if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {

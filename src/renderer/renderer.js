@@ -230,7 +230,6 @@ const $errorPane = document.getElementById("errorPane");
 const $errorList = document.getElementById("errorList");
 const $scanErrorTunes = document.getElementById("scanErrorTunes");
 const $fileNameMeta = document.getElementById("fileNameMeta");
-const $sourceLinkPanel = document.getElementById("sourceLinkPanel");
 const $sidebarSplit = document.getElementById("sidebarSplit");
 const $toast = document.getElementById("toast");
 const $errorsIndicator = document.getElementById("errorsIndicator");
@@ -516,7 +515,7 @@ const chordProFeature = createChordProFeature({
   setLibraryVisible,
   setHeaderCollapsed,
   updateFileContext,
-  updateSourceLinkPanel,
+  updateSourceLinkPanel: () => sourceLinkFeature.update(),
   updatePlaybackInteractionLock,
   updatePlayButton,
   scheduleRenderNow,
@@ -590,7 +589,7 @@ const printAllFeature = createPrintAllFeature({
   pathsEqual,
   getActiveFilePath: () => activeFilePath,
   renderAbcToSvgMarkup,
-  buildSourceLinkMarkup: buildPrintSourceLinkMarkup,
+  buildSourceLinkMarkup: (abcText) => sourceLinkFeature.buildPrintMarkup(abcText),
   applyPrintDebugMarkup,
   getPrintBaseName: getSongbookSuggestedBaseName,
   setErrorLineOffsetFromHeader,
@@ -627,7 +626,7 @@ const setListFeature = createSetListFeature({
   writeStorage: safeWriteJsonLocalStorage,
   buildItemForTuneId: buildSetListItemForTuneId,
   renderItemToSvg: renderSetListItemToSvg,
-  buildSourceLinkMarkup: buildPrintSourceLinkMarkup,
+  buildSourceLinkMarkup: (abcText) => sourceLinkFeature.buildPrintMarkup(abcText),
   outputPrint: outputSetListPrintMarkup,
   saveAbc: saveSetListAbcContent,
   getExportBaseName: getSuggestedBaseName,
@@ -3889,7 +3888,7 @@ function setTuneMetaText(text) {
 }
 
 const sourceLinkFeature = createSourceLinkFeature({
-  panel: $sourceLinkPanel,
+  documentRef: document,
   api: window.api,
   parseAbcHeaderFields,
   showToast,
@@ -3898,14 +3897,6 @@ const sourceLinkFeature = createSourceLinkFeature({
   isDisabled: () => Boolean(rawMode || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
 });
-
-function updateSourceLinkPanel() {
-  sourceLinkFeature.update();
-}
-
-function scheduleSourceLinkPanelUpdate(delayMs = 250) {
-  sourceLinkFeature.scheduleUpdate(delayMs);
-}
 
 function setDirtyIndicator(isDirty) {
   if (!$dirtyIndicator) return;
@@ -5083,7 +5074,7 @@ function setRawModeUI(enabled) {
   if ($btnToggleErrors) $btnToggleErrors.disabled = rawMode;
   if ($scanErrorTunes) $scanErrorTunes.disabled = rawMode;
   if ($errorsIndicator) $errorsIndicator.disabled = rawMode;
-  updateSourceLinkPanel();
+  sourceLinkFeature.update();
 }
 
 function getPayloadModeCopyText() {
@@ -5717,7 +5708,7 @@ function initEditor() {
       if (!rawMode && !chordProFeature.isFullView()) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
-        scheduleSourceLinkPanelUpdate();
+        sourceLinkFeature.scheduleUpdate();
       }
     }
 	    if (!rawMode && update.selectionSet && !isPlaying) {
@@ -6036,7 +6027,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(buildTuneMetaLabel(metadata));
     setFileNameMeta(stripFileExtension(metadata.basename || ""));
-    updateSourceLinkPanel();
+    sourceLinkFeature.update();
     if (currentDoc) {
       currentDoc.path = metadata.path || null;
       currentDoc.content = text;
@@ -6081,7 +6072,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(UNTITLED_UNSAVED_LABEL);
     setFileNameMeta(UNTITLED_UNSAVED_LABEL);
-    updateSourceLinkPanel();
+    sourceLinkFeature.update();
     if (currentDoc) {
       currentDoc.path = null;
       currentDoc.content = text || "";
@@ -10969,10 +10960,6 @@ function ensureAbc2svgModulesReady(content) {
   });
 }
 
-async function buildPrintSourceLinkMarkup(abcText) {
-  return sourceLinkFeature.buildPrintMarkup(abcText);
-}
-
 async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false } = {}) {
   if (!errorsEnabled) return;
   if (!entry || !entry.path) return;
@@ -11143,7 +11130,7 @@ async function renderCurrentTuneSvgMarkupForPrint() {
   const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const res = await renderAbcToSvgMarkup(text, { pageFormat: true });
   if (res && res.ok && res.svg) {
-    const sourceMarkup = await buildPrintSourceLinkMarkup(tuneText);
+    const sourceMarkup = await sourceLinkFeature.buildPrintMarkup(tuneText);
     if (sourceMarkup) res.svg = `${res.svg.trim()}\n${sourceMarkup}`;
   }
   return res;

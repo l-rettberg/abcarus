@@ -8,7 +8,8 @@ import { createQrDataUrl } from "../../print/qr_code.js";
 import { createSourceLinkController } from "./source_link_controller.js";
 
 function createSourceLinkFeature({
-  panel,
+  panel = null,
+  documentRef = null,
   api,
   parseAbcHeaderFields,
   getEditorText = () => "",
@@ -17,6 +18,9 @@ function createSourceLinkFeature({
   shouldIncludePrintQr = () => false,
   showToast = () => {},
 } = {}) {
+  const doc = documentRef || (typeof document !== "undefined" ? document : null);
+  const resolvedPanel = panel || (doc && typeof doc.getElementById === "function" ? doc.getElementById("sourceLinkPanel") : null);
+
   async function openExternalUrl(url) {
     const target = normalizeSourceUrl(url);
     if (!target || !api || typeof api.openExternal !== "function") return;
@@ -39,7 +43,7 @@ function createSourceLinkFeature({
   }
 
   const controller = createSourceLinkController({
-    panel,
+    panel: resolvedPanel,
     parseAbcHeaderFields,
     openExternalUrl,
     previewYouTubeSource,

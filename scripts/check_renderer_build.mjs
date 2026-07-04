@@ -181,12 +181,8 @@ async function assertInlineToolbarIconsCompatibility() {
 }
 
 async function assertAlignBarsDoesNotCrossSectionFields() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
   const barMetricsSrc = await readFile("src/renderer/abc/bar_metrics.js", "utf8");
-  const start = src.indexOf("function alignBeams(");
-  const end = src.indexOf("function alignBarsInEditor()", start);
-  if (start < 0 || end < 0) throw new Error("Unable to isolate Align Bars helpers.");
+  const alignBarsSrc = await readFile("src/renderer/abc/align_bars.js", "utf8");
 
   const metricsModule = { exports: {} };
   const metricsHelpers = barMetricsSrc.replace(
@@ -203,7 +199,12 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
   } = metricsModule.exports;
 
   const module = { exports: {} };
-  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText, getBarSeparatorColumns };\n`;
+  const helpers = alignBarsSrc
+    .replace(/import\s+\{[\s\S]*?\}\s+from\s+"\.\/bar_metrics\.js";\s*/, "")
+    .replace(
+      /export\s+\{[\s\S]*?\};\s*$/,
+      "module.exports = { alignBarsInText, getBarSeparatorColumns };",
+    );
   const load = new Function(
     "module",
     "exports",

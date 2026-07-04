@@ -33,10 +33,7 @@ import { createErrorsFocusMessageController } from "./editor/errors_focus_messag
 import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createMeasureErrorState } from "./editor/errors_measure_state.js";
-import {
-  buildRhythmErrorSuggestionSnapshot,
-  suggestPlaybackRangeForRhythmErrorText,
-} from "./editor/errors_playback_range_model.js";
+import { createErrorsPlaybackRangeController } from "./editor/errors_playback_range_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsReporterController } from "./editor/errors_reporter_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
@@ -730,6 +727,16 @@ const errorsReporterController = createErrorsReporterController({
   setScanErrors,
   getEntries: getErrorEntries,
 });
+const errorsPlaybackRangeController = createErrorsPlaybackRangeController({
+  isEnabled: () => errorsEnabled,
+  isPlaying: () => isPlaying,
+  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
+  findMeasureRangeAt,
+  setPlaybackRange,
+  setSelectionAt: setEditorSelectionAt,
+  setSuppressSelectionSync: (value) => { suppressPlaybackRangeSelectionSync = Boolean(value); },
+  logError: (...args) => console.error(...args),
+});
 const errorsTuneScanController = createErrorsTuneScanController({
   isEnabled: () => errorsEnabled,
   isDirty: () => Boolean(currentDoc && currentDoc.dirty),
@@ -967,7 +974,6 @@ let playbackIgnoreRepeatsOnce = false;
 let transportPlayheadOffset = 0; // editor offset used for next transport start
 let transportJumpHighlightActive = false;
 let suppressTransportJumpClearOnce = false;
-let lastRhythmErrorSuggestion = null;
 let errorsEnabled = false;
 
 let practiceBarHighlightRange = null; // {from,to} editor offsets
@@ -1650,7 +1656,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getLastDrumInjectResult: () => lastDrumInjectResult,
   getLastDrumPlaybackActive: () => lastDrumPlaybackActive,
   getLastDrumSignatureDiff: () => lastDrumSignatureDiff,
-  getLastRhythmErrorSuggestion: () => lastRhythmErrorSuggestion,
+  getLastRhythmErrorSuggestion: () => errorsPlaybackRangeController.getLastSuggestion(),
   getLastRenderPayload: () => lastRenderPayload,
   getBarMismatchMarkers: () => barMismatchMarkers,
   getErrorEntries: () => getErrorEntries(),
@@ -7240,29 +7246,7 @@ async function jumpToError(errItem) {
 }
 
 function applyPlaybackRangeFromError(errItem) {
-  try {
-    if (!errorsEnabled) return;
-    if (isPlaying) return;
-    if (!editorView || !errItem) return;
-    const suggested = suggestPlaybackRangeForRhythmErrorText(editorView.state.doc.toString(), errItem, {
-      findMeasureRangeAt,
-      logError: (...args) => console.error(...args),
-    });
-    if (!suggested) return;
-    lastRhythmErrorSuggestion = buildRhythmErrorSuggestionSnapshot(errItem, suggested);
-    setPlaybackRange({
-      startOffset: suggested.startOffset,
-      endOffset: suggested.endOffset,
-      origin: "error",
-      loop: true,
-    });
-    suppressPlaybackRangeSelectionSync = true;
-    setEditorSelectionAt(suggested.startOffset);
-  } catch (e) {
-    console.error("[abcarus] Failed to apply PlaybackRange from error:", (e && e.message) ? e.message : String(e));
-  } finally {
-    suppressPlaybackRangeSelectionSync = false;
-  }
+  errorsPlaybackRangeController.applyFromError(errItem);
 }
 
 function renderToolStatus() {

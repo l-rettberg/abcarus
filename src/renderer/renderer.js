@@ -27,6 +27,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsListController } from "./editor/errors_list_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
@@ -2799,6 +2800,25 @@ const aboutModalController = createAboutModalController({
   enableDraggableModal,
   setStatus,
   logError: logErr,
+});
+const errorsListController = createErrorsListController({
+  listElement: $errorList,
+  getErrors: () => errorEntries,
+  getActiveTuneId: () => activeTuneId,
+  getGroupKey: getErrorGroupKey,
+  getGroupLabel: getErrorGroupLabel,
+  onActivate: async (entry) => {
+    if (entry.tuneId && entry.tuneId !== activeTuneId) {
+      await selectTune(entry.tuneId);
+    }
+    if (entry.loc) {
+      setEditorSelectionAtLineCol(entry.loc.line, entry.loc.col);
+    }
+    if (entry.renderLoc && lastRenderPayload && lastRenderPayload.text) {
+      const renderIdx = getTextIndexFromLoc(lastRenderPayload.text, entry.renderLoc);
+      if (Number.isFinite(renderIdx)) highlightRenderNoteAtIndex(renderIdx);
+    }
+  },
 });
 const goToMeasureModalController = createGoToMeasureModalController();
 
@@ -9957,47 +9977,7 @@ function getErrorGroupLabel(entry) {
 }
 
 function renderErrorList() {
-  if (!$errorList) return;
-  $errorList.textContent = "";
-  if (!errorEntries.length) return;
-  const groups = new Map();
-  for (const entry of errorEntries) {
-    const key = getErrorGroupKey(entry);
-    if (!groups.has(key)) {
-      groups.set(key, { key, label: getErrorGroupLabel(entry), entries: [], count: 0 });
-    }
-    const group = groups.get(key);
-    group.entries.push(entry);
-    group.count += entry.count || 1;
-  }
-  for (const group of groups.values()) {
-    const details = document.createElement("details");
-    details.className = "error-group";
-    if (group.key === activeTuneId) details.open = true;
-    const summary = document.createElement("summary");
-    summary.className = "error-group-summary";
-    summary.textContent = `${group.label} (${group.count})`;
-    details.appendChild(summary);
-    for (const entry of group.entries) {
-      const item = document.createElement("div");
-      item.className = "error-item";
-      item.dataset.index = String(entry.index);
-      if (entry.loc) {
-        const loc = document.createElement("div");
-        loc.className = "error-loc";
-        loc.textContent = `Line ${entry.loc.line}, Col ${entry.loc.col}`;
-        item.appendChild(loc);
-      }
-      const msg = document.createElement("div");
-      msg.className = "error-msg";
-      msg.textContent = entry.count && entry.count > 1
-        ? `${entry.message} ×${entry.count}`
-        : entry.message;
-      item.appendChild(msg);
-      details.appendChild(item);
-    }
-    $errorList.appendChild(details);
-  }
+  errorsListController.render();
 }
 
 function addError(message, locOverride, contextOverride) {
@@ -15320,26 +15300,6 @@ loadLastRecentEntry()
     if (!(window.api && typeof window.api.getSettings === "function")) markStartupUiReady();
     else renderUnifiedStatus();
   });
-
-if ($errorList) {
-  $errorList.addEventListener("click", async (e) => {
-    const item = e.target && e.target.closest ? e.target.closest(".error-item") : null;
-    if (!item) return;
-    const index = Number(item.dataset.index);
-    const entry = Number.isFinite(index) ? errorEntries[index] : null;
-    if (!entry) return;
-    if (entry.tuneId && entry.tuneId !== activeTuneId) {
-      await selectTune(entry.tuneId);
-    }
-    if (entry.loc) {
-      setEditorSelectionAtLineCol(entry.loc.line, entry.loc.col);
-    }
-    if (entry.renderLoc && lastRenderPayload && lastRenderPayload.text) {
-      const renderIdx = getTextIndexFromLoc(lastRenderPayload.text, entry.renderLoc);
-      if (Number.isFinite(renderIdx)) highlightRenderNoteAtIndex(renderIdx);
-    }
-  });
-}
 
 if ($out) {
   $out.addEventListener("click", (e) => {

@@ -29,6 +29,7 @@ import {
 } from "./editor/abc_helpers_controller.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
+import { createMeasureErrorState } from "./editor/errors_measure_state.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
@@ -49,7 +50,6 @@ import {
   buildBarMismatchDecorations,
   buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
-  buildMeasureErrorDecorations,
   buildPayloadLayerDecorations,
   buildPracticeBarDecorations,
 } from "./editor/range_decorations.js";
@@ -703,6 +703,7 @@ const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
+const measureErrorState = createMeasureErrorState();
 
 // ---------------- A–B playback helpers ----------------
 
@@ -1865,8 +1866,6 @@ let libraryFullScanToken = "";
 let suppressRecentEntries = false;
 let toastTimer = null;
 let errorLineOffset = 0;
-let measureErrorRanges = [];
-let measureErrorVersion = 0;
 let measureErrorRenderRanges = [];
 let barMismatchMarkers = [];
 let barMismatchVersion = 0;
@@ -3806,43 +3805,10 @@ function setHeaderEditorValue(text) {
   });
 }
 
-const measureErrorPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = measureErrorVersion;
-    this.decorations = buildMeasureErrorDecorations(view.state, measureErrorRanges);
-  }
-  update(update) {
-    if (update.docChanged) {
-      try {
-        this.decorations = this.decorations.map(update.changes);
-      } catch {}
-      if (measureErrorRanges && measureErrorRanges.length) {
-        try {
-          const max = update.state.doc.length;
-          const mapped = [];
-          for (const r of measureErrorRanges) {
-            const start = update.changes.mapPos(Number(r.start), 1);
-            const end = update.changes.mapPos(Number(r.end), -1);
-            const s = Math.max(0, Math.min(start, max));
-            const e = Math.max(s, Math.min(end, max));
-            if (e > s) mapped.push({ start: s, end: e });
-          }
-          measureErrorRanges = mapped;
-        } catch {}
-      }
-    }
-    if (update.docChanged || update.selectionSet || this.version !== measureErrorVersion) {
-      this.version = measureErrorVersion;
-      this.decorations = buildMeasureErrorDecorations(update.state, measureErrorRanges);
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
+const measureErrorPlugin = measureErrorState.plugin;
 
 function setMeasureErrorRanges(ranges) {
-  measureErrorRanges = ranges || [];
-  measureErrorVersion += 1;
+  measureErrorState.setRanges(ranges);
   if (!editorView) return;
   editorView.dispatch({
     selection: editorView.state.selection,
@@ -9291,10 +9257,11 @@ function applyMeasureHighlights(renderOffset) {
   const notes = $out.querySelectorAll(".note-hl, .bar-hl");
   for (const note of notes) note.classList.remove("measure-error");
   const useRenderRanges = measureErrorRenderRanges && measureErrorRenderRanges.length;
-  if (!useRenderRanges && !measureErrorRanges.length) return;
+  const editorRanges = measureErrorState.getRanges();
+  if (!useRenderRanges && !editorRanges.length) return;
   const ranges = useRenderRanges
     ? measureErrorRenderRanges
-    : measureErrorRanges.map((range) => ({
+    : editorRanges.map((range) => ({
       start: range.start + (renderOffset || 0),
       end: range.end + (renderOffset || 0),
     }));
@@ -10021,10 +9988,10 @@ function addError(message, locOverride, contextOverride) {
           measureErrorRenderRanges.push(renderRange);
         }
         if (editorRange) {
-          const dupe = measureErrorRanges.some((r) => r.start === editorRange.start && r.end === editorRange.end);
+          const editorRanges = measureErrorState.getRanges();
+          const dupe = editorRanges.some((r) => r.start === editorRange.start && r.end === editorRange.end);
           if (!dupe) {
-            measureErrorRanges.push(editorRange);
-            setMeasureErrorRanges(measureErrorRanges);
+            setMeasureErrorRanges([...editorRanges, editorRange]);
           }
         }
       }

@@ -53,6 +53,7 @@ import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
+import { createErrorsScanState } from "./editor/errors_scan_state.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -714,12 +715,21 @@ const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
 const errorsCollection = createErrorsCollection();
+const errorsScanState = createErrorsScanState();
 const measureErrorState = createMeasureErrorState();
 
 // ---------------- A–B playback helpers ----------------
 
 function getErrorEntries() {
   return errorsCollection.getEntries();
+}
+
+function isTuneErrorFilterActive() {
+  return errorsScanState.isFilterActive();
+}
+
+function isTuneErrorScanInFlight() {
+  return errorsScanState.isInFlight();
 }
 
 function isAbPlanValid() {
@@ -970,9 +980,8 @@ function setActiveErrorHighlight(entry, from, to) {
 function clearErrorsFeatureState() {
   errorsPopoverController.close();
   clearActiveErrorHighlight("docReplaced");
-  tuneErrorFilter = false;
-  tuneErrorScanInFlight = false;
-  tuneErrorScanToken += 1;
+  errorsScanState.cancel();
+  errorsScanState.clearFilter();
   setScanErrorButtonActive(false);
   setScanErrorButtonState(false);
   setBarMismatchMarkers([]);
@@ -1815,9 +1824,6 @@ let libraryIndex = null;
 let libraryFilter = null;
 let libraryFilterLabel = "";
 let libraryTextFilter = "";
-let tuneErrorFilter = false;
-let tuneErrorScanToken = 0;
-let tuneErrorScanInFlight = false;
 let libraryFullScanInFlight = false;
 let libraryFullScanToken = "";
 let suppressRecentEntries = false;
@@ -3351,7 +3357,7 @@ function setLibraryErrorIndexForTune(tuneId, count) {
   if (!tuneId) return;
   if (count > 0) libraryErrorIndex.set(tuneId, count);
   else libraryErrorIndex.delete(tuneId);
-  if (tuneErrorFilter && !tuneErrorScanInFlight) {
+  if (isTuneErrorFilterActive() && !isTuneErrorScanInFlight()) {
     updateFileContext();
   }
 }
@@ -3607,7 +3613,7 @@ function buildTuneSelectOptions(fileEntry) {
     return;
   }
   const sourceTunes = fileEntry.tunes.slice().sort((a, b) => (Number(a.xNumber) || 0) - (Number(b.xNumber) || 0));
-  const tunes = tuneErrorFilter
+  const tunes = isTuneErrorFilterActive()
     ? sourceTunes.filter((tune) => libraryErrorIndex.has(tune.id))
     : sourceTunes;
   if (isNewTuneDraft) {
@@ -3617,7 +3623,7 @@ function buildTuneSelectOptions(fileEntry) {
     option.selected = true;
     $fileTuneSelect.appendChild(option);
   }
-  if (tuneErrorFilter && tuneErrorScanInFlight && !libraryErrorIndex.size) {
+  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !libraryErrorIndex.size) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "(Scanning errors…)";
@@ -3630,7 +3636,7 @@ function buildTuneSelectOptions(fileEntry) {
   if (!tunes.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = tuneErrorFilter ? "(No error tunes)" : "(No tunes)";
+    option.textContent = isTuneErrorFilterActive() ? "(No error tunes)" : "(No tunes)";
     option.disabled = true;
     option.selected = true;
     $fileTuneSelect.appendChild(option);
@@ -3673,7 +3679,7 @@ function updateFileContext() {
   }
   buildTuneSelectOptions(entry);
   setScanErrorButtonVisibility(entry);
-  setScanErrorButtonActive(tuneErrorFilter);
+  setScanErrorButtonActive(isTuneErrorFilterActive());
 }
 
 function getNavigableTuneIdsFromFileSelect() {
@@ -3753,7 +3759,7 @@ async function navigateTuneByDelta(delta) {
     // Fallback: navigate within the tune `<select>` (respects error filtering).
     const ids = getNavigableTuneIdsFromFileSelect();
     if (!ids.length) {
-      showToast(tuneErrorFilter ? "No error tunes in selection." : "No tunes to navigate.", 2000);
+      showToast(isTuneErrorFilterActive() ? "No error tunes in selection." : "No tunes to navigate.", 2000);
       return;
     }
     const selectedIsNavigable = selectedValue && ids.includes(selectedValue);
@@ -4283,8 +4289,8 @@ function updateLibraryStatus() {
     setScanStatus(`Filter: ${libraryFilterLabel}`);
     return;
   }
-  if (tuneErrorFilter) {
-    if (!tuneErrorScanInFlight) setScanStatus("Filter: Error tunes");
+  if (isTuneErrorFilterActive()) {
+    if (!isTuneErrorScanInFlight()) setScanStatus("Filter: Error tunes");
     return;
   }
   if (libraryTextFilter) {
@@ -4535,13 +4541,12 @@ function refreshErrorsNow() {
     t = null;
   }
   scheduleRenderNow();
-  if (tuneErrorFilter && !tuneErrorScanInFlight) {
+  if (isTuneErrorFilterActive() && !isTuneErrorScanInFlight()) {
     const entry = getActiveFileEntry();
     if (entry) {
-      tuneErrorScanToken += 1;
-      tuneErrorScanInFlight = true;
+      errorsScanState.begin({ filterToErrorTunes: true });
       setScanErrorButtonActive(true);
-      scanActiveFileForTuneErrors(entry, { filterToErrorTunes: tuneErrorFilter }).catch(() => {});
+      scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
       updateLibraryStatus();
     }
   }
@@ -6764,19 +6769,19 @@ if ($scanErrorTunes) {
       showToast("Raw mode: switch to tune mode for errors.", 2200);
       return;
     }
-    if (tuneErrorScanInFlight) return;
+    if (isTuneErrorScanInFlight()) return;
     const entry = getActiveFileEntry();
     if (!entry) return;
     clearErrors();
-    tuneErrorScanToken += 1;
-    if (tuneErrorFilter) {
-      tuneErrorFilter = false;
+    errorsScanState.invalidate();
+    if (isTuneErrorFilterActive()) {
+      errorsScanState.clearFilter();
       buildTuneSelectOptions(entry);
       setScanErrorButtonActive(false);
       updateLibraryStatus();
       return;
     }
-    tuneErrorFilter = true;
+    errorsScanState.setFilterActive(true);
     buildTuneSelectOptions(entry);
     setScanErrorButtonActive(true);
     scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
@@ -6791,8 +6796,8 @@ function startScanForErrorsFromToolbarEnable() {
     showToast("Stop playback to scan errors");
     return;
   }
-  tuneErrorFilter = false;
-  tuneErrorScanToken += 1;
+  errorsScanState.clearFilter();
+  errorsScanState.invalidate();
   setScanErrorButtonActive(false);
   refreshErrorsNow();
 }
@@ -7356,8 +7361,8 @@ function setScanErrorButtonVisibility(entry) {
   const shouldShow = tuneCount > 1;
   $scanErrorTunes.style.display = shouldShow ? "" : "none";
   if (!shouldShow) {
-    tuneErrorFilter = false;
-    tuneErrorScanInFlight = false;
+    errorsScanState.cancel();
+    errorsScanState.clearFilter();
     setScanErrorButtonState(false);
     setScanErrorButtonActive(false);
   }
@@ -10086,28 +10091,26 @@ async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false }
   if (currentDoc && currentDoc.dirty) {
     const choice = await confirmUnsavedChanges("scanning error tunes");
     if (choice === "cancel") {
-      tuneErrorScanInFlight = false;
+      errorsScanState.finish();
       setScanErrorButtonState(false);
       return;
     }
     if (choice === "save") {
       const ok = await performSaveFlow();
       if (!ok) {
-        tuneErrorScanInFlight = false;
+        errorsScanState.finish();
         setScanErrorButtonState(false);
         return;
       }
     }
   }
-  tuneErrorFilter = Boolean(filterToErrorTunes);
-  const token = ++tuneErrorScanToken;
-  tuneErrorScanInFlight = true;
+  const token = errorsScanState.begin({ filterToErrorTunes });
   setScanErrorButtonState(true);
-  setScanErrorButtonActive(tuneErrorFilter);
+  setScanErrorButtonActive(isTuneErrorFilterActive());
   clearErrorIndexForFile(entry);
   const contentRes = await getFileContentCached(entry.path);
   if (!contentRes.ok) {
-    tuneErrorScanInFlight = false;
+    errorsScanState.finish();
     setScanErrorButtonState(false);
     return;
   }
@@ -10118,9 +10121,9 @@ async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false }
   const previousRenderScroll = $renderPane ? $renderPane.scrollTop : 0;
   suppressRecentEntries = true;
   for (let i = 0; i < tunes.length; i += 1) {
-    if (token !== tuneErrorScanToken) {
+    if (!errorsScanState.isCurrent(token)) {
       suppressRecentEntries = false;
-      tuneErrorScanInFlight = false;
+      errorsScanState.finish();
       setScanErrorButtonState(false);
       return;
     }
@@ -10139,7 +10142,7 @@ async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false }
   }
   suppressRecentEntries = false;
   let restoredTuneId = previousTuneId;
-  if (tuneErrorFilter) {
+  if (isTuneErrorFilterActive()) {
     const firstErrorTune = tunes.find((tune) => tune && libraryErrorIndex.has(tune.id));
     if (firstErrorTune && firstErrorTune.id) {
       restoredTuneId = firstErrorTune.id;
@@ -10150,9 +10153,9 @@ async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false }
   }
   if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = previousEditorScroll;
   if ($renderPane) $renderPane.scrollTop = previousRenderScroll;
-  tuneErrorScanInFlight = false;
+  errorsScanState.finish();
   setScanErrorButtonState(false);
-  setScanErrorButtonActive(tuneErrorFilter);
+  setScanErrorButtonActive(isTuneErrorFilterActive());
   buildTuneSelectOptions(entry);
   setScanErrors(getErrorEntries());
   setStatus("OK");
@@ -10179,7 +10182,7 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
         const ready = await ensureAbc2svgModulesReady(renderText);
         if (!ready) return { ok: false, error: "ABC modules failed to load." };
         const svgParts = [];
-        if (errorsEnabled && tuneErrorScanInFlight) {
+        if (errorsEnabled && isTuneErrorScanInFlight()) {
           const keyWarn = detectKeyFieldNotLastBeforeBody(renderText);
           if (keyWarn && keyWarn.detail) {
             const msg = `Warning: ${keyWarn.detail}`;

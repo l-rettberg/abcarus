@@ -50,6 +50,7 @@ import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
+import { createErrorsNavigationController } from "./editor/errors_navigation_controller.js";
 import { createErrorsTuneScanController } from "./editor/errors_tune_scan_controller.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
@@ -801,6 +802,14 @@ const errorsLifecycleController = createErrorsLifecycleController({
   scheduleRenderNow,
   ensureDrumMismatchErrorVisible,
 });
+const errorsNavigationController = createErrorsNavigationController({
+  navigationState: errorsNavigationState,
+  isEnabled: isErrorsEnabled,
+  isPlaybackBusy: () => Boolean(isPlaying || isPaused),
+  getSortedItems: getSortedErrorsForNav,
+  jumpToError,
+  showToast,
+});
 
 // ---------------- A–B playback helpers ----------------
 
@@ -1038,20 +1047,7 @@ function syncActiveErrorNavIndex(sortedItemsArg) {
 }
 
 async function activateErrorByNav(delta) {
-  if (!isErrorsEnabled()) return;
-  if (isPlaying || isPaused) {
-    showToast("Stop playback to navigate errors");
-    return;
-  }
-  const items = getSortedErrorsForNav();
-  if (!items.length) {
-    if (errorsNavigationState.shouldShowNoErrorsToast()) showToast("No errors");
-    return;
-  }
-
-  const nextIdx = errorsNavigationState.nextIndex(items, delta);
-
-  await jumpToError(items[nextIdx].entry);
+  await errorsNavigationController.activateByDelta(delta);
 }
 
 function clearActiveErrorHighlight(reason) {

@@ -183,14 +183,46 @@ async function assertInlineToolbarIconsCompatibility() {
 async function assertAlignBarsDoesNotCrossSectionFields() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("const BAR_SEP_SYMBOLS =");
+  const barMetricsSrc = await readFile("src/renderer/abc/bar_metrics.js", "utf8");
+  const start = src.indexOf("function alignBeams(");
   const end = src.indexOf("function alignBarsInEditor()", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate Align Bars helpers.");
 
+  const metricsModule = { exports: {} };
+  const metricsHelpers = barMetricsSrc.replace(
+    /export\s+\{[\s\S]*?\};\s*$/,
+    "module.exports = { BAR_SEP_NO_SPACE, getDefaultLen, getMetre, isLikelyAnacrusis, splitLineIntoParts };",
+  );
+  new Function("module", "exports", metricsHelpers)(metricsModule, metricsModule.exports);
+  const {
+    BAR_SEP_NO_SPACE,
+    getDefaultLen,
+    getMetre,
+    isLikelyAnacrusis,
+    splitLineIntoParts,
+  } = metricsModule.exports;
+
   const module = { exports: {} };
   const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText, getBarSeparatorColumns };\n`;
-  const load = new Function("module", "exports", helpers);
-  load(module, module.exports);
+  const load = new Function(
+    "module",
+    "exports",
+    "BAR_SEP_NO_SPACE",
+    "getDefaultLen",
+    "getMetre",
+    "isLikelyAnacrusis",
+    "splitLineIntoParts",
+    helpers,
+  );
+  load(
+    module,
+    module.exports,
+    BAR_SEP_NO_SPACE,
+    getDefaultLen,
+    getMetre,
+    isLikelyAnacrusis,
+    splitLineIntoParts,
+  );
   const { alignBarsInText, getBarSeparatorColumns } = module.exports;
   if (typeof alignBarsInText !== "function") throw new Error("alignBarsInText() is unavailable.");
   if (typeof getBarSeparatorColumns !== "function") throw new Error("getBarSeparatorColumns() is unavailable.");

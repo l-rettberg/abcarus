@@ -16691,6 +16691,11 @@ function startPlaybackFromPrepared(startIdx) {
   const startsAtTuneHead = playbackState
     && playbackState.startSymbol
     && start === playbackState.startSymbol;
+  const isFullFocusStart = startsAtTuneHead
+    && rangeForStart
+    && rangeForStart.origin === "focus"
+    && rangeForStart.endOffset == null
+    && !rangeForStart.loop;
   const isFullPartOrderStart = rangeForStart
     && (
       Number(rangeForStart.startOffset) === 0
@@ -16698,6 +16703,7 @@ function startPlaybackFromPrepared(startIdx) {
         startsAtTuneHead
         && (rangeForStart.origin === "cursor" || rangeForStart.origin === "transport")
       )
+      || isFullFocusStart
     );
   if (
     isFullPartOrderStart

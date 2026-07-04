@@ -162,6 +162,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasu
     }
     const fullStart = Math.max(0, Number(parsedTune && parsedTune.firstMeasureOffset) || 0);
     const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    const endOffset = Boolean(state.loop) ? fullEnd : null;
     return {
       ok: true,
       plan: {
@@ -169,7 +170,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasu
         startBarIndex: 0,
         endBarIndex: 0,
         startOffset: fullStart,
-        endOffset: fullEnd,
+        endOffset,
         suppressRepeats: Boolean(state.suppressRepeats),
         mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
         loop: Boolean(state.loop),
@@ -190,6 +191,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasu
     if (!Number.isFinite(fullStart)) fullStart = 0;
     fullStart = Math.max(0, Math.min(tuneText.length, fullStart));
     const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    const endOffset = Boolean(state.loop) ? fullEnd : null;
     return {
       ok: true,
       plan: {
@@ -197,7 +199,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasu
         startBarIndex: 0,
         endBarIndex: bars.length - 1,
         startOffset: fullStart,
-        endOffset: fullEnd,
+        endOffset,
         suppressRepeats: Boolean(state.suppressRepeats),
         mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
         loop: Boolean(state.loop),

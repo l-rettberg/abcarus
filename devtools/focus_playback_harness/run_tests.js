@@ -753,6 +753,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
     if (hasFrom || hasTo) return { ok: false, reason: "Cannot resolve bar boundaries for multi-voice selection." };
     const fullStart = Math.max(0, Number(parsedTune && parsedTune.firstMeasureOffset) || 0);
     const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    const endOffset = Boolean(state.loop) ? fullEnd : null;
     return {
       ok: true,
       plan: {
@@ -760,7 +761,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
         startBarIndex: 0,
         endBarIndex: 0,
         startOffset: fullStart,
-        endOffset: fullEnd,
+        endOffset,
         suppressRepeats: Boolean(state.suppressRepeats),
         mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
         loop: Boolean(state.loop),
@@ -780,6 +781,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
     if (!Number.isFinite(fullStart)) fullStart = 0;
     fullStart = Math.max(0, Math.min(tuneText.length, fullStart));
     const fullEnd = Math.max(fullStart + 1, tuneText.length);
+    const endOffset = Boolean(state.loop) ? fullEnd : null;
     return {
       ok: true,
       plan: {
@@ -787,7 +789,7 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange }) {
         startBarIndex: 0,
         endBarIndex: bars.length - 1,
         startOffset: fullStart,
-        endOffset: fullEnd,
+        endOffset,
         suppressRepeats: Boolean(state.suppressRepeats),
         mutedVoices: Array.isArray(state.mutedVoices) ? state.mutedVoices.slice() : [],
         loop: Boolean(state.loop),
@@ -1618,7 +1620,7 @@ async function main() {
     };
     const result = buildFocusPlaybackPlan({
       parsedTune,
-      focusState: { fromMeasure: 0, toMeasure: 0, loop: false, suppressRepeats: false, mutedVoices: [] },
+      focusState: { fromMeasure: 1, toMeasure: 0, loop: false, suppressRepeats: false, mutedVoices: [] },
       visibleRange: { startRenderOffset: 0, endRenderOffset: 20 },
     });
     assert(result && result.ok, "visible repeat-close extension plan should be valid");
@@ -1656,15 +1658,28 @@ async function main() {
       Number(result.plan.endBarIndex) === (baseCtx.barMap.length - 1),
       `Expected endBarIndex=${baseCtx.barMap.length - 1}, got ${result.plan.endBarIndex}`
     );
+    assert(Number.isFinite(Number(result.plan.startOffset)), "Expected valid startOffset for visible fallback");
+    assert(result.plan.endOffset == null, "Default full-tune Focus playback must leave endOffset open");
+
+    const looped = buildFocusPlaybackPlan({
+      parsedTune: {
+        text: tuneText,
+        barMap: baseCtx.barMap,
+        byNumber: baseCtx.byNumber,
+        firstMeasureOffset: baseCtx.firstMeasureOffset,
+      },
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: true, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: null,
+    });
+    assert(looped && looped.ok && looped.plan, "Expected valid loop plan when visible range is unavailable");
     assert(
-      Number.isFinite(Number(result.plan.startOffset))
-      && Number.isFinite(Number(result.plan.endOffset))
-      && Number(result.plan.endOffset) > Number(result.plan.startOffset),
-      "Expected valid playable offset range for visible fallback"
+      Number.isFinite(Number(looped.plan.endOffset))
+      && Number(looped.plan.endOffset) > Number(looped.plan.startOffset),
+      "Looped full-tune Focus playback must keep a finite endOffset"
     );
-    console.log("% PASS TEST 20: Visible mode falls back to full tune when visible range is unavailable");
+    console.log("% PASS TEST 20: Visible mode falls back to full tune with open end unless looped");
   } catch (e) {
-    console.log("% FAIL TEST 20: Visible mode falls back to full tune when visible range is unavailable");
+    console.log("% FAIL TEST 20: Visible mode falls back to full tune with open end unless looped");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }
@@ -1684,7 +1699,7 @@ async function main() {
     assert(noBarsVisible && noBarsVisible.ok && noBarsVisible.plan, "Expected visible fallback plan for missing barMap");
     assert(noBarsVisible.plan.mode === "visible", "Expected visible mode for missing barMap fallback");
     assert(Number(noBarsVisible.plan.startOffset) === 0, `Expected fallback startOffset=0, got ${noBarsVisible.plan.startOffset}`);
-    assert(Number(noBarsVisible.plan.endOffset) > 0, "Expected fallback endOffset > 0");
+    assert(noBarsVisible.plan.endOffset == null, "Expected missing-barMap default Focus fallback to leave endOffset open");
 
     const noBarsSegment = buildFocusPlaybackPlan({
       parsedTune: {
@@ -1724,13 +1739,20 @@ async function main() {
     assert(result && result.ok && result.plan, "visible boundary plan should be valid");
     assert(result.plan.mode === "visible", "expected visible mode");
     assert(Number(result.plan.startOffset) === 0, `expected startOffset=0, got ${result.plan.startOffset}`);
+    assert(result.plan.endOffset == null, `full-tune default should leave endOffset open, got ${result.plan.endOffset}`);
+    const looped = buildFocusPlaybackPlan({
+      parsedTune,
+      focusState: { fromMeasure: 0, toMeasure: 0, loop: true, suppressRepeats: true, mutedVoices: [] },
+      visibleRange: { startRenderOffset: 0, endRenderOffset: 180 },
+    });
+    assert(looped && looped.ok && looped.plan, "looped visible boundary plan should be valid");
     assert(
-      Number(result.plan.endOffset) === parsedTune.text.length,
-      `full-tune default should end at tune length (${parsedTune.text.length}), got ${result.plan.endOffset}`
+      Number(looped.plan.endOffset) === parsedTune.text.length,
+      `looped full-tune Focus should end at tune length (${parsedTune.text.length}), got ${looped.plan.endOffset}`
     );
-    console.log("% PASS TEST 28: Focus default 0->0 plays full tune (ignores viewport)");
+    console.log("% PASS TEST 28: Focus default 0->0 plays full tune with open end unless looped");
   } catch (e) {
-    console.log("% FAIL TEST 28: Focus default 0->0 plays full tune (ignores viewport)");
+    console.log("% FAIL TEST 28: Focus default 0->0 plays full tune with open end unless looped");
     String(e && e.message ? e.message : e).split(/\r\n|\n|\r/).forEach((line) => console.log(`% ${line}`));
     process.exitCode = 1;
   }

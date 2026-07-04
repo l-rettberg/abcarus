@@ -27,6 +27,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsActivationHighlightPlugin } from "./editor/errors_activation_highlight_plugin.js";
 import { createErrorsActivationController } from "./editor/errors_activation_controller.js";
 import { createErrorsBarMismatchController } from "./editor/errors_bar_mismatch_controller.js";
 import { createErrorsCollection } from "./editor/errors_collection.js";
@@ -53,7 +54,6 @@ import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
   buildAbDecorations,
-  buildErrorActivationDecorations,
   buildIntonationHighlightDecorations,
   buildPayloadLayerDecorations,
   buildPracticeBarDecorations,
@@ -1068,30 +1068,7 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
   errorsLifecycleController.setEnabled(next, { triggerRefresh });
 }
 
-const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = errorsHighlightState.getVersion();
-    this.decorations = buildErrorActivationDecorations(view.state, errorsHighlightState.getRange());
-  }
-  update(update) {
-    if (update.docChanged && errorsHighlightState.hasActive() && errorsHighlightState.getRange()) {
-      try {
-        errorsHighlightState.mapRange(update.changes, update.state.doc.length);
-      } catch {}
-    }
-    if (update.docChanged) {
-      try {
-        this.decorations = this.decorations.map(update.changes);
-      } catch {}
-    }
-    if (this.version !== errorsHighlightState.getVersion()) {
-      this.version = errorsHighlightState.getVersion();
-      this.decorations = buildErrorActivationDecorations(update.state, errorsHighlightState.getRange());
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
+const errorActivationHighlightPlugin = createErrorsActivationHighlightPlugin(errorsHighlightState);
 
 const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {

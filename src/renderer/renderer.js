@@ -49,7 +49,7 @@ import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
-import { createErrorsScanState } from "./editor/errors_scan_state.js";
+import { createErrorsTuneScanController } from "./editor/errors_tune_scan_controller.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -711,7 +711,6 @@ const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const errorsNavigationState = createErrorsNavigationState();
 const errorsHighlightState = createErrorsHighlightState();
 const errorsCollection = createErrorsCollection();
-const errorsScanState = createErrorsScanState();
 const measureErrorState = createMeasureErrorState();
 const errorsReporterController = createErrorsReporterController({
   collection: errorsCollection,
@@ -731,6 +730,28 @@ const errorsReporterController = createErrorsReporterController({
   setScanErrors,
   getEntries: getErrorEntries,
 });
+const errorsTuneScanController = createErrorsTuneScanController({
+  isEnabled: () => errorsEnabled,
+  isDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  confirmUnsavedChanges,
+  performSaveFlow,
+  getFileContentCached,
+  selectTune,
+  getActiveTuneId: () => activeTuneId,
+  getEditorScroll: () => editorView && editorView.scrollDOM ? editorView.scrollDOM.scrollTop : 0,
+  setEditorScroll: (value) => { if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = value; },
+  getRenderScroll: () => $renderPane ? $renderPane.scrollTop : 0,
+  setRenderScroll: (value) => { if ($renderPane) $renderPane.scrollTop = value; },
+  setSuppressRecentEntries: (value) => { suppressRecentEntries = Boolean(value); },
+  setErrorLineOffsetFromHeader,
+  setScanButtonState: setScanErrorButtonState,
+  setScanButtonActive: setScanErrorButtonActive,
+  buildTuneSelectOptions,
+  setScanErrors,
+  getErrorEntries,
+  setStatus,
+  onIdleIndexChanged: updateFileContext,
+});
 
 // ---------------- A–B playback helpers ----------------
 
@@ -739,11 +760,11 @@ function getErrorEntries() {
 }
 
 function isTuneErrorFilterActive() {
-  return errorsScanState.isFilterActive();
+  return errorsTuneScanController.isFilterActive();
 }
 
 function isTuneErrorScanInFlight() {
-  return errorsScanState.isInFlight();
+  return errorsTuneScanController.isInFlight();
 }
 
 function isAbPlanValid() {
@@ -994,8 +1015,8 @@ function setActiveErrorHighlight(entry, from, to) {
 function clearErrorsFeatureState() {
   errorsPopoverController.close();
   clearActiveErrorHighlight("docReplaced");
-  errorsScanState.cancel();
-  errorsScanState.clearFilter();
+  errorsTuneScanController.cancel();
+  errorsTuneScanController.clearFilter();
   setScanErrorButtonActive(false);
   setScanErrorButtonState(false);
   setBarMismatchMarkers([]);
@@ -3366,28 +3387,15 @@ function setScanStatus(text, title) {
 }
 
 function setLibraryErrorIndexForTune(tuneId, count) {
-  if (!tuneId) return;
-  if (count > 0) libraryErrorIndex.set(tuneId, count);
-  else libraryErrorIndex.delete(tuneId);
-  if (isTuneErrorFilterActive() && !isTuneErrorScanInFlight()) {
-    updateFileContext();
-  }
+  errorsTuneScanController.setTuneErrorCount(tuneId, count);
 }
 
 function clearErrorIndexForFile(entry) {
-  if (!entry || !entry.tunes) return;
-  for (const tune of entry.tunes) {
-    if (tune && tune.id) libraryErrorIndex.delete(tune.id);
-  }
+  errorsTuneScanController.clearIndexForFile(entry);
 }
 
 function updateLibraryErrorIndexFromCurrentErrors() {
-  if (!activeTuneId) return;
-  let count = 0;
-  for (const entry of getErrorEntries()) {
-    if (entry.tuneId === activeTuneId) count += entry.count || 1;
-  }
-  setLibraryErrorIndexForTune(activeTuneId, count);
+  errorsTuneScanController.updateIndexFromCurrentErrors(activeTuneId, getErrorEntries());
 }
 
 function stripFileExtension(name) {
@@ -3625,9 +3633,7 @@ function buildTuneSelectOptions(fileEntry) {
     return;
   }
   const sourceTunes = fileEntry.tunes.slice().sort((a, b) => (Number(a.xNumber) || 0) - (Number(b.xNumber) || 0));
-  const tunes = isTuneErrorFilterActive()
-    ? sourceTunes.filter((tune) => libraryErrorIndex.has(tune.id))
-    : sourceTunes;
+  const tunes = errorsTuneScanController.getFilteredTunes(sourceTunes);
   if (isNewTuneDraft) {
     const option = document.createElement("option");
     option.value = "__new__";
@@ -3635,7 +3641,7 @@ function buildTuneSelectOptions(fileEntry) {
     option.selected = true;
     $fileTuneSelect.appendChild(option);
   }
-  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !libraryErrorIndex.size) {
+  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !errorsTuneScanController.hasIndexedErrors()) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "(Scanning errors…)";
@@ -4556,7 +4562,6 @@ function refreshErrorsNow() {
   if (isTuneErrorFilterActive() && !isTuneErrorScanInFlight()) {
     const entry = getActiveFileEntry();
     if (entry) {
-      errorsScanState.begin({ filterToErrorTunes: true });
       setScanErrorButtonActive(true);
       scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
       updateLibraryStatus();
@@ -6430,7 +6435,7 @@ async function refreshLibraryIndex() {
   const rootAtStart = libraryIndex.root;
   setScanStatus("Refreshing…");
   fileContentCache.clear();
-  libraryErrorIndex.clear();
+  errorsTuneScanController.clearIndex();
   if (libraryIndex && libraryIndex.root) {
     setFileNameMeta(stripFileExtension(safeBasename(libraryIndex.root)));
   }
@@ -6473,7 +6478,7 @@ async function loadLibraryFromFolder(folder) {
   const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   setScanStatus("Scanning…");
   fileContentCache.clear();
-  libraryErrorIndex.clear();
+  errorsTuneScanController.clearIndex();
   activeTuneId = null;
   setTuneMetaText("No tune selected.");
   setFileNameMeta(stripFileExtension(safeBasename(folder || "")));
@@ -6785,15 +6790,15 @@ if ($scanErrorTunes) {
     const entry = getActiveFileEntry();
     if (!entry) return;
     clearErrors();
-    errorsScanState.invalidate();
+    errorsTuneScanController.invalidate();
     if (isTuneErrorFilterActive()) {
-      errorsScanState.clearFilter();
+      errorsTuneScanController.clearFilter();
       buildTuneSelectOptions(entry);
       setScanErrorButtonActive(false);
       updateLibraryStatus();
       return;
     }
-    errorsScanState.setFilterActive(true);
+    errorsTuneScanController.setFilterActive(true);
     buildTuneSelectOptions(entry);
     setScanErrorButtonActive(true);
     scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
@@ -6808,8 +6813,8 @@ function startScanForErrorsFromToolbarEnable() {
     showToast("Stop playback to scan errors");
     return;
   }
-  errorsScanState.clearFilter();
-  errorsScanState.invalidate();
+  errorsTuneScanController.clearFilter();
+  errorsTuneScanController.invalidate();
   setScanErrorButtonActive(false);
   refreshErrorsNow();
 }
@@ -7373,8 +7378,8 @@ function setScanErrorButtonVisibility(entry) {
   const shouldShow = tuneCount > 1;
   $scanErrorTunes.style.display = shouldShow ? "" : "none";
   if (!shouldShow) {
-    errorsScanState.cancel();
-    errorsScanState.clearFilter();
+    errorsTuneScanController.cancel();
+    errorsTuneScanController.clearFilter();
     setScanErrorButtonState(false);
     setScanErrorButtonActive(false);
   }
@@ -8383,7 +8388,6 @@ function alignBarsInEditor() {
   setStatus("OK");
 }
 
-const libraryErrorIndex = new Map();
 let lastNoteSelection = [];
 let pendingCursorNoteHighlightRaf = null;
 let pendingCursorNoteHighlightIdx = null;
@@ -10023,79 +10027,7 @@ function ensureAbc2svgModulesReady(content) {
 }
 
 async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false } = {}) {
-  if (!errorsEnabled) return;
-  if (!entry || !entry.path) return;
-  if (currentDoc && currentDoc.dirty) {
-    const choice = await confirmUnsavedChanges("scanning error tunes");
-    if (choice === "cancel") {
-      errorsScanState.finish();
-      setScanErrorButtonState(false);
-      return;
-    }
-    if (choice === "save") {
-      const ok = await performSaveFlow();
-      if (!ok) {
-        errorsScanState.finish();
-        setScanErrorButtonState(false);
-        return;
-      }
-    }
-  }
-  const token = errorsScanState.begin({ filterToErrorTunes });
-  setScanErrorButtonState(true);
-  setScanErrorButtonActive(isTuneErrorFilterActive());
-  clearErrorIndexForFile(entry);
-  const contentRes = await getFileContentCached(entry.path);
-  if (!contentRes.ok) {
-    errorsScanState.finish();
-    setScanErrorButtonState(false);
-    return;
-  }
-  const tunes = entry.tunes || [];
-  setErrorLineOffsetFromHeader("");
-  const previousTuneId = activeTuneId;
-  const previousEditorScroll = editorView && editorView.scrollDOM ? editorView.scrollDOM.scrollTop : 0;
-  const previousRenderScroll = $renderPane ? $renderPane.scrollTop : 0;
-  suppressRecentEntries = true;
-  for (let i = 0; i < tunes.length; i += 1) {
-    if (!errorsScanState.isCurrent(token)) {
-      suppressRecentEntries = false;
-      errorsScanState.finish();
-      setScanErrorButtonState(false);
-      return;
-    }
-    const tune = tunes[i];
-    if (!tune || !Number.isFinite(tune.startOffset) || !Number.isFinite(tune.endOffset)) {
-      setLibraryErrorIndexForTune(tune && tune.id ? tune.id : "", 0);
-      continue;
-    }
-    await selectTune(tune.id, { skipConfirm: true, suppressRecent: true });
-    const hasError = Boolean(libraryErrorIndex.has(tune.id));
-    setLibraryErrorIndexForTune(tune.id, hasError ? 1 : 0);
-    if (i % 10 === 0) {
-      setStatus(`Scanning error tunes… ${i + 1}/${tunes.length}`);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  }
-  suppressRecentEntries = false;
-  let restoredTuneId = previousTuneId;
-  if (isTuneErrorFilterActive()) {
-    const firstErrorTune = tunes.find((tune) => tune && libraryErrorIndex.has(tune.id));
-    if (firstErrorTune && firstErrorTune.id) {
-      restoredTuneId = firstErrorTune.id;
-    }
-  }
-  if (restoredTuneId && restoredTuneId !== activeTuneId) {
-    await selectTune(restoredTuneId, { skipConfirm: true });
-  }
-  if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = previousEditorScroll;
-  if ($renderPane) $renderPane.scrollTop = previousRenderScroll;
-  errorsScanState.finish();
-  setScanErrorButtonState(false);
-  setScanErrorButtonActive(isTuneErrorFilterActive());
-  buildTuneSelectOptions(entry);
-  setScanErrors(getErrorEntries());
-  setStatus("OK");
+  await errorsTuneScanController.scanActiveFile(entry, { filterToErrorTunes });
 }
 
 async function renderAbcToSvgMarkup(abcText, options = {}) {

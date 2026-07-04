@@ -30,8 +30,12 @@ import {
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
 import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
+  buildErrorEntryKey,
   buildSortedErrorsForNav,
   computeErrorId,
+  getErrorGroupKey,
+  getErrorGroupLabel as getErrorGroupLabelCore,
+  normalizeErrors,
   normalizeErrorMessageForMatch,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
@@ -7248,42 +7252,6 @@ function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) 
   }, durationMs);
 }
 
-function normalizeErrors(entries) {
-  const out = [];
-  const list = Array.isArray(entries) ? entries : [];
-  for (const entry of list) {
-    if (!entry) continue;
-    const count = entry.count && entry.count > 1 ? entry.count : 1;
-    const msg = entry.message ? String(entry.message) : "Unknown error";
-    const message = count > 1 ? `${msg} ×${count}` : msg;
-    const tuneKey = entry.tuneId || entry.xNumber || "";
-    const tuneTitle = entry.tuneLabel || entry.title || "Untitled";
-    const loc = entry.loc ? { line: entry.loc.line, col: entry.loc.col } : null;
-    const measureRange = entry.measureRange && Number.isFinite(entry.measureRange.start) && Number.isFinite(entry.measureRange.end)
-      ? { start: entry.measureRange.start, end: entry.measureRange.end }
-      : null;
-    const errorStartOffset = Number.isFinite(entry.errorStartOffset)
-      ? Number(entry.errorStartOffset)
-      : (measureRange ? measureRange.start : null);
-    const errorEndOffset = Number.isFinite(entry.errorEndOffset)
-      ? Number(entry.errorEndOffset)
-      : (measureRange ? measureRange.end : null);
-    out.push({
-      tuneKey,
-      tuneId: entry.tuneId || null,
-      filePath: entry.filePath || null,
-      tuneTitle,
-      message,
-      source: entry.source ? String(entry.source) : "abc2svg",
-      loc,
-      measureRange,
-      errorStartOffset,
-      errorEndOffset,
-    });
-  }
-  return out;
-}
-
 function updateErrorsIndicatorAndPopover() {
   if (!errorsEnabled) {
     if ($errorsFocusMessage) {
@@ -9983,27 +9951,8 @@ function buildErrorTuneLabel(meta) {
   return `${xPart} ${title}`.trim() || meta.id || "";
 }
 
-function getErrorGroupKey(entry) {
-  if (entry && entry.tuneId) return entry.tuneId;
-  if (entry && entry.filePath) return entry.filePath;
-  return "general";
-}
-
 function getErrorGroupLabel(entry) {
-  if (!entry) return "General";
-  const basename = entry.fileBasename || (entry.filePath ? safeBasename(entry.filePath) : "");
-  const tuneLabel = entry.tuneLabel || "";
-  if (basename && tuneLabel) return `${basename} — ${tuneLabel}`;
-  if (basename) return basename;
-  if (tuneLabel) return tuneLabel;
-  return "General";
-}
-
-function buildErrorEntryKey(entry) {
-  if (!entry) return "";
-  const line = entry.loc ? entry.loc.line : "";
-  const col = entry.loc ? entry.loc.col : "";
-  return `${getErrorGroupKey(entry)}|${entry.message}|${line}|${col}`;
+  return getErrorGroupLabelCore(entry, { safeBasename });
 }
 
 function renderErrorList() {

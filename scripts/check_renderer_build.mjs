@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 async function assertSaveIntentGuards() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
+  const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
+  const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
 
   if (!src.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in renderer.");
@@ -25,7 +27,10 @@ async function assertSaveIntentGuards() {
   if (!saveBody.includes("session.intent === SAVE_INTENT.APPEND_TO_FILE")) {
     throw new Error("performSaveFlow() must handle explicit append intent.");
   }
-  if (!src.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")) {
+  if (
+    !src.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")
+    && !selectionPlaybackModel.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")
+  ) {
     throw new Error("Missing selection intent gate helper.");
   }
   if (!src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")) {

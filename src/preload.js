@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld("api", {
   applyWorkingCopyTuneText: async (payload) => ipcRenderer.invoke("workingcopy:apply-tune-text", payload),
   showSaveError: async (message) =>
     ipcRenderer.invoke("dialog:show-save-error", message),
+  showTransformError: async (message) =>
+    ipcRenderer.invoke("dialog:show-transform-error", message),
   showOpenError: async (message) =>
     ipcRenderer.invoke("dialog:show-open-error", message),
   importMusicXml: async () => ipcRenderer.invoke("import:musicxml"),

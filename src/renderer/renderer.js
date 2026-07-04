@@ -9857,6 +9857,14 @@ async function showSaveError(message) {
   await window.api.showSaveError(message);
 }
 
+async function showTransformError(message) {
+  if (window.api && typeof window.api.showTransformError === "function") {
+    await window.api.showTransformError(message);
+    return;
+  }
+  await showSaveError(message);
+}
+
 async function showOpenError(message) {
   if (!window.api || typeof window.api.showOpenError !== "function") return;
   await window.api.showOpenError(message);
@@ -10041,7 +10049,7 @@ async function applyAbc2abcTransform(options) {
     return;
   }
   if (options.doubleLengths && options.halfLengths) {
-    await showSaveError("Choose either double or half note lengths, not both.");
+    await showTransformError("Choose either double or half note lengths, not both.");
     return;
   }
   const hasOnlyLengthTransform = (options.doubleLengths || options.halfLengths)
@@ -10109,7 +10117,7 @@ async function applyAbc2abcTransform(options) {
       const headerText = preview.headerText;
       const support = getNativeTransposeSupport(preview.baseText, { headerText });
       if (!support.ok) {
-        await showSaveError(support.reason || "Default transpose is not supported for this tune.");
+        await showTransformError(support.reason || "Default transpose is not supported for this tune.");
         setStatus("Error");
         return;
       }
@@ -10131,8 +10139,20 @@ async function applyAbc2abcTransform(options) {
   }
   // Remaining combinations previously supported by abc2abc are intentionally not implemented here.
   // Keep strict-write behavior: refuse rather than risk corrupting data.
-  await showSaveError("This transform combination is not supported.");
+  await showTransformError("This transform combination is not supported.");
   setStatus("Error");
+}
+
+if (devConfig && devConfig.ABCARUS_DEV_TRANSFORM_SMOKE === "1") {
+  window.__abcarusDevTransformSmoke = {
+    apply: (options) => applyAbc2abcTransform(options || {}),
+    getText: () => getEditorValue(),
+    setText: (text) => {
+      suppressDirty = true;
+      setEditorValue(String(text || ""));
+      suppressDirty = false;
+    },
+  };
 }
 
 function formatConversionError(res) {

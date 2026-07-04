@@ -1024,6 +1024,16 @@ function showSaveError(message) {
   });
 }
 
+function showTransformError(message) {
+  const parent = prepareDialogParent(null, "transform-error");
+  dialog.showMessageBoxSync(parent || undefined, {
+    type: "error",
+    buttons: ["OK"],
+    message: "Unable to transform notation.",
+    detail: message || "Unknown error.",
+  });
+}
+
 function showOpenError(message) {
   const parent = prepareDialogParent(null, "open-error");
   dialog.showMessageBoxSync(parent || undefined, {
@@ -2762,6 +2772,65 @@ async function createWindow() {
 }
 
 async function runUiSmoke(win) {
+  if (process.env.ABCARUS_DEV_TRANSFORM_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const transformResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const hook = window.__abcarusDevTransformSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.getText !== "function") {
+          return { ok: false, reason: "missing-transform-hook" };
+        }
+        hook.setText("X:1\\nT:Test\\nM:4/4\\nL:1/8\\nK:C\\nC2 D E F | G A B c |]\\n");
+        await wait(200);
+        return { ok: true, text: hook.getText() || "" };
+      })()`,
+      true
+    );
+    if (!transformResult || !transformResult.ok) {
+      console.error("[ui-smoke] FAIL transform setup", JSON.stringify(transformResult || {}));
+      process.exitCode = 1;
+      isQuitting = true;
+      try { app.exit(1); } catch { process.exit(1); }
+      return;
+    }
+    sendMenuAction("transformDouble");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterDouble = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    sendMenuAction("transformTransposeUp");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterTranspose = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    const afterDoubleText = String(afterDouble || "");
+    const afterTransposeText = String(afterTranspose || "");
+    const result = {
+      ok: afterDoubleText.includes("L:1/16")
+        && afterDoubleText.includes("C4")
+        && afterTransposeText
+        && afterTransposeText !== afterDoubleText,
+      afterDouble,
+      afterTranspose,
+    };
+    if (result.ok) {
+      console.log("[ui-smoke] PASS transform", JSON.stringify({
+        afterDouble: String(afterDouble || "").slice(0, 80),
+        afterTranspose: String(afterTranspose || "").slice(0, 80),
+      }));
+      process.exitCode = 0;
+    } else {
+      console.error("[ui-smoke] FAIL transform", JSON.stringify(result));
+      process.exitCode = 1;
+    }
+    isQuitting = true;
+    try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
+    return;
+  }
+
   // Keep this smoke tiny and deterministic: verify the exact UI contracts we keep regressing.
   const result = await win.webContents.executeJavaScript(
     `(async () => {
@@ -2966,6 +3035,7 @@ registerIpcHandlers({
   },
   getSettings: () => appState.settings || getDefaultSettings(),
   updateSettings,
+  showTransformError,
   getLastRecent: () => {
     if (appState.recentTunes && appState.recentTunes.length) {
       return { type: "tune", entry: appState.recentTunes[0] };

@@ -475,6 +475,7 @@ function registerIpcHandlers(ctx) {
 	    confirmImportMusicXmlTarget,
 	    confirmDeleteTune,
 	    showSaveError,
+	    showTransformError,
 	    showOpenError,
 	    scanLibrary,
 	    scanLibraryDiscover,
@@ -834,6 +835,9 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("dialog:show-save-error", async (_e, message) => {
     showSaveError(message);
+  });
+  ipcMain.handle("dialog:show-transform-error", async (_e, message) => {
+    showTransformError(message);
   });
   ipcMain.handle("dialog:show-open-error", async (_e, message) => {
     showOpenError(message);

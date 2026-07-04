@@ -788,7 +788,7 @@ const errorsLifecycleController = createErrorsLifecycleController({
   clearActiveHighlight: clearActiveErrorHighlight,
   cancelTuneScan: () => errorsTuneScanController.cancel(),
   clearTuneScanFilter: () => errorsTuneScanController.clearFilter(),
-  setScanButtonActive,
+  setScanButtonActive: setScanErrorButtonActive,
   setScanButtonState: setScanErrorButtonState,
   clearBarMismatchMarkers: () => errorsBarMismatchController.setMarkers([]),
   clearErrors,

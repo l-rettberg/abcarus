@@ -102,6 +102,7 @@ import {
   resolveTonalBaseInput,
   scanIntonationEntries as scanIntonationEntriesCore,
 } from "./tools/intonation_explorer/intonation_model.js";
+import { createIntonationCopyController } from "./tools/intonation_explorer/intonation_copy_controller.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
@@ -4636,19 +4637,11 @@ let intonationExplorerDeclaredMakam = "";
 let intonationExplorerCompareMakam = "";
 let intonationExplorerAutoMakamApplied = false;
 let intonationExplorerRoleAbs53Map = null;
-let lastIntonationDnaUiText = "";
-let lastIntonationPitchSetText = "";
+let intonationCopyController = null;
 let lastIntonationDnaSource = null; // lazy-built on Copy (avoid heavy work on every refresh)
 
 function setIntonationExplorerDnaUi({ dnaText, pitchSetText } = {}) {
-  const nextDna = String(dnaText || "");
-  const nextPitch = String(pitchSetText || "");
-  const enableDna = nextDna === "ready" ? Boolean(lastIntonationDnaSource) : Boolean(nextDna);
-  const enablePitch = nextPitch === "ready" ? Boolean(lastIntonationDnaSource) : Boolean(nextPitch);
-  if (nextDna !== "ready") lastIntonationDnaUiText = nextDna;
-  if (nextPitch !== "ready") lastIntonationPitchSetText = nextPitch;
-  if ($intonationExplorerCopyDna) $intonationExplorerCopyDna.disabled = !enableDna;
-  if ($intonationExplorerCopyPitchSet) $intonationExplorerCopyPitchSet.disabled = !enablePitch;
+  if (intonationCopyController) intonationCopyController.setReady({ dnaText, pitchSetText });
 }
 
 function clearIntonationExplorerPlot() {
@@ -4983,93 +4976,16 @@ function scanIntonationEntries(snapshot, { skipGraceNotes = true, scope = null }
     return resolvePerdeNameSafe({ pc53: row.absStep, octave: row.octave }) || "";
   }
 
-  function buildSeyirSnapshotText({ tuneText, rows, noteEvents, baseStep, baseLabel, is53, scopeLabel }) {
-    const events = Array.isArray(noteEvents) ? noteEvents : [];
-    const list = Array.isArray(rows) ? rows : [];
-    const text = String(tuneText || "");
-
-    const mX = text.match(/(?:^|\n)X:\s*([^\r\n]+)/);
-    const mT = text.match(/(?:^|\n)T:\s*([^\r\n]+)/);
-    const mK = text.match(/(?:^|\n)K:\s*([^\r\n]+)/i);
-    const meta = {
-      x: mX ? String(mX[1] || "").trim() : "",
-      title: mT ? String(mT[1] || "").trim() : "",
-      key: mK ? String(mK[1] || "").trim() : "",
-    };
-
-    const pitchSetPc53 = Array.from(new Set(events.map((e) => mod53(e.pc53 || 0))))
-      .sort((a, b) => a - b)
-      .map((n) => formatAeuLabel(n));
-
-    const compressed = [];
-    for (const e of events) {
-      const last = compressed.length ? compressed[compressed.length - 1] : null;
-      if (last && String(last.abs53) === String(e.abs53)) continue;
-      compressed.push(e);
-    }
-
-    const relTrace = compressed.map((e) => formatAeuLabel(mod53((e.pc53 || 0) - (baseStep || 0))));
-    const absTrace = compressed.map((e) => formatAeuLabel(mod53(e.pc53 || 0)));
-
-    const start = compressed.length ? compressed[0] : null;
-    const end = compressed.length ? compressed[compressed.length - 1] : null;
-    const absVals = compressed.map((e) => Number(e.abs53)).filter((n) => Number.isFinite(n));
-    const minAbs = absVals.length ? Math.min(...absVals) : null;
-    const maxAbs = absVals.length ? Math.max(...absVals) : null;
-
-    const turning = [];
-    for (let i = 1; i + 1 < compressed.length; i += 1) {
-      const a = Number(compressed[i - 1].abs53);
-      const b = Number(compressed[i].abs53);
-      const c = Number(compressed[i + 1].abs53);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
-      if (b > a && b > c) turning.push({ kind: "peak", idx: i, e: compressed[i] });
-      else if (b < a && b < c) turning.push({ kind: "trough", idx: i, e: compressed[i] });
-    }
-
-    const anchors = list
-      .slice()
-      .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
-      .slice(0, 12)
-      .map((row) => {
-        const perde = formatPerdeNameForIntonationRow(row, { is53 });
-        const perdePart = is53 ? `; perde=${perde || "??"}` : "";
-        return `- ${row.abcSpelling || ""} (pc53=${formatAeuLabel(row.absStep)}) count=${row.count || 0}${perdePart}`;
-      });
-
-    const turningLines = turning.slice(0, 12).map((tp) => {
-      const e = tp.e || {};
-      const label = e.spelling || "";
-      const pc = formatAeuLabel(mod53(e.pc53 || 0));
-      return `- ${tp.kind} #${tp.idx}: ${label} (pc53=${pc})`;
-    });
-
-    const header = [
-      "[ABCarus] Intonation DNA (read-only)",
-      meta.x || meta.title ? `X:${meta.x || "?"}  T:${meta.title || "?"}` : "",
-      meta.key ? `K:${meta.key}` : "",
-      scopeLabel ? `scope=${String(scopeLabel)}` : "",
-      `mode=${is53 ? "EDO-53" : "EDO-12"} base=${String(baseLabel || "")}`,
-      `events=${events.length} compressed=${compressed.length}`,
-      (minAbs != null && maxAbs != null) ? `range(abs53)=${maxAbs - minAbs} (min=${minAbs}, max=${maxAbs})` : "",
-      start ? `start=${start.spelling || ""} (pc53=${formatAeuLabel(mod53(start.pc53 || 0))})` : "",
-      end ? `end=${end.spelling || ""} (pc53=${formatAeuLabel(mod53(end.pc53 || 0))})` : "",
-      `pitchSetPc53=[${pitchSetPc53.join(", ")}]`,
-      "",
-      "Top anchors:",
-      ...(anchors.length ? anchors : ["- (none)"]),
-      "",
-      "Turning points (first 12):",
-      ...(turningLines.length ? turningLines : ["- (none)"]),
-      "",
-      `Trace rel(base) (first 80): ${relTrace.slice(0, 80).join(" ")}`,
-      `Trace abs(pc53) (first 80): ${absTrace.slice(0, 80).join(" ")}`,
-    ]
-      .filter((s) => String(s || "").trim() !== "")
-      .join("\n");
-
-    return header;
-  }
+intonationCopyController = createIntonationCopyController({
+  copyDnaButton: $intonationExplorerCopyDna,
+  copyPitchSetButton: $intonationExplorerCopyPitchSet,
+  menu: $intonationExplorerMenu,
+  clipboard: navigator && navigator.clipboard ? navigator.clipboard : null,
+  getSource: () => lastIntonationDnaSource,
+  formatPerdeName: formatPerdeNameForIntonationRow,
+  showToast: (message, timeout) => showToast(message, timeout),
+  logError: (e) => logErr(e && e.message ? e.message : String(e)),
+});
 
 function updateIntonationBaseUi() {
   const mode = ($intonationExplorerBaseMode && $intonationExplorerBaseMode.value) || "auto";
@@ -16889,65 +16805,6 @@ if ($intonationExplorerMore && $intonationExplorerMenu) {
     if (!ev || ev.key !== "Escape") return;
     try { ev.preventDefault(); } catch {}
     hideMenu();
-  });
-}
-if ($intonationExplorerCopyDna) {
-  $intonationExplorerCopyDna.addEventListener("click", async () => {
-    try { if ($intonationExplorerMenu) $intonationExplorerMenu.classList.add("hidden"); } catch {}
-    let text = "";
-    try {
-      if (lastIntonationDnaSource) {
-        text = buildSeyirSnapshotText({
-          tuneText: lastIntonationDnaSource.tuneText,
-          rows: lastIntonationDnaSource.rows,
-          noteEvents: lastIntonationDnaSource.noteEvents,
-          baseStep: lastIntonationDnaSource.baseStep,
-          baseLabel: lastIntonationDnaSource.baseLabel,
-          is53: lastIntonationDnaSource.is53,
-          scopeLabel: lastIntonationDnaSource.scopeLabel,
-        });
-        window.__abcarusLastIntonationDnaText = text;
-        lastIntonationDnaUiText = text;
-      } else {
-        text = (window.__abcarusLastIntonationDnaText ? String(window.__abcarusLastIntonationDnaText) : "");
-      }
-    } catch {}
-    if (!text) return;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        try { showToast("Copied DNA.", 1600); } catch {}
-      }
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      try { showToast("Copy failed.", 1800); } catch {}
-    }
-  });
-}
-if ($intonationExplorerCopyPitchSet) {
-  $intonationExplorerCopyPitchSet.addEventListener("click", async () => {
-    try { if ($intonationExplorerMenu) $intonationExplorerMenu.classList.add("hidden"); } catch {}
-    let text = "";
-    try {
-      const events = lastIntonationDnaSource && Array.isArray(lastIntonationDnaSource.noteEvents)
-        ? lastIntonationDnaSource.noteEvents
-        : [];
-      const pitchSetPc53 = Array.from(new Set(events.map((e) => mod53(e && e.pc53 ? e.pc53 : 0))))
-        .sort((a, b) => a - b)
-        .map((n) => formatAeuLabel(n));
-      text = pitchSetPc53.length ? `pitchSetPc53=[${pitchSetPc53.join(", ")}]` : "";
-      if (text) lastIntonationPitchSetText = text;
-    } catch {}
-    if (!text) return;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        try { showToast("Copied pitchSet.", 1600); } catch {}
-      }
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      try { showToast("Copy failed.", 1800); } catch {}
-    }
   });
 }
 if ($intonationExplorerEditMakamDna) {

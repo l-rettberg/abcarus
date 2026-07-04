@@ -498,8 +498,113 @@ function scanIntonationEntries(snapshot, {
   };
 }
 
+function buildPitchSetText(noteEvents) {
+  const events = Array.isArray(noteEvents) ? noteEvents : [];
+  const pitchSetPc53 = Array.from(new Set(events.map((e) => mod53(e && e.pc53 ? e.pc53 : 0))))
+    .sort((a, b) => a - b)
+    .map((n) => formatAeuLabel(n));
+  return pitchSetPc53.length ? `pitchSetPc53=[${pitchSetPc53.join(", ")}]` : "";
+}
+
+function buildSeyirSnapshotText({
+  tuneText,
+  rows,
+  noteEvents,
+  baseStep,
+  baseLabel,
+  is53,
+  scopeLabel,
+  formatPerdeName = () => "",
+} = {}) {
+  const events = Array.isArray(noteEvents) ? noteEvents : [];
+  const list = Array.isArray(rows) ? rows : [];
+  const text = String(tuneText || "");
+
+  const mX = text.match(/(?:^|\n)X:\s*([^\r\n]+)/);
+  const mT = text.match(/(?:^|\n)T:\s*([^\r\n]+)/);
+  const mK = text.match(/(?:^|\n)K:\s*([^\r\n]+)/i);
+  const meta = {
+    x: mX ? String(mX[1] || "").trim() : "",
+    title: mT ? String(mT[1] || "").trim() : "",
+    key: mK ? String(mK[1] || "").trim() : "",
+  };
+
+  const pitchSetPc53 = Array.from(new Set(events.map((e) => mod53(e.pc53 || 0))))
+    .sort((a, b) => a - b)
+    .map((n) => formatAeuLabel(n));
+
+  const compressed = [];
+  for (const e of events) {
+    const last = compressed.length ? compressed[compressed.length - 1] : null;
+    if (last && String(last.abs53) === String(e.abs53)) continue;
+    compressed.push(e);
+  }
+
+  const relTrace = compressed.map((e) => formatAeuLabel(mod53((e.pc53 || 0) - (baseStep || 0))));
+  const absTrace = compressed.map((e) => formatAeuLabel(mod53(e.pc53 || 0)));
+
+  const start = compressed.length ? compressed[0] : null;
+  const end = compressed.length ? compressed[compressed.length - 1] : null;
+  const absVals = compressed.map((e) => Number(e.abs53)).filter((n) => Number.isFinite(n));
+  const minAbs = absVals.length ? Math.min(...absVals) : null;
+  const maxAbs = absVals.length ? Math.max(...absVals) : null;
+
+  const turning = [];
+  for (let i = 1; i + 1 < compressed.length; i += 1) {
+    const a = Number(compressed[i - 1].abs53);
+    const b = Number(compressed[i].abs53);
+    const c = Number(compressed[i + 1].abs53);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
+    if (b > a && b > c) turning.push({ kind: "peak", idx: i, e: compressed[i] });
+    else if (b < a && b < c) turning.push({ kind: "trough", idx: i, e: compressed[i] });
+  }
+
+  const anchors = list
+    .slice()
+    .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
+    .slice(0, 12)
+    .map((row) => {
+      const perde = formatPerdeName(row, { is53 });
+      const perdePart = is53 ? `; perde=${perde || "??"}` : "";
+      return `- ${row.abcSpelling || ""} (pc53=${formatAeuLabel(row.absStep)}) count=${row.count || 0}${perdePart}`;
+    });
+
+  const turningLines = turning.slice(0, 12).map((tp) => {
+    const e = tp.e || {};
+    const label = e.spelling || "";
+    const pc = formatAeuLabel(mod53(e.pc53 || 0));
+    return `- ${tp.kind} #${tp.idx}: ${label} (pc53=${pc})`;
+  });
+
+  return [
+    "[ABCarus] Intonation DNA (read-only)",
+    meta.x || meta.title ? `X:${meta.x || "?"}  T:${meta.title || "?"}` : "",
+    meta.key ? `K:${meta.key}` : "",
+    scopeLabel ? `scope=${String(scopeLabel)}` : "",
+    `mode=${is53 ? "EDO-53" : "EDO-12"} base=${String(baseLabel || "")}`,
+    `events=${events.length} compressed=${compressed.length}`,
+    (minAbs != null && maxAbs != null) ? `range(abs53)=${maxAbs - minAbs} (min=${minAbs}, max=${maxAbs})` : "",
+    start ? `start=${start.spelling || ""} (pc53=${formatAeuLabel(mod53(start.pc53 || 0))})` : "",
+    end ? `end=${end.spelling || ""} (pc53=${formatAeuLabel(mod53(end.pc53 || 0))})` : "",
+    `pitchSetPc53=[${pitchSetPc53.join(", ")}]`,
+    "",
+    "Top anchors:",
+    ...(anchors.length ? anchors : ["- (none)"]),
+    "",
+    "Turning points (first 12):",
+    ...(turningLines.length ? turningLines : ["- (none)"]),
+    "",
+    `Trace rel(base) (first 80): ${relTrace.slice(0, 80).join(" ")}`,
+    `Trace abs(pc53) (first 80): ${absTrace.slice(0, 80).join(" ")}`,
+  ]
+    .filter((s) => String(s || "").trim() !== "")
+    .join("\n");
+}
+
 export {
   buildIntonationRowsFromEntries,
+  buildPitchSetText,
+  buildSeyirSnapshotText,
   formatAeuLabel,
   mod53,
   modNumber,

@@ -33,6 +33,7 @@ import {
   buildErrorEntryKey,
   buildSortedErrorsForNav,
   computeErrorId,
+  findErrorSourceRangeForMessage,
   getErrorGroupKey,
   getErrorGroupLabel as getErrorGroupLabelCore,
   normalizeErrors,
@@ -10044,6 +10045,13 @@ function addError(message, locOverride, contextOverride) {
         line: entry.loc.line - errorLineOffset,
         col: entry.loc.col,
       };
+    }
+  }
+  if (!Number.isFinite(entry.errorStartOffset) || !Number.isFinite(entry.errorEndOffset) || entry.errorEndOffset <= entry.errorStartOffset) {
+    const sourceRange = findErrorSourceRangeForMessage(getEditorValue(), entry.message, entry.loc);
+    if (sourceRange && Number.isFinite(sourceRange.start) && Number.isFinite(sourceRange.end) && sourceRange.end > sourceRange.start) {
+      entry.errorStartOffset = sourceRange.start;
+      entry.errorEndOffset = sourceRange.end;
     }
   }
   const allowMeasureRange = !(context && context.skipMeasureRange);

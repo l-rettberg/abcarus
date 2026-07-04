@@ -11,6 +11,102 @@ function normalizeErrorMessageForMatch(message) {
   return lower;
 }
 
+function getTextIndexFromLoc(text, loc) {
+  if (!text || !loc || !Number.isFinite(loc.line)) return null;
+  const lineTarget = Math.max(1, Number(loc.line));
+  const colTarget = Math.max(1, Number.isFinite(loc.col) ? Number(loc.col) : 1);
+  let line = 1;
+  let lineStart = 0;
+  for (let i = 0; i < text.length && line < lineTarget; i += 1) {
+    if (text.charCodeAt(i) === 10) {
+      line += 1;
+      lineStart = i + 1;
+    }
+  }
+  if (line !== lineTarget) return null;
+  let lineEnd = text.indexOf("\n", lineStart);
+  if (lineEnd === -1) lineEnd = text.length;
+  return Math.max(lineStart, Math.min(lineEnd, lineStart + colTarget - 1));
+}
+
+function getLineRangeAt(text, idx) {
+  if (!text || !Number.isFinite(idx)) return null;
+  const pos = Math.max(0, Math.min(text.length, Number(idx)));
+  const before = text.lastIndexOf("\n", Math.max(0, pos - 1));
+  const after = text.indexOf("\n", pos);
+  return {
+    start: before === -1 ? 0 : before + 1,
+    end: after === -1 ? text.length : after,
+  };
+}
+
+function buildMissingDefinitionSourceTokens(message) {
+  const match = String(message || "").match(/\bno\s+definition\s+of\s+([A-Za-z][A-Za-z0-9_]*)/i);
+  if (!match) return [];
+  const name = match[1];
+  const accMatch = name.match(/^acc(\d+)(?:_\d+)?$/i);
+  if (!accMatch) return [];
+  const value = accMatch[1];
+  return [`^${value}`, `_${value}`, `=${value}`];
+}
+
+function extendAbcAccidentalRange(text, start, token) {
+  let end = start + token.length;
+  if (/[A-Ga-g]/.test(text.charAt(end))) {
+    end += 1;
+    while (end < text.length && /[',]/.test(text.charAt(end))) end += 1;
+    while (end < text.length && /[0-9/]/.test(text.charAt(end))) end += 1;
+  }
+  return { start, end };
+}
+
+function findClosestTokenRange(text, tokens, range, anchor) {
+  if (!text || !tokens.length || !range) return null;
+  const from = Math.max(0, Math.min(text.length, range.start));
+  const to = Math.max(from, Math.min(text.length, range.end));
+  const anchorPos = Number.isFinite(anchor) ? Math.max(from, Math.min(to, anchor)) : from;
+  let best = null;
+  let bestDist = Infinity;
+  for (const token of tokens) {
+    let idx = text.indexOf(token, from);
+    while (idx !== -1 && idx < to) {
+      const candidate = extendAbcAccidentalRange(text, idx, token);
+      const dist = Math.abs(idx - anchorPos);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = candidate;
+      }
+      idx = text.indexOf(token, idx + token.length);
+    }
+  }
+  return best;
+}
+
+function findErrorSourceRangeForMessage(text, message, loc) {
+  const sourceText = String(text || "");
+  if (!sourceText) return null;
+  const tokens = buildMissingDefinitionSourceTokens(message);
+  if (!tokens.length) return null;
+
+  const anchor = getTextIndexFromLoc(sourceText, loc);
+  if (Number.isFinite(anchor)) {
+    const lineRange = getLineRangeAt(sourceText, anchor);
+    const lineHit = findClosestTokenRange(sourceText, tokens, lineRange, anchor);
+    if (lineHit) return lineHit;
+
+    const windowHit = findClosestTokenRange(sourceText, tokens, {
+      start: Math.max(0, anchor - 800),
+      end: Math.min(sourceText.length, anchor + 800),
+    }, anchor);
+    if (windowHit) return windowHit;
+  }
+
+  return findClosestTokenRange(sourceText, tokens, {
+    start: 0,
+    end: sourceText.length,
+  }, 0);
+}
+
 function computeErrorId(entry) {
   if (!entry) return "";
   const tuneId = entry.tuneId || "";
@@ -119,6 +215,7 @@ export {
   buildSortedErrorsForNav,
   buildErrorEntryKey,
   computeErrorId,
+  findErrorSourceRangeForMessage,
   getErrorGroupKey,
   getErrorGroupLabel,
   normalizeErrors,

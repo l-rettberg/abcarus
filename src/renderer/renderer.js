@@ -27,6 +27,7 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
+import { createErrorsActivationController } from "./editor/errors_activation_controller.js";
 import { createErrorsCollection } from "./editor/errors_collection.js";
 import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
 import { createErrorsListController } from "./editor/errors_list_controller.js";
@@ -48,7 +49,6 @@ import {
   getErrorGroupKey,
   getErrorGroupLabel as getErrorGroupLabelCore,
   normalizeErrors,
-  normalizeErrorMessageForMatch,
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
@@ -938,8 +938,7 @@ function getSortedErrorsForNav() {
 }
 
 function syncActiveErrorNavIndex(sortedItemsArg) {
-  const items = Array.isArray(sortedItemsArg) ? sortedItemsArg : getSortedErrorsForNav();
-  errorsNavigationState.sync(items, errorsHighlightState.getActive());
+  errorsActivationController.syncNavIndex(sortedItemsArg);
 }
 
 async function activateErrorByNav(delta) {
@@ -960,68 +959,11 @@ async function activateErrorByNav(delta) {
 }
 
 function clearActiveErrorHighlight(reason) {
-  const allowed = new Set(["resolved", "abandon", "switch", "docReplaced"]);
-  if (!allowed.has(reason)) {
-    console.error("[abcarus] Error highlight cleared for disallowed reason:", reason);
-  }
-  const prev = errorsHighlightState.clear();
-  errorsNavigationState.setActiveIndex(-1);
-  if (reason === "resolved" && prev && Array.isArray(lastErrors) && lastErrors.length) {
-    const items = getSortedErrorsForNav();
-    if (items.length) {
-      const targetPos = Number.isFinite(prev.from) ? prev.from : 0;
-      const targetTune = prev.tuneId ? String(prev.tuneId) : "";
-      let bestIdx = -1;
-      let bestDist = Infinity;
-      const consider = (x, idx) => {
-        const dist = Math.abs((Number.isFinite(x.pos) ? x.pos : targetPos) - targetPos);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = idx;
-        }
-      };
-      if (targetTune) {
-        for (let i = 0; i < items.length; i += 1) {
-          const it = items[i];
-          const tuneId = it.entry && it.entry.tuneId ? String(it.entry.tuneId) : "";
-          if (tuneId !== targetTune) continue;
-          consider(it, i);
-        }
-      }
-      if (bestIdx === -1) {
-        for (let i = 0; i < items.length; i += 1) consider(items[i], i);
-      }
-      if (bestIdx !== -1) errorsNavigationState.setActiveIndex(bestIdx);
-    }
-  }
-  clearSvgErrorActivationHighlight();
-  clearErrorFocusMessage();
-  if (!editorView) return;
-  errorsHighlightState.setSuppressClear(true);
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
-  setTimeout(() => { errorsHighlightState.setSuppressClear(false); }, 0);
+  errorsActivationController.clear(reason);
 }
 
 function setActiveErrorHighlight(entry, from, to) {
-  if (!editorView) return;
-  const docLen = editorView.state.doc.length;
-  const id = computeErrorId(entry);
-  if (!id) return;
-
-  const activeErrorHighlight = errorsHighlightState.getActive();
-  if (activeErrorHighlight && activeErrorHighlight.id !== id) {
-    clearActiveErrorHighlight("switch");
-  }
-
-  const next = errorsHighlightState.setActive(entry, from, to, docLen);
-  if (!next) return;
-  syncActiveErrorNavIndex();
-
-  setErrorFocusMessage(entry, next.from);
-  errorsPopoverController.refresh();
+  errorsActivationController.set(entry, from, to);
 }
 
 function clearErrorsFeatureState() {
@@ -2803,6 +2745,20 @@ const errorsPopoverController = createErrorsPopoverController({
   },
   computeErrorId,
   onJump: jumpToError,
+});
+const errorsActivationController = createErrorsActivationController({
+  highlightState: errorsHighlightState,
+  navigationState: errorsNavigationState,
+  getSortedItems: getSortedErrorsForNav,
+  getEntries: getErrorEntries,
+  getEditorView: () => editorView,
+  getEditorIndexFromLoc,
+  clearSvgHighlight: clearSvgErrorActivationHighlight,
+  clearFocusMessage: clearErrorFocusMessage,
+  setFocusMessage: setErrorFocusMessage,
+  refreshPopover: () => errorsPopoverController.refresh(),
+  highlightSvgAtEditorOffset,
+  logError: (...args) => console.error(...args),
 });
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
@@ -7237,65 +7193,7 @@ function setScanErrors(errorsArray) {
 }
 
 function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = {}) {
-  const activeErrorHighlight = errorsHighlightState.getActive();
-  if (!activeErrorHighlight || !editorView) return;
-  if (!Array.isArray(getErrorEntries()) || !getErrorEntries().length) {
-    // Only clear when we know a render completed and produced no errors.
-    if (renderSucceeded) {
-      clearActiveErrorHighlight("resolved");
-    }
-    return;
-  }
-  const candidates = getErrorEntries().filter((e) => {
-    if (!e) return false;
-    if (activeErrorHighlight.tuneId && e.tuneId && e.tuneId !== activeErrorHighlight.tuneId) return false;
-    if (activeErrorHighlight.filePath && e.filePath && e.filePath !== activeErrorHighlight.filePath) return false;
-    return normalizeErrorMessageForMatch(e.message || "") === String(activeErrorHighlight.messageKey || "");
-  });
-  if (!candidates.length) {
-    clearActiveErrorHighlight("resolved");
-    return;
-  }
-
-  const toRange = (entry) => {
-    if (Number.isFinite(entry.errorStartOffset) && Number.isFinite(entry.errorEndOffset) && entry.errorEndOffset > entry.errorStartOffset) {
-      return { from: entry.errorStartOffset, to: entry.errorEndOffset };
-    }
-    if (entry.measureRange && Number.isFinite(entry.measureRange.start) && Number.isFinite(entry.measureRange.end) && entry.measureRange.end > entry.measureRange.start) {
-      return { from: entry.measureRange.start, to: entry.measureRange.end };
-    }
-    if (entry.loc && Number.isFinite(entry.loc.line)) {
-      const pos = getEditorIndexFromLoc(entry.loc);
-      if (Number.isFinite(pos)) {
-        const max = editorView.state.doc.length;
-        return { from: pos, to: Math.min(pos + 1, max) };
-      }
-    }
-    return null;
-  };
-
-  let best = null;
-  let bestDist = Infinity;
-  for (const c of candidates) {
-    const r = toRange(c);
-    if (!r) continue;
-    const dist = Math.abs(r.from - activeErrorHighlight.from);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = { entry: c, range: r };
-    }
-  }
-  if (!best) return;
-
-  const from = Number(best.range.from);
-  const to = Number(best.range.to);
-  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return;
-  if (from !== activeErrorHighlight.from || to !== activeErrorHighlight.to) {
-    setActiveErrorHighlight(best.entry, from, to);
-    highlightSvgAtEditorOffset(from);
-  } else {
-    setErrorFocusMessage(best.entry, from);
-  }
+  errorsActivationController.reconcileAfterRender({ renderSucceeded });
 }
 
 async function jumpToError(errItem) {

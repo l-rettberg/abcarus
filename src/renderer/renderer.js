@@ -28,6 +28,7 @@ import {
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
+import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
   buildSortedErrorsForNav,
   computeErrorId,
@@ -694,6 +695,7 @@ printAllFeature.loadOptionsFromStorage();
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const errorsNavigationState = createErrorsNavigationState();
+const errorsHighlightState = createErrorsHighlightState();
 
 // ---------------- A–B playback helpers ----------------
 
@@ -900,10 +902,6 @@ let suppressTransportJumpClearOnce = false;
 let lastRhythmErrorSuggestion = null;
 let errorsEnabled = false;
 
-let errorActivationHighlightRange = null; // {from,to} editor offsets
-let errorActivationHighlightVersion = 0;
-let suppressErrorActivationClear = false;
-let lastSvgErrorActivationEls = [];
 let practiceBarHighlightRange = null; // {from,to} editor offsets
 let practiceBarHighlightVersion = 0;
 let lastSvgPracticeBarEls = [];
@@ -912,7 +910,6 @@ let lastSvgFollowMeasureEls = [];
 let lastSvgPlayheadEl = null;
 let lastSvgPlayheadSvg = null;
 let lastSvgPlayheadXCenter = null;
-let activeErrorHighlight = null; // {id, from, to, tuneId, filePath, message, messageKey, lastSvgRenderIdx}
 
 function getSortedErrorsForNav() {
   return buildSortedErrorsForNav(lastErrors);
@@ -920,7 +917,7 @@ function getSortedErrorsForNav() {
 
 function syncActiveErrorNavIndex(sortedItemsArg) {
   const items = Array.isArray(sortedItemsArg) ? sortedItemsArg : getSortedErrorsForNav();
-  errorsNavigationState.sync(items, activeErrorHighlight);
+  errorsNavigationState.sync(items, errorsHighlightState.getActive());
 }
 
 async function activateErrorByNav(delta) {
@@ -945,8 +942,7 @@ function clearActiveErrorHighlight(reason) {
   if (!allowed.has(reason)) {
     console.error("[abcarus] Error highlight cleared for disallowed reason:", reason);
   }
-  const prev = activeErrorHighlight;
-  activeErrorHighlight = null;
+  const prev = errorsHighlightState.clear();
   errorsNavigationState.setActiveIndex(-1);
   if (reason === "resolved" && prev && Array.isArray(lastErrors) && lastErrors.length) {
     const items = getSortedErrorsForNav();
@@ -976,48 +972,33 @@ function clearActiveErrorHighlight(reason) {
       if (bestIdx !== -1) errorsNavigationState.setActiveIndex(bestIdx);
     }
   }
-  errorActivationHighlightRange = null;
-  errorActivationHighlightVersion += 1;
   clearSvgErrorActivationHighlight();
   clearErrorFocusMessage();
   if (!editorView) return;
-  suppressErrorActivationClear = true;
+  errorsHighlightState.setSuppressClear(true);
   editorView.dispatch({
     selection: editorView.state.selection,
     scrollIntoView: false,
   });
-  setTimeout(() => { suppressErrorActivationClear = false; }, 0);
+  setTimeout(() => { errorsHighlightState.setSuppressClear(false); }, 0);
 }
 
 function setActiveErrorHighlight(entry, from, to) {
   if (!editorView) return;
   const docLen = editorView.state.doc.length;
-  const a = Math.max(0, Math.min(Number(from), docLen));
-  const b = Math.max(a, Math.min(Number(to), docLen));
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return;
-
   const id = computeErrorId(entry);
   if (!id) return;
 
+  const activeErrorHighlight = errorsHighlightState.getActive();
   if (activeErrorHighlight && activeErrorHighlight.id !== id) {
     clearActiveErrorHighlight("switch");
   }
 
-  activeErrorHighlight = {
-    id,
-    from: a,
-    to: b,
-    tuneId: entry && entry.tuneId ? entry.tuneId : null,
-    filePath: entry && entry.filePath ? entry.filePath : null,
-    message: entry && entry.message ? entry.message : null,
-    messageKey: normalizeErrorMessageForMatch(entry && entry.message ? entry.message : ""),
-    lastSvgRenderIdx: null,
-  };
+  const next = errorsHighlightState.setActive(entry, from, to, docLen);
+  if (!next) return;
   syncActiveErrorNavIndex();
 
-  errorActivationHighlightRange = { from: a, to: b };
-  errorActivationHighlightVersion += 1;
-  setErrorFocusMessage(entry, a);
+  setErrorFocusMessage(entry, next.from);
   errorsPopoverController.refresh();
 }
 
@@ -1101,24 +1082,13 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
 
 const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
-    this.version = errorActivationHighlightVersion;
-    this.decorations = buildErrorActivationDecorations(view.state, errorActivationHighlightRange);
+    this.version = errorsHighlightState.getVersion();
+    this.decorations = buildErrorActivationDecorations(view.state, errorsHighlightState.getRange());
   }
   update(update) {
-    if (update.docChanged && activeErrorHighlight && errorActivationHighlightRange) {
+    if (update.docChanged && errorsHighlightState.hasActive() && errorsHighlightState.getRange()) {
       try {
-        const oldFrom = Number(errorActivationHighlightRange.from);
-        const oldTo = Number(errorActivationHighlightRange.to);
-        if (Number.isFinite(oldFrom) && Number.isFinite(oldTo) && oldTo > oldFrom) {
-          const mappedFrom = update.changes.mapPos(oldFrom, 1);
-          const mappedTo = update.changes.mapPos(oldTo, -1);
-          const max = update.state.doc.length;
-          const from = Math.max(0, Math.min(mappedFrom, max));
-          const to = Math.max(from, Math.min(mappedTo, max));
-          errorActivationHighlightRange = { from, to };
-          activeErrorHighlight.from = from;
-          activeErrorHighlight.to = to;
-        }
+        errorsHighlightState.mapRange(update.changes, update.state.doc.length);
       } catch {}
     }
     if (update.docChanged) {
@@ -1126,9 +1096,9 @@ const errorActivationHighlightPlugin = ViewPlugin.fromClass(class {
         this.decorations = this.decorations.map(update.changes);
       } catch {}
     }
-    if (this.version !== errorActivationHighlightVersion) {
-      this.version = errorActivationHighlightVersion;
-      this.decorations = buildErrorActivationDecorations(update.state, errorActivationHighlightRange);
+    if (this.version !== errorsHighlightState.getVersion()) {
+      this.version = errorsHighlightState.getVersion();
+      this.decorations = buildErrorActivationDecorations(update.state, errorsHighlightState.getRange());
     }
   }
 }, {
@@ -1166,10 +1136,7 @@ const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
 });
 
 function clearSvgErrorActivationHighlight() {
-  for (const el of lastSvgErrorActivationEls) {
-    try { el.classList.remove("svg-error-activation"); } catch {}
-  }
-  lastSvgErrorActivationEls = [];
+  errorsHighlightState.clearSvgElements("svg-error-activation");
 }
 
 function clearSvgPracticeBarHighlight() {
@@ -1488,15 +1455,13 @@ function highlightSvgAtEditorOffset(editorOffset) {
         });
         if (hits.length) {
           clearSvgErrorActivationHighlight();
-          lastSvgErrorActivationEls = hits;
-          for (const el of lastSvgErrorActivationEls) {
+          const activeEls = errorsHighlightState.setSvgElements(hits);
+          for (const el of activeEls) {
             try { el.classList.add("svg-error-activation"); } catch {}
           }
-          const chosen = pickClosestNoteElement(lastSvgErrorActivationEls);
+          const chosen = pickClosestNoteElement(activeEls);
           if (chosen) maybeScrollRenderToNote(chosen);
-          if (activeErrorHighlight && Number.isFinite(start)) {
-            activeErrorHighlight.lastSvgRenderIdx = start;
-          }
+          errorsHighlightState.setLastSvgRenderIdx(start);
           return true;
         }
       }
@@ -1518,15 +1483,13 @@ function highlightSvgAtEditorOffset(editorOffset) {
   if (!els || !els.length) return false;
 
   clearSvgErrorActivationHighlight();
-  lastSvgErrorActivationEls = Array.from(els);
-  for (const el of lastSvgErrorActivationEls) {
+  const activeEls = errorsHighlightState.setSvgElements(Array.from(els));
+  for (const el of activeEls) {
     try { el.classList.add("svg-error-activation"); } catch {}
   }
-  const chosen = pickClosestNoteElement(lastSvgErrorActivationEls);
+  const chosen = pickClosestNoteElement(activeEls);
   if (chosen) maybeScrollRenderToNote(chosen);
-  if (activeErrorHighlight && Number.isFinite(renderIdx)) {
-    activeErrorHighlight.lastSvgRenderIdx = renderIdx;
-  }
+  errorsHighlightState.setLastSvgRenderIdx(renderIdx);
   return true;
 }
 
@@ -1683,7 +1646,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getLastRenderPayload: () => lastRenderPayload,
   getBarMismatchMarkers: () => barMismatchMarkers,
   getErrorEntries: () => errorEntries,
-  getActiveErrorHighlight: () => activeErrorHighlight,
+  getActiveErrorHighlight: () => errorsHighlightState.getActive(),
   getActiveFileEntry,
   isPayloadMode,
   computeHeaderPresence,
@@ -2815,7 +2778,10 @@ const errorsPopoverController = createErrorsPopoverController({
   titleElement: $errorsPopoverTitle,
   listElement: $errorsListPopover,
   getErrors: () => lastErrors,
-  getActiveErrorId: () => activeErrorHighlight && activeErrorHighlight.id ? activeErrorHighlight.id : "",
+  getActiveErrorId: () => {
+    const active = errorsHighlightState.getActive();
+    return active && active.id ? active.id : "";
+  },
   computeErrorId,
   onJump: jumpToError,
 });
@@ -5402,7 +5368,8 @@ function initEditor() {
   // This avoids accidental clearing from programmatic selection changes (follow playback, jump, etc.).
   editorView.dom.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    if (suppressErrorActivationClear) return;
+    if (errorsHighlightState.isSuppressingClear()) return;
+    const activeErrorHighlight = errorsHighlightState.getActive();
     if (!activeErrorHighlight) return;
     if (!Number.isFinite(activeErrorHighlight.from) || !Number.isFinite(activeErrorHighlight.to)) return;
     const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY });
@@ -5604,7 +5571,7 @@ function initHeaderEditor() {
 
 function setActiveTuneText(text, metadata, options = {}) {
   if (chordProFeature.isEnabled()) chordProFeature.setMode(false);
-  if (activeErrorHighlight) clearActiveErrorHighlight("docReplaced");
+  if (errorsHighlightState.hasActive()) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
   resetPlaybackState();
   resetTransposePreviewState();
@@ -7336,6 +7303,7 @@ function setScanErrors(errorsArray) {
 }
 
 function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = {}) {
+  const activeErrorHighlight = errorsHighlightState.getActive();
   if (!activeErrorHighlight || !editorView) return;
   if (!Array.isArray(errorEntries) || !errorEntries.length) {
     // Only clear when we know a render completed and produced no errors.
@@ -7445,7 +7413,7 @@ async function jumpToError(errItem) {
   }
   pendingPlaybackRangeOrigin = "error";
   setActiveErrorHighlight(errItem, errorStartOffset, errorEndOffset);
-  suppressErrorActivationClear = true;
+  errorsHighlightState.setSuppressClear(true);
   const effects = [];
   if (typeof EditorView.scrollIntoView === "function") {
     try {
@@ -7457,7 +7425,7 @@ async function jumpToError(errItem) {
     effects,
     scrollIntoView: true,
   });
-  setTimeout(() => { suppressErrorActivationClear = false; }, 0);
+  setTimeout(() => { errorsHighlightState.setSuppressClear(false); }, 0);
   editorView.focus();
 
   // Best-effort: scroll notation to the same location.
@@ -11368,8 +11336,9 @@ function renderNow() {
         if (editorView) {
           const anchor = editorView.state.selection.main.anchor;
           highlightNoteAtIndex(anchor);
-          if (errorActivationHighlightRange && Number.isFinite(errorActivationHighlightRange.from)) {
-            highlightSvgAtEditorOffset(errorActivationHighlightRange.from);
+          const activeErrorRange = errorsHighlightState.getRange();
+          if (activeErrorRange && Number.isFinite(activeErrorRange.from)) {
+            highlightSvgAtEditorOffset(activeErrorRange.from);
           }
         if (!isPlaybackBusy() && transportJumpHighlightActive && Number.isFinite(anchor)) {
           try {
@@ -13784,7 +13753,7 @@ function buildNewTuneDraftTemplate(nextX) {
 function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {}) {
   if (!editorView) return;
   if (!filePath) return;
-  if (activeErrorHighlight) clearActiveErrorHighlight("docReplaced");
+  if (errorsHighlightState.hasActive()) clearActiveErrorHighlight("docReplaced");
   resetPlaybackState();
 
   suppressDirty = true;
@@ -15264,6 +15233,7 @@ function shouldIgnoreMenuZoomAction() {
 
 function centerRenderPaneOnCurrentAnchor() {
   if (!$out || !$renderPane || !editorView) return;
+  const activeErrorHighlight = errorsHighlightState.getActive();
   const editorOffset = (activeErrorHighlight && Number.isFinite(activeErrorHighlight.from))
     ? activeErrorHighlight.from
     : editorView.state.selection.main.anchor;
@@ -16237,6 +16207,7 @@ function updatePlaybackRangeFromSelection(selection, origin) {
   if (isPlaying) return;
   // While an error anchor is active, keep the error-derived PlaybackRange stable and loopable.
   // The user can move the cursor to fix the error without losing the loop range.
+  const activeErrorHighlight = errorsHighlightState.getActive();
   if (activeErrorHighlight && playbackRange && playbackRange.origin === "error" && playbackRange.loop) return;
   const max = editorView.state.doc.length;
   const main = selection.main || null;

@@ -86,7 +86,6 @@ import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import {
   parseDrumPattern,
 } from "./tools/drum_helper/drum_helper_model.js";
-import { buildDrumDebugDiagnostics } from "./tools/drum_helper/drum_debug_diagnostics.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
@@ -121,11 +120,7 @@ import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
 import { createLayoutController } from "./app/layout_controller.js";
 import { createDiagnosticsController } from "./app/diagnostics_controller.js";
-import {
-  buildDebugDumpSnapshot as buildDebugDumpSnapshotCore,
-  safeJsonStringify,
-  safeString,
-} from "./app/debug_dump_builder.js";
+import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -2012,20 +2007,98 @@ const devConfig = (() => {
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
 const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") !== "0";
+const debugDumpFeature = createDebugDumpFeature({
+  api: window.api,
+  windowRef: window,
+  getAutoDumpDirOverride: () => AUTO_DUMP_DIR_OVERRIDE,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getCurrentDoc: () => currentDoc,
+  getDebugLogBuffer: () => diagnosticsController ? diagnosticsController.debugLogBuffer : [],
+  getRecentActions: () => diagnosticsController ? diagnosticsController.recentActions : [],
+  getEditorView: () => editorView,
+  getHeaderDirty: () => headerDirty,
+  getHeaderCollapsed: () => headerCollapsed,
+  getEditorValue,
+  getHeaderEditorValue,
+  getWorkingCopySnapshot: () => workingCopySnapshot,
+  getPlaybackPayload,
+  getLastPlaybackPayloadCache: () => lastPlaybackPayloadCache,
+  getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
+  getIsPlaying: () => isPlaying,
+  getIsPaused: () => isPaused,
+  getWaitingForFirstNote: () => waitingForFirstNote,
+  getFollowPlayback: () => followPlayback,
+  getFollowVoiceId: () => followVoiceId,
+  getFollowVoiceIndex: () => followVoiceIndex,
+  getPlaybackState: () => playbackState,
+  getPracticeTempoMultiplier: () => practiceTempoMultiplier,
+  getPlaybackLoopEnabled: () => playbackLoopEnabled,
+  getPlaybackLoopFromMeasure: () => playbackLoopFromMeasure,
+  getPlaybackLoopToMeasure: () => playbackLoopToMeasure,
+  getSoundfontName: () => soundfontName,
+  getSoundfontSource: () => soundfontSource,
+  getSoundfontReadyName: () => soundfontReadyName,
+  getLastSoundfontApplied: () => lastSoundfontApplied,
+  getPlaybackIndexOffset: () => playbackIndexOffset,
+  getPlaybackRange: () => playbackRange,
+  getActivePlaybackRange: () => activePlaybackRange,
+  getActivePlaybackEndAbcOffset: () => activePlaybackEndAbcOffset,
+  getLastStartPlaybackIdx: () => lastStartPlaybackIdx,
+  getResumeStartIdx: () => resumeStartIdx,
+  getDesiredPlayerSpeed: () => desiredPlayerSpeed,
+  getCurrentPlaybackPlan: () => currentPlaybackPlan,
+  getPendingPlaybackPlan: () => pendingPlaybackPlan,
+  getLastPlaybackGuardMessage: () => lastPlaybackGuardMessage,
+  getLastPlaybackAbortMessage: () => lastPlaybackAbortMessage,
+  getLastPlaybackException: () => lastPlaybackException,
+  getPlaybackNoteTrace: () => playbackNoteTrace,
+  getPlaybackParseErrors: () => playbackParseErrors,
+  getPlaybackSanitizeWarnings: () => playbackSanitizeWarnings,
+  getLastDrumInjectResult: () => lastDrumInjectResult,
+  getLastDrumPlaybackActive: () => lastDrumPlaybackActive,
+  getLastDrumSignatureDiff: () => lastDrumSignatureDiff,
+  getLastRhythmErrorSuggestion: () => lastRhythmErrorSuggestion,
+  getLastRenderPayload: () => lastRenderPayload,
+  getBarMismatchMarkers: () => barMismatchMarkers,
+  getErrorEntries: () => errorEntries,
+  getActiveErrorHighlight: () => activeErrorHighlight,
+  getActiveFileEntry,
+  isPayloadMode,
+  computeHeaderPresence,
+  buildHeaderPrefix,
+  injectGchordOn,
+  shouldUseNativeMidiDrums,
+  normalizeLeadingInlineDirectivesForPlayback,
+  normalizeDollarLineBreaksForPlayback,
+  normalizeBlankLinesForPlayback,
+  sanitizeAbcForPlayback,
+  extractDrumPlaybackBars,
+  computeExpectedBarSignatureFromInfo,
+  buildDrumVoiceText,
+  extractBarSignatureFromText,
+  diffSignatures,
+  clonePlaybackRange,
+  clampInt,
+  mkdirp,
+  writeFile,
+  showSaveDialog,
+  showSaveError,
+  showToast,
+  safeBasename,
+  safeDirname,
+});
 diagnosticsController = createDiagnosticsController({
   api: window.api,
   storage: typeof localStorage !== "undefined" ? localStorage : null,
   autoDumpDefaultEnabled: AUTO_DUMP_DEFAULT_ENABLED,
   autoWcDumpDefaultEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.autoWcDumpsEnabled),
   getAutoWcDumpLimit,
-  getSuggestedDebugDumpDir: computeSuggestedDebugDumpDir,
-  writeDebugDumpSnapshotToPath,
-  nowCompactStamp,
-  safeString,
+  getSuggestedDebugDumpDir: debugDumpFeature.getSuggestedDir,
+  writeDebugDumpSnapshotToPath: debugDumpFeature.writeSnapshotToPath,
+  nowCompactStamp: debugDumpFeature.nowCompactStamp,
+  safeString: debugDumpFeature.safeString,
 });
 diagnosticsController.installConsoleCapture();
-const debugLogBuffer = diagnosticsController.debugLogBuffer;
-const recentActions = diagnosticsController.recentActions;
 
 // ---------------------------------------------------------------------------
 // A–B playback (Issue #21, MVP)
@@ -2055,38 +2128,6 @@ function shouldUseNativeMidiDrums() {
     return Boolean(latestSettingsSnapshot.playbackNativeMidiDrums);
   }
   return NATIVE_MIDI_DRUMS_DEFAULT_ENABLED;
-}
-
-function computeSuggestedDebugDumpDir() {
-  if (AUTO_DUMP_DIR_OVERRIDE) return AUTO_DUMP_DIR_OVERRIDE;
-  try {
-    const href = String(window.location && window.location.href ? window.location.href : "");
-    if (href.startsWith("file://") && window.api && typeof window.api.pathDirname === "function" && typeof window.api.pathJoin === "function") {
-      const p = decodeURIComponent(new URL(href).pathname || "");
-      if (p.includes("/src/renderer/")) {
-        const rendererDir = window.api.pathDirname(p);
-        const srcDir = window.api.pathDirname(rendererDir);
-        const rootDir = window.api.pathDirname(srcDir);
-        return window.api.pathJoin(rootDir, "kitchen", "debug_dumps");
-      }
-    }
-  } catch {}
-  return activeTuneMeta && activeTuneMeta.path ? safeDirname(activeTuneMeta.path) : "";
-}
-
-async function writeDebugDumpSnapshotToPath(filePath, { silent = false, reason = "" } = {}) {
-  if (!filePath) return { ok: false, error: "No file path." };
-  const snapshot = await buildDebugDumpSnapshot({ reason });
-  const json = safeJsonStringify(snapshot);
-  const res = await writeFile(filePath, json);
-  if (!res || !res.ok) {
-    if (!silent) {
-      await showSaveError((res && res.error) ? res.error : "Unable to write debug dump.");
-    }
-    return { ok: false, error: (res && res.error) ? res.error : "Unable to write debug dump." };
-  }
-  if (!silent) showToast(`Saved debug dump: ${safeBasename(filePath)}`, 3000);
-  return { ok: true, path: filePath };
 }
 
 function scheduleAutoDump(reason, extra) {
@@ -12236,129 +12277,7 @@ async function openExternal(url) {
   if (res && res.error) logErr(res.error);
 }
 
-function nowCompactStamp() {
-  const d = new Date();
-  const pad2 = (n) => String(n).padStart(2, "0");
-  const y = d.getFullYear();
-  const m = pad2(d.getMonth() + 1);
-  const day = pad2(d.getDate());
-  const hh = pad2(d.getHours());
-  const mm = pad2(d.getMinutes());
-  const ss = pad2(d.getSeconds());
-  return `${y}${m}${day}-${hh}${mm}${ss}`;
-}
-
-function buildDebugDumpDrumDiagnostics() {
-  return buildDrumDebugDiagnostics({
-    tuneText: getEditorValue(),
-    isPayloadMode: isPayloadMode(),
-    hasActiveFileEntry: Boolean(getActiveFileEntry()),
-    headerText: getHeaderEditorValue(),
-    buildHeaderPrefix,
-    injectGchordOn,
-    shouldUseNativeMidiDrums,
-    normalizeLeadingInlineDirectivesForPlayback,
-    normalizeDollarLineBreaksForPlayback,
-    normalizeBlankLinesForPlayback,
-    sanitizeAbcForPlayback,
-    extractDrumPlaybackBars,
-    computeExpectedBarSignatureFromInfo,
-    buildDrumVoiceText,
-    extractBarSignatureFromText,
-    diffSignatures,
-    lastDrumInjectResult,
-    lastDrumPlaybackActive,
-    lastDrumSignatureDiff,
-    safeString,
-  });
-}
-
-async function buildDebugDumpSnapshot({ reason = "" } = {}) {
-  return buildDebugDumpSnapshotCore({
-    reason,
-    api: window.api,
-    windowRef: window,
-    activeTuneMeta,
-    currentDoc,
-    safeBasename,
-    debugLogBuffer,
-    recentActions,
-    editorView,
-    computeHeaderPresence,
-    headerDirty,
-    headerCollapsed,
-    getEditorValue,
-    getHeaderEditorValue,
-    workingCopySnapshot,
-    getWorkingCopyMeta: () => window.api && typeof window.api.getWorkingCopyMeta === "function"
-      ? window.api.getWorkingCopyMeta()
-      : { ok: false, error: "unavailable" },
-    getPlaybackPayload,
-    lastPlaybackPayloadCache,
-    buildDrumDiagnostics: buildDebugDumpDrumDiagnostics,
-    followPipelineVersion: FOLLOW_PIPELINE_VERSION,
-    isPlaying,
-    isPaused,
-    waitingForFirstNote,
-    followPlayback,
-    followVoiceId,
-    followVoiceIndex,
-    playbackState,
-    practiceTempoMultiplier,
-    playbackLoopEnabled,
-    playbackLoopFromMeasure,
-    playbackLoopToMeasure,
-    clampInt,
-    soundfontName,
-    soundfontSource,
-    soundfontReadyName,
-    lastSoundfontApplied,
-    playbackIndexOffset,
-    playbackRange,
-    activePlaybackRange,
-    activePlaybackEndAbcOffset,
-    lastStartPlaybackIdx,
-    resumeStartIdx,
-    desiredPlayerSpeed,
-    currentPlaybackPlan,
-    pendingPlaybackPlan,
-    lastPlaybackGuardMessage,
-    lastPlaybackAbortMessage,
-    lastPlaybackException,
-    clonePlaybackRange,
-    playbackNoteTrace,
-    playbackParseErrors,
-    playbackSanitizeWarnings,
-    lastDrumSignatureDiff,
-    lastRhythmErrorSuggestion,
-    lastRenderPayload,
-    barMismatchMarkers,
-    errorEntries,
-    activeErrorHighlight,
-  });
-}
-
-async function dumpDebugToFile(filePathArg) {
-  try {
-    const suggested = `abcarus-debug-${nowCompactStamp()}.json`;
-    let suggestedDir = computeSuggestedDebugDumpDir();
-    if (suggestedDir) {
-      const res = await mkdirp(suggestedDir);
-      if (!res || !res.ok) {
-        suggestedDir = activeTuneMeta && activeTuneMeta.path ? safeDirname(activeTuneMeta.path) : "";
-      }
-    }
-    const filePath = filePathArg || (await showSaveDialog(suggested, suggestedDir));
-    if (!filePath) return { ok: false, cancelled: true };
-    return await writeDebugDumpSnapshotToPath(filePath, { silent: false, reason: "manual" });
-  } catch (e) {
-    const msg = (e && e.message) ? e.message : String(e);
-    await showSaveError(msg);
-    return { ok: false, error: msg };
-  }
-}
-
-window.dumpDebugToFile = dumpDebugToFile;
+window.dumpDebugToFile = (...args) => debugDumpFeature.dumpToFile(...args);
 
 let libraryListYieldedByThisOpen = false;
 let libraryTreeHintToastShown = false;
@@ -15638,7 +15557,7 @@ function wireMenuActions() {
         }
         intonationExplorerFeature.toggle();
       }
-		      else if (actionType === "dumpDebug") dumpDebugToFile().catch(() => {});
+		      else if (actionType === "dumpDebug") debugDumpFeature.dumpToFile().catch(() => {});
 		      else if (actionType === "settings" && settingsController) settingsController.openSettings();
 		      else if (actionType === "fonts" && settingsController) {
 		        if (typeof settingsController.openTab === "function") settingsController.openTab("fonts");
@@ -15951,7 +15870,7 @@ document.addEventListener("keydown", (e) => {
   const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
   if (tag === "input" || tag === "textarea") return;
   e.preventDefault();
-  dumpDebugToFile().catch(() => {});
+  debugDumpFeature.dumpToFile().catch(() => {});
 });
 
 async function openTemplatesModal() {

@@ -6,6 +6,8 @@ async function assertSaveIntentGuards() {
   const src = await readFile(rendererPath, "utf8");
   const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
+  const focusPlaybackModelPath = "src/renderer/playback/focus_playback_model.js";
+  const focusPlaybackModel = await readFile(focusPlaybackModelPath, "utf8").catch(() => "");
   const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
   const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
   const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
@@ -52,19 +54,19 @@ async function assertSaveIntentGuards() {
   if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {
     throw new Error("Missing sequential measure resolver for focus loop bounds.");
   }
-  if (!src.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
+  if (!focusPlaybackModel.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
     throw new Error("Missing Focus bar-number resolver for segment mode.");
   }
-  if (!src.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
+  if (!focusPlaybackModel.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
     throw new Error("Focus segment mode must resolve From/To via abc2svg bar numbering.");
   }
   if (!src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")) {
     throw new Error("Focus plan must compute first measure fallback offset.");
   }
-  if (!src.includes("mode === \"segment\"") || !src.includes("Number(state.fromMeasure) === 1")) {
+  if (!focusPlaybackModel.includes("mode === \"segment\"") || !focusPlaybackModel.includes("Number(state.fromMeasure) === 1")) {
     throw new Error("Focus segment mode must guard the From=1 fallback path.");
   }
-  if (!src.includes("startOffset = firstMeasureOffset;")) {
+  if (!focusPlaybackModel.includes("startOffset = firstMeasureOffset;")) {
     throw new Error("Focus segment mode must apply first-measure fallback start.");
   }
   if (

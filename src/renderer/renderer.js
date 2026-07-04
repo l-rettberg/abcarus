@@ -14659,12 +14659,20 @@ loadLastRecentEntry()
     // If settings are unavailable, fall back to Ready only when there was no recent to open.
     if (!didStart && !(window.api && typeof window.api.getSettings === "function")) {
       markStartupUiReady();
+    } else if (didStart) {
+      startupRecentOpenStarted = false;
+      if (startupSettingsApplied || !(window.api && typeof window.api.getSettings === "function")) {
+        markStartupUiReady();
+      } else {
+        renderUnifiedStatus();
+      }
     } else {
       renderUnifiedStatus();
     }
   })
   .catch(() => {
     // Keep loading until settings apply decides, unless settings are unavailable.
+    startupRecentOpenStarted = false;
     if (!(window.api && typeof window.api.getSettings === "function")) markStartupUiReady();
     else renderUnifiedStatus();
   });

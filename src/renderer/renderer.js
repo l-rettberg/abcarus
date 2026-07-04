@@ -98,8 +98,7 @@ import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controll
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
-import { createMakamDnaController } from "./tools/makam_dna/makam_dna_controller.js";
-import { createMakamDnaStore } from "./tools/makam_dna/makam_dna_store.js";
+import { createMicrotonalToolsFeature } from "./tools/microtonal/microtonal_tools_feature.js";
 import {
   buildIntonationRowsFromEntries,
   formatAeuLabel,
@@ -4692,31 +4691,38 @@ function populateIntonationExplorerMakams() {
   fill($intonationExplorerCompareMakam);
 }
 
-const makamDnaStore = createMakamDnaStore({
+const microtonalToolsFeature = createMicrotonalToolsFeature({
+  makamDna: {
+    modal: $makamDnaModal,
+    closeButton: $makamDnaClose,
+    cancelButton: $makamDnaCancel,
+    editor: $makamDnaEditor,
+    status: $makamDnaStatus,
+    resetBuiltinButton: $makamDnaResetBuiltin,
+    saveButton: $makamDnaSave,
+  },
   api: window.api,
-  onError: (e) => logErr(e && e.message ? e.message : String(e)),
+  enableDraggable: enableDraggableModal,
+  logError: (e) => logErr(e && e.message ? e.message : String(e)),
+  showToast: (message, timeout) => showToast(message, timeout),
+  onMakamDnaChanged: async () => {
+    populateIntonationExplorerMakams();
+    if (intonationExplorerVisible) {
+      try { await refreshIntonationExplorer(); } catch {}
+    }
+  },
 });
 
 function getMakamDnaEntries() {
-  return makamDnaStore.getEntries();
-}
-
-function parseMakamDnaText(text) {
-  return makamDnaStore.parseText(text);
+  return microtonalToolsFeature.getMakamDnaEntries();
 }
 
 async function ensureMakamDnaLoaded() {
-  await makamDnaStore.ensureLoaded();
+  await microtonalToolsFeature.ensureMakamDnaLoaded();
 }
-
-function rebuildMakamDnaNameIndex() {
-  makamDnaStore.rebuildNameIndex();
-}
-
-rebuildMakamDnaNameIndex();
 
 function detectMakamFromTuneText(tuneText) {
-  return makamDnaStore.detectFromTuneText(tuneText);
+  return microtonalToolsFeature.detectMakamFromTuneText(tuneText);
 }
 
 const perdeService = createPerdeService();
@@ -4729,7 +4735,7 @@ const resolvePerdeNamesFromAbcTokenSafe = (token) => perdeService.resolveNamesFr
 const resolvePerdePc53Candidates = (perdeName) => perdeService.resolvePc53Candidates(perdeName);
 
 function getMakamDnaEntry(name) {
-  return makamDnaStore.getEntry(name);
+  return microtonalToolsFeature.getMakamDnaEntry(name);
 }
 
 function renderIntonationSeyirPlot({ noteEvents, baseStep, overlayMakamName } = {}) {
@@ -5891,7 +5897,6 @@ function showIntonationExplorerPanel() {
   Promise.resolve()
     .then(() => ensureMakamDnaLoaded())
     .then(() => {
-      rebuildMakamDnaNameIndex();
       populateIntonationExplorerMakams();
     })
     .finally(() => {
@@ -17578,50 +17583,8 @@ document.addEventListener("keydown", (e) => {
   dumpDebugToFile().catch(() => {});
 });
 
-async function applyUserMakamDnaTextAndRefresh(text) {
-  const applied = makamDnaStore.applyUserText(text);
-  if (!applied.ok) return applied;
-  populateIntonationExplorerMakams();
-  if (intonationExplorerVisible) {
-    try { await refreshIntonationExplorer(); } catch {}
-  }
-  return { ok: true };
-}
-
-const makamDnaController = createMakamDnaController({
-  modal: $makamDnaModal,
-  closeButton: $makamDnaClose,
-  cancelButton: $makamDnaCancel,
-  editor: $makamDnaEditor,
-  status: $makamDnaStatus,
-  resetBuiltinButton: $makamDnaResetBuiltin,
-  saveButton: $makamDnaSave,
-  api: window.api,
-  ensureLoaded: ensureMakamDnaLoaded,
-  getInitialText: () => makamDnaStore.getInitialEditorText(),
-  validateText: parseMakamDnaText,
-  applyText: applyUserMakamDnaTextAndRefresh,
-  resetBuiltin: async () => {
-    const text = await makamDnaStore.resetBuiltin();
-    populateIntonationExplorerMakams();
-    if (intonationExplorerVisible) refreshIntonationExplorer().catch(() => {});
-    return text;
-  },
-  enableDraggable: enableDraggableModal,
-  onSaved: () => {
-    try { showToast("Saved Makam DNA.", 1800); } catch {}
-  },
-  onError: (e) => {
-    logErr(e && e.message ? e.message : String(e));
-  },
-});
-
-function closeMakamDnaModal() {
-  makamDnaController.close();
-}
-
 async function openMakamDnaModal() {
-  await makamDnaController.open();
+  await microtonalToolsFeature.openMakamDnaModal();
 }
 
 async function openTemplatesModal() {

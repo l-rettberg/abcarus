@@ -28,6 +28,12 @@ import {
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
 import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
+import {
+  buildSortedErrorsForNav,
+  computeErrorId,
+  normalizeErrorMessageForMatch,
+} from "./editor/errors_model.js";
+import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -687,6 +693,7 @@ function safeWriteJsonLocalStorage(key, value) {
 printAllFeature.loadOptionsFromStorage();
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
+const errorsNavigationState = createErrorsNavigationState();
 
 // ---------------- A–B playback helpers ----------------
 
@@ -906,111 +913,14 @@ let lastSvgPlayheadEl = null;
 let lastSvgPlayheadSvg = null;
 let lastSvgPlayheadXCenter = null;
 let activeErrorHighlight = null; // {id, from, to, tuneId, filePath, message, messageKey, lastSvgRenderIdx}
-let activeErrorNavIndex = -1;
-let lastNoErrorsToastAtMs = 0;
-
-function normalizeErrorMessageForMatch(message) {
-  const msg = String(message || "").trim();
-  if (!msg) return "";
-  const withoutCount = msg.replace(/\s+×\s*\d+\s*$/i, "").trim();
-  // abc2svg errors often include location prefixes; match on the human-relevant tail.
-  const lower = withoutCount.toLowerCase();
-  const idxWarn = lower.lastIndexOf("warning:");
-  if (idxWarn !== -1) return withoutCount.slice(idxWarn + "warning:".length).trim().toLowerCase();
-  const idxErr = lower.lastIndexOf("error:");
-  if (idxErr !== -1) return withoutCount.slice(idxErr + "error:".length).trim().toLowerCase();
-  return lower;
-}
-
-function computeErrorId(entry) {
-  if (!entry) return "";
-  const tuneId = entry.tuneId || "";
-  const filePath = entry.filePath || "";
-  const messageKey = normalizeErrorMessageForMatch(entry.message || "");
-  const start = Number(entry.errorStartOffset);
-  const line = Number(entry.loc ? entry.loc.line : NaN);
-  const col = Number(entry.loc ? entry.loc.col : NaN);
-  const posKey = Number.isFinite(start)
-    ? `o${start}`
-    : (Number.isFinite(line) ? `l${line}c${Number.isFinite(col) ? col : 0}` : "na");
-  // Unique enough to distinguish multiple same-message errors in the same tune,
-  // while still allowing reconcileActiveErrorHighlightAfterRender() to re-anchor by message.
-  return `${tuneId}|${filePath}|${messageKey}|${posKey}`;
-}
 
 function getSortedErrorsForNav() {
-  const items = Array.isArray(lastErrors) ? lastErrors.slice() : [];
-  const withKeys = items.map((entry) => {
-    const tuneIdKey = String(entry && (entry.tuneId || entry.tuneKey) ? (entry.tuneId || entry.tuneKey) : "");
-    const start = Number(entry && entry.errorStartOffset);
-    const line = Number(entry && entry.loc ? entry.loc.line : NaN);
-    const col = Number(entry && entry.loc ? entry.loc.col : NaN);
-    const messageKey = normalizeErrorMessageForMatch(entry && entry.message ? entry.message : "");
-    const pos = Number.isFinite(start)
-      ? start
-      : (Number.isFinite(line) ? (line * 100000 + (Number.isFinite(col) ? col : 0)) : Number.POSITIVE_INFINITY);
-    return {
-      entry,
-      id: computeErrorId(entry),
-      tuneIdKey,
-      pos,
-      messageKey,
-    };
-  }).filter((x) => x.entry && x.id);
-
-  withKeys.sort((a, b) => {
-    if (a.tuneIdKey !== b.tuneIdKey) return a.tuneIdKey.localeCompare(b.tuneIdKey);
-    if (a.pos !== b.pos) return a.pos - b.pos;
-    if (a.messageKey !== b.messageKey) return a.messageKey.localeCompare(b.messageKey);
-    return a.id.localeCompare(b.id);
-  });
-  return withKeys;
+  return buildSortedErrorsForNav(lastErrors);
 }
 
 function syncActiveErrorNavIndex(sortedItemsArg) {
   const items = Array.isArray(sortedItemsArg) ? sortedItemsArg : getSortedErrorsForNav();
-  if (!items.length) {
-    activeErrorNavIndex = -1;
-    return;
-  }
-
-  if (activeErrorHighlight && activeErrorHighlight.id) {
-    const found = items.findIndex((x) => x.id === activeErrorHighlight.id);
-    if (found !== -1) {
-      activeErrorNavIndex = found;
-      return;
-    }
-
-    const targetPos = Number.isFinite(activeErrorHighlight.from) ? activeErrorHighlight.from : 0;
-    const targetTune = activeErrorHighlight.tuneId ? String(activeErrorHighlight.tuneId) : "";
-    let bestIdx = -1;
-    let bestDist = Infinity;
-
-    const consider = (x, idx) => {
-      const dist = Math.abs((Number.isFinite(x.pos) ? x.pos : targetPos) - targetPos);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = idx;
-      }
-    };
-
-    if (targetTune) {
-      for (let i = 0; i < items.length; i += 1) {
-        const it = items[i];
-        const tuneId = it.entry && it.entry.tuneId ? String(it.entry.tuneId) : "";
-        if (tuneId !== targetTune) continue;
-        consider(it, i);
-      }
-    }
-    if (bestIdx === -1) {
-      for (let i = 0; i < items.length; i += 1) consider(items[i], i);
-    }
-    if (bestIdx !== -1) activeErrorNavIndex = bestIdx;
-    return;
-  }
-
-  if (activeErrorNavIndex >= items.length) activeErrorNavIndex = items.length - 1;
-  if (activeErrorNavIndex < -1) activeErrorNavIndex = -1;
+  errorsNavigationState.sync(items, activeErrorHighlight);
 }
 
 async function activateErrorByNav(delta) {
@@ -1021,21 +931,11 @@ async function activateErrorByNav(delta) {
   }
   const items = getSortedErrorsForNav();
   if (!items.length) {
-    const now = Date.now();
-    if (!lastNoErrorsToastAtMs || now - lastNoErrorsToastAtMs > 2000) {
-      lastNoErrorsToastAtMs = now;
-      showToast("No errors");
-    }
+    if (errorsNavigationState.shouldShowNoErrorsToast()) showToast("No errors");
     return;
   }
 
-  const step = delta >= 0 ? 1 : -1;
-  let nextIdx = activeErrorNavIndex;
-  if (!Number.isFinite(nextIdx) || nextIdx < 0) {
-    nextIdx = step > 0 ? 0 : items.length - 1;
-  } else {
-    nextIdx = (nextIdx + step + items.length) % items.length;
-  }
+  const nextIdx = errorsNavigationState.nextIndex(items, delta);
 
   await jumpToError(items[nextIdx].entry);
 }
@@ -1047,7 +947,7 @@ function clearActiveErrorHighlight(reason) {
   }
   const prev = activeErrorHighlight;
   activeErrorHighlight = null;
-  activeErrorNavIndex = -1;
+  errorsNavigationState.setActiveIndex(-1);
   if (reason === "resolved" && prev && Array.isArray(lastErrors) && lastErrors.length) {
     const items = getSortedErrorsForNav();
     if (items.length) {
@@ -1073,7 +973,7 @@ function clearActiveErrorHighlight(reason) {
       if (bestIdx === -1) {
         for (let i = 0; i < items.length; i += 1) consider(items[i], i);
       }
-      if (bestIdx !== -1) activeErrorNavIndex = bestIdx;
+      if (bestIdx !== -1) errorsNavigationState.setActiveIndex(bestIdx);
     }
   }
   errorActivationHighlightRange = null;

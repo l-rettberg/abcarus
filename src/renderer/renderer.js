@@ -113,6 +113,7 @@ import {
   stripGchordDirectives,
   stripRepeatsLengthSafe,
 } from "./playback/selection_playback_model.js";
+import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import {
@@ -686,29 +687,19 @@ function safeWriteJsonLocalStorage(key, value) {
 
 printAllFeature.loadOptionsFromStorage();
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
+const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 
 // ---------------- A–B playback helpers ----------------
 
-function abRevisionToken() {
-  return abRevision;
-}
-
 function isAbPlanValid() {
-  if (!abPlan) return false;
-  if (rawMode || isPayloadMode()) return false;
-  if (abPlan.revisionToken !== abRevision) return false;
-  if (!Number.isFinite(abPlan.startOffset) || !Number.isFinite(abPlan.endOffset)) return false;
-  if (abPlan.endOffset - abPlan.startOffset < AB_MIN_LENGTH) return false;
-  return true;
+  return abLoopRuntime.isPlanValid({ rawMode, payloadMode: isPayloadMode() });
 }
 
 function updateAbUi() {}
 
 function clearAbPlan({ toast } = {}) {
-  const had = abPlan;
-  abPlan = null;
-  abVoiceIds = [];
-  setAbMarkers(null);
+  const had = abLoopRuntime.clearPlan();
+  refreshAbMarkers();
   toggleAbOptionsPopover(false);
   updateAbUi();
   if (had && toast) showToast("Markers cleared (score changed)", 2400);
@@ -719,62 +710,25 @@ function clearAbPlan({ toast } = {}) {
 
 function setAbPlanRange(startOffset, endOffset) {
   if (!editorView) return;
-  deriveAbVoices(getEditorValue());
   const max = editorView.state.doc.length;
-  const s = Math.max(0, Math.min(max, Number(startOffset) || 0));
-  const e = Math.max(0, Math.min(max, Number(endOffset) || 0));
-  const start = Math.min(s, e);
-  const end = Math.max(s, e);
-  if (end - start < AB_MIN_LENGTH) {
+  const plan = abLoopRuntime.setPlanRange(startOffset, endOffset, max);
+  if (!plan) {
     showToast("Select a longer region for A–B.", 2200);
     return;
   }
-  const prevMuted = (abPlan && abPlan.mutedVoices) ? { ...abPlan.mutedVoices } : {};
-  abPlan = {
-    mode: "ab-loop",
-    startOffset: start,
-    endOffset: end,
-    mutedVoices: prevMuted,
-    suppressRepeats: abPlan ? Boolean(abPlan.suppressRepeats) : true,
-    muteGchords: abPlan ? Boolean(abPlan.muteGchords) : false,
-    revisionToken: abRevision,
-  };
-  setAbMarkers({ start, end });
+  refreshAbMarkers();
   updateAbUi();
   refreshAbOptionsUi();
 }
 
 function setAbPlanOptions(opts = {}) {
-  if (!abPlan) return;
-  abPlan = {
-    ...abPlan,
-    suppressRepeats: opts.suppressRepeats != null ? !!opts.suppressRepeats : abPlan.suppressRepeats,
-    muteGchords: opts.muteGchords != null ? !!opts.muteGchords : abPlan.muteGchords,
-    mutedVoices: opts.mutedVoices || abPlan.mutedVoices || {},
-  };
+  if (!abLoopRuntime.setPlanOptions(opts)) return;
   updateAbUi();
   refreshAbOptionsUi();
 }
 
 function toggleAbOptionsPopover() {}
 function refreshAbOptionsUi() {}
-
-function deriveAbVoices(tuneText) {
-  const out = new Set();
-  const text = String(tuneText || "");
-  text.split(/\r\n|\n|\r/).forEach((line) => {
-    const m = line.match(/^\s*V\s*:\s*(.+)$/i);
-    const id = m ? normalizeVoiceIdToken(m[1]) : "";
-    if (id) out.add(id);
-  });
-  const inline = text.match(/\[V\s*:\s*([^\]\s]+)/gi) || [];
-  for (const token of inline) {
-    const m = token.match(/\[V\s*:\s*([^\]\s]+)/i);
-    const id = m ? normalizeVoiceIdToken(m[1]) : "";
-    if (id) out.add(id);
-  }
-  abVoiceIds = Array.from(out);
-}
 
 function getSelectionPlaybackSettings() {
   const settings = latestSettingsSnapshot || {};
@@ -811,24 +765,10 @@ function withTempPlaybackFlags(flags, fn) {
 function setAbPoint(which) {
   if (!editorView) return;
   const pos = editorView.state.selection.main.head;
-  if (!abPlan) {
-    abPlan = {
-      mode: "ab-loop",
-      startOffset: pos,
-      endOffset: pos,
-      mutedVoices: {},
-      suppressRepeats: true,
-      muteGchords: false,
-      revisionToken: abRevision,
-    };
-  } else {
-    if (which === "a") abPlan.startOffset = pos;
-    else abPlan.endOffset = pos;
-    abPlan.revisionToken = abRevision;
-  }
-  setAbMarkers({ start: abPlan.startOffset, end: abPlan.endOffset });
-  if (Number.isFinite(abPlan.startOffset) && Number.isFinite(abPlan.endOffset) && abPlan.endOffset !== abPlan.startOffset) {
-    setAbPlanRange(abPlan.startOffset, abPlan.endOffset);
+  const plan = abLoopRuntime.setPoint(which, pos);
+  refreshAbMarkers();
+  if (plan && Number.isFinite(plan.startOffset) && Number.isFinite(plan.endOffset) && plan.endOffset !== plan.startOffset) {
+    setAbPlanRange(plan.startOffset, plan.endOffset);
   } else {
     updateAbUi();
   }
@@ -843,7 +783,8 @@ function setAbFromSelection() {
 }
 
 async function playAbLoop() {
-  if (abPlan && abPlan.revisionToken !== abRevision) {
+  const plan = abLoopRuntime.getPlan();
+  if (plan && plan.revisionToken !== abLoopRuntime.getRevisionToken()) {
     clearAbPlan({ toast: true });
     return;
   }
@@ -855,29 +796,28 @@ async function playAbLoop() {
     showToast("Switch to tune mode to play A–B.", 2400);
     return;
   }
-  if (abPlan.mutedVoices && Object.values(abPlan.mutedVoices).some(Boolean)) {
-    selectionPlaybackRuntime.setAbMutedVoiceMap(abPlan.mutedVoices);
+  if (plan.mutedVoices && Object.values(plan.mutedVoices).some(Boolean)) {
+    selectionPlaybackRuntime.setAbMutedVoiceMap(plan.mutedVoices);
   } else {
     selectionPlaybackRuntime.clearAbMutedVoices();
   }
   const text = getEditorValue();
-  deriveAbVoices(text);
-  const hasRepeats = hasRepeatTokensInSlice(text, abPlan.startOffset, abPlan.endOffset);
-  if (!abPlan.suppressRepeats && hasRepeats) {
+  const hasRepeats = hasRepeatTokensInSlice(text, plan.startOffset, plan.endOffset);
+  if (!plan.suppressRepeats && hasRepeats) {
     showToast("Range crosses repeat; suppress repeats or adjust B.", 3600);
     return;
   }
 
   const prevStripChord = window.__abcarusPlaybackStripChordSymbols;
-  if (abPlan.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
+  if (plan.muteGchords) window.__abcarusPlaybackStripChordSymbols = true;
   try {
     setPlaybackRange({
-      startOffset: abPlan.startOffset,
-      endOffset: abPlan.endOffset,
+      startOffset: plan.startOffset,
+      endOffset: plan.endOffset,
       origin: "ab",
       loop: true,
     });
-    await startPlaybackFromRange({ startOffset: abPlan.startOffset, endOffset: abPlan.endOffset, origin: "ab", loop: true });
+    await startPlaybackFromRange({ startOffset: plan.startOffset, endOffset: plan.endOffset, origin: "ab", loop: true });
   } finally {
     window.__abcarusPlaybackStripChordSymbols = prevStripChord;
     selectionPlaybackRuntime.clearAbMutedVoices();
@@ -969,8 +909,6 @@ let lastSvgPlayheadXCenter = null;
 let activeErrorHighlight = null; // {id, from, to, tuneId, filePath, message, messageKey, lastSvgRenderIdx}
 let activeErrorNavIndex = -1;
 let lastNoErrorsToastAtMs = 0;
-let abDecorations = Decoration.none;
-let abMarkers = null; // {start,end}
 
 function normalizeErrorMessageForMatch(message) {
   const msg = String(message || "").trim();
@@ -1888,12 +1826,6 @@ diagnosticsController.installConsoleCapture();
 // ---------------------------------------------------------------------------
 // A–B playback (Issue #21, MVP)
 // ---------------------------------------------------------------------------
-
-const AB_MIN_LENGTH = 2; // chars
-let abPlan = null; // {mode, startOffset, endOffset, mutedVoices, suppressRepeats, muteGchords, revisionToken}
-let abRevision = 0;
-let abDecorationsVersion = 0;
-let abVoiceIds = [];
 
 function getAutoWcDumpLimit() {
   const raw = latestSettingsSnapshot && Number.isFinite(Number(latestSettingsSnapshot.autoWcDumpsLimit))
@@ -4057,23 +3989,17 @@ function buildAbDecorations(state, markers) {
 
 const abPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
-    this.version = abDecorationsVersion;
-    this.decorations = buildAbDecorations(view.state, abMarkers);
+    this.version = abLoopRuntime.getMarkerVersion();
+    this.decorations = buildAbDecorations(view.state, abLoopRuntime.getMarkers());
   }
   update(update) {
-    if (update.docChanged || update.selectionSet || this.version !== abDecorationsVersion) {
-      this.version = abDecorationsVersion;
-      this.decorations = buildAbDecorations(update.state, abMarkers);
-    } else if (update.docChanged && abMarkers) {
+    if (update.docChanged || update.selectionSet || this.version !== abLoopRuntime.getMarkerVersion()) {
+      this.version = abLoopRuntime.getMarkerVersion();
+      this.decorations = buildAbDecorations(update.state, abLoopRuntime.getMarkers());
+    } else if (update.docChanged && abLoopRuntime.getMarkers()) {
       // map markers to new positions
       try {
-        const max = update.state.doc.length;
-        const start = update.changes.mapPos(Number(abMarkers.start), 1);
-        const end = update.changes.mapPos(Number(abMarkers.end), -1);
-        abMarkers = {
-          start: Math.max(0, Math.min(max, start)),
-          end: Math.max(0, Math.min(max, end)),
-        };
+        abLoopRuntime.mapMarkers(update.changes, update.state.doc.length);
       } catch {}
     }
   }
@@ -4081,9 +4007,7 @@ const abPlugin = ViewPlugin.fromClass(class {
   decorations: (v) => v.decorations,
 });
 
-function setAbMarkers(markers) {
-  abMarkers = markers;
-  abDecorationsVersion += 1;
+function refreshAbMarkers() {
   if (editorView) {
     editorView.dispatch({ selection: editorView.state.selection, scrollIntoView: false });
   }
@@ -5495,8 +5419,8 @@ function initEditor() {
         currentDoc = createBlankDocument();
       }
       midiInputFeature.handleTypingPreviewChange(update);
-      abRevision += 1;
-      if (abPlan) clearAbPlan({ toast: true });
+      abLoopRuntime.incrementRevision();
+      if (abLoopRuntime.hasPlan()) clearAbPlan({ toast: true });
       if (!suppressDirty && currentDoc && !isPayloadMode()) {
         currentDoc.content = update.state.doc.toString();
         currentDoc.dirty = true;

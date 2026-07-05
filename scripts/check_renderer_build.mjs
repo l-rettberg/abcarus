@@ -330,10 +330,10 @@ async function assertBareContinuationDirectiveHighlight() {
 }
 
 async function assertDirectiveErrorsDoNotGetMeasureStats() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
+  const measureStatsPath = "src/renderer/abc/measure_stats.js";
+  const src = await readFile(measureStatsPath, "utf8");
   const start = src.indexOf("function shouldComputeMeasureStatsAt(editorText, anchorOffset)");
-  const end = src.indexOf("function isDebugMessagesEnabled()", start);
+  const end = src.indexOf("function computeMeasureStatsAt", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate measure-stats eligibility helper.");
 
   const module = { exports: {} };

@@ -71,10 +71,12 @@ import {
 } from "./abc/align_bars.js";
 import {
   gcdInt,
-  getBarLength,
   getDefaultLen,
-  getMetre,
 } from "./abc/bar_metrics.js";
+import {
+  computeMeasureStatsAt as computeMeasureStatsAtCore,
+  parseMeterParts,
+} from "./abc/measure_stats.js";
 import {
   normalizeSuggestedKeyName,
   parseAbcHeaderFields,
@@ -5763,81 +5765,8 @@ function setTransientBufferStatus(text, autoClearMs = 3200) {
   }, Math.max(0, delay));
 }
 
-function formatDefaultLenText(defaultLen) {
-  if (defaultLen === "mcm_default") return "mcm_default";
-  if (!Number.isFinite(defaultLen)) return "?";
-  const inv = Math.round(1 / defaultLen);
-  if (Number.isFinite(inv) && inv > 0) return `1/${inv}`;
-  return String(defaultLen);
-}
-
-function parseMeterParts(abc) {
-  const match = String(abc || "").match(/^M:\s*(\d+)\s*\/\s*(\d+)/m);
-  if (!match) return null;
-  const num = Number(match[1]);
-  const den = Number(match[2]);
-  if (!Number.isFinite(num) || !Number.isFinite(den) || num <= 0 || den <= 0) return null;
-  return { num, den };
-}
-
-function formatMeterInfo(abc) {
-  const parts = parseMeterParts(abc);
-  if (!parts) return { text: "M: (unknown)", expectedWhole: null, expectedUnits: null };
-  const expectedWhole = parts.num / parts.den;
-  const beatsText = `${parts.num}×1/${parts.den}`;
-  const compoundText = (parts.den === 8 && parts.num > 3 && parts.num % 3 === 0)
-    ? `; compound: ${parts.num / 3}×3/8`
-    : "";
-  return {
-    text: `M:${parts.num}/${parts.den} (beats: ${beatsText}${compoundText})`,
-    expectedWhole,
-  };
-}
-
 function computeMeasureStatsAt(editorText, anchorOffset) {
-  if (!editorText || !Number.isFinite(anchorOffset)) return null;
-  if (!shouldComputeMeasureStatsAt(editorText, anchorOffset)) return null;
-  const range = findMeasureRangeAt(editorText, anchorOffset);
-  if (!range) return null;
-  const defaultLen = getDefaultLen(editorText);
-  const metre = getMetre(editorText);
-  const meterInfo = formatMeterInfo(editorText);
-  const slice = editorText.slice(range.start, range.end);
-  const actualWhole = getBarLength(slice, defaultLen, metre);
-  const expectedWhole = meterInfo.expectedWhole;
-
-  let actualUnits = null;
-  let expectedUnits = null;
-  if (defaultLen !== "mcm_default" && Number.isFinite(defaultLen) && defaultLen > 0) {
-    actualUnits = Number.isFinite(actualWhole) ? actualWhole / defaultLen : null;
-    expectedUnits = Number.isFinite(expectedWhole) ? expectedWhole / defaultLen : null;
-  }
-
-  return {
-    meterInfo,
-    defaultLen,
-    range,
-    actualWhole,
-    expectedWhole,
-    actualUnits,
-    expectedUnits,
-  };
-}
-
-function shouldComputeMeasureStatsAt(editorText, anchorOffset) {
-  const text = String(editorText || "");
-  if (!text || !Number.isFinite(anchorOffset)) return false;
-  const idx = Math.max(0, Math.min(Math.floor(anchorOffset), Math.max(0, text.length - 1)));
-  const lineStart = Math.max(0, text.lastIndexOf("\n", idx - 1) + 1);
-  const nextNl = text.indexOf("\n", idx);
-  const lineEnd = nextNl >= 0 ? nextNl : text.length;
-  const line = text.slice(lineStart, lineEnd);
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith("%")) return false;
-  if (/^[A-Za-z]:/.test(trimmed)) return false;
-  if (/^\[[A-Za-z]:[^\]]*\]\s*$/.test(trimmed)) return false;
-  return true;
+  return computeMeasureStatsAtCore(editorText, anchorOffset, { findMeasureRangeAt });
 }
 
 function isDebugMessagesEnabled() {

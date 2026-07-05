@@ -3822,8 +3822,7 @@ async function navigateTuneByDelta(delta) {
   if (rawMode) {
     const rawTuneId = nextTune && nextTune.id ? String(nextTune.id) : String(nextId);
     if ($fileTuneSelect) $fileTuneSelect.value = rawTuneId;
-    setActiveTuneInRaw(rawTuneId);
-    scrollToTuneInRaw(rawTuneId);
+    selectTuneInRaw(rawTuneId);
     return;
   }
   await selectTune(nextId);
@@ -4601,12 +4600,8 @@ function scrollToPosInEditor(pos, { y = "start" } = {}) {
   });
 }
 
-function setActiveTuneInRaw(tuneId) {
-  rawModeFeature.setActiveTune(tuneId);
-}
-
-function scrollToTuneInRaw(tuneId) {
-  rawModeFeature.scrollToTune(tuneId);
+function selectTuneInRaw(tuneId) {
+  rawModeFeature.selectTuneInRaw(tuneId);
 }
 
 async function enterRawMode() {
@@ -5577,27 +5572,26 @@ function renderLibraryTree(files = null) {
         const targetPath = entry.isFile
           ? entry.id
           : String(tune.id || "").split("::")[0];
-		        if (targetPath) {
-		          activeFilePath = targetPath;
-		          scheduleRenderLibraryTree(sourceFiles);
-		        }
-		        showContextMenuAt(ev.clientX, ev.clientY, { type: "tune", tuneId: tune.id });
-		      });
+        if (targetPath) {
+          activeFilePath = targetPath;
+          scheduleRenderLibraryTree(sourceFiles);
+        }
+        showContextMenuAt(ev.clientX, ev.clientY, { type: "tune", tuneId: tune.id });
+      });
       button.addEventListener("click", () => {
         pinHoverStatus(tuneLabel);
         const targetPath = entry.isFile
           ? entry.id
           : String(tune.id || "").split("::")[0];
-		        if (targetPath) {
-		          activeFilePath = targetPath;
-		          scheduleRenderLibraryTree(sourceFiles);
-		        }
-		        if (rawMode) {
-		          if ($fileTuneSelect) $fileTuneSelect.value = tune.id;
-		          setActiveTuneInRaw(tune.id);
-	          scrollToTuneInRaw(tune.id);
-	          return;
-	        }
+        if (targetPath) {
+          activeFilePath = targetPath;
+          scheduleRenderLibraryTree(sourceFiles);
+        }
+        if (rawMode) {
+          if ($fileTuneSelect) $fileTuneSelect.value = tune.id;
+          selectTuneInRaw(tune.id);
+          return;
+        }
           // Do not rely solely on `tune.id` (it can change if the file is re-parsed).
           // Use the tolerant open helper that can fall back to xNumber and force a re-parse.
           openTuneFromLibrarySelection({
@@ -6495,8 +6489,7 @@ if ($fileTuneSelect) {
       return;
     }
     if (rawMode) {
-      setActiveTuneInRaw(tuneId);
-      scrollToTuneInRaw(tuneId);
+      selectTuneInRaw(tuneId);
       return;
     }
     selectTune(tuneId);

@@ -226,6 +226,15 @@ function createRawModeFeature({
     const bodyStart = Number(getState().rawModeHeaderEndOffset) || 0;
     const pos = Math.max(0, Number(res.tune.startOffset) - bodyStart);
     scrollToPosInEditor(pos, { y: "start" });
+    const win = documentRef && documentRef.defaultView;
+    if (win && typeof win.requestAnimationFrame === "function") {
+      win.requestAnimationFrame(() => scrollToPosInEditor(pos, { y: "start" }));
+    }
+  }
+
+  function selectTuneInRaw(tuneId) {
+    setActiveTune(tuneId);
+    scrollToTune(tuneId);
   }
 
   async function enter() {
@@ -350,6 +359,7 @@ function createRawModeFeature({
     leaveForAction,
     save,
     scrollToTune,
+    selectTuneInRaw,
     setActiveTune,
     setUi,
   };

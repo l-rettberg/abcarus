@@ -120,10 +120,9 @@ import { createIntonationExplorerFeature } from "./tools/intonation_explorer/int
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
-import {
-  buildPlaybackPayloadForDiagnosticsFromRenderText as buildPlaybackPayloadForDiagnosticsFromRenderTextCore,
-  computePayloadTuneOffset,
-} from "./tools/payload_mode/payload_mode_model.mjs";
+import { createPayloadModeDecorations } from "./tools/payload_mode/payload_mode_decorations.js";
+import { createPayloadModeEditorAdapter } from "./tools/payload_mode/payload_mode_editor_adapter.js";
+import { computePayloadTuneOffset } from "./tools/payload_mode/payload_mode_model.mjs";
 import {
   applyMutedVoicesToTuneRoot,
   buildSelectionPlaybackToast,
@@ -484,6 +483,17 @@ let rawMode = false;
 let rawModeFilePath = null;
 let rawModeHeaderEndOffset = 0;
 let rawModeOriginalTuneId = null;
+let payloadModeDecorations = null;
+
+const payloadModeEditorAdapter = createPayloadModeEditorAdapter({
+  getEditorView: () => editorView,
+  getEditorText: () => getEditorValue(),
+  setEditorText: setEditorValue,
+  setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+  readOnlyCompartment: abcPayloadReadOnlyCompartment,
+  EditorState,
+  EditorView,
+});
 
 const payloadModeFeature = createPayloadModeFeature({
   elements: {
@@ -520,14 +530,14 @@ const payloadModeFeature = createPayloadModeFeature({
     $xIssuesJump,
     $xIssuesCopy,
   ],
-  getCopyText: getPayloadModeCopyText,
+  getCopyText: payloadModeEditorAdapter.getCopyText,
   hasEditor: () => Boolean(editorView),
   getEditorText: () => getEditorValue(),
   getEditorSelection: () => editorView ? editorView.state.selection : null,
-  setEditorText: setPayloadModeEditorValue,
-  setEditorReadOnly: setPayloadEditorReadOnly,
-  setEditorCursor: setPayloadModeEditorCursor,
-  restoreEditorSelection: restorePayloadModeEditorSelection,
+  setEditorText: payloadModeEditorAdapter.setEditorValue,
+  setEditorReadOnly: payloadModeEditorAdapter.setEditorReadOnly,
+  setEditorCursor: payloadModeEditorAdapter.setEditorCursor,
+  restoreEditorSelection: payloadModeEditorAdapter.restoreEditorSelection,
   getActiveTuneUid: () => activeTuneUid,
   isRawMode: () => rawMode,
   isFocusModeEnabled: () => focusModeEnabled,
@@ -537,15 +547,34 @@ const payloadModeFeature = createPayloadModeFeature({
   },
   sanitizeHeaderText: sanitizeFileHeaderForInteractiveRender,
   buildHeaderPrefixWithLayerSpans,
-  buildPlaybackPayload: buildPayloadModePlaybackPayload,
+  playbackPayloadTransforms: {
+    injectGchordOn,
+    normalizeDollarLineBreaksForPlayback,
+    normalizeBlankLinesForPlayback,
+    normalizeReadableMidiDrumsForPlayback,
+    sanitizeAbcForPlayback,
+    expandRepeatsForPlayback,
+    expandRepeats: () => window.__abcarusPlaybackExpandRepeats === true,
+  },
   stopPlayback: stopPlaybackTransport,
   resetPlaybackState,
   clearBarMismatchMarkers: () => errorsFeature.clearBarMismatchMarkers(),
-  refreshLayerDecorations: refreshPayloadLayerDecorations,
+  refreshLayerDecorations: () => {
+    if (payloadModeDecorations) payloadModeDecorations.refresh();
+  },
   scheduleRender: scheduleRenderNow,
   scheduleLibraryTree: () => scheduleRenderLibraryTree(sourceFiles),
   showToast,
   setStatus,
+});
+
+payloadModeDecorations = createPayloadModeDecorations({
+  ViewPlugin,
+  buildPayloadLayerDecorations,
+  getOptions: () => payloadModeFeature.getLayerDecorationOptions(),
+  refreshEditor: () => {
+    if (editorView) editorView.dispatch({ selection: editorView.state.selection, scrollIntoView: false });
+  },
 });
 
 const chordProFeature = createChordProFeature({
@@ -3638,35 +3667,6 @@ function setIntonationHighlightRanges(ranges) {
   });
 }
 
-let payloadLayerVersion = 0;
-function getPayloadLayerDecorationOptions() {
-  return payloadModeFeature.getLayerDecorationOptions();
-}
-
-const payloadLayerPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = payloadLayerVersion;
-    this.decorations = buildPayloadLayerDecorations(view.state, getPayloadLayerDecorationOptions());
-  }
-  update(update) {
-    if (update.docChanged || this.version !== payloadLayerVersion) {
-      this.version = payloadLayerVersion;
-      this.decorations = buildPayloadLayerDecorations(update.state, getPayloadLayerDecorationOptions());
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
-
-function refreshPayloadLayerDecorations() {
-  payloadLayerVersion += 1;
-  if (!editorView) return;
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
-}
-
 let intonationExplorerFeature = null;
 
 const microtonalToolsFeature = createMicrotonalToolsFeature({
@@ -4340,61 +4340,6 @@ function setRawModeUI(enabled) {
   sourceLinkFeature.update();
 }
 
-function getPayloadModeCopyText() {
-  if (!editorView) return { text: "", selectionText: "" };
-  const doc = editorView.state.doc;
-  const ranges = editorView.state.selection && editorView.state.selection.ranges
-    ? editorView.state.selection.ranges
-    : [];
-  let selectionText = "";
-  for (const r of ranges) {
-    if (r && Number.isFinite(r.from) && Number.isFinite(r.to) && r.from !== r.to) {
-      selectionText = doc.sliceString(r.from, r.to);
-      break;
-    }
-  }
-  return { text: selectionText || getEditorValue(), selectionText };
-}
-
-function setPayloadModeEditorValue(text) {
-  suppressDirty = true;
-  setEditorValue(text);
-  suppressDirty = false;
-}
-
-function setPayloadModeEditorCursor(pos, { scrollIntoView = true } = {}) {
-  if (!editorView) return;
-  try {
-    const safePos = Math.max(0, Math.min(Number(pos) || 0, editorView.state.doc.length));
-    editorView.dispatch({
-      selection: { anchor: safePos, head: safePos },
-      scrollIntoView,
-    });
-  } catch {}
-}
-
-function restorePayloadModeEditorSelection(selection) {
-  if (!editorView || !selection) return;
-  try {
-    editorView.dispatch({ selection, scrollIntoView: false });
-  } catch {}
-}
-
-function setPayloadEditorReadOnly(enabled) {
-  if (!editorView) return;
-  try {
-    const readonly = Boolean(enabled);
-    editorView.dispatch({
-      effects: abcPayloadReadOnlyCompartment.reconfigure(
-        readonly
-          ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
-          : []
-      ),
-      scrollIntoView: false,
-    });
-  } catch {}
-}
-
 function buildRawFileText({ headerText, bodyText }) {
   let header = String(headerText || "");
   const body = String(bodyText || "");
@@ -4698,18 +4643,6 @@ async function leaveRawModeForAction(contextLabel) {
   rawModeHeaderEndOffset = 0;
   rawModeOriginalTuneId = null;
   return true;
-}
-
-function buildPayloadModePlaybackPayload(renderText, renderOffset) {
-  return buildPlaybackPayloadForDiagnosticsFromRenderTextCore(renderText, renderOffset, {
-    injectGchordOn,
-    normalizeDollarLineBreaksForPlayback,
-    normalizeBlankLinesForPlayback,
-    normalizeReadableMidiDrumsForPlayback,
-    sanitizeAbcForPlayback,
-    expandRepeatsForPlayback,
-    expandRepeats: window.__abcarusPlaybackExpandRepeats === true,
-  });
 }
 
 function toggleLineComments(view) {
@@ -5021,7 +4954,7 @@ function initEditor() {
         practiceBarHighlightPlugin,
         intonationHighlightPlugin,
         abPlugin,
-        payloadLayerPlugin,
+        payloadModeDecorations.plugin,
       ]),
       abcCompletionCompartment.of([
         autocompletion({ override: [buildAbcCompletionSource()], activateOnTyping: false }),

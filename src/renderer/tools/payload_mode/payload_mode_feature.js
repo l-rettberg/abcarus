@@ -1,5 +1,8 @@
 import { createPayloadModeController } from "./payload_mode_controller.js";
-import { computePayloadTuneOffset } from "./payload_mode_model.mjs";
+import {
+  buildPlaybackPayloadForDiagnosticsFromRenderText,
+  computePayloadTuneOffset,
+} from "./payload_mode_model.mjs";
 
 export function createPayloadModeFeature({
   elements = {},
@@ -18,7 +21,7 @@ export function createPayloadModeFeature({
   getHeaderText = () => "",
   sanitizeHeaderText = (text) => text,
   buildHeaderPrefixWithLayerSpans = () => ({ text: "", spans: [] }),
-  buildPlaybackPayload = (text) => ({ text, spans: [] }),
+  playbackPayloadTransforms = {},
   stopPlayback = () => {},
   resetPlaybackState = () => {},
   clearBarMismatchMarkers = () => {},
@@ -60,6 +63,23 @@ export function createPayloadModeFeature({
     showLayers,
     layerSpans,
   });
+
+  const buildPlaybackPayload = (renderText, renderOffset) => {
+    const transforms = playbackPayloadTransforms || {};
+    const expandRepeatsRaw = transforms.expandRepeats;
+    const expandRepeats = typeof expandRepeatsRaw === "function"
+      ? Boolean(expandRepeatsRaw())
+      : Boolean(expandRepeatsRaw);
+    return buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffset, {
+      injectGchordOn: transforms.injectGchordOn,
+      normalizeDollarLineBreaksForPlayback: transforms.normalizeDollarLineBreaksForPlayback,
+      normalizeBlankLinesForPlayback: transforms.normalizeBlankLinesForPlayback,
+      normalizeReadableMidiDrumsForPlayback: transforms.normalizeReadableMidiDrumsForPlayback,
+      sanitizeAbcForPlayback: transforms.sanitizeAbcForPlayback,
+      expandRepeatsForPlayback: transforms.expandRepeatsForPlayback,
+      expandRepeats,
+    });
+  };
 
   const setEnabled = (nextEnabled) => {
     enabled = Boolean(nextEnabled);

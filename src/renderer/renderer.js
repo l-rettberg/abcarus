@@ -45,12 +45,7 @@ import {
 } from "./editor/range_decorations.js";
 import { initSettings } from "./settings.js";
 import {
-  transformTranspose,
-  getNativeTransposeSupport,
-} from "./transpose.mjs";
-import {
   normalizeMeasuresLineBreaks,
-  transformMeasuresByLinebreakMarker,
   transformMeasuresPerLine,
 } from "./measures.mjs";
 import {
@@ -103,7 +98,6 @@ import {
   getNextXNumber,
   removeTuneFromContent,
   renumberXLinesConsecutive,
-  transformLengthScaling,
 } from "./abc/text_transforms.js";
 import { createPerdeService } from "./microtonal/perde_service.js";
 import {
@@ -114,6 +108,7 @@ import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import { createImportExportFeature } from "./tools/import_export/import_export_feature.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
+import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feature.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer_adapter.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
@@ -3453,6 +3448,26 @@ const importExportFeature = createImportExportFeature({
   ensureMidiGenLoaded,
 });
 importExportFeature.installMidiProgressHandler();
+const abcTransformFeature = createAbcTransformFeature({
+  windowRef: window,
+  devConfig,
+  getEditorText: getEditorValue,
+  getHeaderText: getHeaderEditorValue,
+  getSettings: () => latestSettingsSnapshot,
+  getTransposePreview: getAccumulatedTransposePreview,
+  setTransposePreview: setAccumulatedTransposePreview,
+  setEditorTextForSmoke: (text) => {
+    suppressDirty = true;
+    setEditorValue(String(text || ""));
+    suppressDirty = false;
+  },
+  applyTransformedText,
+  showTransformError,
+  setStatus,
+  logError: logErr,
+  alignBarsInText,
+});
+abcTransformFeature.installDevSmoke();
 
 function setDirtyIndicator(isDirty) {
   if (!$dirtyIndicator) return;
@@ -7087,18 +7102,7 @@ function applyTransformedText(text, options = {}) {
 }
 
 function alignBarsInEditor() {
-  const text = getEditorValue();
-  if (!text.trim()) {
-    setStatus("No notation to align.");
-    return;
-  }
-  const aligned = alignBarsInText(text);
-  if (aligned === text) {
-    setStatus("Already aligned.");
-    return;
-  }
-  applyTransformedText(aligned);
-  setStatus("OK");
+  abcTransformFeature.alignBars();
 }
 
 let lastNoteSelection = [];
@@ -9440,116 +9444,7 @@ async function dismissDisclaimer() {
 }
 
 async function applyAbc2abcTransform(options) {
-  const abcText = getEditorValue();
-  if (!abcText.trim()) {
-    setStatus("No notation to transform.");
-    return;
-  }
-  if (options.doubleLengths && options.halfLengths) {
-    await showTransformError("Choose either double or half note lengths, not both.");
-    return;
-  }
-  const hasOnlyLengthTransform = (options.doubleLengths || options.halfLengths)
-    && options.transposeSemitones == null
-    && !options.measuresPerLine
-    && !options.linebreakMarker
-    && !options.voice
-    && options.renumberX == null;
-  if (hasOnlyLengthTransform) {
-    const mode = options.doubleLengths ? "double" : "half";
-    let transformed = transformLengthScaling(abcText, mode);
-    if (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms) {
-      transformed = alignBarsInText(transformed);
-    }
-    applyTransformedText(transformed);
-    setStatus("OK");
-    return;
-  }
-  const hasOnlyMeasuresPerLine = options.measuresPerLine
-    && options.transposeSemitones == null
-    && !options.linebreakMarker
-    && !options.voice
-    && options.renumberX == null
-    && !options.doubleLengths
-    && !options.halfLengths;
-  if (hasOnlyMeasuresPerLine) {
-    let transformed = transformMeasuresPerLine(abcText, options.measuresPerLine);
-    transformed = normalizeMeasuresLineBreaks(transformed);
-    transformed = alignBarsInText(transformed);
-    transformed = normalizeMeasuresLineBreaks(transformed);
-    applyTransformedText(transformed);
-    setStatus("OK");
-    return;
-  }
-  const hasOnlyLinebreakMarker = options.linebreakMarker
-    && options.transposeSemitones == null
-    && !options.measuresPerLine
-    && !options.voice
-    && options.renumberX == null
-    && !options.doubleLengths
-    && !options.halfLengths;
-  if (hasOnlyLinebreakMarker) {
-    let transformed = transformMeasuresByLinebreakMarker(abcText);
-    transformed = normalizeMeasuresLineBreaks(transformed);
-    if (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms) {
-      transformed = alignBarsInText(transformed);
-      transformed = normalizeMeasuresLineBreaks(transformed);
-    }
-    applyTransformedText(transformed);
-    setStatus("OK");
-    return;
-  }
-  const hasOnlyTranspose = options.transposeSemitones != null
-    && !options.measuresPerLine
-    && !options.linebreakMarker
-    && !options.voice
-    && options.renumberX == null
-    && !options.doubleLengths
-    && !options.halfLengths;
-  if (hasOnlyTranspose) {
-    const preferNative = !latestSettingsSnapshot || latestSettingsSnapshot.useNativeTranspose !== false;
-    if (preferNative) {
-      const preview = getAccumulatedTransposePreview({ currentText: abcText, currentHeaderText: getHeaderEditorValue() });
-      const nextDelta = preview.delta + Number(options.transposeSemitones || 0);
-      const headerText = preview.headerText;
-      const support = getNativeTransposeSupport(preview.baseText, { headerText });
-      if (!support.ok) {
-        await showTransformError(support.reason || "Default transpose is not supported for this tune.");
-        setStatus("Error");
-        return;
-      }
-      try {
-        const transformed = nextDelta === 0
-          ? preview.baseText
-          : transformTranspose(preview.baseText, nextDelta, { headerText });
-        const aligned = (latestSettingsSnapshot && latestSettingsSnapshot.autoAlignBarsAfterTransforms)
-          ? alignBarsInText(transformed)
-          : transformed;
-        setAccumulatedTransposePreview(preview.baseText, headerText, nextDelta);
-        applyTransformedText(aligned, { resetTransposePreview: false });
-        setStatus("OK");
-        return;
-      } catch (e) {
-        logErr(`Native transpose failed.\n\n${(e && e.stack) ? e.stack : String(e)}`);
-      }
-    }
-  }
-  // Remaining combinations previously supported by abc2abc are intentionally not implemented here.
-  // Keep strict-write behavior: refuse rather than risk corrupting data.
-  await showTransformError("This transform combination is not supported.");
-  setStatus("Error");
-}
-
-if (devConfig && devConfig.ABCARUS_DEV_TRANSFORM_SMOKE === "1") {
-  window.__abcarusDevTransformSmoke = {
-    apply: (options) => applyAbc2abcTransform(options || {}),
-    getText: () => getEditorValue(),
-    setText: (text) => {
-      suppressDirty = true;
-      setEditorValue(String(text || ""));
-      suppressDirty = false;
-    },
-  };
+  await abcTransformFeature.apply(options || {});
 }
 
 async function confirmAbandonIfDirty(contextLabel) {

@@ -15,6 +15,7 @@ function createTemplatesFeature({
   appendTuneTextToFile = async () => false,
   showContextMenuAt = () => {},
   showSaveError = async () => {},
+  setStatus = () => {},
   showToast = () => {},
   logError = () => {},
 } = {}) {
@@ -50,6 +51,58 @@ function createTemplatesFeature({
       });
     },
   });
+
+  function buildPreviewContextMenuItems(target) {
+    const hasText = Boolean(target && typeof target.fullText === "string" && target.fullText.length);
+    const hasSelection = Boolean(target && typeof target.selectionText === "string" && target.selectionText.length);
+    return [
+      { label: "Copy", action: "templatesCopy", disabled: !hasText },
+      { label: "Select All", action: "templatesSelectAll", disabled: !hasText },
+      { separator: true },
+      { label: hasSelection ? "Selection will be copied" : "No selection (copies all)", action: "noop", disabled: true },
+    ];
+  }
+
+  async function handleContextMenuAction(action, target) {
+    if (!target || target.type !== "templatesPreview") return false;
+
+    if (action === "templatesCopy") {
+      const text = (target.selectionText && String(target.selectionText))
+        ? String(target.selectionText)
+        : String(target.fullText || "");
+      try {
+        const clipboard = globalThis.navigator && globalThis.navigator.clipboard;
+        if (text && clipboard && typeof clipboard.writeText === "function") {
+          await clipboard.writeText(text);
+        }
+        setStatus(text ? "Copied." : "Nothing to copy.");
+      } catch (e) {
+        logError(e && e.message ? e.message : String(e));
+        setStatus("Copy failed.");
+      }
+      return true;
+    }
+
+    if (action === "templatesSelectAll") {
+      try {
+        const previewText = elements.previewText;
+        const doc = previewText && previewText.ownerDocument ? previewText.ownerDocument : globalThis.document;
+        const win = doc && doc.defaultView ? doc.defaultView : globalThis.window;
+        if (previewText && doc && win) {
+          const sel = win.getSelection ? win.getSelection() : null;
+          const range = doc.createRange();
+          range.selectNodeContents(previewText);
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      } catch {}
+      return true;
+    }
+
+    return false;
+  }
 
   async function getPreparedTemplateText() {
     const item = controller.getSelectedItem();
@@ -108,7 +161,9 @@ function createTemplatesFeature({
   }
 
   return {
+    buildPreviewContextMenuItems,
     close: () => controller.close(),
+    handleContextMenuAction,
     insertSelectedTemplate,
     isOpen: () => controller.isOpen(),
     open: () => controller.open(),

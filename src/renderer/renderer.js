@@ -2611,6 +2611,7 @@ const templatesFeature = createTemplatesFeature({
   appendTuneTextToFile: appendTuneTextToFileNow,
   showContextMenuAt,
   showSaveError,
+  setStatus,
 });
 
 const libraryViewStore = createLibraryViewStore({
@@ -7275,32 +7276,7 @@ function initContextMenu() {
       document.execCommand("paste");
       hideContextMenu();
     }
-    if (action === "templatesCopy" && menuTarget && menuTarget.type === "templatesPreview") {
-      const text = (menuTarget.selectionText && String(menuTarget.selectionText))
-        ? String(menuTarget.selectionText)
-        : String(menuTarget.fullText || "");
-      try {
-        if (text) await navigator.clipboard.writeText(text);
-        setStatus(text ? "Copied." : "Nothing to copy.");
-      } catch (e) {
-        logErr(e && e.message ? e.message : String(e));
-        setStatus("Copy failed.");
-      }
-      hideContextMenu();
-      return;
-    }
-    if (action === "templatesSelectAll" && menuTarget && menuTarget.type === "templatesPreview") {
-      try {
-        if ($templatesPreviewText) {
-          const sel = window.getSelection ? window.getSelection() : null;
-          const range = document.createRange();
-          range.selectNodeContents($templatesPreviewText);
-          if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
-        }
-      } catch {}
+    if (await templatesFeature.handleContextMenuAction(action, menuTarget)) {
       hideContextMenu();
       return;
     }
@@ -7473,14 +7449,7 @@ function showContextMenuAt(x, y, target) {
       { label: "Paste", action: "editorPaste" },
     ]);
   } else if (target.type === "templatesPreview") {
-    const hasText = Boolean(target && typeof target.fullText === "string" && target.fullText.length);
-    const hasSelection = Boolean(target && typeof target.selectionText === "string" && target.selectionText.length);
-    buildContextMenuItems([
-      { label: "Copy", action: "templatesCopy", disabled: !hasText },
-      { label: "Select All", action: "templatesSelectAll", disabled: !hasText },
-      { separator: true },
-      { label: hasSelection ? "Selection will be copied" : "No selection (copies all)", action: "noop", disabled: true },
-    ]);
+    buildContextMenuItems(templatesFeature.buildPreviewContextMenuItems(target));
   }
   contextMenu.style.left = `${x}px`;
   contextMenu.style.top = `${y}px`;

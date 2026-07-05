@@ -2751,7 +2751,13 @@ const libraryContextMenu = createLibraryContextMenu({
   copyTuneById,
   duplicateTuneById,
   pasteClipboardToFile,
-  promptFindInLibrary,
+  promptFindInLibrary: () => {
+    setLibraryVisible(true);
+    if ($librarySearch) {
+      $librarySearch.focus();
+      try { $librarySearch.select(); } catch {}
+    }
+  },
   renderLibraryTree,
   updateLibraryStatus,
   refreshLibraryIndex,

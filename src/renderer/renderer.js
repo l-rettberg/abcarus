@@ -975,6 +975,13 @@ function getScopedPlaybackSettingsForOrigin(origin) {
   };
 }
 
+function withScopedPlaybackOrigin(settings, origin) {
+  return {
+    ...(settings || {}),
+    origin: String(origin || ""),
+  };
+}
+
 function getSelectionPlaybackRange() {
   return abSelectionPlaybackController.getSelectionRange();
 }
@@ -8318,6 +8325,11 @@ function isMidiDrumMustBeInVoicePlaybackError(message) {
 function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
   if (!Array.isArray(parseErrors)) return false;
   return parseErrors.some((e) => isMidiDrumMustBeInVoicePlaybackError(e && e.message ? e.message : ""));
+}
+
+function shouldRelocateMidiDrumsForPlayback(scopedOptions) {
+  if (!scopedOptions) return true;
+  return String(scopedOptions.origin || "") === "focus" && scopedOptions.allowMidiDrums !== false;
 }
 
 function getRenderMeasureIndex() {
@@ -15993,7 +16005,7 @@ async function preparePlayback() {
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
-  if (!scopedOptions) {
+  if (shouldRelocateMidiDrumsForPlayback(scopedOptions)) {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
@@ -16100,11 +16112,13 @@ async function preparePlayback() {
           playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
           retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
         }
-        const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
-        if (relocated && relocated.moved > 0) {
-          retryText = relocated.text;
-          if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
-            playbackIndexOffset += relocated.insertedLength;
+        if (shouldRelocateMidiDrumsForPlayback(selectionPlaybackRuntime.getScopedOptions())) {
+          const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
+          if (relocated && relocated.moved > 0) {
+            retryText = relocated.text;
+            if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
+              playbackIndexOffset += relocated.insertedLength;
+            }
           }
         }
         const abcRetry = new AbcCtor(user);
@@ -16475,10 +16489,11 @@ async function startPlaybackFromRange(rangeOverride) {
   const selectionMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab");
   const scopedMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab" || rangeOrigin === "focus");
   if (rangeOrigin === "focus" || rangeOrigin === "selection") {
-    selectionPlaybackRuntime.setScopedOptions(getScopedPlaybackSettingsForOrigin(rangeOrigin));
+    selectionPlaybackRuntime.setScopedOptions(withScopedPlaybackOrigin(getScopedPlaybackSettingsForOrigin(rangeOrigin), rangeOrigin));
   } else if (rangeOrigin === "ab") {
     const abMuted = selectionPlaybackRuntime.getAbMutedVoiceIds();
     selectionPlaybackRuntime.setScopedOptions({
+      origin: "ab",
       allowMidiDrums: true,
       muteGchords: window.__abcarusPlaybackStripChordSymbols === true,
       suppressRepeats: true,

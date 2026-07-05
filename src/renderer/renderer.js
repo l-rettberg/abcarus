@@ -186,6 +186,7 @@ import { createStatusController } from "./app/status_controller.js";
 import { createToastHoverController } from "./app/toast_hover_controller.js";
 import { createFileHeaderController } from "./app/file_header_controller.js";
 import { createFileContextController } from "./app/file_context_controller.js";
+import { createEditStateController } from "./app/edit_state_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -476,6 +477,7 @@ let rawModeHeaderEndOffset = 0;
 let rawModeOriginalTuneId = null;
 let payloadModeDecorations = null;
 let fileContextController = null;
+let editStateController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -3079,6 +3081,29 @@ const statusController = createStatusController({
   hasDiskConflictPath,
 });
 
+editStateController = createEditStateController({
+  elements: {
+    dirtyIndicator: $dirtyIndicator,
+    libraryTree: $libraryTree,
+  },
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getCurrentDoc: () => currentDoc,
+    getHeaderDirty,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    getRawMode: () => rawMode,
+    getWorkingCopySnapshot: () => workingCopySnapshot,
+  },
+  actions: {
+    renderUnifiedStatus: () => renderUnifiedStatus(),
+    updateWindowTitle: () => updateWindowTitle(),
+  },
+  utils: {
+    pathsEqual,
+  },
+});
+
 function stripFileExtension(name) {
   return statusController.stripFileExtension(name);
 }
@@ -3344,37 +3369,7 @@ const rawModeFeature = createRawModeFeature({
 });
 
 function setDirtyIndicator(isDirty) {
-  if (!$dirtyIndicator) return;
-  const tuneDirty = Boolean(isDirty);
-  const hdrDirty = getHeaderDirty();
-  if (rawMode) {
-    // In raw mode, the file-level dirty state is shown by the File State indicator.
-    // Keep this chip only for header-specific unsaved state to avoid redundant UI.
-    if (hdrDirty) {
-      $dirtyIndicator.textContent = "Header: Unsaved";
-      $dirtyIndicator.classList.add("active");
-    } else {
-      $dirtyIndicator.textContent = "";
-      $dirtyIndicator.classList.remove("active");
-    }
-    updateLibraryDirtyState(tuneDirty || hdrDirty);
-    updateWindowTitle();
-    renderUnifiedStatus();
-    return;
-  }
-
-  // In normal mode, the file-level dirty state is shown by the File State indicator.
-  // Keep this chip only for header-specific unsaved state to avoid redundant UI.
-  if (hdrDirty) {
-    $dirtyIndicator.textContent = tuneDirty ? "Header+Tune: Unsaved" : "Header: Unsaved";
-    $dirtyIndicator.classList.add("active");
-  } else {
-    $dirtyIndicator.textContent = "";
-    $dirtyIndicator.classList.remove("active");
-  }
-  updateLibraryDirtyState(tuneDirty || hdrDirty);
-  updateWindowTitle();
-  renderUnifiedStatus();
+  if (editStateController) editStateController.setDirtyIndicator(isDirty);
 }
 
 function computeHeaderPresence() {
@@ -3404,17 +3399,6 @@ function isHeaderEditorFilePath(filePath) {
 
 function getHeaderCollapsed() {
   return fileHeaderController.getCollapsed();
-}
-
-function updateLibraryDirtyState(isDirty) {
-  if (!activeFilePath || !$libraryTree) return;
-  const fileNodes = $libraryTree.querySelectorAll(".tree-file");
-  for (const node of fileNodes) {
-    const label = node.querySelector(".tree-label");
-    if (!label) continue;
-    const isActive = label.dataset && label.dataset.filePath === activeFilePath;
-    node.classList.toggle("dirty", isActive && Boolean(isDirty));
-  }
 }
 
 function buildTuneSelectOptions(fileEntry) {
@@ -5731,11 +5715,9 @@ if (window.api && typeof window.api.onLibraryProgress === "function") {
 }
 
 function createBlankDocument() {
-  return {
-    path: null,
-    dirty: false,
-    content: DEFAULT_ABC,
-  };
+  return editStateController
+    ? editStateController.createBlankDocument(DEFAULT_ABC)
+    : { path: null, dirty: false, content: DEFAULT_ABC };
 }
 
 // debounce
@@ -5999,31 +5981,19 @@ function initContextMenu() {
 }
 
 function hasUnsavedChangesForFile(filePath) {
-  const p = String(filePath || "");
-  if (!p) return false;
-  const activePath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path)
-    : (activeFilePath ? String(activeFilePath) : "");
-  const activeDirty = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
-  if (activeDirty && activePath && pathsEqual(activePath, p)) return true;
-  if (workingCopySnapshot && workingCopySnapshot.dirty && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p)) return true;
-  return false;
+  return editStateController ? editStateController.hasUnsavedChangesForFile(filePath) : false;
 }
 
 function getActiveEditFilePath() {
-  if (activeTuneMeta && activeTuneMeta.path) return String(activeTuneMeta.path);
-  if (activeFilePath) return String(activeFilePath);
-  return "";
+  return editStateController ? editStateController.getActiveEditFilePath() : "";
 }
 
 function hasGlobalUnsavedChanges() {
-  return Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
+  return editStateController ? editStateController.hasGlobalUnsavedChanges() : false;
 }
 
 function hasUnsavedChangesInActiveEditContext() {
-  const activePath = getActiveEditFilePath();
-  if (!activePath) return hasGlobalUnsavedChanges();
-  return hasUnsavedChangesForFile(activePath);
+  return editStateController ? editStateController.hasUnsavedChangesInActiveEditContext() : false;
 }
 
 async function requireCleanForFileOp(targetPath, actionLabel) {

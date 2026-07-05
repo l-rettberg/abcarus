@@ -8090,8 +8090,14 @@ function isMidiDrumMustBeInVoicePlaybackError(message) {
     .test(String(message || ""));
 }
 
+function isMidiDrumBadValueCompatibilityError(message) {
+  return /Bad value in %%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b/i
+    .test(String(message || ""));
+}
+
 function shouldSuppressUserVisibleAbcError(message) {
-  return isMidiDrumMustBeInVoicePlaybackError(message);
+  return isMidiDrumMustBeInVoicePlaybackError(message)
+    || isMidiDrumBadValueCompatibilityError(message);
 }
 
 function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {

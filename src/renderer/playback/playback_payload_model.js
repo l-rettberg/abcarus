@@ -168,6 +168,42 @@ function normalizeReadableMidiDrumsForPlayback(text) {
   return changed ? out.join("\n") : String(text || "");
 }
 
+function commentOutMidiDirectiveLine(rawLine) {
+  const line = String(rawLine || "");
+  const idx = line.indexOf("%%");
+  if (idx >= 0) return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
+  const plusIdx = line.indexOf("+");
+  if (plusIdx >= 0) return `${line.slice(0, plusIdx)}% ${line.slice(plusIdx)}`;
+  return line.length > 0 ? `%${" ".repeat(Math.max(0, line.length - 1))}` : "%";
+}
+
+function relocateMidiDrumDirectivesIntoBody(text) {
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  const drumLineRe = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i;
+  let insertAt = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\s*K:/.test(line) || /^\s*\[\s*K:/.test(line)) {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  if (insertAt < 0) return { text: String(text || ""), moved: 0 };
+
+  const moved = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (i >= insertAt) break;
+    const line = lines[i];
+    if (!drumLineRe.test(line)) continue;
+    moved.push(line);
+    lines[i] = commentOutMidiDirectiveLine(line);
+  }
+  if (!moved.length) return { text: lines.join("\n"), moved: 0 };
+
+  lines.splice(insertAt, 0, ...moved, "%");
+  return { text: lines.join("\n"), moved: moved.length };
+}
+
 function injectGchordOn(text, insertAt) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   let hasGchordPattern = false;
@@ -677,6 +713,7 @@ export {
   normalizeKeyFieldToBeLastBeforeBodyForPlayback,
   normalizeLeadingInlineDirectivesForPlayback,
   normalizeReadableMidiDrumsForPlayback,
+  relocateMidiDrumDirectivesIntoBody,
   sanitizeAbcForPlayback,
   stripChordSymbolsForPlayback,
   stripLyricsForPlayback,

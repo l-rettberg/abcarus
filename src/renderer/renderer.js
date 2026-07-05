@@ -174,6 +174,7 @@ import {
   normalizeDollarLineBreaksForPlayback,
   normalizeLeadingInlineDirectivesForPlayback,
   normalizeReadableMidiDrumsForPlayback,
+  relocateMidiDrumDirectivesIntoBody,
   sanitizeAbcForPlayback,
   stripChordSymbolsForPlayback,
   stripLyricsForPlayback,
@@ -8319,40 +8320,6 @@ function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
   return parseErrors.some((e) => isMidiDrumMustBeInVoicePlaybackError(e && e.message ? e.message : ""));
 }
 
-function relocateMidiDrumDirectivesIntoBody(text) {
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  const drumLineRe = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i;
-  let insertAt = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (/^\s*K:/.test(line) || /^\s*\[\s*K:/.test(line)) {
-      insertAt = i + 1;
-      break;
-    }
-  }
-  if (insertAt < 0) return { text: String(text || ""), moved: 0 };
-
-  const moved = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    if (i >= insertAt) break;
-    const line = lines[i];
-    if (!drumLineRe.test(line)) continue;
-    moved.push(line);
-    // Leave a same-length comment behind to keep editor/istart mapping as stable as possible.
-    const idx = line.indexOf("%%");
-    if (idx >= 0) {
-      lines[i] = `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
-    } else {
-      lines[i] = `% ${line}`;
-    }
-  }
-  if (!moved.length) return { text: lines.join("\n"), moved: 0 };
-
-  // Insert original directives after K: so abc2svg treats them as being "in a voice" (native mididrum blocks).
-  lines.splice(insertAt, 0, ...moved, "%");
-  return { text: lines.join("\n"), moved: moved.length };
-}
-
 function getRenderMeasureIndex() {
   if (!editorView) return null;
   const payload = getRenderPayload();
@@ -16026,13 +15993,13 @@ async function preparePlayback() {
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
-  if (!scopedOptions && window.__abcarusPlaybackRelocateMidiDrums === true) {
+  if (!scopedOptions) {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
       playbackSanitizeWarnings.push({ kind: "playback-midi-drums-moved-after-k", moved: relocated.moved });
       if (window.__abcarusDebugPlayback) {
-        showToast("Playback: moved %%MIDI drum* after K: (experimental).", 3200);
+        showToast("Playback: moved %%MIDI drum* after K:.", 3200);
       }
     }
   }
@@ -16130,10 +16097,8 @@ async function preparePlayback() {
           playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
           retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
         }
-        if (nativeMidiDrums) {
-          const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
-          if (relocated && relocated.moved > 0) retryText = relocated.text;
-        }
+        const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
+        if (relocated && relocated.moved > 0) retryText = relocated.text;
         const abcRetry = new AbcCtor(user);
         playbackParseErrors = [];
         abcRetry.tosvg("play", retryText);

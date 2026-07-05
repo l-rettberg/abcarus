@@ -129,9 +129,11 @@ async function run() {
     "V:1",
     "A2 B2 B2 B3|]",
   ].join("\n");
-  const relocated = relocateMidiDrumDirectivesIntoBody(
+  const relocation = relocateMidiDrumDirectivesIntoBody(
     normalizeReadableMidiDrumsForPlayback(headerReadable)
-  ).text;
+  );
+  const relocated = relocation.text;
+  assert(relocation.insertedLength > 0, "relocation should report inserted payload length for follow offset compensation");
   assert(/K:Emin\n%%MIDI drumon\n%%MIDI drum d2ddd2d2d 64 62 62 64 62 62 100 90 70 90 70 70/m.test(relocated), "header drums should move after K:");
   const sandbox = createAbc2svgSandbox();
   const parsed = parseWithAbc2svg(sandbox, relocated);

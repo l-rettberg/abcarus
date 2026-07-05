@@ -15997,6 +15997,9 @@ async function preparePlayback() {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
+      if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
+        playbackIndexOffset += relocated.insertedLength;
+      }
       playbackSanitizeWarnings.push({ kind: "playback-midi-drums-moved-after-k", moved: relocated.moved });
       if (window.__abcarusDebugPlayback) {
         showToast("Playback: moved %%MIDI drum* after K:.", 3200);
@@ -16098,7 +16101,12 @@ async function preparePlayback() {
           retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
         }
         const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
-        if (relocated && relocated.moved > 0) retryText = relocated.text;
+        if (relocated && relocated.moved > 0) {
+          retryText = relocated.text;
+          if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
+            playbackIndexOffset += relocated.insertedLength;
+          }
+        }
         const abcRetry = new AbcCtor(user);
         playbackParseErrors = [];
         abcRetry.tosvg("play", retryText);

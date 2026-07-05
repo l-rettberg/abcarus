@@ -188,7 +188,7 @@ function relocateMidiDrumDirectivesIntoBody(text) {
       break;
     }
   }
-  if (insertAt < 0) return { text: String(text || ""), moved: 0 };
+  if (insertAt < 0) return { text: String(text || ""), moved: 0, insertedLength: 0 };
 
   const moved = [];
   for (let i = 0; i < lines.length; i += 1) {
@@ -198,10 +198,12 @@ function relocateMidiDrumDirectivesIntoBody(text) {
     moved.push(line);
     lines[i] = commentOutMidiDirectiveLine(line);
   }
-  if (!moved.length) return { text: lines.join("\n"), moved: 0 };
+  if (!moved.length) return { text: lines.join("\n"), moved: 0, insertedLength: 0 };
 
-  lines.splice(insertAt, 0, ...moved, "%");
-  return { text: lines.join("\n"), moved: moved.length };
+  const inserted = [...moved, "%"];
+  const insertedLength = inserted.reduce((sum, line) => sum + String(line || "").length, 0) + inserted.length;
+  lines.splice(insertAt, 0, ...inserted);
+  return { text: lines.join("\n"), moved: moved.length, insertedLength };
 }
 
 function injectGchordOn(text, insertAt) {

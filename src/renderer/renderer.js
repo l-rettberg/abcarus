@@ -4598,6 +4598,28 @@ function scrollToPosInEditor(pos, { y = "start" } = {}) {
     effects,
     scrollIntoView: true,
   });
+  if (typeof editorView.lineBlockAt !== "function" || !editorView.scrollDOM) return;
+  const applyManualScroll = () => {
+    try {
+      const block = editorView.lineBlockAt(safePos);
+      if (!block || !Number.isFinite(Number(block.top))) return;
+      const top = Math.max(0, Number(block.top) - 8);
+      editorView.scrollDOM.scrollTop = top;
+    } catch {}
+  };
+  if (typeof editorView.requestMeasure === "function") {
+    try {
+      editorView.requestMeasure({
+        read: () => editorView.lineBlockAt(safePos),
+        write: (block) => {
+          if (!block || !Number.isFinite(Number(block.top))) return;
+          editorView.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
+        },
+      });
+      return;
+    } catch {}
+  }
+  applyManualScroll();
 }
 
 function selectTuneInRaw(tuneId) {

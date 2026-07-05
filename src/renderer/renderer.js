@@ -166,12 +166,7 @@ import {
   shouldForceRepeatExpansionForPlayback,
 } from "./playback/repeat_expansion_model.js";
 import {
-  buildDrumVoiceText,
-  computeExpectedBarSignatureFromInfo,
   detectKeyFieldNotLastBeforeBody,
-  diffSignatures,
-  extractBarSignatureFromText,
-  extractDrumPlaybackBars,
   injectGchordOn,
   isInlineFieldOnlyLine,
   normalizeBarsForPlayback,
@@ -901,7 +896,6 @@ const errorsLifecycleController = createErrorsLifecycleController({
   clearFocusMessage: clearErrorFocusMessage,
   refreshErrorsNow,
   scheduleRenderNow,
-  ensureDrumMismatchErrorVisible,
 });
 const errorsNavigationController = createErrorsNavigationController({
   navigationState: errorsNavigationState,
@@ -1509,7 +1503,6 @@ const devConfig = (() => {
 })();
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
-const NATIVE_MIDI_DRUMS_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_NATIVE_MIDI_DRUMS || "") !== "0";
 const debugDumpFeature = createDebugDumpFeature({
   api: window.api,
   windowRef: window,
@@ -1557,9 +1550,6 @@ const debugDumpFeature = createDebugDumpFeature({
   getPlaybackNoteTrace: () => playbackNoteTrace,
   getPlaybackParseErrors: () => playbackParseErrors,
   getPlaybackSanitizeWarnings: () => playbackSanitizeWarnings,
-  getLastDrumInjectResult: () => lastDrumInjectResult,
-  getLastDrumPlaybackActive: () => lastDrumPlaybackActive,
-  getLastDrumSignatureDiff: () => lastDrumSignatureDiff,
   getLastRhythmErrorSuggestion: () => errorsPlaybackRangeController.getLastSuggestion(),
   getLastRenderPayload: () => lastRenderPayload,
   getBarMismatchMarkers: () => errorsBarMismatchController.getMarkers(),
@@ -1570,16 +1560,10 @@ const debugDumpFeature = createDebugDumpFeature({
   computeHeaderPresence,
   buildHeaderPrefix,
   injectGchordOn,
-  shouldUseNativeMidiDrums,
   normalizeLeadingInlineDirectivesForPlayback,
   normalizeDollarLineBreaksForPlayback,
   normalizeBlankLinesForPlayback,
   sanitizeAbcForPlayback,
-  extractDrumPlaybackBars,
-  computeExpectedBarSignatureFromInfo,
-  buildDrumVoiceText,
-  extractBarSignatureFromText,
-  diffSignatures,
   clonePlaybackRange,
   clampInt,
   mkdirp,
@@ -1612,17 +1596,6 @@ function getAutoWcDumpLimit() {
     ? Number(latestSettingsSnapshot.autoWcDumpsLimit)
     : 12;
   return clampInt(raw, 3, 50, 12);
-}
-
-function shouldUseNativeMidiDrums() {
-  // Runtime override via DevTools (no reload): window.__abcarusNativeMidiDrums = true/false
-  if (window.__abcarusNativeMidiDrums === true) return true;
-  if (window.__abcarusNativeMidiDrums === false) return false;
-  // If the user explicitly touched the setting, it wins over env defaults.
-  if (latestSettingsSnapshot && latestSettingsSnapshot.playbackNativeMidiDrumsSetByUser) {
-    return Boolean(latestSettingsSnapshot.playbackNativeMidiDrums);
-  }
-  return NATIVE_MIDI_DRUMS_DEFAULT_ENABLED;
 }
 
 function scheduleAutoDump(reason, extra) {
@@ -4880,8 +4853,6 @@ async function leaveRawModeForAction(contextLabel) {
 function buildPayloadModePlaybackPayload(renderText, renderOffset) {
   return buildPlaybackPayloadForDiagnosticsFromRenderTextCore(renderText, renderOffset, {
     injectGchordOn,
-    shouldUseNativeMidiDrums,
-    injectDrumPlayback,
     normalizeDollarLineBreaksForPlayback,
     normalizeBlankLinesForPlayback,
     sanitizeAbcForPlayback,
@@ -7327,8 +7298,6 @@ function showErrorsVisible(visible) {
 }
 
 function clearErrors() {
-  lastDrumMismatchErrorKey = null;
-  lastDrumMismatchTuneId = null;
   errorsReporterController.clear();
 }
 
@@ -8546,94 +8515,6 @@ function logErr(m, loc, context) {
   return errorsReporterController.log(m, loc, context);
 }
 
-function clearDrumMismatchError() {
-  if (!lastDrumMismatchErrorKey) return;
-  const entry = errorsCollection.deleteByKey(lastDrumMismatchErrorKey);
-  if (entry) {
-    renderErrorList();
-    showErrorsVisible(true);
-    setScanErrors(getErrorEntries());
-  }
-  lastDrumMismatchErrorKey = null;
-  lastDrumMismatchTuneId = null;
-  lastDrumMismatchInfo = null;
-}
-
-function computeDrumMismatchInfoFromEditor() {
-  try {
-    const tuneText = getEditorValue();
-    if (!tuneText || !String(tuneText).trim()) return null;
-    const entry = getActiveFileEntry();
-    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-    let text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : String(tuneText || "");
-    const gchordPreview = injectGchordOn(text, prefixPayload.offset || 0);
-    if (gchordPreview && gchordPreview.changed) text = gchordPreview.text;
-    const nativeDrums = shouldUseNativeMidiDrums();
-    if (nativeDrums) return { ok: true };
-    const normalized = normalizeLeadingInlineDirectivesForPlayback(text);
-    if (!/(^|\n)\s*(%%MIDI\s+drum\b|I:\s*MIDI\s+drum\b)/i.test(normalized || "")) return null;
-    const sanitized = sanitizeAbcForPlayback(normalized);
-    const scanText = sanitized && sanitized.text ? sanitized.text : normalized;
-    const info = extractDrumPlaybackBars(scanText);
-    const expectedSig = computeExpectedBarSignatureFromInfo(info);
-    const drumVoice = buildDrumVoiceText(info);
-    if (!drumVoice) return { ok: true };
-    const actualSig = extractBarSignatureFromText(drumVoice);
-    const sigDiff = diffSignatures(expectedSig, actualSig);
-    if (sigDiff.ok) return { ok: true };
-    const mismatchBar = Number.isFinite(sigDiff.index) ? sigDiff.index + 1 : null;
-    const barInfo = (Number.isFinite(sigDiff.index) && info && Array.isArray(info.bars))
-      ? info.bars[sigDiff.index] : null;
-    const lineIdx = barInfo && Number.isFinite(barInfo.srcLineIndex) ? barInfo.srcLineIndex : null;
-    return {
-      ok: false,
-      sigDiff,
-      mismatchBar,
-      lineIndex: Number.isFinite(lineIdx) ? lineIdx : null,
-      expectedToken: sigDiff.expectedToken || null,
-      actualToken: sigDiff.actualToken || null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function ensureDrumMismatchErrorVisible() {
-  if (!isErrorsEnabled()) return;
-  if (!lastDrumMismatchInfo || !lastDrumSignatureDiff || lastDrumSignatureDiff.ok) {
-    const recomputed = computeDrumMismatchInfoFromEditor();
-    if (!recomputed || recomputed.ok) {
-      clearDrumMismatchError();
-      return;
-    }
-    lastDrumSignatureDiff = recomputed.sigDiff || lastDrumSignatureDiff;
-    lastDrumMismatchInfo = {
-      mismatchBar: recomputed.mismatchBar,
-      lineIndex: recomputed.lineIndex,
-      expectedToken: recomputed.expectedToken,
-      actualToken: recomputed.actualToken,
-    };
-  }
-  if (lastDrumMismatchErrorKey && errorsCollection.hasKey(lastDrumMismatchErrorKey)) return;
-  const mismatchBar = Number.isFinite(lastDrumMismatchInfo.mismatchBar) ? lastDrumMismatchInfo.mismatchBar : null;
-  const lineIdx = Number.isFinite(lastDrumMismatchInfo.lineIndex) ? lastDrumMismatchInfo.lineIndex : null;
-  const loc = Number.isFinite(lineIdx) ? { line: lineIdx + 1, col: 1 } : null;
-  const expectedToken = lastDrumMismatchInfo.expectedToken || "barline";
-  const actualToken = lastDrumMismatchInfo.actualToken ? `, got ${lastDrumMismatchInfo.actualToken}` : ", got end";
-  const msg = mismatchBar != null
-    ? `Drum disabled: mismatch at bar ${mismatchBar} (expected ${expectedToken}${actualToken}).`
-    : "Drum disabled: barline mismatch in drum pattern.";
-  const entry = addError(msg, loc, {
-    source: "drum",
-    barNumber: mismatchBar != null ? mismatchBar : null,
-    noRepeatCount: true,
-    skipMeasureRange: true,
-  });
-  if (entry && entry.errorKey) {
-    lastDrumMismatchErrorKey = entry.errorKey;
-  }
-}
-
 function clearNoteSelection() {
   for (const el of lastNoteSelection) {
     el.classList.remove("note-select");
@@ -9464,7 +9345,6 @@ function renderNow() {
         }
         setStatus("OK");
         setRenderBusy(false);
-        ensureDrumMismatchErrorVisible();
         updateLibraryErrorIndexFromCurrentErrors();
         reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
         break;
@@ -13283,7 +13163,6 @@ let resumeStartIdx = null;
 let pausedSelectionSignature = null;
 let playbackState = null;
 let playbackIndexOffset = 0;
-let lastDrumPlaybackActive = false;
 let waitingForFirstNote = false;
 let isPreviewing = false;
 let followPlayback = true;
@@ -13310,8 +13189,6 @@ let followVoiceId = null;
 let followVoiceIndex = null;
 let drumVelocityMap = buildDefaultDrumVelocityMap();
 let lastPlaybackMeta = null;
-let lastDrumInjectInput = null;
-let lastDrumInjectResult = null;
 let lastPlaybackPayloadCache = null;
 let lastSoundfontApplied = null;
 let lastPreparedPlaybackKey = null;
@@ -13327,10 +13204,6 @@ let lastPlaybackNoteOnEls = [];
 let lastPlaybackUiRenderIdx = null;
 let lastPlaybackUiEditorIdx = null;
 let lastPlaybackUiScrollAt = 0;
-let lastDrumSignatureDiff = null;
-let lastDrumMismatchErrorKey = null;
-let lastDrumMismatchTuneId = null;
-let lastDrumMismatchInfo = null;
 let lastPlaybackChordOnBarError = false;
 let lastMeterMismatchToastKey = null;
 let lastPlaybackMeterMismatchWarning = null;
@@ -14055,9 +13928,8 @@ function getPlaybackSourceKey() {
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const injected = injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordText = injected && injected.changed ? injected.text : baseText;
-  const drumPreview = injectDrumPlayback(gchordText);
   const preparedText = normalizeBlankLinesForPlayback(
-    normalizeDollarLineBreaksForPlayback(drumPreview && drumPreview.changed ? drumPreview.text : gchordText)
+    normalizeDollarLineBreaksForPlayback(gchordText)
   );
   const sanitized = sanitizeAbcForPlayback(preparedText);
   const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
@@ -15828,131 +15700,6 @@ function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText
   });
 }
 
-function injectDrumPlayback(text) {
-  if (text === lastDrumInjectInput && lastDrumInjectResult) {
-    return lastDrumInjectResult;
-  }
-  lastDrumPlaybackActive = false;
-  lastDrumSignatureDiff = null;
-  const activeTuneId = activeTuneMeta && activeTuneMeta.id ? String(activeTuneMeta.id) : null;
-  if (lastDrumMismatchTuneId && lastDrumMismatchTuneId !== activeTuneId) {
-    clearDrumMismatchError();
-  }
-  const normalizedText = normalizeLeadingInlineDirectivesForPlayback(text);
-  if (window.__abcarusDisableDrumInjection === true) {
-    lastDrumMismatchInfo = null;
-    clearDrumMismatchError();
-    const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
-    lastDrumInjectInput = text;
-    lastDrumInjectResult = res;
-    return res;
-  }
-  if (/^\s*V:\s*DRUM\b/im.test(normalizedText || "")) {
-    lastDrumMismatchInfo = null;
-    clearDrumMismatchError();
-    const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
-    lastDrumInjectInput = text;
-    lastDrumInjectResult = res;
-    return res;
-  }
-  const info = extractDrumPlaybackBars(normalizedText);
-  const expectedSig = computeExpectedBarSignatureFromInfo(info);
-  const drumVoice = buildDrumVoiceText(info);
-  if (!drumVoice) {
-    lastDrumMismatchInfo = null;
-    clearDrumMismatchError();
-    const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0 };
-    lastDrumInjectInput = text;
-    lastDrumInjectResult = res;
-    return res;
-  }
-  const actualSig = extractBarSignatureFromText(drumVoice);
-  const sigDiff = diffSignatures(expectedSig, actualSig);
-  if (!sigDiff.ok) {
-    // Safety guard: if our generated drums don't match the barline skeleton, do not inject drums.
-    lastDrumPlaybackActive = false;
-    lastDrumSignatureDiff = sigDiff;
-    const mismatchBar = Number.isFinite(sigDiff.index) ? sigDiff.index + 1 : null;
-    const barInfo = (Number.isFinite(sigDiff.index) && info && Array.isArray(info.bars))
-      ? info.bars[sigDiff.index] : null;
-    const lineIdx = barInfo && Number.isFinite(barInfo.srcLineIndex) ? barInfo.srcLineIndex : null;
-    lastDrumMismatchInfo = {
-      mismatchBar,
-      lineIndex: Number.isFinite(lineIdx) ? lineIdx : null,
-      expectedToken: sigDiff.expectedToken || null,
-      actualToken: sigDiff.actualToken || null,
-    };
-    lastDrumMismatchTuneId = activeTuneId;
-    ensureDrumMismatchErrorVisible();
-    const res = { text: normalizedText, changed: false, insertAtLine: null, lineCount: 0, signatureDiff: sigDiff };
-    lastDrumInjectInput = text;
-    lastDrumInjectResult = res;
-    return res;
-  }
-  lastDrumMismatchInfo = null;
-  clearDrumMismatchError();
-  lastDrumPlaybackActive = true;
-  if (window.__abcarusDebugDrums) {
-    console.log("[abcarus] drum voice:\n" + drumVoice);
-  }
-  const lines = String(normalizedText || "").split(/\r\n|\n|\r/);
-  // Once we inject an explicit DRUM voice, we no longer want abc2svg playback to interpret
-  // the original `%%MIDI drum ...` directives (they can be long, have custom continuations, or
-  // be parsed differently across versions). Keep the text length stable for Follow mapping.
-  let inDrumDirectiveRun = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const raw = lines[i] || "";
-    const trimmed = raw.trim();
-    if (/^\s*%%MIDI\s+drum\b/i.test(raw)) {
-      inDrumDirectiveRun = true;
-      const len = raw.length;
-      lines[i] = len <= 0 ? "%" : (`%${" ".repeat(Math.max(0, len - 1))}`);
-      continue;
-    }
-    if (inDrumDirectiveRun && /^\+:\s*/i.test(trimmed)) {
-      const len = raw.length;
-      lines[i] = len <= 0 ? "%" : (`%${" ".repeat(Math.max(0, len - 1))}`);
-      continue;
-    }
-    inDrumDirectiveRun = false;
-  }
-  for (let i = 0; i < lines.length; i += 1) {
-    const trimmed = lines[i].trim();
-    if (/^%/.test(trimmed)) continue;
-    if (/^%%score\b/i.test(trimmed)) {
-      if (!/\bDRUM\b/.test(lines[i])) lines[i] = `${lines[i]} DRUM`;
-      break;
-    }
-    if (/^%%staves\b/i.test(trimmed)) {
-      if (!/\bDRUM\b/.test(lines[i])) lines[i] = `${lines[i]} DRUM`;
-      break;
-    }
-  }
-  // DRUM injection must depend only on MIDI drum directives and musical bar skeleton.
-  // Do not couple insertion point to visual/layout directives such as %%sep.
-  const insertAt = lines.length;
-  for (let i = insertAt - 1; i >= 0; i -= 1) {
-    if (lines[i].trim() === "") {
-      lines[i] = "%";
-    } else {
-      break;
-    }
-  }
-  const drumLines = drumVoice.split("\n");
-  lines.splice(insertAt, 0, ...drumLines);
-  const merged = lines.join("\n");
-  const suffix = merged.endsWith("\n") ? "" : "\n";
-  const res = {
-    text: `${merged}${suffix}`,
-    changed: true,
-    insertAtLine: insertAt + 1,
-    lineCount: drumLines.length,
-  };
-  lastDrumInjectInput = text;
-  lastDrumInjectResult = res;
-  return res;
-}
-
 function getPlaybackPayload() {
   if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
     return { text: "", offset: 0, lineOffset: 0, empty: true };
@@ -16024,14 +15771,12 @@ function getPlaybackPayload() {
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
-  const nativeDrums = shouldUseNativeMidiDrums();
-  const drumPreview = (nativeDrums || skipDrums) ? { text: gchordPreviewText, changed: false } : injectDrumPlayback(gchordPreviewText);
   const previewText = normalizeBlankLinesForPlayback(
-    normalizeDollarLineBreaksForPlayback(drumPreview && drumPreview.changed ? drumPreview.text : gchordPreviewText)
+    normalizeDollarLineBreaksForPlayback(gchordPreviewText)
   );
   const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
   const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-  const drumsFlag = nativeDrums ? "drums:native" : "drums:inject";
+  const drumsFlag = "drums:native";
   const skipDrumsFlag = skipDrums ? "skipdrums:on" : "skipdrums:off";
   const gchordFlag = skipGchords ? "gchords:off" : "gchords:on";
   const ignoreFlag = ignoreRepeats ? "ignore:on" : "ignore:off";
@@ -16090,20 +15835,8 @@ function getPlaybackPayload() {
     }
   }
 
-  const drumInjected = (nativeDrums || skipDrums)
-    ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 }
-    : injectDrumPlayback(payload.text);
-  if (drumInjected && drumInjected.signatureDiff) {
-    lastDrumSignatureDiff = drumInjected.signatureDiff;
-    playbackSanitizeWarnings.push({ kind: "drum-signature-mismatch", detail: drumInjected.signatureDiff });
-  } else {
-    lastDrumSignatureDiff = null;
-  }
-  if (drumInjected && drumInjected.changed) payload = { text: drumInjected.text, offset: payload.offset };
   if (skipGchords) payload = { text: stripGchordDirectives(payload.text), offset: payload.offset };
-  lastPlaybackMeta = drumInjected.changed
-    ? { drumInsertAtLine: drumInjected.insertAtLine, drumLineCount: drumInjected.lineCount }
-    : { drumInsertAtLine: null, drumLineCount: 0 };
+  lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
   if (skipDrums) {
     payload = { text: neutralizeMidiDrumDirectivesForPlayback(payload.text), offset: payload.offset };
   }
@@ -16247,7 +15980,6 @@ async function preparePlayback() {
   const playbackPayloadText = fxInjected.text;
   const playbackPayloadOffset = fxInjected.offset;
   const selectionMode = selectionPlaybackRuntime.isSelectionMode();
-  const nativeMidiDrums = shouldUseNativeMidiDrums();
   lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayloadText || ""}`) || /\[\s*P\s*:/i.test(playbackPayloadText || "");
   if (Array.isArray(playbackSanitizeWarnings) && playbackSanitizeWarnings.length) {
     showToast("Playback may vary (ABC sanitized for stability).", 3600);
@@ -16314,7 +16046,7 @@ async function preparePlayback() {
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
-  if (nativeMidiDrums && !scopedOptions && window.__abcarusPlaybackRelocateMidiDrums === true) {
+  if (!scopedOptions && window.__abcarusPlaybackRelocateMidiDrums === true) {
     const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
     if (relocated && relocated.moved > 0) {
       playbackText = relocated.text;
@@ -16333,15 +16065,6 @@ async function preparePlayback() {
     playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackParseErrors = [];
-    if (nativeMidiDrums && !scopedOptions) {
-      // Experimental native path failed; fall back to our V:DRUM injection so drums still play after neutralization.
-      const injected = injectDrumPlayback(playbackText);
-      if (injected && injected.changed) {
-        playbackText = injected.text;
-        playbackSanitizeWarnings.push({ kind: "playback-native-midi-drums-fallback-to-inject" });
-        lastPlaybackMeta = { drumInsertAtLine: injected.insertAtLine, drumLineCount: injected.lineCount };
-      }
-    }
     playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
     abc2.tosvg("play", playbackText);
     abc.tunes = abc2.tunes;
@@ -16545,7 +16268,6 @@ async function preparePlayback() {
     getDiagnostics: () => ({
       parseErrors: Array.isArray(playbackParseErrors) ? playbackParseErrors.slice() : [],
       sanitizeWarnings: Array.isArray(playbackSanitizeWarnings) ? playbackSanitizeWarnings.slice() : [],
-      drumSignatureDiff: lastDrumSignatureDiff,
       chordOnBarError: Boolean(lastPlaybackChordOnBarError),
     }),
     getPlaybackRange: () => clonePlaybackRange(playbackRange),

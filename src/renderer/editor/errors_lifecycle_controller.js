@@ -22,7 +22,6 @@ function createErrorsLifecycleController({
   clearFocusMessage,
   refreshErrorsNow,
   scheduleRenderNow,
-  ensureDrumMismatchErrorVisible,
 } = {}) {
   let enabled = false;
 
@@ -94,7 +93,6 @@ function createErrorsLifecycleController({
     } else {
       if (triggerRefresh && typeof refreshErrorsNow === "function") refreshErrorsNow();
       else if (typeof scheduleRenderNow === "function") scheduleRenderNow();
-      if (typeof ensureDrumMismatchErrorVisible === "function") ensureDrumMismatchErrorVisible();
     }
     updateUi();
   }

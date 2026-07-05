@@ -1,4 +1,3 @@
-import { buildDrumDebugDiagnostics } from "../tools/drum_helper/drum_debug_diagnostics.js";
 import {
   buildDebugDumpSnapshot,
   safeJsonStringify,
@@ -22,31 +21,6 @@ function createDebugDumpFeature(host = {}) {
   const api = h.api || null;
   const call = (fn, ...args) => (typeof fn === "function" ? fn(...args) : undefined);
 
-  function buildDrumDiagnostics() {
-    return buildDrumDebugDiagnostics({
-      tuneText: call(h.getEditorValue),
-      isPayloadMode: Boolean(call(h.isPayloadMode)),
-      hasActiveFileEntry: Boolean(call(h.getActiveFileEntry)),
-      headerText: call(h.getHeaderEditorValue),
-      buildHeaderPrefix: h.buildHeaderPrefix,
-      injectGchordOn: h.injectGchordOn,
-      shouldUseNativeMidiDrums: h.shouldUseNativeMidiDrums,
-      normalizeLeadingInlineDirectivesForPlayback: h.normalizeLeadingInlineDirectivesForPlayback,
-      normalizeDollarLineBreaksForPlayback: h.normalizeDollarLineBreaksForPlayback,
-      normalizeBlankLinesForPlayback: h.normalizeBlankLinesForPlayback,
-      sanitizeAbcForPlayback: h.sanitizeAbcForPlayback,
-      extractDrumPlaybackBars: h.extractDrumPlaybackBars,
-      computeExpectedBarSignatureFromInfo: h.computeExpectedBarSignatureFromInfo,
-      buildDrumVoiceText: h.buildDrumVoiceText,
-      extractBarSignatureFromText: h.extractBarSignatureFromText,
-      diffSignatures: h.diffSignatures,
-      lastDrumInjectResult: call(h.getLastDrumInjectResult),
-      lastDrumPlaybackActive: Boolean(call(h.getLastDrumPlaybackActive)),
-      lastDrumSignatureDiff: call(h.getLastDrumSignatureDiff),
-      safeString,
-    });
-  }
-
   async function buildSnapshot({ reason = "" } = {}) {
     return buildDebugDumpSnapshot({
       reason,
@@ -69,7 +43,6 @@ function createDebugDumpFeature(host = {}) {
         : { ok: false, error: "unavailable" },
       getPlaybackPayload: h.getPlaybackPayload,
       lastPlaybackPayloadCache: call(h.getLastPlaybackPayloadCache),
-      buildDrumDiagnostics,
       followPipelineVersion: call(h.getFollowPipelineVersion),
       isPlaying: Boolean(call(h.getIsPlaying)),
       isPaused: Boolean(call(h.getIsPaused)),
@@ -103,7 +76,6 @@ function createDebugDumpFeature(host = {}) {
       playbackNoteTrace: call(h.getPlaybackNoteTrace) || [],
       playbackParseErrors: call(h.getPlaybackParseErrors) || [],
       playbackSanitizeWarnings: call(h.getPlaybackSanitizeWarnings) || [],
-      lastDrumSignatureDiff: call(h.getLastDrumSignatureDiff),
       lastRhythmErrorSuggestion: call(h.getLastRhythmErrorSuggestion),
       lastRenderPayload: call(h.getLastRenderPayload),
       barMismatchMarkers: call(h.getBarMismatchMarkers) || [],

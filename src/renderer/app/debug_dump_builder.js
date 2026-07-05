@@ -39,7 +39,6 @@ export async function buildDebugDumpSnapshot({
   getWorkingCopyMeta = null,
   getPlaybackPayload = () => ({ text: "", offset: 0 }),
   lastPlaybackPayloadCache = null,
-  buildDrumDiagnostics = null,
   followPipelineVersion = null,
   isPlaying = false,
   isPaused = false,
@@ -73,7 +72,6 @@ export async function buildDebugDumpSnapshot({
   playbackNoteTrace = [],
   playbackParseErrors = [],
   playbackSanitizeWarnings = [],
-  lastDrumSignatureDiff = null,
   lastRhythmErrorSuggestion = null,
   lastRenderPayload = null,
   barMismatchMarkers = [],
@@ -135,14 +133,6 @@ export async function buildDebugDumpSnapshot({
       return { ok: true, meta: res.meta };
     } catch (e) {
       return { ok: false, error: (e && e.message) ? e.message : String(e) };
-    }
-  })();
-
-  const drumDiagnostics = (() => {
-    try {
-      return typeof buildDrumDiagnostics === "function" ? buildDrumDiagnostics() : null;
-    } catch (e) {
-      return { error: (e && e.message) ? e.message : String(e) };
     }
   })();
 
@@ -249,8 +239,6 @@ export async function buildDebugDumpSnapshot({
         : (Array.isArray(playbackNoteTrace) ? playbackNoteTrace.slice() : []),
       parseErrors: Array.isArray(playbackParseErrors) ? playbackParseErrors.slice(0, 200) : null,
       sanitizeWarnings: Array.isArray(playbackSanitizeWarnings) ? playbackSanitizeWarnings.slice(0, 200) : null,
-      drumSignatureDiff: lastDrumSignatureDiff,
-      drumDiagnostics,
       lastRhythmErrorSuggestion,
     },
     render: {

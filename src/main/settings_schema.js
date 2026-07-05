@@ -242,18 +242,6 @@ function getSettingsSchema() {
       advanced: true,
     },
     {
-      key: "playbackNativeMidiDrums",
-      type: "boolean",
-      default: true,
-      section: "Playback",
-      group: "Follow",
-      groupOrder: 20,
-      label: "Use native abc2svg %%MIDI drum*",
-      help: "Prefer abc2svg's native %%MIDI drum/drumon/drumoff/drumbars support. Turn off to use ABCarus's legacy injected V:DRUM fallback.",
-      ui: { input: "checkbox" },
-      advanced: true,
-    },
-    {
       key: "playbackMidiFxPreset",
       type: "string",
       default: "Custom",

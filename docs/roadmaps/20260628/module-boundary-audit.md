@@ -64,7 +64,7 @@ These are the main feature-owned blocks still in `renderer.js`:
 - Set List state and commands: around `setListItems`, storage, `renderSetListSvgMarkupForPrint`, `openSetList`, `buildSetListExportAbc`.
 - Intonation Explorer: panel state around `intonationExplorer*`, scanner/render/refresh/show/hide/event listeners.
 - MIDI input and note typing preview: `midiInput*`, `noteTypingPreview*`, Web MIDI handlers, settings patching.
-- Drum/Gchord playback: `lastDrum*`, `extractDrumPlaybackBars`, `buildDrumVoiceText`, `injectDrumPlayback`, `injectGchordOn`, `playDrumPreview`.
+- Drum/Gchord playback: legacy `V:DRUM` injection is removed; remaining scope is native abc2svg `%%MIDI drum*` helper UI, `injectGchordOn`, and `playDrumPreview`.
 - Payload Mode commands: `setPayloadModeView`, `enterPayloadMode`, `exitPayloadMode`.
 - Templates file integration: `insertSelectedTemplateFromModal`, `appendTuneTextToFileNow` usage, context menu hooks.
 - ChordPro mode: `chordpro*` state and mode/render/playback interactions.

@@ -13,8 +13,6 @@ function findLineNumberAtOffset(text, offset) {
 
 function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffset, {
   injectGchordOn = null,
-  shouldUseNativeMidiDrums = () => false,
-  injectDrumPlayback = null,
   normalizeDollarLineBreaksForPlayback = (text) => text,
   normalizeBlankLinesForPlayback = (text) => text,
   sanitizeAbcForPlayback = (text) => ({ text, warnings: [] }),
@@ -45,19 +43,6 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
     payload = { text: gchordInjected.text, offset: (payload.offset || 0) + (gchordInjected.offsetDelta || 0) };
     const lineNo = findLineNumberAtOffset(payload.text, Math.max(0, (payload.offset || 0) - (gchordInjected.offsetDelta || 0)));
     addLineSpan(lineNo, "cm-payload-layer-playback");
-  }
-
-  const nativeDrums = Boolean(shouldUseNativeMidiDrums());
-  const drumInjected = nativeDrums || typeof injectDrumPlayback !== "function"
-    ? { text: payload.text, changed: false, insertAtLine: null, lineCount: 0 }
-    : injectDrumPlayback(payload.text);
-  if (drumInjected && drumInjected.changed) {
-    payload = { text: drumInjected.text, offset: payload.offset || 0 };
-    const startLine = Number(drumInjected.insertAtLine) || 0;
-    const count = Number(drumInjected.lineCount) || 0;
-    if (startLine > 0 && count > 0) {
-      addRangeSpan(startLine, startLine + count - 1, "cm-payload-layer-playback");
-    }
   }
 
   payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };

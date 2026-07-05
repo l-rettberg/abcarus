@@ -1535,16 +1535,9 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
     next.midiImportBackend = allowed.has(rawMidiBackend) ? rawMidiBackend : "auto";
   }
   next.midiImportBackendSetByUser = Boolean(next.midiImportBackendSetByUser);
-  next.playbackNativeMidiDrumsSetByUser = Boolean(next.playbackNativeMidiDrumsSetByUser);
   if (patch && Object.prototype.hasOwnProperty.call(patch, "usePortalFileDialogs")) {
     next.usePortalFileDialogsSetByUser = true;
   }
-  if (patch && Object.prototype.hasOwnProperty.call(patch, "playbackNativeMidiDrums")) {
-    next.playbackNativeMidiDrumsSetByUser = true;
-  }
-  next.playbackNativeMidiDrums = next.playbackNativeMidiDrumsSetByUser
-    ? Boolean(next.playbackNativeMidiDrums)
-    : true;
   if (patch && Object.prototype.hasOwnProperty.call(patch, "midiImportBackend")) {
     next.midiImportBackendSetByUser = true;
   }

@@ -28,23 +28,14 @@ function run() {
       text: `${text.slice(0, offset)}%%MIDI gchordon\n${text.slice(offset)}`,
       offsetDelta: "%%MIDI gchordon\n".length,
     }),
-    shouldUseNativeMidiDrums: () => false,
-    injectDrumPlayback: (text) => ({
-      changed: true,
-      text: `${text}\nV:DRUM\nz4|\n`,
-      insertAtLine: 5,
-      lineCount: 2,
-    }),
     sanitizeAbcForPlayback: (text) => ({ text, warnings: [{ line: 2 }] }),
   });
   assert(built.text.includes("%%MIDI gchordon"), "gchord injection should be retained");
   assert(built.offset > 4, "offset should account for gchord injection");
   assertSpan(built.spans, 2, 2);
-  assertSpan(built.spans, 5, 6);
   assertSpan(built.spans, 2, 2);
 
   const fallback = buildPlaybackPayloadForDiagnosticsFromRenderText("X:1\nK:C\nV:DRUM\nz4|\nV:1\nC|\n", 0, {
-    shouldUseNativeMidiDrums: () => true,
   });
   assertSpan(fallback.spans, 3, 4);
 

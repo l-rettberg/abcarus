@@ -8086,8 +8086,12 @@ function neutralizeMidiDrumDirectivesForPlayback(text) {
 }
 
 function isMidiDrumMustBeInVoicePlaybackError(message) {
-  return /%%MIDI\s+drum\s+must be in a voice|%%MIDI\s+drumon\s+must be in a voice|%%MIDI\s+drumbars\s+must be in a voice/i
+  return /%%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b[^\n]*must be (?:in|within) a voice/i
     .test(String(message || ""));
+}
+
+function shouldSuppressUserVisibleAbcError(message) {
+  return isMidiDrumMustBeInVoicePlaybackError(message);
 }
 
 function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
@@ -8224,10 +8228,12 @@ async function goToMeasureFromMenu() {
 }
 
 function addError(message, locOverride, contextOverride) {
+  if (shouldSuppressUserVisibleAbcError(message)) return null;
   return errorsFeature.add(message, locOverride, contextOverride);
 }
 
 function logErr(m, loc, context) {
+  if (shouldSuppressUserVisibleAbcError(m)) return null;
   return errorsFeature.log(m, loc, context);
 }
 
@@ -8538,12 +8544,14 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
             if (!noSvg) svgParts.push(s);
           },
           err: (msg) => {
+            if (shouldSuppressUserVisibleAbcError(msg)) return;
             const entry = { message: String(msg) };
             errors.push(entry);
             if (!options || !options.suppressGlobalErrors) logErr(msg, null, context);
             if (stopOnFirstError) throw new Error(entry.message);
           },
           errmsg: (msg, line, col) => {
+            if (shouldSuppressUserVisibleAbcError(msg)) return;
             const loc = Number.isFinite(line) && Number.isFinite(col)
               ? { line: line + 1, col: col + 1 }
               : null;

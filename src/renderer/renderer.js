@@ -55,6 +55,7 @@ import {
 } from "./drums.js";
 import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
+import { createLibraryTreeView } from "./library/tree_view.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
@@ -2623,6 +2624,46 @@ const libraryActions = createLibraryActions({
   openTuneFromSelection: openTuneFromLibrarySelection,
 });
 window.libraryActions = libraryActions;
+const libraryTreeView = createLibraryTreeView({
+  documentRef: document,
+  windowRef: window,
+  treeElement: $libraryTree,
+  tuneSelectElement: $fileTuneSelect,
+  collapsedFiles,
+  collapsedGroups,
+  getVisibleLibraryFiles,
+  getLibraryTextFilter: () => libraryTextFilter,
+  applyLibraryTextFilter,
+  sortLibraryFiles,
+  buildGroupEntries: (files) => buildGroupEntries(files, groupMode),
+  sortGroupEntries,
+  sortTunes: (tunes) => sortTunes(tunes, tuneSortMode),
+  getEntryTuneCount,
+  getRenamingFilePath: () => renamingFilePath,
+  setRenamingFilePath: (value) => { renamingFilePath = value || null; },
+  getActiveFilePath: () => activeFilePath,
+  setActiveFilePath: (value) => { activeFilePath = value || null; },
+  getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
+    ? String(activeTuneMeta.path || "")
+    : ((currentDoc && currentDoc.path) ? String(currentDoc.path || "") : ""),
+  getActiveTuneId: () => activeTuneId,
+  getActiveTuneUid: () => activeTuneUid,
+  isPayloadMode,
+  isRawMode: () => rawMode,
+  pathsEqual,
+  commitRenameFile,
+  requestLoadLibraryFile,
+  moveTuneToFile,
+  showContextMenuAt,
+  scheduleSaveLibraryUiState,
+  updateFileHeaderPanel,
+  showHoverStatus,
+  restoreHoverStatus,
+  pinHoverStatus,
+  selectTuneInRaw,
+  openTuneFromLibrarySelection,
+  showToast,
+});
 const moveTuneModalController = createMoveTuneModalController({
   modal: $moveTuneModal,
   closeButton: $moveTuneClose,
@@ -5380,277 +5421,17 @@ function buildGroupEntries(files, mode) {
   return Array.from(entries.values());
 }
 
-let libraryTreeRenderScheduled = false;
-let pendingLibraryTreeRenderFiles = null;
-
 function scheduleRenderLibraryTree(files = null) {
-  pendingLibraryTreeRenderFiles = files;
-  if (libraryTreeRenderScheduled) return;
-  libraryTreeRenderScheduled = true;
-  requestAnimationFrame(() => {
-    libraryTreeRenderScheduled = false;
-    const nextFiles = pendingLibraryTreeRenderFiles;
-    pendingLibraryTreeRenderFiles = null;
-    renderLibraryTree(nextFiles);
-  });
-}
-
-const LIBRARY_TUNE_DRAG_MIME = "application/x-abcarus-tune-id";
-let libraryDragTuneId = "";
-
-function getLibraryDragTuneId(ev) {
-  const dt = ev && ev.dataTransfer ? ev.dataTransfer : null;
-  if (dt) {
-    try {
-      const customId = dt.getData(LIBRARY_TUNE_DRAG_MIME);
-      if (customId) return customId;
-    } catch {}
-    try {
-      const plainId = dt.getData("text/plain");
-      if (plainId) return plainId;
-    } catch {}
-  }
-  return libraryDragTuneId || "";
-}
-
-function isLibraryTuneDrag(ev) {
-  if (libraryDragTuneId) return true;
-  const types = ev && ev.dataTransfer ? ev.dataTransfer.types : null;
-  if (!types) return false;
-  try {
-    return Array.from(types).includes(LIBRARY_TUNE_DRAG_MIME);
-  } catch {
-    return false;
-  }
+  libraryTreeView.schedule(files);
 }
 
 function renderLibraryTree(files = null) {
-  if (!$libraryTree) return;
-  $libraryTree.style.display = "";
-  $libraryTree.textContent = "";
-  const fragment = document.createDocumentFragment();
-  const sourceFiles = files || getVisibleLibraryFiles();
-  const filteredFiles = libraryTextFilter
-    ? applyLibraryTextFilter(sourceFiles, libraryTextFilter)
-    : sourceFiles;
-  const hasRenameTarget = renamingFilePath
-    && filteredFiles
-      .some((file) => pathsEqual(file.path, renamingFilePath));
-  if (renamingFilePath && !hasRenameTarget) renamingFilePath = null;
-  const sortedFiles = sortLibraryFiles(filteredFiles);
-  const entries = sortGroupEntries(buildGroupEntries(sortedFiles, groupMode));
-  for (const entry of entries) {
-    const fileNode = document.createElement("div");
-    fileNode.className = "tree-file";
-    if (entry.isFile && pathsEqual(activeFilePath, entry.id)) fileNode.classList.add("active");
-    if (entry.isFile && entry.xIssues && entry.xIssues.ok === false) {
-      fileNode.classList.add("x-issues");
-      const parts = [];
-      if (entry.xIssues.invalid) parts.push(`invalid X: ${entry.xIssues.invalid}`);
-      if (entry.xIssues.missing) parts.push(`missing X: ${entry.xIssues.missing}`);
-      if (entry.xIssues.duplicates) parts.push("duplicate X");
-      if (parts.length) fileNode.title = `Index issue (${parts.join(", ")})`;
-    }
-    const isCollapsed = entry.isFile
-      ? collapsedFiles.has(entry.id)
-      : collapsedGroups.has(entry.id);
-    if (isCollapsed) fileNode.classList.add("collapsed");
-
-    if (entry.isFile && entry.id === renamingFilePath) {
-      const input = document.createElement("input");
-      input.type = "text";
-      input.className = "tree-label tree-rename";
-      input.disabled = isPayloadMode();
-      input.value = entry.label || "";
-      input.dataset.filePath = entry.id;
-      input.addEventListener("keydown", async (ev) => {
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          await commitRenameFile(entry.id, input.value);
-        } else if (ev.key === "Escape") {
-          ev.preventDefault();
-          renamingFilePath = null;
-          renderLibraryTree(sourceFiles);
-        }
-      });
-      input.addEventListener("blur", async () => {
-        await commitRenameFile(entry.id, input.value);
-      });
-      fileNode.appendChild(input);
-    } else {
-      const fileLabel = document.createElement("button");
-      fileLabel.type = "button";
-      fileLabel.className = "tree-label tree-file-label";
-      fileLabel.disabled = isPayloadMode();
-      fileLabel.dataset.filePath = entry.id;
-      const labelText = document.createElement("span");
-      labelText.className = "tree-label-text";
-      labelText.textContent = entry.label;
-      labelText.title = entry.label;
-      const count = document.createElement("span");
-      count.className = "tree-count";
-      count.textContent = String(getEntryTuneCount(entry) || 0);
-      fileLabel.append(labelText, count);
-      fileLabel.addEventListener("click", (ev) => {
-        // Prevent accidental double-toggle when user double-clicks to load.
-        if (entry.isFile && ev && ev.detail && ev.detail > 1) return;
-        showHoverStatus(entry.label);
-        if (entry.isFile) {
-          // Do not change the editor's active file by merely expanding/collapsing the tree.
-          // `activeFilePath` is the editor file source of truth (set by `setActiveTuneText` / file loads).
-          //
-          // Exception: when no file is currently open in the editor (Untitled), allow selecting a file
-          // as a target for append/new-tune workflows.
-          const editorFilePath = (activeTuneMeta && activeTuneMeta.path)
-            ? String(activeTuneMeta.path || "")
-            : ((currentDoc && currentDoc.path) ? String(currentDoc.path || "") : "");
-          if (!editorFilePath) {
-            activeFilePath = entry.id;
-          }
-          if (collapsedFiles.has(entry.id)) collapsedFiles.delete(entry.id);
-          else collapsedFiles.add(entry.id);
-        } else {
-          if (collapsedGroups.has(entry.id)) collapsedGroups.delete(entry.id);
-          else collapsedGroups.add(entry.id);
-        }
-        scheduleRenderLibraryTree(sourceFiles);
-        scheduleSaveLibraryUiState();
-      });
-      fileLabel.addEventListener("dblclick", (ev) => {
-        if (!entry.isFile) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        requestLoadLibraryFile(entry.id).catch(() => {});
-      });
-      fileLabel.addEventListener("mouseenter", () => showHoverStatus(entry.label));
-      fileLabel.addEventListener("mouseleave", () => restoreHoverStatus());
-      fileLabel.addEventListener("focus", () => showHoverStatus(entry.label));
-      fileLabel.addEventListener("blur", () => restoreHoverStatus());
-      fileLabel.addEventListener("contextmenu", (ev) => {
-        if (!entry.isFile) return;
-        ev.preventDefault();
-        showContextMenuAt(ev.clientX, ev.clientY, { type: "file", filePath: entry.id });
-      });
-      fileLabel.addEventListener("dragover", (ev) => {
-        if (!entry.isFile || !isLibraryTuneDrag(ev)) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
-        fileLabel.classList.add("drop-target");
-      });
-      fileLabel.addEventListener("dragleave", () => {
-        fileLabel.classList.remove("drop-target");
-      });
-      fileLabel.addEventListener("drop", async (ev) => {
-        if (!entry.isFile) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        fileLabel.classList.remove("drop-target");
-        const tuneId = getLibraryDragTuneId(ev);
-        libraryDragTuneId = "";
-        if (!tuneId) return;
-        await moveTuneToFile(tuneId, entry.id);
-      });
-      fileNode.appendChild(fileLabel);
-    }
-
-    const children = document.createElement("div");
-    children.className = "tree-children";
-
-    const sortedEntryTunes = sortTunes(entry.tunes, tuneSortMode);
-    for (const tune of sortedEntryTunes) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "tree-label tune-label";
-      button.draggable = true;
-      button.disabled = isPayloadMode();
-      const labelNumber = tune.xNumber || String(tune.indexInFile);
-      const title = tune.title || tune.preview || "";
-      const composer = tune.composer ? ` - ${tune.composer}` : "";
-      const key = tune.key ? ` - ${tune.key}` : "";
-      const tuneLabel = `${labelNumber}: ${title}${composer}${key}`.trim();
-      button.textContent = tuneLabel;
-      button.title = tuneLabel;
-      button.dataset.tuneId = tune.id;
-      if (tune.tuneUid) button.dataset.tuneUid = tune.tuneUid;
-      const isActiveByUid = Boolean(activeTuneUid && tune.tuneUid && tune.tuneUid === activeTuneUid);
-      const isActiveById = Boolean(activeTuneId && tune.id && tune.id === activeTuneId);
-      if (isActiveByUid || isActiveById) button.classList.add("active");
-      button.addEventListener("mouseenter", () => showHoverStatus(tuneLabel));
-      button.addEventListener("mouseleave", () => restoreHoverStatus());
-      button.addEventListener("focus", () => showHoverStatus(tuneLabel));
-      button.addEventListener("blur", () => restoreHoverStatus());
-      button.addEventListener("dragstart", (ev) => {
-        libraryDragTuneId = tune.id;
-        ev.dataTransfer.setData(LIBRARY_TUNE_DRAG_MIME, tune.id);
-        ev.dataTransfer.setData("text/plain", tune.id);
-        ev.dataTransfer.effectAllowed = "move";
-      });
-      button.addEventListener("dragend", () => {
-        libraryDragTuneId = "";
-      });
-      button.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        const targetPath = entry.isFile
-          ? entry.id
-          : String(tune.id || "").split("::")[0];
-        if (targetPath) {
-          activeFilePath = targetPath;
-          scheduleRenderLibraryTree(sourceFiles);
-        }
-        showContextMenuAt(ev.clientX, ev.clientY, { type: "tune", tuneId: tune.id });
-      });
-      button.addEventListener("click", () => {
-        pinHoverStatus(tuneLabel);
-        const targetPath = entry.isFile
-          ? entry.id
-          : String(tune.id || "").split("::")[0];
-        if (targetPath) {
-          activeFilePath = targetPath;
-          scheduleRenderLibraryTree(sourceFiles);
-        }
-        if (rawMode) {
-          if ($fileTuneSelect) $fileTuneSelect.value = tune.id;
-          selectTuneInRaw(tune.id);
-          return;
-        }
-          // Do not rely solely on `tune.id` (it can change if the file is re-parsed).
-          // Use the tolerant open helper that can fall back to xNumber and force a re-parse.
-          openTuneFromLibrarySelection({
-            filePath: targetPath,
-            tuneUid: tune.tuneUid || null,
-            tuneId: tune.id,
-            xNumber: tune.xNumber,
-          }).then((res) => {
-            if (!res || !res.ok) {
-              const msg = res && res.error ? res.error : "Unable to open tune.";
-              showToast(msg, 3000);
-            }
-          }).catch(() => {
-            showToast("Unable to open tune.", 3000);
-          });
-	      });
-      children.appendChild(button);
-    }
-
-    fileNode.appendChild(children);
-    fragment.appendChild(fileNode);
-  }
-  $libraryTree.appendChild(fragment);
-  updateFileHeaderPanel();
+  libraryTreeView.render(files);
 }
 
 function markActiveTuneButton(tuneId) {
-  if ($libraryTree) {
-    const buttons = $libraryTree.querySelectorAll(".tree-label");
-    for (const btn of buttons) {
-      if (btn.dataset && btn.dataset.tuneId) {
-        const isActiveByUid = Boolean(activeTuneUid && btn.dataset.tuneUid && btn.dataset.tuneUid === activeTuneUid);
-        const isActiveById = Boolean(activeTuneId && btn.dataset.tuneId && btn.dataset.tuneId === activeTuneId);
-        btn.classList.toggle("active", isActiveByUid || isActiveById);
-      }
-    }
-  }
+  void tuneId;
+  libraryTreeView.markActiveTuneButton();
 }
 
 async function selectTune(tuneId, options = {}) {

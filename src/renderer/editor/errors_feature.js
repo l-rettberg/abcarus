@@ -592,6 +592,7 @@ function createErrorsFeature({
     updateFeatureUi: () => lifecycleController.updateUi(),
     updateIndexFromCurrentErrors: (activeTuneId) => tuneScanController.updateIndexFromCurrentErrors(activeTuneId, entries()),
     updateIndicatorAndPopover,
+    updateScanButtonVisibility,
   };
 }
 

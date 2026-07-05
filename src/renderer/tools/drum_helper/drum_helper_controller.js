@@ -13,7 +13,7 @@ import {
 } from "./drum_helper_model.js";
 
 function isDrumMainLine(text) {
-  return /^\s*%%\s*MIDI\s+drum\s+(?!\+:)/i.test(String(text || ""));
+  return /^\s*%%\s*MIDI\s+drum\b(?!\s+\+:)/i.test(String(text || ""));
 }
 
 function isDrumContinuationLine(text) {

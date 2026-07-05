@@ -185,6 +185,7 @@ import { createToolStatusController } from "./app/tool_status_controller.js";
 import { createStatusController } from "./app/status_controller.js";
 import { createToastHoverController } from "./app/toast_hover_controller.js";
 import { createFileHeaderController } from "./app/file_header_controller.js";
+import { createFileContextController } from "./app/file_context_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -474,6 +475,7 @@ let rawModeFilePath = null;
 let rawModeHeaderEndOffset = 0;
 let rawModeOriginalTuneId = null;
 let payloadModeDecorations = null;
+let fileContextController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -673,6 +675,46 @@ const chordProFeature = createChordProFeature({
   getActiveFilePath: () => activeFilePath,
   setStatus,
   clearRenderOutput,
+});
+
+fileContextController = createFileContextController({
+  elements: {
+    tuneSelect: $fileTuneSelect,
+  },
+  errors: {
+    getFilteredTunes: (tunes) => errorsFeature.getFilteredTunes(tunes),
+    hasIndexedErrors: () => errorsFeature.hasIndexedErrors(),
+    updateScanButtonVisibility: (entry) => errorsFeature.updateScanButtonVisibility(entry),
+    setScanButtonActive: (active) => errorsFeature.setScanButtonActive(active),
+  },
+  chordPro: {
+    isEnabled: () => chordProFeature.isEnabled(),
+    updateSelectOptions: () => chordProFeature.updateSelectOptions(),
+    getActiveIndex: () => chordProFeature.getActiveIndex(),
+    setActiveBlock: (idx, options) => chordProFeature.setActiveBlock(idx, options),
+  },
+  state: {
+    getActiveFileEntry,
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneId: () => activeTuneId,
+    getActiveTuneUid: () => activeTuneUid,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
+    getLibraryIndex: () => libraryIndex,
+    getRawMode: () => rawMode,
+    isPayloadMode,
+    isTuneErrorFilterActive,
+    isTuneErrorScanInFlight,
+  },
+  actions: {
+    selectTune,
+    selectTuneInRaw,
+    showToast,
+  },
+  utils: {
+    pathsEqual,
+  },
 });
 
 const PRINT_ALL_OPTIONS_STORAGE_KEY = "abcarus.printAllOptions.v1";
@@ -3376,181 +3418,15 @@ function updateLibraryDirtyState(isDirty) {
 }
 
 function buildTuneSelectOptions(fileEntry) {
-  if (!$fileTuneSelect) return;
-  $fileTuneSelect.textContent = "";
-  if (!fileEntry || !fileEntry.tunes || !fileEntry.tunes.length) {
-    $fileTuneSelect.disabled = true;
-    return;
-  }
-  const sourceTunes = fileEntry.tunes.slice().sort((a, b) => (Number(a.xNumber) || 0) - (Number(b.xNumber) || 0));
-  const tunes = errorsFeature.getFilteredTunes(sourceTunes);
-  if (isNewTuneDraft) {
-    const option = document.createElement("option");
-    option.value = "__new__";
-    option.textContent = "(New tune draft)";
-    option.selected = true;
-    $fileTuneSelect.appendChild(option);
-  }
-  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !errorsFeature.hasIndexedErrors()) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "(Scanning errors…)";
-    option.disabled = true;
-    option.selected = true;
-    $fileTuneSelect.appendChild(option);
-    $fileTuneSelect.disabled = true;
-    return;
-  }
-  if (!tunes.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = isTuneErrorFilterActive() ? "(No error tunes)" : "(No tunes)";
-    option.disabled = true;
-    option.selected = true;
-    $fileTuneSelect.appendChild(option);
-    $fileTuneSelect.disabled = true;
-    return;
-  }
-  for (const tune of tunes) {
-    const option = document.createElement("option");
-    option.value = rawMode ? tune.id : (tune.tuneUid || tune.id);
-    const title = tune.title || tune.preview || "";
-    const label = tune.xNumber ? `X:${tune.xNumber} ${title}`.trim() : title || tune.id;
-    option.textContent = label;
-    $fileTuneSelect.appendChild(option);
-  }
-  $fileTuneSelect.disabled = false;
-  if (!isNewTuneDraft && (activeTuneUid || activeTuneId)) {
-    $fileTuneSelect.value = rawMode ? activeTuneId : (activeTuneUid || activeTuneId);
-  }
-  if (!isNewTuneDraft && !$fileTuneSelect.value) {
-    $fileTuneSelect.selectedIndex = 0;
-  }
+  if (fileContextController) fileContextController.buildTuneSelectOptions(fileEntry);
 }
 
 function updateFileContext() {
-  if (chordProFeature.isEnabled()) {
-    chordProFeature.updateSelectOptions();
-    errorsFeature.updateScanButtonVisibility(null);
-    errorsFeature.setScanButtonActive(false);
-    return;
-  }
-  const entry = getActiveFileEntry();
-  if (!entry) {
-    if ($fileTuneSelect) {
-      $fileTuneSelect.textContent = "";
-      $fileTuneSelect.disabled = true;
-    }
-    errorsFeature.updateScanButtonVisibility(null);
-    errorsFeature.setScanButtonActive(false);
-    return;
-  }
-  buildTuneSelectOptions(entry);
-  errorsFeature.updateScanButtonVisibility(entry);
-  errorsFeature.setScanButtonActive(isTuneErrorFilterActive());
-}
-
-function getNavigableTuneIdsFromFileSelect() {
-  if (!$fileTuneSelect || $fileTuneSelect.disabled) return [];
-  const ids = [];
-  for (const opt of Array.from($fileTuneSelect.options || [])) {
-    if (!opt || opt.disabled) continue;
-    const value = opt.value != null ? String(opt.value) : "";
-    if (!value || value === "__new__") continue;
-    ids.push(value);
-  }
-  return ids;
+  if (fileContextController) fileContextController.updateFileContext();
 }
 
 async function navigateTuneByDelta(delta) {
-  if (chordProFeature.isEnabled()) {
-    chordProFeature.setActiveBlock(chordProFeature.getActiveIndex() + delta, { scroll: true });
-    return;
-  }
-  // Prefer file order navigation based on the active tune metadata.
-  // This stays stable even if the tune `<select>` temporarily drifts (filters, rebuilds, etc).
-  const filePath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path)
-    : (activeFilePath ? String(activeFilePath) : "");
-  const fileEntry = (filePath && libraryIndex && Array.isArray(libraryIndex.files))
-    ? (libraryIndex.files.find((f) => pathsEqual(f && f.path, filePath)) || null)
-    : null;
-
-  const orderedTunes = fileEntry && Array.isArray(fileEntry.tunes)
-    ? fileEntry.tunes.slice().sort((a, b) => (Number(a.startOffset) || 0) - (Number(b.startOffset) || 0))
-    : [];
-
-  const selectedValue = ($fileTuneSelect && $fileTuneSelect.value != null) ? String($fileTuneSelect.value) : "";
-  const activeKey = rawMode ? activeTuneId : (activeTuneUid || activeTuneId);
-  const findCurrentInOrdered = () => {
-    if (!orderedTunes.length) return -1;
-    if (activeKey) {
-      const idx = orderedTunes.findIndex((t) => {
-        if (!t) return false;
-        if (!rawMode && t.tuneUid && t.tuneUid === activeKey) return true;
-        return Boolean(t.id && t.id === activeKey);
-      });
-      if (idx >= 0) return idx;
-    }
-    if (activeTuneMeta && Number.isFinite(Number(activeTuneMeta.startOffset))) {
-      const off = Number(activeTuneMeta.startOffset);
-      const idx = orderedTunes.findIndex((t) => Number(t && t.startOffset) === off);
-      if (idx >= 0) return idx;
-    }
-    if (selectedValue) {
-      const idx = orderedTunes.findIndex((t) => {
-        if (!t) return false;
-        if (!rawMode && t.tuneUid && t.tuneUid === selectedValue) return true;
-        return Boolean(t.id && t.id === selectedValue);
-      });
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  };
-
-  let nextId = "";
-  let nextTune = null;
-  if (orderedTunes.length) {
-    const currentIdx = findCurrentInOrdered();
-    const startIdx = currentIdx >= 0 ? currentIdx : (delta > 0 ? 0 : orderedTunes.length - 1);
-    const nextIdx = Math.max(0, Math.min(orderedTunes.length - 1, startIdx + delta));
-    nextTune = orderedTunes[nextIdx];
-    nextId = nextTune
-      ? String(rawMode ? nextTune.id : (nextTune.tuneUid || nextTune.id) || "")
-      : "";
-    if (!nextId) return;
-    if (currentIdx === nextIdx) {
-      showToast(delta > 0 ? "Already at last tune." : "Already at first tune.", 1400);
-      return;
-    }
-  } else {
-    // Fallback: navigate within the tune `<select>` (respects error filtering).
-    const ids = getNavigableTuneIdsFromFileSelect();
-    if (!ids.length) {
-      showToast(isTuneErrorFilterActive() ? "No error tunes in selection." : "No tunes to navigate.", 2000);
-      return;
-    }
-    const selectedIsNavigable = selectedValue && ids.includes(selectedValue);
-    const activeIsNavigable = activeKey && ids.includes(activeKey);
-    const current = selectedIsNavigable ? selectedValue : (activeIsNavigable ? activeKey : "");
-    const currentIdx = current ? ids.indexOf(current) : -1;
-    const startIdx = currentIdx >= 0 ? currentIdx : (delta > 0 ? 0 : ids.length - 1);
-    const nextIdx = Math.max(0, Math.min(ids.length - 1, startIdx + delta));
-    nextId = ids[nextIdx];
-    if (!nextId) return;
-    if (currentIdx === nextIdx) {
-      showToast(delta > 0 ? "Already at last tune." : "Already at first tune.", 1400);
-      return;
-    }
-  }
-
-  if (rawMode) {
-    const rawTuneId = nextTune && nextTune.id ? String(nextTune.id) : String(nextId);
-    if ($fileTuneSelect) $fileTuneSelect.value = rawTuneId;
-    selectTuneInRaw(rawTuneId);
-    return;
-  }
-  await selectTune(nextId);
+  if (fileContextController) await fileContextController.navigateTuneByDelta(delta);
 }
 
 function setHeaderEditorValue(text) {
@@ -5821,30 +5697,6 @@ if ($btnToggleRaw) {
   });
 }
 
-if ($fileTuneSelect) {
-  $fileTuneSelect.addEventListener("change", () => {
-    const tuneId = $fileTuneSelect.value;
-    if (tuneId === "__new__") return;
-    if (isNewTuneDraft) isNewTuneDraft = false;
-    if (!tuneId) return;
-    if (chordProFeature.isEnabled()) {
-      const idx = Number(tuneId);
-      if (Number.isFinite(idx)) chordProFeature.setActiveBlock(idx, { scroll: true });
-      return;
-    }
-    if (isPayloadMode()) {
-      showToast("Exit Payload Mode to change tunes.", 2400);
-      try { if (activeTuneUid || activeTuneId) $fileTuneSelect.value = rawMode ? activeTuneId : (activeTuneUid || activeTuneId); } catch {}
-      return;
-    }
-    if (rawMode) {
-      selectTuneInRaw(tuneId);
-      return;
-    }
-    selectTune(tuneId);
-  });
-}
-
 if (window.api && typeof window.api.onLibraryProgress === "function") {
   let scanStatusClearTimer = null;
   window.api.onLibraryProgress((payload) => {
@@ -7658,6 +7510,7 @@ function renderNow() {
 initEditor();
 initSearchPanelShortcuts();
 initHeaderEditor();
+if (fileContextController) fileContextController.wire();
 setHeaderCollapsed(getHeaderCollapsed());
 setCurrentDocument(createBlankDocument());
 updateWindowTitle();

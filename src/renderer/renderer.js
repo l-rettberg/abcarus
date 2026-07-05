@@ -181,6 +181,7 @@ import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
 import { createLayoutController } from "./app/layout_controller.js";
 import { createDiagnosticsController } from "./app/diagnostics_controller.js";
 import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
+import { createToolStatusController } from "./app/tool_status_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -1492,6 +1493,11 @@ const devConfig = (() => {
 })();
 const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
 const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
+const toolStatusController = createToolStatusController({
+  element: $toolStatus,
+  api: window.api,
+  showToast,
+});
 const debugDumpFeature = createDebugDumpFeature({
   api: window.api,
   windowRef: window,
@@ -2551,9 +2557,6 @@ let saveSession = {
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
-let toolHealth = null;
-let toolHealthError = "";
-let toolWarningShown = false;
 let renamingFilePath = null;
 let renameInFlight = false;
 let latestSettingsSnapshot = null;
@@ -6265,82 +6268,8 @@ async function jumpToError(errItem) {
   await errorsFeature.jumpToError(errItem);
 }
 
-function renderToolStatus() {
-  if (!$toolStatus) return;
-  const warnings = [];
-  const details = [];
-  if (toolHealth) {
-    const entries = [
-      ["abc2xml", "abc2xml"],
-      ["xml2abc", "xml2abc"],
-      ["midi2xml", "midi2xml"],
-      ["midi2abc", "midi2abc"],
-      ["python", "Python"],
-    ];
-    for (const [key, label] of entries) {
-      const info = toolHealth[key];
-      if (!info || info.ok) continue;
-      const msg = info.error || info.detail || "Unavailable";
-      warnings.push(label);
-      details.push(`${label}: ${msg}`);
-    }
-  }
-
-  let text = "";
-  let title = "";
-  let shouldWarn = false;
-
-  if (toolHealthError) {
-    text = "Tool check failed";
-    title = toolHealthError;
-    shouldWarn = true;
-  } else if (warnings.length) {
-    text = `Missing tools: ${warnings.join(", ")}`;
-    title = details.join("\n");
-    shouldWarn = true;
-  }
-
-  if (!shouldWarn) {
-    $toolStatus.textContent = "";
-    $toolStatus.title = "";
-    $toolStatus.classList.remove("warn");
-    $toolStatus.style.display = "none";
-    return;
-  }
-
-  $toolStatus.textContent = text;
-  $toolStatus.title = title;
-  $toolStatus.classList.add("warn");
-  $toolStatus.style.display = "";
-  if (warnings.length && !toolWarningShown) {
-    showToast(text);
-    toolWarningShown = true;
-  }
-}
-
 async function checkExternalTools() {
-  if (!window.api || typeof window.api.checkConversionTools !== "function") return;
-  try {
-    const res = await window.api.checkConversionTools();
-    if (!res) {
-      toolHealthError = "Tool check failed.";
-      toolHealth = null;
-      renderToolStatus();
-      return;
-    }
-    if (!res.ok) {
-      toolHealthError = res.error || "Tool check failed.";
-      toolHealth = null;
-      renderToolStatus();
-      return;
-    }
-    toolHealthError = "";
-    toolHealth = res.tools || null;
-  } catch (e) {
-    toolHealth = null;
-    toolHealthError = (e && e.message) ? e.message : String(e);
-  }
-  renderToolStatus();
+  await toolStatusController.check();
 }
 
 function applyLibrarySearch(value) {

@@ -184,6 +184,7 @@ import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
 import { createToolStatusController } from "./app/tool_status_controller.js";
 import { createStatusController } from "./app/status_controller.js";
 import { createToastHoverController } from "./app/toast_hover_controller.js";
+import { createFileHeaderController } from "./app/file_header_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -466,19 +467,37 @@ function setAccumulatedTransposePreview(baseText, headerText, delta) {
   transposePreviewDelta = Number(delta) || 0;
 }
 let editorView = null;
-let headerEditorView = null;
-let headerCollapsed = true;
 let abandonFlowInProgress = false;
-let headerDirty = false;
-let suppressHeaderDirty = false;
-let lastHeaderToastFilePath = null;
-let headerEditorFilePath = null;
 let isNewTuneDraft = false;
 let rawMode = false;
 let rawModeFilePath = null;
 let rawModeHeaderEndOffset = 0;
 let rawModeOriginalTuneId = null;
 let payloadModeDecorations = null;
+
+const fileHeaderController = createFileHeaderController({
+  elements: {
+    panel: $fileHeaderPanel,
+    editorHost: $fileHeaderEditor,
+    toggleButton: $fileHeaderToggle,
+    stateMarker: $headerStateMarker,
+  },
+  editorDeps: {
+    EditorView,
+    EditorState,
+    basicSetup,
+    keymap,
+    indentUnit,
+  },
+  createRectSelectionExtension,
+  toggleLineComments,
+  abcHighlight,
+  getActiveFileEntry,
+  isChordProEnabled: () => chordProFeature.isEnabled(),
+  scheduleRenderNow,
+  setDirtyIndicator: () => setDirtyIndicator(Boolean(currentDoc && currentDoc.dirty)),
+  logError: (...args) => console.error(...args),
+});
 
 const payloadModeEditorAdapter = createPayloadModeEditorAdapter({
   getEditorView: () => editorView,
@@ -603,7 +622,7 @@ const chordProFeature = createChordProFeature({
   setCurrentDocContent: (content) => { if (currentDoc) currentDoc.content = String(content || ""); },
   isPayloadMode,
   isLibraryVisible: () => isLibraryVisible,
-  isHeaderCollapsed: () => headerCollapsed,
+  isHeaderCollapsed: getHeaderCollapsed,
   setLibraryVisible,
   setHeaderCollapsed,
   updateFileContext,
@@ -1516,8 +1535,8 @@ const debugDumpFeature = createDebugDumpFeature({
   getDebugLogBuffer: () => diagnosticsController ? diagnosticsController.debugLogBuffer : [],
   getRecentActions: () => diagnosticsController ? diagnosticsController.recentActions : [],
   getEditorView: () => editorView,
-  getHeaderDirty: () => headerDirty,
-  getHeaderCollapsed: () => headerCollapsed,
+  getHeaderDirty,
+  getHeaderCollapsed,
   getEditorValue,
   getHeaderEditorValue,
   getWorkingCopySnapshot: () => workingCopySnapshot,
@@ -1984,13 +2003,11 @@ async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = n
   }
   if (rawMode) {
     const parts = splitFileIntoHeaderAndBody((snapReloaded && snapReloaded.text) ? snapReloaded.text : "");
-    suppressHeaderDirty = true;
-    setHeaderEditorValue(parts.headerText);
-    suppressHeaderDirty = false;
+    fileHeaderController.setEditorValueClean(parts.headerText);
     suppressDirty = true;
     setEditorValue(parts.bodyText);
     suppressDirty = false;
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     if (currentDoc) {
       currentDoc.path = p;
@@ -2052,13 +2069,11 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null
   if (rawMode) {
     rawModeFilePath = targetPath;
     const parts = splitFileIntoHeaderAndBody((snap && snap.text) ? snap.text : "");
-    suppressHeaderDirty = true;
-    setHeaderEditorValue(parts.headerText);
-    suppressHeaderDirty = false;
+    fileHeaderController.setEditorValueClean(parts.headerText);
     suppressDirty = true;
     setEditorValue(parts.bodyText);
     suppressDirty = false;
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     if (currentDoc) {
       currentDoc.path = targetPath;
@@ -2718,7 +2733,7 @@ const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
   api: window.api,
   getActiveTuneMeta: () => activeTuneMeta,
   getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
-  getHeaderDirty: () => headerDirty,
+  getHeaderDirty,
   getRawMode: () => rawMode,
   findTuneById,
   getTuneText,
@@ -2751,7 +2766,7 @@ const libraryContextMenu = createLibraryContextMenu({
   getActiveTuneUid: () => activeTuneUid,
   getActiveTuneMeta: () => activeTuneMeta,
   getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
-  getHeaderDirty: () => headerDirty,
+  getHeaderDirty,
   getIsNewTuneDraft: () => isNewTuneDraft,
   getRawMode: () => rawMode,
   getClipboardTune: () => clipboardTune,
@@ -3016,7 +3031,7 @@ const statusController = createStatusController({
   getActiveFilePath: () => activeFilePath,
   getActiveTuneMeta: () => activeTuneMeta,
   getIsNewTuneDraft: () => isNewTuneDraft,
-  getHeaderDirty: () => headerDirty,
+  getHeaderDirty,
   getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
   getLibraryVisible: () => isLibraryVisible,
   hasDiskConflictPath,
@@ -3230,12 +3245,12 @@ const rawModeFeature = createRawModeFeature({
     activeTuneMeta = meta || null;
   },
   clearUnsavedDiscardState: () => {
-    headerEditorFilePath = null;
-    headerDirty = false;
+    resetHeaderEditorFilePath();
+    markHeaderClean();
     if (currentDoc) currentDoc.dirty = false;
   },
-  getHeaderDirty: () => headerDirty,
-  setHeaderClean: () => { headerDirty = false; },
+  getHeaderDirty,
+  setHeaderClean: markHeaderClean,
   getHeaderText: getHeaderEditorValue,
   getEditorText: getEditorValue,
   setEditorText: setEditorValue,
@@ -3289,7 +3304,7 @@ const rawModeFeature = createRawModeFeature({
 function setDirtyIndicator(isDirty) {
   if (!$dirtyIndicator) return;
   const tuneDirty = Boolean(isDirty);
-  const hdrDirty = Boolean(headerDirty);
+  const hdrDirty = getHeaderDirty();
   if (rawMode) {
     // In raw mode, the file-level dirty state is shown by the File State indicator.
     // Keep this chip only for header-specific unsaved state to avoid redundant UI.
@@ -3321,40 +3336,32 @@ function setDirtyIndicator(isDirty) {
 }
 
 function computeHeaderPresence() {
-  const entry = getActiveFileEntry();
-  if (!entry) return "none";
-  const currentHeader = getHeaderEditorValue();
-  const hasHeader = Boolean(String(currentHeader || "").trim());
-  if (hasHeader || headerDirty) return "present";
-  return "none";
+  return fileHeaderController.computePresence();
 }
 
-function updateHeaderStateUI({ announce = false } = {}) {
-  const presence = computeHeaderPresence();
-  const state = (presence === "present")
-    ? (headerDirty ? "present_dirty" : "present_clean")
-    : "none";
+function updateHeaderStateUI(options = {}) {
+  fileHeaderController.updateStateUi(options);
+}
 
-  if ($fileHeaderToggle) {
-    $fileHeaderToggle.classList.toggle("present", presence === "present");
-    $fileHeaderToggle.classList.toggle("dirty", Boolean(headerDirty));
-    if (state === "none") {
-      $fileHeaderToggle.title = "No file header in this file.";
-    } else if (state === "present_clean") {
-      $fileHeaderToggle.title = "File header present (affects rendering & playback).";
-    } else {
-      $fileHeaderToggle.title = "File header modified (unsaved) — affects rendering & playback.";
-    }
-  }
-  if ($headerStateMarker) {
-    $headerStateMarker.textContent = (state === "none") ? "—" : (state === "present_clean" ? "✓" : "✓*");
-  }
+function getHeaderDirty() {
+  return fileHeaderController.isDirty();
+}
 
-  setDirtyIndicator(Boolean(currentDoc && currentDoc.dirty));
+function markHeaderClean() {
+  fileHeaderController.setClean();
+}
 
-  // Intentionally no toast: header presence is visible via the chip title/state.
-  // (Previously this was gated behind debug messages, but it was still noisy.)
-  void announce;
+function resetHeaderEditorFilePath() {
+  fileHeaderController.resetEditorFilePath();
+}
+
+function isHeaderEditorFilePath(filePath) {
+  const headerFilePath = fileHeaderController.getEditorFilePath();
+  return Boolean(headerFilePath && filePath && pathsEqual(headerFilePath, filePath));
+}
+
+function getHeaderCollapsed() {
+  return fileHeaderController.getCollapsed();
 }
 
 function updateLibraryDirtyState(isDirty) {
@@ -3547,15 +3554,7 @@ async function navigateTuneByDelta(delta) {
 }
 
 function setHeaderEditorValue(text) {
-  if (!headerEditorView) return;
-  if (text != null && typeof text !== "string") {
-    console.error("[abcarus] setHeaderEditorValue received non-string; dropped:", Object.prototype.toString.call(text));
-    return;
-  }
-  const doc = headerEditorView.state.doc;
-  headerEditorView.dispatch({
-    changes: { from: 0, to: doc.length, insert: text || "" },
-  });
+  fileHeaderController.setEditorValue(text);
 }
 
 const measureErrorPlugin = errorsFeature.plugins.measure;
@@ -3851,19 +3850,15 @@ function ensureToolPanelDefaultLeftPosition(panelEl) {
 }
 
 function getHeaderEditorValue() {
-  if (!headerEditorView) return "";
-  return headerEditorView.state.doc.toString();
+  return fileHeaderController.getEditorValue();
 }
 
 function setHeaderCollapsed(collapsed) {
-  headerCollapsed = collapsed;
-  if ($fileHeaderPanel) {
-    $fileHeaderPanel.classList.toggle("collapsed", headerCollapsed);
-  }
+  fileHeaderController.setCollapsed(collapsed);
 }
 
 function toggleHeaderCollapsed() {
-  setHeaderCollapsed(!headerCollapsed);
+  fileHeaderController.toggleCollapsed();
 }
 
 function sortTunes(list, mode) {
@@ -3914,54 +3909,7 @@ function getActiveFileEntry() {
 }
 
 function updateFileHeaderPanel() {
-  if (!$fileHeaderPanel || !$fileHeaderEditor) return;
-  // Ensure the CodeMirror instance exists before we attempt to sync text into it.
-  // Otherwise, `setHeaderEditorValue()` is a no-op and we can end up with a blank header until Reload.
-  initHeaderEditor();
-  if (chordProFeature.isEnabled()) {
-    $fileHeaderPanel.classList.add("active");
-    suppressHeaderDirty = true;
-    setHeaderEditorValue("");
-    suppressHeaderDirty = false;
-    headerDirty = false;
-    headerEditorFilePath = null;
-    updateHeaderStateUI();
-    if ($fileHeaderToggle) {
-      $fileHeaderToggle.title = "ChordPro file (no ABC file header).";
-    }
-    return;
-  }
-  const entry = getActiveFileEntry();
-  if (!entry) {
-    $fileHeaderPanel.classList.remove("active");
-    suppressHeaderDirty = true;
-    setHeaderEditorValue("");
-    suppressHeaderDirty = false;
-    headerDirty = false;
-    headerEditorFilePath = null;
-    updateHeaderStateUI();
-    return;
-  }
-  $fileHeaderPanel.classList.add("active");
-  const nextHeaderText = entry.headerText || "";
-  const currentHeaderText = getHeaderEditorValue();
-  // Header editor is authoritative for the active file: once loaded, do not auto-overwrite it
-  // (avoid "snap-back" and invisible edits). Reload is always explicit via the Reload button.
-  if (headerEditorFilePath !== entry.path) {
-    suppressHeaderDirty = true;
-    setHeaderEditorValue(nextHeaderText);
-    suppressHeaderDirty = false;
-    headerDirty = false;
-    headerEditorFilePath = entry.path || null;
-  } else if (!headerDirty && !String(currentHeaderText || "").trim() && String(nextHeaderText || "").trim()) {
-    // Initial-load recovery: library scanning/parsing can populate `entry.headerText` after the panel first shows.
-    // If the header editor is still empty and not dirty, hydrate it once (without requiring a manual Reload).
-    suppressHeaderDirty = true;
-    setHeaderEditorValue(nextHeaderText);
-    suppressHeaderDirty = false;
-    headerDirty = false;
-  }
-  updateHeaderStateUI({ announce: true });
+  fileHeaderController.updatePanel();
 }
 
 function findHeaderEndOffset(content) {
@@ -4273,7 +4221,7 @@ function setEditorValue(text) {
 
 async function confirmRawModeLeave(contextLabel, { save } = {}) {
   const fileDirty = Boolean(currentDoc && currentDoc.dirty);
-  const hdrDirty = Boolean(headerDirty);
+  const hdrDirty = getHeaderDirty();
   if (!fileDirty && !hdrDirty) return true;
   const choice = await confirmUnsavedChanges(contextLabel || "continuing");
   if (choice === "cancel") return false;
@@ -4408,16 +4356,18 @@ function toggleLineComments(view) {
 
 function getFocusedEditorView() {
   const activeEl = document.activeElement;
-  if (headerEditorView && headerEditorView.dom && activeEl && headerEditorView.dom.contains(activeEl)) return headerEditorView;
+  const headerView = fileHeaderController.getEditorView();
+  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
   if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
-  return editorView || headerEditorView || null;
+  return editorView || headerView || null;
 }
 
 // --- MIDI input / typing preview ---
 
 function getActiveEditorViewForMidi() {
   const activeEl = document.activeElement;
-  if (headerEditorView && headerEditorView.dom && activeEl && headerEditorView.dom.contains(activeEl)) return headerEditorView;
+  const headerView = fileHeaderController.getEditorView();
+  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
   if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
   return null;
 }
@@ -4880,35 +4830,7 @@ function wireSearchPanelHotkeys(panel) {
 }
 
 function initHeaderEditor() {
-  if (headerEditorView || !$fileHeaderEditor) return;
-  let headerRenderTimer = null;
-  const updateListener = EditorView.updateListener.of((update) => {
-    if (!update.docChanged) return;
-    if (suppressHeaderDirty) return;
-    headerDirty = true;
-    updateHeaderStateUI();
-    if (headerRenderTimer) clearTimeout(headerRenderTimer);
-    headerRenderTimer = setTimeout(() => {
-      headerRenderTimer = null;
-      scheduleRenderNow();
-    }, 300);
-  });
-  const state = EditorState.create({
-    doc: "",
-    extensions: [
-      basicSetup,
-      createRectSelectionExtension(),
-      abcHighlight,
-      keymap.of([{ key: "Mod-/", run: toggleLineComments }]),
-      updateListener,
-      EditorState.tabSize.of(2),
-      indentUnit.of("  "),
-    ],
-  });
-  headerEditorView = new EditorView({
-    state,
-    parent: $fileHeaderEditor,
-  });
+  fileHeaderController.initEditor();
 }
 
 function setActiveTuneText(text, metadata, options = {}) {
@@ -4982,7 +4904,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     }
     updateFileContext();
     setDirtyIndicator(markDirty);
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     clearSaveSession();
   }
@@ -6230,7 +6152,7 @@ function hasUnsavedChangesForFile(filePath) {
   const activePath = (activeTuneMeta && activeTuneMeta.path)
     ? String(activeTuneMeta.path)
     : (activeFilePath ? String(activeFilePath) : "");
-  const activeDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
+  const activeDirty = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
   if (activeDirty && activePath && pathsEqual(activePath, p)) return true;
   if (workingCopySnapshot && workingCopySnapshot.dirty && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p)) return true;
   return false;
@@ -6243,7 +6165,7 @@ function getActiveEditFilePath() {
 }
 
 function hasGlobalUnsavedChanges() {
-  return Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
+  return Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
 }
 
 function hasUnsavedChangesInActiveEditContext() {
@@ -7362,7 +7284,7 @@ function showEmptyState() {
   activeTuneId = null;
   activeFilePath = null;
   clearSaveSession();
-  headerDirty = false;
+  markHeaderClean();
   setTuneMetaText(UNTITLED_UNSAVED_LABEL);
   setFileNameMeta(UNTITLED_UNSAVED_LABEL);
   clearErrors();
@@ -7736,7 +7658,7 @@ function renderNow() {
 initEditor();
 initSearchPanelShortcuts();
 initHeaderEditor();
-setHeaderCollapsed(headerCollapsed);
+setHeaderCollapsed(getHeaderCollapsed());
 setCurrentDocument(createBlankDocument());
 updateWindowTitle();
 updateHeaderStateUI();
@@ -8053,7 +7975,7 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
       currentDoc.dirty = false;
     }
     if (includeHeader) {
-      headerDirty = false;
+      markHeaderClean();
       updateHeaderStateUI();
     }
     markDiskConflictPath(p, false);
@@ -8178,7 +8100,7 @@ async function applyAbc2abcTransform(options) {
 
 async function confirmAbandonIfDirty(contextLabel) {
   const tuneDirty = Boolean(currentDoc && currentDoc.dirty);
-  const hdrDirty = Boolean(headerDirty);
+  const hdrDirty = getHeaderDirty();
   const fileDirty = hasUnsavedChangesInActiveEditContext();
   if (!tuneDirty && !hdrDirty && !fileDirty) return true;
 
@@ -8186,7 +8108,7 @@ async function confirmAbandonIfDirty(contextLabel) {
   if (choice === "cancel") return false;
   if (choice === "dont_save") {
     // Explicit discard path: user chose not to save.
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     if (tuneDirty) {
       await discardWorkingCopyChangesForActiveFile();
@@ -8264,7 +8186,7 @@ async function performSaveFlow() {
   recordRecentAction("save.start", {
     currentDocPath: currentDoc && currentDoc.path ? String(currentDoc.path) : null,
     currentDocDirty: currentDoc ? Boolean(currentDoc.dirty) : null,
-    headerDirty: Boolean(headerDirty),
+    headerDirty: getHeaderDirty(),
     isNewTuneDraft: Boolean(isNewTuneDraft),
     activeTunePath: activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : null,
     wcSnapshotPath: workingCopySnapshot && workingCopySnapshot.path ? String(workingCopySnapshot.path) : null,
@@ -8283,23 +8205,23 @@ async function performSaveFlow() {
     || ""
   );
   const combineHeaderWithWorkingCopySave = Boolean(
-    headerDirty
+    getHeaderDirty()
     && headerTargetPath
     && session.intent === SAVE_INTENT.REPLACE_TUNE
     && activeTuneMeta
     && activeTuneMeta.path
     && pathsEqual(activeTuneMeta.path, headerTargetPath)
   );
-  if (headerDirty && headerTargetPath && !combineHeaderWithWorkingCopySave) {
+  if (getHeaderDirty() && headerTargetPath && !combineHeaderWithWorkingCopySave) {
     try {
       const headerRes = await saveFileHeaderText(headerTargetPath, getHeaderEditorValue());
       if (headerRes && headerRes.ok) {
-        headerDirty = false;
+        markHeaderClean();
         updateHeaderStateUI();
         setStatus(headerRes.action === "save_copy_as" ? "Saved copy and switched." : "Header saved.");
       } else if (headerRes && headerRes.action === "discard_reload") {
-        headerEditorFilePath = null;
-        headerDirty = false;
+        resetHeaderEditorFilePath();
+        markHeaderClean();
         updateHeaderStateUI();
         updateFileHeaderPanel();
         setStatus("Reloaded from disk.");
@@ -8377,7 +8299,7 @@ async function performSaveFlow() {
 
   if (session.intent === SAVE_INTENT.REPLACE_TUNE && activeTuneMeta && activeTuneMeta.path) {
     const ok = await performSimpleTuneSave(activeTuneMeta.path, {
-      includeHeader: Boolean(combineHeaderWithWorkingCopySave && headerDirty),
+      includeHeader: Boolean(combineHeaderWithWorkingCopySave && getHeaderDirty()),
     });
     return Boolean(ok);
   }
@@ -8481,11 +8403,11 @@ async function performSaveAsFlow() {
   try {
     await flushWorkingCopyTuneSync();
   } catch {}
-  if (headerDirty && window.api && typeof window.api.applyWorkingCopyHeaderText === "function") {
+  if (getHeaderDirty() && window.api && typeof window.api.applyWorkingCopyHeaderText === "function") {
     try {
       const res = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue());
       if (res && res.ok) {
-        headerDirty = false;
+        markHeaderClean();
         updateHeaderStateUI();
       }
     } catch {}
@@ -8745,8 +8667,8 @@ async function saveFileHeaderText(filePath, headerText) {
     const updatedFile = await refreshLibraryFile(p, { force: true });
     try {
       // Mark the header editor clean after successful save.
-      if (updatedFile && updatedFile.path && pathsEqual(updatedFile.path, p) && headerEditorFilePath && pathsEqual(headerEditorFilePath, p)) {
-        headerDirty = false;
+      if (updatedFile && updatedFile.path && pathsEqual(updatedFile.path, p) && isHeaderEditorFilePath(p)) {
+        markHeaderClean();
         updateHeaderStateUI();
       }
     } catch {}
@@ -9101,7 +9023,7 @@ async function pasteClipboardToFile(targetPath) {
       // Transaction prerequisite: both files must be in a committed/safe state.
       // (If the active editor is on either file, it must be clean; otherwise the move could silently
       // commit unrelated pending changes.)
-      const hasUnsavedInActiveFile = Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
+      const hasUnsavedInActiveFile = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
       const activePath = activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : (activeFilePath ? String(activeFilePath) : "");
       if (
         activePath
@@ -9305,7 +9227,7 @@ async function deleteTuneById(tuneId) {
   ) {
     if (
       pathsEqual(activeFilePath, fileMeta.path)
-      && (Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft))
+      && (Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft))
     ) {
       await showSaveError("Please Save/Discard your unsaved changes in this file before deleting tunes.");
       return;
@@ -9498,7 +9420,7 @@ async function performAppendFlow() {
       currentDoc.path = filePath;
       currentDoc.dirty = false;
     }
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     setDirtyIndicator(false);
     return true;
@@ -9712,7 +9634,7 @@ async function appendTuneTextToFileNow(filePath, tuneText, { toastOk = "" } = {}
       }
     }
 
-    headerDirty = false;
+    markHeaderClean();
     updateHeaderStateUI();
     if (currentDoc) {
       currentDoc.path = p;
@@ -9921,7 +9843,7 @@ async function renumberXInActiveFile(explicitFilePath) {
   const activePath = (activeTuneMeta && activeTuneMeta.path)
     ? String(activeTuneMeta.path)
     : (activeFilePath ? String(activeFilePath) : "");
-  const globalDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
+  const globalDirty = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
   const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
 
   if (globalDirty && !isTargetActive) {
@@ -10715,12 +10637,12 @@ if ($fileHeaderSave) {
       try { await flushWorkingCopyTuneSync(); } catch {}
       const headerRes = await saveFileHeaderText(entry.path, getHeaderEditorValue());
       if (headerRes && headerRes.ok) {
-        headerDirty = false;
+        markHeaderClean();
         updateHeaderStateUI();
         setStatus(headerRes.action === "save_copy_as" ? "Saved copy and switched." : "Header saved.");
       } else if (headerRes && headerRes.action === "discard_reload") {
-        headerEditorFilePath = null;
-        headerDirty = false;
+        resetHeaderEditorFilePath();
+        markHeaderClean();
         updateHeaderStateUI();
         updateFileHeaderPanel();
         setStatus("Reloaded from disk.");
@@ -10736,8 +10658,8 @@ if ($fileHeaderSave) {
 
 if ($fileHeaderReload) {
   $fileHeaderReload.addEventListener("click", () => {
-    headerEditorFilePath = null;
-    headerDirty = false;
+    resetHeaderEditorFilePath();
+    markHeaderClean();
     updateFileHeaderPanel();
   });
 }

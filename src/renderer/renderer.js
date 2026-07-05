@@ -182,6 +182,7 @@ import { createLayoutController } from "./app/layout_controller.js";
 import { createDiagnosticsController } from "./app/diagnostics_controller.js";
 import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
 import { createToolStatusController } from "./app/tool_status_controller.js";
+import { createStatusController } from "./app/status_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -2993,137 +2994,62 @@ function updateLibraryErrorIndexFromCurrentErrors() {
   errorsFeature.updateIndexFromCurrentErrors(activeTuneId);
 }
 
+const statusController = createStatusController({
+  documentRef: document,
+  statusElement: $status,
+  bufferStatusElement: $bufferStatus,
+  fileNameMetaElement: $fileNameMeta,
+  editorPaneElement: $editorPane,
+  safeBasename,
+  safeDirname,
+  untitledLabel: UNTITLED_UNSAVED_LABEL,
+  formatPathTail,
+  getCurrentDoc: () => currentDoc,
+  getRawMode: () => rawMode,
+  getRawModeFilePath: () => rawModeFilePath,
+  getActiveFilePath: () => activeFilePath,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getIsNewTuneDraft: () => isNewTuneDraft,
+  getHeaderDirty: () => headerDirty,
+  getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
+  getLibraryVisible: () => isLibraryVisible,
+  hasDiskConflictPath,
+});
+
 function stripFileExtension(name) {
-  const value = String(name || "");
-  return value.replace(/\.[^.]+$/, "");
+  return statusController.stripFileExtension(name);
 }
 
 function setFileNameMeta(name) {
-  if (!$fileNameMeta) return;
-  $fileNameMeta.textContent = name || "Untitled";
-  updateWindowTitle();
+  statusController.setFileNameMeta(name);
 }
 
-		function updateWindowTitle() {
-		  const tuneDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(isNewTuneDraft);
-		  const dirtyTag = (tuneDirty || headerDirty) ? "*" : "";
-		  const filePath = (currentDoc && currentDoc.path) ? String(currentDoc.path) : "";
-		  const fileNameWithExt = filePath ? safeBasename(filePath) : UNTITLED_UNSAVED_LABEL;
-		  const dirPath = filePath ? safeDirname(filePath) : (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : "");
-		  const dirShort = formatPathTail(dirPath, 3);
-		  const display = dirShort ? `${dirShort}/${fileNameWithExt}` : fileNameWithExt;
-		  document.title = `ABCarus — ${display}${dirtyTag}`;
-		}
+function updateWindowTitle() {
+  statusController.updateWindowTitle();
+}
 
 function buildTuneMetaLabel(metadata) {
-  if (!metadata) return "Untitled";
-  const xPart = metadata.xNumber ? `X:${metadata.xNumber}` : "";
-  const title = metadata.title || "";
-  const label = `${xPart} ${title}`.trim();
-  return label || "Untitled";
+  return statusController.buildTuneMetaLabel(metadata);
 }
 
-let tuneBadgeText = "";
-let bufferStatusText = "";
-
-let appStatusText = "Ready";
-let startupUiLoading = true;
-let startupSettingsApplied = false;
-let startupAutoLoadStarted = false;
-let startupRecentOpenStarted = false;
-
 function markStartupUiReady() {
-  if (!startupUiLoading) return;
-  startupUiLoading = false;
-  renderUnifiedStatus();
+  statusController.markStartupUiReady();
 }
 
 function markStartupSettingsApplied() {
-  if (startupSettingsApplied) return;
-  startupSettingsApplied = true;
-  if (!startupRecentOpenStarted && !startupAutoLoadStarted) {
-    markStartupUiReady();
-  } else {
-    renderUnifiedStatus();
-  }
-}
-
-function computeWorkingCopyFileState() {
-  const filePath = rawMode
-    ? (rawModeFilePath || (currentDoc && currentDoc.path) || activeFilePath || "")
-    : ((activeTuneMeta && activeTuneMeta.path) || (currentDoc && currentDoc.path) || activeFilePath || "");
-  if (!filePath) return { kind: "ready", label: "Ready", filePath: "" };
-
-  const tuneDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(isNewTuneDraft);
-  const hdrDirty = Boolean(headerDirty);
-  const conflict = hasDiskConflictPath(filePath);
-
-  if ($editorPane) {
-    $editorPane.classList.toggle("unsaved", Boolean(tuneDirty));
-    $editorPane.classList.toggle("conflict", Boolean(conflict));
-  }
-
-  let label = "";
-  let kind = "";
-  if (conflict) {
-    label = "Changed on disk";
-    kind = "conflict";
-  } else if (tuneDirty || hdrDirty) {
-    label = "Unsaved changes";
-    kind = "dirty";
-  } else {
-    label = "Saved";
-    kind = "saved";
-  }
-
-  return { kind, label, filePath };
+  statusController.markStartupSettingsApplied();
 }
 
 function renderUnifiedStatus() {
-  if (!$status) return;
-
-  const raw = String(appStatusText || "");
-  const normalized = raw.trim();
-  const display = normalized === "OK" ? "Ready" : raw;
-  const displayNorm = String(display || "").trim();
-
-  const fileState = computeWorkingCopyFileState();
-
-  const isNeutral = !displayNorm || /^ready\b/i.test(displayNorm);
-  const label = startupUiLoading && isNeutral
-    ? "Loading…"
-    : (isNeutral ? "Ready" : display);
-  const kind = startupUiLoading && isNeutral
-    ? "loading"
-    : (isNeutral ? "ready" : (fileState.kind === "conflict" ? "conflict" : (fileState.kind === "dirty" ? "dirty" : "ready")));
-
-  $status.textContent = label || "Ready";
-
-  $status.classList.toggle("status-ready", kind === "ready");
-  $status.classList.toggle("status-saved", kind === "saved");
-  $status.classList.toggle("status-dirty", kind === "dirty");
-  $status.classList.toggle("status-conflict", kind === "conflict");
-
-  const loading = kind === "loading" || String(label || "").toLowerCase().startsWith("loading the sound font");
-  $status.classList.toggle("status-loading", loading);
+  statusController.renderUnifiedStatus();
 }
 
 function renderBufferStatus() {
-  if (!$bufferStatus) return;
-  if (bufferStatusText) {
-    $bufferStatus.textContent = bufferStatusText;
-    return;
-  }
-  if (!isLibraryVisible && tuneBadgeText) {
-    $bufferStatus.textContent = tuneBadgeText;
-    return;
-  }
-  $bufferStatus.textContent = "";
+  statusController.renderBufferStatus();
 }
 
 function setTuneMetaText(text) {
-  tuneBadgeText = String(text || "");
-  renderBufferStatus();
+  statusController.setTuneMetaText(text);
 }
 
 const sourceLinkFeature = createSourceLinkFeature({
@@ -4301,7 +4227,7 @@ async function loadLastRecentEntry() {
       reportStartupStatus("Opening recent tune…");
       const opened = await openRecentTune(res.entry);
       if (opened && opened.ok) {
-        startupRecentOpenStarted = true;
+        statusController.markStartupRecentOpenStarted();
         return true;
       }
       continue;
@@ -4310,7 +4236,7 @@ async function loadLastRecentEntry() {
       reportStartupStatus("Opening recent file…");
       const opened = await openRecentFile(res.entry);
       if (opened && opened.ok) {
-        startupRecentOpenStarted = true;
+        statusController.markStartupRecentOpenStarted();
         return true;
       }
       continue;
@@ -4319,7 +4245,7 @@ async function loadLastRecentEntry() {
       reportStartupStatus("Opening recent folder…");
       const opened = await openRecentFolder(res.entry);
       if (opened && opened.ok) {
-        startupRecentOpenStarted = true;
+        statusController.markStartupRecentOpenStarted();
         return true;
       }
     }
@@ -5613,8 +5539,7 @@ async function refreshLibraryIndex() {
 async function loadLibraryFromFolder(folder) {
   if (!window.api || !folder) return;
   reportStartupStatus("Scanning library…");
-  startupAutoLoadStarted = true;
-  renderUnifiedStatus();
+  statusController.markStartupAutoLoadStarted();
   const perfOn = isStartupPerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
   if (perfOn) logStartupPerf("loadLibraryFromFolder() start", { folder: abbreviatePathForLog(folder, 3) });
@@ -6037,8 +5962,7 @@ function createBlankDocument() {
 let t = null;
 
 function setStatus(s) {
-  appStatusText = String(s || "");
-  renderUnifiedStatus();
+  statusController.setStatus(s);
 }
 
 function setButtonText(button, text) {
@@ -6075,15 +5999,14 @@ function restoreHoverStatus() {
 }
 
 function setBufferStatus(text) {
-  bufferStatusText = String(text || "");
-  renderBufferStatus();
+  statusController.setBufferStatus(text);
 }
 
 function setTransientBufferStatus(text, autoClearMs = 3200) {
   setBufferStatus(text);
   const delay = Number.isFinite(Number(autoClearMs)) ? Number(autoClearMs) : 3200;
   setTimeout(() => {
-    if (bufferStatusText === String(text || "")) setBufferStatus("");
+    if (statusController.getBufferStatusText() === String(text || "")) setBufferStatus("");
   }, Math.max(0, delay));
 }
 

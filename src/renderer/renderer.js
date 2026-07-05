@@ -12852,6 +12852,7 @@ let lastPlaybackUiRenderIdx = null;
 let lastPlaybackUiEditorIdx = null;
 let lastPlaybackUiScrollAt = 0;
 let lastPlaybackChordOnBarError = false;
+let lastPlaybackMidiDrumVoiceCompatSeen = false;
 let lastMeterMismatchToastKey = null;
 let lastPlaybackMeterMismatchWarning = null;
 let lastRepeatShortBarToastKey = null;
@@ -15560,6 +15561,7 @@ async function preparePlayback() {
   playbackParseErrors = [];
   playbackSanitizeWarnings = [];
   lastPlaybackChordOnBarError = false;
+  lastPlaybackMidiDrumVoiceCompatSeen = false;
   let playbackParseErrorToastShown = false;
   lastPlaybackTuneInfo = null;
   const logPlaybackErr = (message, line, col) => {
@@ -15585,12 +15587,13 @@ async function preparePlayback() {
       loc,
       inDrumBlock: Boolean(inDrumBlock),
     };
-    playbackParseErrors.push(entry);
-    if (playbackParseErrors.length > 200) playbackParseErrors = playbackParseErrors.slice(-200);
     if (isMidiDrumMustBeInVoicePlaybackError(entry.message)) {
+      lastPlaybackMidiDrumVoiceCompatSeen = true;
       playbackSanitizeWarnings.push({ kind: "playback-midi-drums-before-voice", message: entry.message });
       return;
     }
+    playbackParseErrors.push(entry);
+    if (playbackParseErrors.length > 200) playbackParseErrors = playbackParseErrors.slice(-200);
     if (!playbackParseErrorToastShown) {
       playbackParseErrorToastShown = true;
       scheduleAutoDump("playback-parse-error", entry && entry.message ? entry.message : String(message || ""));
@@ -15714,7 +15717,7 @@ async function preparePlayback() {
 
   // abc2svg requires %%MIDI drum/drumon/drumbars to be inside a voice; many real-world files place them in headers.
   // Neutralize (comment out) these directives for tolerant playback while preserving istart mapping.
-  if (hasMidiDrumMustBeInVoicePlaybackError(playbackParseErrors)) {
+  if (lastPlaybackMidiDrumVoiceCompatSeen || hasMidiDrumMustBeInVoicePlaybackError(playbackParseErrors)) {
     playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackParseErrors = [];

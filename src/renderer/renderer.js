@@ -1502,6 +1502,7 @@ const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "")
 const debugDumpFeature = createDebugDumpFeature({
   api: window.api,
   windowRef: window,
+  documentRef: document,
   getAutoDumpDirOverride: () => AUTO_DUMP_DIR_OVERRIDE,
   getActiveTuneMeta: () => activeTuneMeta,
   getCurrentDoc: () => currentDoc,
@@ -1571,6 +1572,8 @@ const debugDumpFeature = createDebugDumpFeature({
   safeBasename,
   safeDirname,
 });
+debugDumpFeature.exposeGlobalApi();
+debugDumpFeature.installGlobalShortcuts();
 diagnosticsController = createDiagnosticsController({
   api: window.api,
   storage: typeof localStorage !== "undefined" ? localStorage : null,
@@ -9295,8 +9298,6 @@ async function openExternal(url) {
   if (res && res.error) logErr(res.error);
 }
 
-window.dumpDebugToFile = (...args) => debugDumpFeature.dumpToFile(...args);
-
 let libraryListYieldedByThisOpen = false;
 let libraryTreeHintToastShown = false;
 document.addEventListener("library-modal:closed", () => {
@@ -12473,24 +12474,6 @@ document.addEventListener("keydown", (e) => {
   if (String(e.key || "").toLowerCase() !== "h") return;
   e.preventDefault();
   toggleHeaderCollapsed();
-});
-
-// Hidden debug shortcut:
-// - Cmd/Ctrl+Shift+D dumps a debug JSON snapshot (primary)
-// - Cmd/Ctrl+Alt+Shift+D dumps a debug JSON snapshot (fallback for DE conflicts)
-// - Cmd/Ctrl+Shift+F9 dumps a debug JSON snapshot (alternate fallback)
-document.addEventListener("keydown", (e) => {
-  const key = String(e.key || "").toLowerCase();
-  const mod = e.ctrlKey || e.metaKey;
-  const isDumpChord = (mod && e.shiftKey && !e.altKey && key === "d")
-    || (mod && e.altKey && e.shiftKey && key === "d")
-    || (mod && e.shiftKey && !e.altKey && key === "f9");
-  if (!isDumpChord) return;
-  const target = e.target;
-  const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
-  if (tag === "input" || tag === "textarea") return;
-  e.preventDefault();
-  debugDumpFeature.dumpToFile().catch(() => {});
 });
 
 async function openTemplatesModal() {

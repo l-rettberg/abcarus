@@ -20,6 +20,7 @@ function createDebugDumpFeature(host = {}) {
   const h = host || {};
   const api = h.api || null;
   const call = (fn, ...args) => (typeof fn === "function" ? fn(...args) : undefined);
+  let shortcutsInstalled = false;
 
   async function buildSnapshot({ reason = "" } = {}) {
     return buildDebugDumpSnapshot({
@@ -140,10 +141,40 @@ function createDebugDumpFeature(host = {}) {
     }
   }
 
+  function exposeGlobalApi() {
+    const win = h.windowRef || (typeof window !== "undefined" ? window : null);
+    if (!win) return false;
+    win.dumpDebugToFile = (...args) => dumpToFile(...args);
+    return true;
+  }
+
+  function installGlobalShortcuts() {
+    if (shortcutsInstalled) return false;
+    const doc = h.documentRef || (typeof document !== "undefined" ? document : null);
+    if (!doc || typeof doc.addEventListener !== "function") return false;
+    shortcutsInstalled = true;
+    doc.addEventListener("keydown", (e) => {
+      const key = String(e && e.key ? e.key : "").toLowerCase();
+      const mod = Boolean(e && (e.ctrlKey || e.metaKey));
+      const isDumpChord = (mod && e.shiftKey && !e.altKey && key === "d")
+        || (mod && e.altKey && e.shiftKey && key === "d")
+        || (mod && e.shiftKey && !e.altKey && key === "f9");
+      if (!isDumpChord) return;
+      const target = e.target;
+      const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
+      if (tag === "input" || tag === "textarea") return;
+      e.preventDefault();
+      dumpToFile().catch(() => {});
+    });
+    return true;
+  }
+
   return {
     buildSnapshot,
     dumpToFile,
+    exposeGlobalApi,
     getSuggestedDir,
+    installGlobalShortcuts,
     nowCompactStamp,
     safeString,
     writeSnapshotToPath,

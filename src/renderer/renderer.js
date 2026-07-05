@@ -62,16 +62,9 @@ import { createMoveTuneModalController } from "./library/move_tune_modal_control
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import {
-  applyLibraryTextFilter as applyLibraryTextFilterCore,
-  getDefaultGroupSortMode,
-  getDefaultTuneSortMode,
   getEntryTuneCount,
-  normalizeGroupSortMode,
-  normalizeTuneSortMode,
-  sortGroupEntries as sortGroupEntriesCore,
-  sortLibraryFiles as sortLibraryFilesCore,
-  sortTunes as sortTunesCore,
 } from "./library/sorting_filtering.js";
+import { GROUP_LABELS, createLibraryUiStateController } from "./library/ui_state_controller.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import {
   alignBarsInText,
@@ -1626,9 +1619,9 @@ const MIN_RIGHT_PANE_WIDTH = 220;
 const MIN_RIGHT_PANE_HEIGHT = 180;
 const MIN_ERROR_PANE_HEIGHT = 120;
 const USE_ERROR_OVERLAY = true;
-const LIBRARY_SEARCH_DEBOUNCE_MS = 180;
 let settingsController = null;
 let disclaimerShown = false;
+let libraryUiStateController = null;
 const layoutController = createLayoutController({
   main: $main,
   divider: $divider,
@@ -1648,9 +1641,9 @@ const layoutController = createLayoutController({
   minErrorPaneHeight: MIN_ERROR_PANE_HEIGHT,
   useErrorOverlay: USE_ERROR_OVERLAY,
   getLibraryVisible: () => isLibraryVisible,
-  getSidebarWidth: () => lastSidebarWidth,
-  setSidebarWidth: (value) => { lastSidebarWidth = value; },
-  saveLibraryPrefs: (patch) => scheduleSaveLibraryPrefs(patch),
+  getSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
+  setSidebarWidth: (value) => { if (libraryUiStateController) libraryUiStateController.setLastSidebarWidth(value); },
+  saveLibraryPrefs: (patch) => { if (libraryUiStateController) libraryUiStateController.scheduleSaveLibraryPrefs(patch); },
   saveLayoutPrefs: async (patch) => {
     if (!window.api || typeof window.api.updateSettings !== "function") return;
     await window.api.updateSettings(patch);
@@ -2558,30 +2551,12 @@ let saveSession = {
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
-let lastSidebarWidth = 280;
-const collapsedFiles = new Set();
-const collapsedGroups = new Set();
-let groupMode = "file";
-let sortMode = "update_desc";
-let tuneSortMode = "x_asc";
 let toolHealth = null;
 let toolHealthError = "";
 let toolWarningShown = false;
-const groupSortPrefs = new Map();
-const groupTuneSortPrefs = new Map();
 let renamingFilePath = null;
 let renameInFlight = false;
-let librarySearchTimer = null;
-let pendingLibrarySearch = "";
-let suppressLibraryPrefsWrite = true;
-let pendingLibraryPrefsPatch = null;
-let libraryPrefsSaveTimer = null;
-const LIBRARY_PREFS_SAVE_DEBOUNCE_MS = 400;
-let lastAppliedLibraryPrefsSig = "";
 let latestSettingsSnapshot = null;
-let libraryUiStateTimer = null;
-let libraryUiStateDirty = false;
-const LIBRARY_UI_STATE_DEBOUNCE_MS = 300;
 
 const templatesFeature = createTemplatesFeature({
   elements: {
@@ -2622,6 +2597,40 @@ const libraryViewStore = createLibraryViewStore({
   getIndex: () => libraryIndex,
   safeBasename,
 });
+libraryUiStateController = createLibraryUiStateController({
+  windowRef: window,
+  api: window.api,
+  documentRef: document,
+  safeBasename,
+  pathsEqual,
+  getLibraryIndex: () => libraryIndex,
+  getLibraryFilter: () => libraryFilter,
+  getLibraryTextFilter: () => libraryTextFilter,
+  setLibraryTextFilter: (value) => {
+    libraryTextFilter = String(value || "").trim();
+    if ($librarySearch) $librarySearch.value = libraryTextFilter;
+  },
+  getActiveFilePath: () => activeFilePath,
+  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+  getActiveTuneId: () => activeTuneId,
+  getActiveTuneMeta: () => activeTuneMeta,
+  setLibraryVisible,
+  scheduleRenderLibraryTree,
+  renderLibraryTree,
+  updateLibraryStatus,
+  updateLibraryRootUI,
+  libraryViewStore,
+  buildGroupEntries,
+  selectTune,
+  refreshLibraryFile,
+  hasFullLibraryIndex,
+  ensureFullLibraryIndex,
+  onModalRowsChanged: () => {
+    const rows = libraryViewStore.getModalRows();
+    document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
+  },
+  searchDebounceMs: 180,
+});
 const libraryActions = createLibraryActions({
   openTuneFromSelection: openTuneFromLibrarySelection,
 });
@@ -2631,15 +2640,15 @@ const libraryTreeView = createLibraryTreeView({
   windowRef: window,
   treeElement: $libraryTree,
   tuneSelectElement: $fileTuneSelect,
-  collapsedFiles,
-  collapsedGroups,
+  collapsedFiles: libraryUiStateController.getCollapsedFiles(),
+  collapsedGroups: libraryUiStateController.getCollapsedGroups(),
   getVisibleLibraryFiles,
   getLibraryTextFilter: () => libraryTextFilter,
   applyLibraryTextFilter,
   sortLibraryFiles,
-  buildGroupEntries: (files) => buildGroupEntries(files, groupMode),
+  buildGroupEntries: (files) => buildGroupEntries(files, libraryUiStateController.getGroupMode()),
   sortGroupEntries,
-  sortTunes: (tunes) => sortTunes(tunes, tuneSortMode),
+  sortTunes: (tunes) => sortTunes(tunes, libraryUiStateController.getTuneSortMode()),
   getEntryTuneCount,
   getRenamingFilePath: () => renamingFilePath,
   setRenamingFilePath: (value) => { renamingFilePath = value || null; },
@@ -2784,58 +2793,8 @@ const aboutModalController = createAboutModalController({
 });
 const goToMeasureModalController = createGoToMeasureModalController();
 
-const GROUP_LABELS = {
-  file: "File",
-  x: "X",
-  titlekey: "T",
-  composer: "C",
-  meter: "M",
-  key: "K",
-  unit: "L",
-  tempo: "Q",
-  rhythm: "R",
-  source: "S",
-  origin: "O",
-  group: "G",
-};
-
-let libraryTitleKeyLength = 25;
-let libraryTitleKeyStrict = false;
-
-function normalizeTitleKey(raw, maxLen = libraryTitleKeyLength, strict = libraryTitleKeyStrict) {
-  const input = String(raw || "");
-  if (!input.trim()) return "";
-  if (strict) {
-    const cleaned = input.replace(/\s+/g, " ").trim();
-    if (maxLen > 0 && cleaned.length > maxLen) return cleaned.slice(0, maxLen);
-    return cleaned;
-  }
-  let normalized = "";
-  try {
-    normalized = input.normalize("NFKD");
-  } catch {
-    normalized = input;
-  }
-  try {
-    normalized = normalized.replace(/\p{M}+/gu, "");
-  } catch {
-    normalized = normalized.replace(/[\u0300-\u036f]+/g, "");
-  }
-  normalized = normalized.toLowerCase();
-  normalized = normalized
-    .replace(/[’‘ʻʼ´`]/g, "'")
-    .replace(/[‐-‒–—―]/g, "-")
-    .replace(/[。．｡․·•∙⋅]/g, ".")
-    .replace(/ı/g, "i");
-  try {
-    normalized = normalized.replace(/[^0-9a-z\u00c0-\u024f\u0370-\u03ff\u1f00-\u1fff\u0400-\u04ff\u0530-\u058f\u0590-\u05ff\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\u10a0-\u10ff\u2d00-\u2d2f\uFB50-\uFDFF\uFE70-\uFEFF]+/giu, " ");
-  } catch {
-    normalized = normalized.replace(/[^0-9a-z]+/gi, " ");
-  }
-  normalized = normalized.replace(/\s+/g, " ").trim();
-  if (!normalized) return "";
-  if (maxLen > 0 && normalized.length > maxLen) return normalized.slice(0, maxLen);
-  return normalized;
+function normalizeTitleKey(raw, maxLen, strict) {
+  return libraryUiStateController.normalizeTitleKey(raw, maxLen, strict);
 }
 
 function formatPathTail(filePath, segments = 3) {
@@ -2921,13 +2880,6 @@ function resolveSaveSession() {
   return { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "none" };
 }
 
-function getLibraryRootKey() {
-  if (!libraryIndex || !libraryIndex.root) return null;
-  const root = String(libraryIndex.root || "");
-  const normalized = normalizeLibraryPath(root);
-  return normalized || null;
-}
-
 function hasFullLibraryIndex() {
   return Boolean(libraryIndex && libraryIndex.indexMode === "full");
 }
@@ -2982,318 +2934,29 @@ async function ensureFullLibraryIndex({ reason = "" } = {}) {
   }
 }
 
-function isPathWithinRoot(filePath, rootPath) {
-  const file = normalizeLibraryPath(String(filePath || ""));
-  const root = normalizeLibraryPath(String(rootPath || ""));
-  if (!file || !root) return false;
-  if (pathsEqual(file, root)) return true;
-  const prefix = root.endsWith("/") ? root : `${root}/`;
-  return file.startsWith(prefix);
-}
-
 function scheduleSaveLibraryPrefs(patch) {
-  if (suppressLibraryPrefsWrite) return;
-  if (!patch || typeof patch !== "object") return;
-  if (!window.api || typeof window.api.updateSettings !== "function") return;
-
-  pendingLibraryPrefsPatch = { ...(pendingLibraryPrefsPatch || {}), ...patch };
-  if (libraryPrefsSaveTimer) clearTimeout(libraryPrefsSaveTimer);
-  libraryPrefsSaveTimer = setTimeout(async () => {
-    const nextPatch = pendingLibraryPrefsPatch;
-    pendingLibraryPrefsPatch = null;
-    libraryPrefsSaveTimer = null;
-    if (!nextPatch) return;
-    try {
-      await window.api.updateSettings(nextPatch);
-    } catch {}
-  }, LIBRARY_PREFS_SAVE_DEBOUNCE_MS);
-}
-
-function computeLibraryUiStateSnapshot() {
-  if (!libraryIndex || !libraryIndex.root) return null;
-  const rootKey = getLibraryRootKey();
-  if (!rootKey) return null;
-
-  const files = Array.isArray(libraryIndex.files) ? libraryIndex.files : [];
-  const expandedFiles = [];
-  for (const file of files) {
-    if (!file || !file.path) continue;
-    if (!collapsedFiles.has(file.path)) expandedFiles.push(file.path);
-  }
-
-  const expandedGroupsByMode = {};
-  if (groupMode !== "file" && files.length) {
-    const groups = buildGroupEntries(files, groupMode);
-    const expandedGroups = [];
-    for (const group of groups) {
-      if (!group || !group.id) continue;
-      if (!collapsedGroups.has(group.id)) expandedGroups.push(group.id);
-    }
-    expandedGroupsByMode[groupMode] = expandedGroups;
-  }
-
-  const active = (activeFilePath && isPathWithinRoot(activeFilePath, libraryIndex.root)) ? activeFilePath : null;
-  const activeTune = (activeTuneMeta && activeTuneMeta.path && isPathWithinRoot(activeTuneMeta.path, libraryIndex.root))
-    ? {
-      tuneId: activeTuneId || null,
-      filePath: activeTuneMeta.path || null,
-      xNumber: activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber) : "",
-      title: activeTuneMeta.title != null ? String(activeTuneMeta.title) : "",
-      startOffset: Number.isFinite(Number(activeTuneMeta.startOffset)) ? Number(activeTuneMeta.startOffset) : null,
-    }
-    : {
-      tuneId: activeTuneId || null,
-      filePath: (active && isPathWithinRoot(active, libraryIndex.root)) ? active : null,
-      xNumber: "",
-      title: "",
-      startOffset: null,
-    };
-  return {
-    rootKey,
-    state: {
-      expandedFiles,
-      expandedGroupsByMode,
-      activeFilePath: active,
-      activeTune,
-    },
-  };
+  libraryUiStateController.scheduleSaveLibraryPrefs(patch);
 }
 
 function scheduleSaveLibraryUiState() {
-  if (suppressLibraryPrefsWrite) return;
-  if (!libraryIndex || !libraryIndex.root) return;
-  if (!window.api || typeof window.api.updateSettings !== "function") return;
-
-  libraryUiStateDirty = true;
-  if (libraryUiStateTimer) clearTimeout(libraryUiStateTimer);
-  libraryUiStateTimer = setTimeout(() => {
-    libraryUiStateTimer = null;
-    if (!libraryUiStateDirty) return;
-    libraryUiStateDirty = false;
-    const snap = computeLibraryUiStateSnapshot();
-    if (!snap) return;
-    scheduleSaveLibraryPrefs({
-      libraryUiStateByRoot: {
-        [snap.rootKey]: snap.state,
-      },
-    });
-  }, LIBRARY_UI_STATE_DEBOUNCE_MS);
+  libraryUiStateController.scheduleSaveLibraryUiState();
 }
 
 function applyLibraryUiStateFromSettings(settings) {
-  if (!settings || !libraryIndex || !libraryIndex.root) return false;
-  const rootKey = getLibraryRootKey();
-  if (!rootKey) return false;
-  const byRoot = settings.libraryUiStateByRoot && typeof settings.libraryUiStateByRoot === "object"
-    ? settings.libraryUiStateByRoot
-    : null;
-  const entry = byRoot && byRoot[rootKey] && typeof byRoot[rootKey] === "object"
-    ? byRoot[rootKey]
-    : null;
-  if (!entry) return { restoredFile: false, tuneSelection: null };
-
-  const files = Array.isArray(libraryIndex.files) ? libraryIndex.files : [];
-  const filePaths = files.map((f) => f && f.path).filter(Boolean);
-
-  const expandedFiles = Array.isArray(entry.expandedFiles) ? entry.expandedFiles : [];
-  const expandedFilesSet = new Set(expandedFiles.map((p) => String(p || "")).filter(Boolean));
-
-  collapsedFiles.clear();
-  for (const p of filePaths) collapsedFiles.add(p);
-  for (const p of expandedFilesSet) collapsedFiles.delete(p);
-
-  collapsedGroups.clear();
-  if (groupMode !== "file" && files.length) {
-    const groups = buildGroupEntries(files, groupMode);
-    for (const group of groups) collapsedGroups.add(group.id);
-    const byMode = entry.expandedGroupsByMode && typeof entry.expandedGroupsByMode === "object"
-      ? entry.expandedGroupsByMode
-      : null;
-    const expandedGroups = byMode && Array.isArray(byMode[groupMode]) ? byMode[groupMode] : [];
-    for (const id of expandedGroups) {
-      if (!id) continue;
-      collapsedGroups.delete(String(id));
-    }
-  }
-
-  const savedActivePath = entry.activeFilePath ? String(entry.activeFilePath) : "";
-  const hasFile = savedActivePath && filePaths.some((p) => pathsEqual(p, savedActivePath));
-  if (hasFile) {
-    activeFilePath = savedActivePath;
-    collapsedFiles.delete(savedActivePath);
-  }
-
-  const activeTune = entry.activeTune && typeof entry.activeTune === "object" ? entry.activeTune : null;
-  const tuneSelection = activeTune
-    ? {
-      tuneId: activeTune.tuneId ? String(activeTune.tuneId) : "",
-      filePath: activeTune.filePath ? String(activeTune.filePath) : (hasFile ? savedActivePath : ""),
-      xNumber: activeTune.xNumber != null ? String(activeTune.xNumber) : "",
-      title: activeTune.title != null ? String(activeTune.title) : "",
-      startOffset: Number.isFinite(Number(activeTune.startOffset)) ? Number(activeTune.startOffset) : null,
-    }
-    : null;
-
-  return { restoredFile: Boolean(hasFile), tuneSelection };
+  return libraryUiStateController.applyLibraryUiStateFromSettings(settings);
 }
 
 async function restoreLibraryTuneSelection(selection) {
-  if (!libraryIndex || !libraryIndex.root) return false;
-  if (!selection) return false;
-
-  const tuneId = selection.tuneId ? String(selection.tuneId) : "";
-  const filePath = selection.filePath ? String(selection.filePath) : "";
-  const xNumber = selection.xNumber ? String(selection.xNumber) : "";
-  const title = selection.title ? String(selection.title) : "";
-  const startOffset = selection.startOffset;
-
-  const trySelect = async (id) => {
-    if (!id) return false;
-    try {
-      const res = await selectTune(id, { skipConfirm: true, suppressRecent: true });
-      if (res && res.ok) {
-        renderLibraryTree();
-        return true;
-      }
-    } catch {}
-    return false;
-  };
-
-  if (tuneId) {
-    const ok = await trySelect(tuneId);
-    if (ok) return true;
-  }
-
-  let fileEntry = null;
-  if (filePath && libraryIndex && Array.isArray(libraryIndex.files)) {
-    fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, filePath)) || null;
-  }
-
-  if (fileEntry && (!fileEntry.tunes || !fileEntry.tunes.length) && window.api && typeof window.api.parseLibraryFile === "function") {
-    try {
-      const updated = await refreshLibraryFile(filePath);
-      if (updated) fileEntry = updated;
-    } catch {}
-  }
-
-  const tunes = fileEntry && Array.isArray(fileEntry.tunes) ? fileEntry.tunes : [];
-  if (!tunes.length) return false;
-
-  let candidate = null;
-  if (Number.isFinite(startOffset)) {
-    candidate = tunes.find((t) => Number(t.startOffset) === Number(startOffset)) || null;
-  }
-  if (!candidate && xNumber) {
-    const matches = tunes.filter((t) => String(t.xNumber || "") === xNumber);
-    if (matches.length === 1) candidate = matches[0];
-    else if (matches.length > 1 && title) {
-      const want = title.trim().toLowerCase();
-      candidate = matches.find((t) => String(t.title || "").trim().toLowerCase() === want) || matches[0];
-    } else if (matches.length) {
-      candidate = matches[0];
-    }
-  }
-
-  if (!candidate) return false;
-  const id = candidate.id ? String(candidate.id) : "";
-  return trySelect(id);
+  return libraryUiStateController.restoreLibraryTuneSelection(selection);
 }
 
 async function flushLibraryPrefsSave() {
-  if (!window.api || typeof window.api.updateSettings !== "function") return;
-  if (libraryUiStateTimer) {
-    clearTimeout(libraryUiStateTimer);
-    libraryUiStateTimer = null;
-  }
-  if (libraryUiStateDirty) {
-    libraryUiStateDirty = false;
-    const snap = computeLibraryUiStateSnapshot();
-    if (snap) {
-      pendingLibraryPrefsPatch = {
-        ...(pendingLibraryPrefsPatch || {}),
-        libraryUiStateByRoot: {
-          [snap.rootKey]: snap.state,
-        },
-      };
-    }
-  }
-  if (libraryPrefsSaveTimer) {
-    clearTimeout(libraryPrefsSaveTimer);
-    libraryPrefsSaveTimer = null;
-  }
-  const nextPatch = pendingLibraryPrefsPatch;
-  pendingLibraryPrefsPatch = null;
-  if (!nextPatch) return;
-  try {
-    await window.api.updateSettings(nextPatch);
-  } catch {}
+  await libraryUiStateController.flushLibraryPrefsSave();
 }
 
 function applyLibraryPrefsFromSettings(settings) {
-  if (!settings) return;
-  const normalized = {
-    libraryPaneVisible: Boolean(settings.libraryPaneVisible),
-    libraryPaneWidth: Number.isFinite(Number(settings.libraryPaneWidth)) ? Math.round(Number(settings.libraryPaneWidth)) : null,
-    libraryGroupBy: String(settings.libraryGroupBy || "").trim() || null,
-    librarySortBy: String(settings.librarySortBy || "").trim() || null,
-    libraryTuneSortBy: String(settings.libraryTuneSortBy || "").trim() || null,
-    libraryFilterText: String(settings.libraryFilterText || ""),
-    libraryTitleKeyLength: Number.isFinite(Number(settings.libraryTitleKeyLength))
-      ? Math.round(Number(settings.libraryTitleKeyLength))
-      : null,
-    libraryTitleKeyStrict: Boolean(settings.libraryTitleKeyStrict),
-    libraryCacheEnabled: Boolean(settings.libraryCacheEnabled),
-  };
-  const sig = JSON.stringify(normalized);
-  if (sig === lastAppliedLibraryPrefsSig) return;
-  lastAppliedLibraryPrefsSig = sig;
-
-  const prevSuppress = suppressLibraryPrefsWrite;
-  suppressLibraryPrefsWrite = true;
-  try {
-    const nextGroup = normalized.libraryGroupBy || "";
-    if (nextGroup && GROUP_LABELS[nextGroup]) groupMode = nextGroup;
-    if ($groupBy) $groupBy.value = groupMode;
-
-    const nextSort = normalizeGroupSortMode(normalized.librarySortBy) || getDefaultGroupSortMode(groupMode);
-    setSortMode(nextSort);
-    groupSortPrefs.set(groupMode, nextSort);
-    const nextTuneSort = normalizeTuneSortMode(normalized.libraryTuneSortBy) || getDefaultTuneSortMode(groupMode);
-    setTuneSortMode(nextTuneSort);
-    groupTuneSortPrefs.set(groupMode, nextTuneSort);
-
-    const nextFilter = normalized.libraryFilterText;
-    if ($librarySearch) $librarySearch.value = nextFilter;
-    if (librarySearchTimer) {
-      clearTimeout(librarySearchTimer);
-      librarySearchTimer = null;
-    }
-    pendingLibrarySearch = "";
-    applyLibrarySearch(nextFilter);
-
-    const keyLen = normalized.libraryTitleKeyLength;
-    libraryTitleKeyLength = Number.isFinite(keyLen) && keyLen > 0 ? keyLen : 25;
-    libraryTitleKeyStrict = Boolean(normalized.libraryTitleKeyStrict);
-    window.__abcarusLibraryTitleKeyLength = libraryTitleKeyLength;
-    window.__abcarusLibraryTitleKeyStrict = libraryTitleKeyStrict;
-    window.__abcarusLibraryCacheEnabled = Boolean(normalized.libraryCacheEnabled);
-
-    const width = normalized.libraryPaneWidth;
-    if (Number.isFinite(width) && width > 0) lastSidebarWidth = width;
-
-    const visible = normalized.libraryPaneVisible;
-    setLibraryVisible(visible);
-    scheduleRenderLibraryTree();
-    try {
-      libraryViewStore.invalidate();
-      if (document.body.classList.contains("library-list-open")) {
-        const rows = libraryViewStore.getModalRows();
-        document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
-      }
-    } catch {}
-  } finally {
-    suppressLibraryPrefsWrite = prevSuppress;
-  }
+  libraryUiStateController.applyLibraryPrefsFromSettings(settings);
+  libraryUiStateController.syncControls({ groupBy: $groupBy, sortBy: $sortBy, sortTunesBy: $sortTunesBy });
 }
 
 function updateLibraryRootUI() {
@@ -4269,26 +3932,24 @@ function toggleHeaderCollapsed() {
 }
 
 function sortTunes(list, mode) {
-  return sortTunesCore(list, mode, { groupMode, safeBasename });
+  return libraryUiStateController.sortTunes(list, mode);
 }
 
 function sortLibraryFiles(files) {
-  return sortLibraryFilesCore(files, { groupMode, sortMode, tuneSortMode, safeBasename });
+  return libraryUiStateController.sortLibraryFiles(files);
 }
 
 function sortGroupEntries(entries) {
-  return sortGroupEntriesCore(entries, { groupMode, sortMode });
+  return libraryUiStateController.sortGroupEntries(entries);
 }
 
 function setSortMode(mode) {
-  const normalized = normalizeGroupSortMode(mode) || getDefaultGroupSortMode(groupMode);
-  sortMode = normalized;
+  const normalized = libraryUiStateController.setSortMode(mode);
   if ($sortBy) $sortBy.value = normalized;
 }
 
 function setTuneSortMode(mode) {
-  const normalized = normalizeTuneSortMode(mode) || getDefaultTuneSortMode(groupMode);
-  tuneSortMode = normalized;
+  const normalized = libraryUiStateController.setTuneSortMode(mode);
   if ($sortTunesBy) $sortTunesBy.value = normalized;
 }
 
@@ -4450,10 +4111,7 @@ function setPracticeBarHighlight(range) {
 }
 
 function applyLibraryTextFilter(files, query) {
-  return applyLibraryTextFilterCore(files, query, {
-    normalizeTitleKey,
-    titleKeyStrict: libraryTitleKeyStrict,
-  });
+  return libraryUiStateController.applyLibraryTextFilter(files, query);
 }
 
 
@@ -5422,7 +5080,7 @@ function setLibraryVisible(visible, { persist = true } = {}) {
   document.body.classList.toggle("library-hidden", !visible);
   renderBufferStatus();
   if (visible) {
-    setPaneSizes(lastSidebarWidth || MIN_PANE_WIDTH);
+    setPaneSizes(libraryUiStateController.getLastSidebarWidth() || MIN_PANE_WIDTH);
   } else if ($main) {
     $main.style.gridTemplateColumns = `0px 0px 1fr`;
   }
@@ -5990,9 +5648,8 @@ async function loadLibraryFromFolder(folder) {
         libraryViewStore.invalidate();
         updateLibraryRootUI();
         clearLibraryFilter();
-        collapsedFiles.clear();
-        collapsedGroups.clear();
         activeFilePath = null;
+        libraryUiStateController.expandInitialCollapsedState();
         applyLibraryUiStateFromSettings(latestSettingsSnapshot);
         scheduleRenderLibraryTree();
         updateLibraryStatus();
@@ -6007,17 +5664,8 @@ async function loadLibraryFromFolder(folder) {
     if (libraryIndex && libraryIndex.root && libraryIndex.root !== folder) return;
 
     clearLibraryFilter();
-    collapsedFiles.clear();
-    collapsedGroups.clear();
     activeFilePath = null;
-    if (groupMode === "file") {
-      for (const file of libraryIndex.files || []) {
-        collapsedFiles.add(file.path);
-      }
-    } else {
-      const groups = buildGroupEntries(libraryIndex.files || [], groupMode);
-      for (const group of groups) collapsedGroups.add(group.id);
-    }
+    libraryUiStateController.expandInitialCollapsedState();
     const restoredSelection = applyLibraryUiStateFromSettings(latestSettingsSnapshot);
     scheduleRenderLibraryTree();
     let firstTuneId = null;
@@ -6159,55 +5807,24 @@ document.addEventListener("keydown", (e) => {
 
 if ($groupBy) {
   $groupBy.addEventListener("change", () => {
-    groupMode = $groupBy.value || "file";
-    collapsedGroups.clear();
-    const savedGroupSort = normalizeGroupSortMode(groupSortPrefs.get(groupMode))
-      || getDefaultGroupSortMode(groupMode);
-    setSortMode(savedGroupSort);
-    groupSortPrefs.set(groupMode, sortMode);
-    const savedTuneSort = normalizeTuneSortMode(groupTuneSortPrefs.get(groupMode))
-      || getDefaultTuneSortMode(groupMode);
-    setTuneSortMode(savedTuneSort);
-    groupTuneSortPrefs.set(groupMode, tuneSortMode);
-    scheduleSaveLibraryPrefs({
-      libraryGroupBy: groupMode,
-      librarySortBy: sortMode,
-      libraryTuneSortBy: tuneSortMode,
-    });
-    if (groupMode !== "file" && !hasFullLibraryIndex()) {
-      ensureFullLibraryIndex({ reason: `group by ${groupMode}` }).catch(() => {});
-    }
-		    if (libraryIndex && libraryIndex.files) {
-		      if (groupMode === "file") {
-		        collapsedFiles.clear();
-		        for (const file of libraryIndex.files) collapsedFiles.add(file.path);
-		      } else {
-		        const groups = buildGroupEntries(libraryIndex.files, groupMode);
-		        for (const group of groups) collapsedGroups.add(group.id);
-		      }
-		      renderLibraryTree();
-          scheduleSaveLibraryUiState();
-		    }
-		  });
-		}
+    libraryUiStateController.handleGroupModeChange($groupBy.value || "file");
+    libraryUiStateController.syncControls({ groupBy: $groupBy, sortBy: $sortBy, sortTunesBy: $sortTunesBy });
+  });
+}
 
 if ($sortBy) {
   if ($sortBy.value) setSortMode($sortBy.value);
-		  $sortBy.addEventListener("change", () => {
-		    setSortMode($sortBy.value || getDefaultGroupSortMode(groupMode));
-		    groupSortPrefs.set(groupMode, sortMode);
-        scheduleSaveLibraryPrefs({ librarySortBy: sortMode });
-		    renderLibraryTree();
-		  });
-		}
+  $sortBy.addEventListener("change", () => {
+    libraryUiStateController.handleSortModeChange($sortBy.value || "");
+    libraryUiStateController.syncControls({ sortBy: $sortBy });
+  });
+}
 
 if ($sortTunesBy) {
   if ($sortTunesBy.value) setTuneSortMode($sortTunesBy.value);
   $sortTunesBy.addEventListener("change", () => {
-    setTuneSortMode($sortTunesBy.value || getDefaultTuneSortMode(groupMode));
-    groupTuneSortPrefs.set(groupMode, tuneSortMode);
-    scheduleSaveLibraryPrefs({ libraryTuneSortBy: tuneSortMode });
-    renderLibraryTree();
+    libraryUiStateController.handleTuneSortModeChange($sortTunesBy.value || "");
+    libraryUiStateController.syncControls({ sortTunesBy: $sortTunesBy });
   });
 }
 
@@ -6221,15 +5838,12 @@ if ($librarySearch) {
       libraryTextFilter = "";
       $librarySearch.value = "";
       scheduleSaveLibraryPrefs({ libraryFilterText: "" });
-		      if (librarySearchTimer) {
-		        clearTimeout(librarySearchTimer);
-		        librarySearchTimer = null;
-		      }
-		      renderLibraryTree();
-	      updateLibraryStatus();
-	      e.preventDefault();
-		}
-	});
+      libraryUiStateController.clearLibrarySearchTimer();
+      renderLibraryTree();
+      updateLibraryStatus();
+      e.preventDefault();
+    }
+  });
 }
 
 if ($btnLibraryClearFilter) {
@@ -6237,10 +5851,7 @@ if ($btnLibraryClearFilter) {
     libraryTextFilter = "";
     if ($librarySearch) $librarySearch.value = "";
     scheduleSaveLibraryPrefs({ libraryFilterText: "" });
-    if (librarySearchTimer) {
-      clearTimeout(librarySearchTimer);
-      librarySearchTimer = null;
-    }
+    libraryUiStateController.clearLibrarySearchTimer();
     if (libraryFilterLabel) {
       clearLibraryFilter();
     } else {
@@ -6739,12 +6350,7 @@ function applyLibrarySearch(value) {
 }
 
 function scheduleLibrarySearch(value) {
-  pendingLibrarySearch = value;
-  if (librarySearchTimer) clearTimeout(librarySearchTimer);
-  librarySearchTimer = setTimeout(() => {
-    librarySearchTimer = null;
-    applyLibrarySearch(pendingLibrarySearch);
-  }, LIBRARY_SEARCH_DEBOUNCE_MS);
+  libraryUiStateController.scheduleLibrarySearch(value);
 }
 
 function setSoundfontStatus(text, autoClearMs) {
@@ -11067,10 +10673,10 @@ if (window.api && typeof window.api.getSettings === "function") {
 		      logStartupPerf("apply settings: end");
 	        markStartupSettingsApplied();
 	    }
-	    suppressLibraryPrefsWrite = false;
+	    libraryUiStateController.setPrefsWriteSuppressed(false);
       if (!settings) markStartupSettingsApplied();
 	  }).catch(() => {
-      suppressLibraryPrefsWrite = false;
+      libraryUiStateController.setPrefsWriteSuppressed(false);
       markStartupSettingsApplied();
     });
 }

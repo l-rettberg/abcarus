@@ -108,6 +108,7 @@ import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import { createImportExportFeature } from "./tools/import_export/import_export_feature.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
+import { createRawModeFeature } from "./tools/raw_mode/raw_mode_feature.js";
 import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feature.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer_adapter.js";
@@ -3468,6 +3469,104 @@ const abcTransformFeature = createAbcTransformFeature({
   alignBarsInText,
 });
 abcTransformFeature.installDevSmoke();
+const rawModeFeature = createRawModeFeature({
+  api: window.api,
+  documentRef: document,
+  elements: {
+    rawButton: $btnToggleRaw,
+    tuneSelect: $fileTuneSelect,
+    playPauseButton: $btnPlayPause,
+    stopButton: $btnStop,
+    followButton: $btnToggleFollow,
+    errorsButton: $btnToggleErrors,
+    scanErrorsButton: $scanErrorTunes,
+    errorsIndicator: $errorsIndicator,
+  },
+  getState: () => ({
+    rawMode,
+    rawModeFilePath,
+    rawModeHeaderEndOffset,
+    rawModeOriginalTuneId,
+  }),
+  patchState: (patch = {}) => {
+    if (Object.prototype.hasOwnProperty.call(patch, "rawMode")) rawMode = Boolean(patch.rawMode);
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeFilePath")) rawModeFilePath = patch.rawModeFilePath || null;
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeHeaderEndOffset")) rawModeHeaderEndOffset = Number(patch.rawModeHeaderEndOffset) || 0;
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeOriginalTuneId")) rawModeOriginalTuneId = patch.rawModeOriginalTuneId || null;
+  },
+  getCurrentDoc: () => currentDoc,
+  patchCurrentDoc: (patch = {}) => {
+    if (!currentDoc) currentDoc = createBlankDocument();
+    if (Object.prototype.hasOwnProperty.call(patch, "path")) currentDoc.path = patch.path;
+    if (Object.prototype.hasOwnProperty.call(patch, "content")) currentDoc.content = patch.content;
+    if (Object.prototype.hasOwnProperty.call(patch, "dirty")) currentDoc.dirty = Boolean(patch.dirty);
+  },
+  getActiveFilePath: () => activeFilePath,
+  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+  getActiveTuneId: () => activeTuneId,
+  getActiveTuneMeta: () => activeTuneMeta,
+  setRawActiveTuneMeta: (tuneId, meta) => {
+    activeTuneId = tuneId || null;
+    activeTuneUid = null;
+    activeTuneIndex = null;
+    activeTuneMeta = meta || null;
+  },
+  clearUnsavedDiscardState: () => {
+    headerEditorFilePath = null;
+    headerDirty = false;
+    if (currentDoc) currentDoc.dirty = false;
+  },
+  getHeaderDirty: () => headerDirty,
+  setHeaderClean: () => { headerDirty = false; },
+  getHeaderText: getHeaderEditorValue,
+  getEditorText: getEditorValue,
+  setEditorText: setEditorValue,
+  setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+  setFocusModeEnabled,
+  setBarMismatchMarkers,
+  applyRightSplitSizesFromRatio,
+  updateSourceLinkPanel: () => sourceLinkFeature.update(),
+  showToast,
+  showOpenError,
+  showSaveError,
+  setStatus,
+  withFileLock,
+  pathsEqual,
+  readFile,
+  refreshLibraryFile,
+  getActiveFileEntry,
+  findHeaderEndOffset,
+  findTuneById,
+  safeFirstTuneId: () => {
+    const entry = getActiveFileEntry();
+    return entry && entry.tunes && entry.tunes[0] ? entry.tunes[0].id : null;
+  },
+  selectTune,
+  stopPlaybackTransport,
+  flushWorkingCopyTuneSync,
+  flushWorkingCopyFullSync,
+  ensureWorkingCopyOpenForPath,
+  refreshWorkingCopySnapshot,
+  handleMissingWorkingCopySave,
+  resolveWorkingCopySaveConflictDefault,
+  markDiskConflictPath,
+  setFileContentInCache,
+  attachTuneUidsToLibraryFile,
+  updateHeaderStateUI,
+  updateFileHeaderPanel,
+  setDirtyIndicator,
+  setSaveFullFileSession: (filePath, source) => setSaveSession({
+    intent: SAVE_INTENT.FULL_FILE,
+    targetPath: String(filePath || ""),
+    targetTuneUid: "",
+    source: source || "raw_mode",
+  }),
+  ensureSafeToAbandonCurrentDoc,
+  setTuneMetaText,
+  buildTuneMetaLabel,
+  markActiveTuneButton,
+  scrollToPosInEditor,
+});
 
 function setDirtyIndicator(isDirty) {
   if (!$dirtyIndicator) return;
@@ -4460,146 +4559,29 @@ function setEditorValue(text) {
   });
 }
 
-function setRawModeUI(enabled) {
-  rawMode = Boolean(enabled);
-  if (rawMode && focusModeEnabled) setFocusModeEnabled(false);
-  if (rawMode) setBarMismatchMarkers([]);
-  document.body.classList.toggle("raw-mode", rawMode);
-  if ($btnToggleRaw) $btnToggleRaw.classList.toggle("toggle-active", rawMode);
-  applyRightSplitSizesFromRatio();
-  const disablePlayback = rawMode;
-  if ($btnPlayPause) $btnPlayPause.disabled = disablePlayback;
-  if ($btnStop) $btnStop.disabled = disablePlayback;
-  if ($btnToggleFollow) $btnToggleFollow.disabled = disablePlayback;
-  if ($btnToggleErrors) $btnToggleErrors.disabled = rawMode;
-  if ($scanErrorTunes) $scanErrorTunes.disabled = rawMode;
-  if ($errorsIndicator) $errorsIndicator.disabled = rawMode;
-  sourceLinkFeature.update();
+async function confirmRawModeLeave(contextLabel, { save } = {}) {
+  const fileDirty = Boolean(currentDoc && currentDoc.dirty);
+  const hdrDirty = Boolean(headerDirty);
+  if (!fileDirty && !hdrDirty) return true;
+  const choice = await confirmUnsavedChanges(contextLabel || "continuing");
+  if (choice === "cancel") return false;
+  if (choice === "save") {
+    const saved = typeof save === "function" ? await save() : await performRawSaveFlow();
+    return Boolean(saved);
+  }
+  if (choice === "dont_save") {
+    rawModeFeature.discardUnsavedRawState();
+    return true;
+  }
+  return false;
 }
 
-function buildRawFileText({ headerText, bodyText }) {
-  let header = String(headerText || "");
-  const body = String(bodyText || "");
-  if (header && !/[\r\n]$/.test(header) && /^\s*X:/.test(body)) {
-    header += "\n";
-  }
-  return header ? header + body : body;
+function setRawModeUI(enabled) {
+  rawModeFeature.setUi(enabled);
 }
 
 async function performRawSaveFlow() {
-  const filePath = rawModeFilePath || (currentDoc && currentDoc.path) || activeFilePath;
-  if (!filePath) {
-    await showSaveError("No file path available for raw save.");
-    return false;
-  }
-  const preferred = (activeTuneMeta && pathsEqual(activeTuneMeta.path, filePath))
-    ? { xNumber: activeTuneMeta.xNumber || "", indexInFile: activeTuneMeta.indexInFile || 0 }
-    : { xNumber: "", indexInFile: 0 };
-  const headerText = getHeaderEditorValue();
-  const bodyText = getEditorValue();
-  const fullText = buildRawFileText({ headerText, bodyText });
-  return withFileLock(filePath, async () => {
-    if (
-      !window.api
-      || typeof window.api.openWorkingCopy !== "function"
-      || typeof window.api.applyWorkingCopyFullText !== "function"
-      || typeof window.api.commitWorkingCopyToDisk !== "function"
-    ) {
-      await showSaveError("Internal error: working copy raw save is unavailable.");
-      return false;
-    }
-
-    await window.api.openWorkingCopy(filePath);
-    const applyRes = await window.api.applyWorkingCopyFullText(fullText);
-    if (!applyRes || !applyRes.ok) {
-      await showSaveError((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy for raw save.");
-      return false;
-    }
-
-    const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
-    if (saveRes && saveRes.missingOnDisk) {
-      const handled = await handleMissingWorkingCopySave(filePath);
-      if (handled && handled.ok) {
-        const nextPath = handled.path || filePath;
-        headerDirty = false;
-        updateHeaderStateUI();
-        if (currentDoc) {
-          currentDoc.path = nextPath;
-          currentDoc.content = bodyText;
-          currentDoc.dirty = false;
-        }
-        setDirtyIndicator(false);
-        setStatus("File saved.");
-        return true;
-      }
-      return false;
-    }
-    if (!saveRes || !saveRes.ok) {
-      if (saveRes && saveRes.conflict) {
-        const resolved = await resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId: null });
-        if (resolved && resolved.ok && resolved.action === "overwrite") {
-          // continue below (post-save snapshot/refresh)
-        } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-          setStatus("Saved copy.");
-          return true;
-        } else {
-          if (resolved && resolved.action === "discard_reload") {
-            setStatus("Reloaded from disk.");
-          } else if (resolved && resolved.error) {
-            await showSaveError(resolved.error);
-          } else {
-            setStatus("Save canceled.");
-          }
-          return false;
-        }
-      }
-      await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-      return false;
-    }
-
-    markDiskConflictPath(filePath, false);
-    const snapshot = await refreshWorkingCopySnapshot();
-    if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-      setFileContentInCache(filePath, snapshot.text);
-      attachTuneUidsToLibraryFile(filePath, snapshot);
-    } else {
-      setFileContentInCache(filePath, fullText);
-    }
-    headerDirty = false;
-    updateHeaderStateUI();
-    if (currentDoc) {
-      currentDoc.path = filePath;
-      currentDoc.content = bodyText;
-      currentDoc.dirty = false;
-    }
-    setDirtyIndicator(false);
-    const updatedFile = await refreshLibraryFile(filePath, { force: true });
-    if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
-      rawModeHeaderEndOffset = Number(updatedFile.headerEndOffset) || 0;
-    }
-    if (rawMode) {
-      const entry = updatedFile || (libraryIndex && libraryIndex.files
-        ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
-        : null);
-      const tunes = entry && entry.tunes ? entry.tunes : [];
-      if (tunes.length) {
-        let next = null;
-        if (!next && Number.isFinite(Number(preferred.indexInFile)) && Number(preferred.indexInFile) > 0) {
-          next = tunes[Math.min(tunes.length - 1, Math.max(0, Number(preferred.indexInFile) - 1))];
-        }
-        if (!next && preferred.xNumber) {
-          next = tunes.find((t) => String(t.xNumber || "") === String(preferred.xNumber));
-        }
-        if (!next) next = tunes[0];
-        if (next && next.id) {
-          if ($fileTuneSelect) $fileTuneSelect.value = next.id;
-          setActiveTuneInRaw(next.id);
-        }
-      }
-    }
-    setStatus("File saved.");
-    return true;
-  });
+  return rawModeFeature.save();
 }
 
 function scrollToPosInEditor(pos, { y = "start" } = {}) {
@@ -4620,166 +4602,23 @@ function scrollToPosInEditor(pos, { y = "start" } = {}) {
 }
 
 function setActiveTuneInRaw(tuneId) {
-  if (!tuneId) return;
-  const res = findTuneById(tuneId);
-  if (!res) return;
-  activeTuneId = tuneId;
-  activeTuneUid = null;
-  activeTuneIndex = null;
-  activeTuneMeta = {
-    id: res.tune.id,
-    path: res.file.path,
-    basename: res.file.basename,
-    indexInFile: res.tune.indexInFile,
-    xNumber: res.tune.xNumber,
-    title: res.tune.title || "",
-    composer: res.tune.composer || "",
-    key: res.tune.key || "",
-    startLine: res.tune.startLine,
-    endLine: res.tune.endLine,
-    startOffset: res.tune.startOffset,
-    endOffset: res.tune.endOffset,
-  };
-  markActiveTuneButton(activeTuneId);
-  setTuneMetaText(buildTuneMetaLabel(activeTuneMeta));
+  rawModeFeature.setActiveTune(tuneId);
 }
 
 function scrollToTuneInRaw(tuneId) {
-  const res = findTuneById(tuneId);
-  if (!res) return;
-  const bodyStart = Number(rawModeHeaderEndOffset) || 0;
-  const pos = Math.max(0, Number(res.tune.startOffset) - bodyStart);
-  scrollToPosInEditor(pos, { y: "start" });
+  rawModeFeature.scrollToTune(tuneId);
 }
 
 async function enterRawMode() {
-  const filePath = (activeTuneMeta && activeTuneMeta.path)
-    ? activeTuneMeta.path
-    : (activeFilePath || (currentDoc && currentDoc.path) || null);
-  if (!filePath) {
-    showToast("No active file to open in raw mode.", 2200);
-    return;
-  }
-  const ok = await ensureSafeToAbandonCurrentDoc("switching to raw mode");
-  if (!ok) return;
-
-  try { stopPlaybackTransport(); } catch {}
-  try { await flushWorkingCopyTuneSync(); } catch {}
-  try { await flushWorkingCopyFullSync(); } catch {}
-
-  // Raw mode must reflect what is saved on disk (source of truth after Save).
-  const readRes = await readFile(filePath);
-  if (!readRes || !readRes.ok) {
-    await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-    return;
-  }
-  const fullText = String(readRes.data || "");
-
-  // Keep working copy aligned with disk so subsequent operations don't reopen stale content.
-  try {
-    await ensureWorkingCopyOpenForPath(filePath);
-    if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
-      await window.api.reloadWorkingCopyFromDisk();
-    }
-    await refreshWorkingCopySnapshot();
-  } catch {}
-
-  activeFilePath = filePath;
-  setSaveSession({
-    intent: SAVE_INTENT.FULL_FILE,
-    targetPath: String(filePath || ""),
-    targetTuneUid: "",
-    source: "raw_mode",
-  });
-  setFileContentInCache(filePath, fullText);
-  const updatedFile = await refreshLibraryFile(filePath, { force: true });
-  const entry = updatedFile || getActiveFileEntry();
-  const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset) ? Number(entry.headerEndOffset) : findHeaderEndOffset(fullText);
-  const bodyText = String(fullText || "").slice(headerEndOffset);
-
-  rawModeFilePath = filePath;
-  rawModeHeaderEndOffset = headerEndOffset;
-  rawModeOriginalTuneId = activeTuneId;
-
-  suppressDirty = true;
-  setEditorValue(bodyText);
-  suppressDirty = false;
-  if (currentDoc) {
-    currentDoc.path = filePath;
-    currentDoc.content = bodyText;
-    currentDoc.dirty = false;
-  }
-  setRawModeUI(true);
-  updateFileHeaderPanel();
-  setDirtyIndicator(false);
-  if (rawModeOriginalTuneId) {
-    setActiveTuneInRaw(rawModeOriginalTuneId);
-    scrollToTuneInRaw(rawModeOriginalTuneId);
-  }
-  setStatus("Raw mode.");
+  await rawModeFeature.enter();
 }
 
 async function exitRawMode() {
-  if (!rawMode) return;
-  const fileDirty = Boolean(currentDoc && currentDoc.dirty);
-  const hdrDirty = Boolean(headerDirty);
-  if (fileDirty || hdrDirty) {
-    const choice = await confirmUnsavedChanges("leaving raw mode");
-    if (choice === "cancel") return;
-    if (choice === "save") {
-      const saved = await performRawSaveFlow();
-      if (!saved) return;
-    } else if (choice === "dont_save") {
-      headerEditorFilePath = null;
-      headerDirty = false;
-      if (currentDoc) currentDoc.dirty = false;
-      updateFileHeaderPanel();
-      setDirtyIndicator(false);
-    }
-  }
-  setRawModeUI(false);
-  const tuneToRestore = activeTuneId || rawModeOriginalTuneId;
-  rawModeFilePath = null;
-  rawModeHeaderEndOffset = 0;
-  rawModeOriginalTuneId = null;
-  if (tuneToRestore) {
-    const res = await selectTune(tuneToRestore, { skipConfirm: true });
-    if (!res || !res.ok) {
-      const entry = getActiveFileEntry();
-      const firstId = entry && entry.tunes && entry.tunes[0] ? entry.tunes[0].id : null;
-      if (firstId) await selectTune(firstId, { skipConfirm: true });
-    }
-  } else {
-    const entry = getActiveFileEntry();
-    const firstId = entry && entry.tunes && entry.tunes[0] ? entry.tunes[0].id : null;
-    if (firstId) await selectTune(firstId, { skipConfirm: true });
-  }
-  setStatus("Ready");
+  await rawModeFeature.exit({ ensureSafe: confirmRawModeLeave });
 }
 
 async function leaveRawModeForAction(contextLabel) {
-  if (!rawMode) return true;
-  const fileDirty = Boolean(currentDoc && currentDoc.dirty);
-  const hdrDirty = Boolean(headerDirty);
-  if (fileDirty || hdrDirty) {
-    const choice = await confirmUnsavedChanges(contextLabel || "continuing");
-    if (choice === "cancel") return false;
-    if (choice === "save") {
-      const saved = await performRawSaveFlow();
-      if (!saved) return false;
-    } else if (choice === "dont_save") {
-      headerEditorFilePath = null;
-      headerDirty = false;
-      if (currentDoc) currentDoc.dirty = false;
-      updateFileHeaderPanel();
-      setDirtyIndicator(false);
-    }
-  }
-  setRawModeUI(false);
-  rawModeFilePath = null;
-  rawModeHeaderEndOffset = 0;
-  rawModeOriginalTuneId = null;
-  return true;
+  return rawModeFeature.leaveForAction(contextLabel, { ensureSafe: confirmRawModeLeave });
 }
 
 function toggleLineComments(view) {

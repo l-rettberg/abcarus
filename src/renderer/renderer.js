@@ -114,6 +114,7 @@ import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
+import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer_adapter.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
 import { createMicrotonalToolsFeature } from "./tools/microtonal/microtonal_tools_feature.js";
 import { createIntonationExplorerFeature } from "./tools/intonation_explorer/intonation_explorer_feature.js";
@@ -168,9 +169,6 @@ import {
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
 } from "./playback/focus_playback_model.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
-import {
-  buildPrintTuneLabel,
-} from "./print/error_markup.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -700,6 +698,26 @@ const printAllFeature = createPrintAllFeature({
     window.__abcarusDebugPrintAllSvg = svg;
   },
 });
+const setListRendererAdapter = createSetListRendererAdapter({
+  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getActiveTuneId: () => activeTuneId,
+  getActiveFilePath: () => activeFilePath,
+  getHeaderText: () => getHeaderEditorValue(),
+  confirmUnsavedChanges,
+  performSaveFlow,
+  findTuneById,
+  readFile,
+  writeFile,
+  pathsEqual,
+  sanitizeHeaderText: sanitizeFileHeaderForPerTuneRender,
+  buildHeaderPrefix,
+  setErrorLineOffsetFromHeader,
+  renderAbcToSvgMarkup,
+  getDefaultSaveDir,
+  showSaveDialog,
+  showSaveError,
+  withFileLock,
+});
 const setListFeature = createSetListFeature({
   elements: {
     modal: $setListModal,
@@ -721,11 +739,11 @@ const setListFeature = createSetListFeature({
   },
   readStorage: safeReadJsonLocalStorage,
   writeStorage: safeWriteJsonLocalStorage,
-  buildItemForTuneId: buildSetListItemForTuneId,
-  renderItemToSvg: renderSetListItemToSvg,
+  buildItemForTuneId: setListRendererAdapter.buildItemForTuneId,
+  renderItemToSvg: setListRendererAdapter.renderItemToSvg,
   buildSourceLinkMarkup: (abcText) => sourceLinkFeature.buildPrintMarkup(abcText),
-  outputPrint: outputSetListPrintMarkup,
-  saveAbc: saveSetListAbcContent,
+  outputPrint: setListRendererAdapter.outputPrint,
+  saveAbc: setListRendererAdapter.saveAbc,
   getExportBaseName: getSuggestedBaseName,
   getPrintBaseName: getSongbookSuggestedBaseName,
   ensureXNumberInAbc,
@@ -9390,96 +9408,6 @@ function openLibraryListFromCurrentLibraryIndex() {
 
 async function openAbout() {
   await aboutModalController.open();
-}
-
-async function buildSetListItemForTuneId(
-  tuneId,
-  { fallbackTitle = "", fallbackComposer = "" } = {}
-) {
-  const id = String(tuneId || "").trim();
-  if (!id) throw new Error("Missing tune id.");
-
-  if (currentDoc && currentDoc.dirty && activeTuneId && id === activeTuneId) {
-    const choice = await confirmUnsavedChanges("adding this tune to Set List");
-    if (choice === "cancel") return;
-    if (choice === "save") {
-      const ok = await performSaveFlow();
-      if (!ok) return;
-    }
-  }
-
-  const res = findTuneById(id);
-  if (!res) throw new Error("Tune not found in library.");
-
-  const readRes = await readFile(res.file.path);
-  if (!readRes || !readRes.ok) throw new Error(readRes && readRes.error ? readRes.error : "Unable to read file.");
-  const content = String(readRes.data || "");
-  const entryHeader = (activeFilePath && pathsEqual(activeFilePath, res.file.path))
-    ? getHeaderEditorValue()
-    : (res.file.headerText || "");
-
-  const startOffset = Number(res.tune.startOffset);
-  const endOffset = Number(res.tune.endOffset);
-  if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || startOffset < 0 || endOffset <= startOffset || endOffset > content.length) {
-    throw new Error("Refusing to add: tune offsets look stale. Refresh the library and try again.");
-  }
-  const slice = content.slice(startOffset, endOffset);
-  const trimmed = slice.replace(/^\s+/, "");
-  const xMatch = trimmed.match(/^X:\s*(\d+)/);
-  if (!xMatch) {
-    throw new Error("Refusing to add: tune offsets look stale. Refresh the library and try again.");
-  }
-  const expectedX = String(res.tune.xNumber || "");
-  if (expectedX && xMatch[1] !== expectedX) {
-    throw new Error(`Refusing to add: tune offsets look stale (expected X:${expectedX}). Refresh the library and try again.`);
-  }
-
-  return {
-    sourceTuneId: id,
-    sourcePath: res.file.path,
-    xNumber: res.tune.xNumber || "",
-    title: res.tune.title || fallbackTitle || "",
-    composer: res.tune.composer || fallbackComposer || "",
-    headerText: entryHeader,
-    text: slice,
-  };
-}
-
-async function renderSetListItemToSvg({ abcText, headerText, tune } = {}) {
-  const body = String(abcText || "");
-  const sanitizedHeader = sanitizeFileHeaderForPerTuneRender(headerText);
-  const prefix = buildHeaderPrefix(sanitizedHeader, false, body);
-  const block = prefix.text ? `${prefix.text}${body}` : body;
-  const context = { tuneLabel: buildPrintTuneLabel(tune || {}) };
-  setErrorLineOffsetFromHeader(prefix.text);
-  const res = await renderAbcToSvgMarkup(block, { errorContext: context, pageFormat: true });
-  return { ...res, blockText: block };
-}
-
-async function saveSetListAbcContent({ suggestedName, content } = {}) {
-  const suggestedDir = getDefaultSaveDir();
-  const filePath = await showSaveDialog(suggestedName || "set-list.abc", suggestedDir);
-  if (!filePath) return false;
-  return withFileLock(filePath, async () => {
-    const res = await writeFile(filePath, content);
-    if (res && res.ok) return true;
-    await showSaveError((res && res.error) ? res.error : "Unable to export set list.");
-    return false;
-  });
-}
-
-async function outputSetListPrintMarkup({ type, svgMarkup, suggestedName } = {}) {
-  if (!window.api) return null;
-  if (type === "print" && typeof window.api.printDialog === "function") {
-    return window.api.printDialog(svgMarkup, suggestedName);
-  }
-  if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    return window.api.exportPdf(svgMarkup, suggestedName);
-  }
-  if (type === "preview" && typeof window.api.printPreview === "function") {
-    return window.api.printPreview(svgMarkup, suggestedName);
-  }
-  return null;
 }
 
 function showDisclaimerIfNeeded(settings) {

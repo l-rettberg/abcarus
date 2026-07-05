@@ -53,31 +53,37 @@ Steps:
 Expected:
 - The payload uses canonical one-line `%%MIDI drum <pattern> <pitches> <velocities>` syntax.
 - Drums sound during playback when native abc2svg MIDI drums are enabled.
-- `%%MIDI drum +:` continuation lines are not considered a supported native format unless upstream abc2svg adds support.
+- If the source uses ABCarus-readable `%%MIDI drum +:` continuation lines, the playback payload converts them to the canonical one-line native format.
 
-## PB-DRUM-02 — V:DRUM preserves bar/repeat/volta skeleton of V:1
+## PB-DRUM-02 — readable `%%MIDI drum +:` payload conversion
 
-Goal: Ensure V:DRUM mirrors the barline/repeat/volta structure exactly.
-
-Steps:
-1. Use the same tune as PB-DRUM-01.
-2. In **Playback payload**, locate `V:1` and `V:DRUM`.
-3. Compare barlines (`|`, `||`, `|:`, `:|`) and voltas (`[1`, `[2`) visually.
-
-Expected:
-- V:DRUM has the same barline + volta positions as V:1.
-- Pattern resets at repeats/voltas; there are no missing or extra bars.
-
-## PB-DRUM-03 — No extra V:DRUM content after `|]`
-
-Goal: Ensure drum generation stops at the final tune terminator.
+Goal: Ensure ABCarus-readable drum continuation lines are converted for playback without reintroducing generated `V:DRUM`.
 
 Steps:
-1. Use any tune with `|]` end (X:160 is sufficient).
-2. Inspect the end of the V:DRUM payload.
+1. Create or open a tune containing:
+   - `%%MIDI drum <pattern>`
+   - `%%MIDI drum +: <pitches>`
+   - `%%MIDI drum +: <velocities>`
+2. Open **Help -> Diagnostics -> Payload mode** and switch to **Playback payload**.
+3. Find the drum block in the payload.
 
 Expected:
-- V:DRUM ends cleanly at `|]` with no trailing generated bars.
+- The first drum line is `%%MIDI drum <pattern> <pitches> <velocities>`.
+- The `+:` continuation lines are comment placeholders in the payload.
+- No `V:DRUM` voice is generated.
+
+## PB-DRUM-03 — compact native drum lines pass through
+
+Goal: Ensure canonical native `%%MIDI drum` lines are not rewritten unnecessarily.
+
+Steps:
+1. Use a tune with a one-line `%%MIDI drum <pattern> <pitches> <velocities>` directive.
+2. Open **Playback payload**.
+3. Compare the source drum line with the payload drum line.
+
+Expected:
+- The compact native drum line is unchanged except for unrelated payload sanitizers.
+- No `V:DRUM` voice is generated.
 
 ## PB-SEL-01 — Selection playback: loop off plays once
 

@@ -53,6 +53,121 @@ function normalizeLeadingInlineDirectivesForPlayback(text) {
   return out.join("\n");
 }
 
+function splitDirectiveComment(rawLine) {
+  const line = String(rawLine || "");
+  let start = 0;
+  while (start < line.length && /\s/.test(line[start])) start += 1;
+  const scanFrom = line.startsWith("%%", start) ? start + 2 : start;
+  const idx = line.indexOf("%", scanFrom);
+  if (idx < 0) return { code: line, comment: "" };
+  return { code: line.slice(0, idx), comment: line.slice(idx) };
+}
+
+function parseReadableDrumContinuationNumbers(rawLine) {
+  const parts = splitDirectiveComment(rawLine);
+  const code = String(parts.code || "");
+  const prefixed = code.match(/^\s*%%\s*MIDI\s+drum\s+\+:\s*(.*)$/i);
+  const bare = prefixed ? null : code.match(/^\s*\+:\s*(.*)$/i);
+  const payload = prefixed ? prefixed[1] : (bare ? bare[1] : "");
+  if (!payload) return [];
+  return payload
+    .trim()
+    .split(/\s+/)
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n));
+}
+
+function isReadableDrumContinuationLine(rawLine) {
+  const code = splitDirectiveComment(rawLine).code;
+  return /^\s*%%\s*MIDI\s+drum\s+\+:/i.test(code) || /^\s*\+:/i.test(code);
+}
+
+function commentPlaceholderOfLength(length) {
+  const len = Math.max(0, Math.floor(Number(length) || 0));
+  return len > 0 ? `%${" ".repeat(Math.max(0, len - 1))}` : "%";
+}
+
+function distributePlaceholderLengths(originalLengths, targetTotal) {
+  const lengths = (Array.isArray(originalLengths) ? originalLengths : [])
+    .map((n) => Math.max(1, Math.floor(Number(n) || 0)));
+  const minTotal = lengths.length;
+  if (!lengths.length) return [];
+  let currentTotal = lengths.reduce((sum, n) => sum + n, 0);
+  const target = Math.max(minTotal, Math.floor(Number(targetTotal) || minTotal));
+  for (let i = lengths.length - 1; i >= 0 && currentTotal > target; i -= 1) {
+    const reduceBy = Math.min(lengths[i] - 1, currentTotal - target);
+    lengths[i] -= reduceBy;
+    currentTotal -= reduceBy;
+  }
+  return lengths;
+}
+
+function normalizeReadableMidiDrumsForPlayback(text) {
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  let changed = false;
+  const out = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = lines[i];
+    const parts = splitDirectiveComment(rawLine);
+    const mainMatch = String(parts.code || "").match(/^(\s*%%\s*MIDI\s+drum\s+)(?!\+:)(.*)$/i);
+    if (!mainMatch) {
+      out.push(rawLine);
+      continue;
+    }
+
+    const continuationLines = [];
+    let j = i + 1;
+    while (j < lines.length && isReadableDrumContinuationLine(lines[j])) {
+      continuationLines.push(lines[j]);
+      j += 1;
+    }
+
+    if (!continuationLines.length) {
+      out.push(rawLine);
+      continue;
+    }
+
+    const mainTokens = String(mainMatch[2] || "").trim().split(/\s+/).filter(Boolean);
+    const isInt = (t) => /^-?\d+$/.test(String(t || "").trim());
+    let firstNum = -1;
+    for (let n = 0; n < mainTokens.length; n += 1) {
+      if (isInt(mainTokens[n])) {
+        firstNum = n;
+        break;
+      }
+    }
+    const patternTokens = (firstNum === -1 ? mainTokens : mainTokens.slice(0, firstNum)).filter((t) => t !== "+:");
+    const numbers = firstNum === -1 ? [] : mainTokens.slice(firstNum).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    for (const continuation of continuationLines) {
+      numbers.push(...parseReadableDrumContinuationNumbers(continuation));
+    }
+
+    if (!patternTokens.length || !numbers.length) {
+      out.push(rawLine);
+      continue;
+    }
+
+    const canonicalPrefix = String(mainMatch[1] || "").replace(/\s+$/g, " ");
+    const canonicalLine = `${canonicalPrefix}${patternTokens.join("")} ${numbers.join(" ")}${parts.comment || ""}`;
+    const originalBlockLength = [rawLine, ...continuationLines]
+      .reduce((sum, line) => sum + String(line || "").length, 0);
+    const placeholderLengths = distributePlaceholderLengths(
+      continuationLines.map((line) => String(line || "").length),
+      originalBlockLength - canonicalLine.length
+    );
+
+    out.push(canonicalLine);
+    for (let n = 0; n < continuationLines.length; n += 1) {
+      out.push(commentPlaceholderOfLength(placeholderLengths[n] || 1));
+    }
+    changed = true;
+    i = j - 1;
+  }
+
+  return changed ? out.join("\n") : String(text || "");
+}
+
 function injectGchordOn(text, insertAt) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   let hasGchordPattern = false;
@@ -561,6 +676,7 @@ export {
   normalizeDollarLineBreaksForPlayback,
   normalizeKeyFieldToBeLastBeforeBodyForPlayback,
   normalizeLeadingInlineDirectivesForPlayback,
+  normalizeReadableMidiDrumsForPlayback,
   sanitizeAbcForPlayback,
   stripChordSymbolsForPlayback,
   stripLyricsForPlayback,

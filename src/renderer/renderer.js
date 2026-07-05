@@ -173,6 +173,7 @@ import {
   normalizeBlankLinesForPlayback,
   normalizeDollarLineBreaksForPlayback,
   normalizeLeadingInlineDirectivesForPlayback,
+  normalizeReadableMidiDrumsForPlayback,
   sanitizeAbcForPlayback,
   stripChordSymbolsForPlayback,
   stripLyricsForPlayback,
@@ -1563,6 +1564,7 @@ const debugDumpFeature = createDebugDumpFeature({
   normalizeLeadingInlineDirectivesForPlayback,
   normalizeDollarLineBreaksForPlayback,
   normalizeBlankLinesForPlayback,
+  normalizeReadableMidiDrumsForPlayback,
   sanitizeAbcForPlayback,
   clonePlaybackRange,
   clampInt,
@@ -4855,6 +4857,7 @@ function buildPayloadModePlaybackPayload(renderText, renderOffset) {
     injectGchordOn,
     normalizeDollarLineBreaksForPlayback,
     normalizeBlankLinesForPlayback,
+    normalizeReadableMidiDrumsForPlayback,
     sanitizeAbcForPlayback,
     expandRepeatsForPlayback,
     expandRepeats: window.__abcarusPlaybackExpandRepeats === true,
@@ -8285,51 +8288,25 @@ function buildMeasureStartsByNumberFromAbc2svg(firstSymbol) {
 
 function neutralizeMidiDrumDirectivesForPlayback(text) {
   const raw = String(text || "");
-  if (!/%%\s*MIDI\s+drum(on|bars)?\b/i.test(raw)) return raw;
+  if (!/(%%\s*MIDI\s+drum(on|bars)?\b|^\s*\+:)/im.test(raw)) return raw;
   // Keep line lengths stable (istart mapping) by replacing "%%" with "% " (comment).
+  let inDrumDirectiveRun = false;
   return raw.split(/\r\n|\n|\r/).map((line) => {
-    if (!/^\s*%%\s*MIDI\s+drum(on|bars)?\b/i.test(line)) return line;
+    const isDrumDirective = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(line);
+    const isContinuation = inDrumDirectiveRun && /^\s*(%%\s*MIDI\s+drum\s+)?\+:/i.test(line);
+    if (!isDrumDirective && !isContinuation) {
+      inDrumDirectiveRun = false;
+      return line;
+    }
+    inDrumDirectiveRun = isDrumDirective || isContinuation;
     const idx = line.indexOf("%%");
-    if (idx < 0) return line;
+    if (idx < 0) {
+      const plusIdx = line.indexOf("+");
+      if (plusIdx < 0) return line;
+      return `${line.slice(0, plusIdx)}% ${line.slice(plusIdx)}`;
+    }
     return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
   }).join("\n");
-}
-
-function neutralizeInjectedDrumVoiceForPlayback(text) {
-  const raw = String(text || "");
-  if (!/^\s*V:\s*DRUM\b/im.test(raw)) return raw;
-  const lines = raw.split(/\r\n|\n|\r/);
-  const isDrumHeaderLine = (line) => /^\s*V:\s*DRUM\b/i.test(String(line || ""));
-  const isVoiceHeaderLine = (line) => /^\s*V:\s*[^ \t\r\n]+/i.test(String(line || ""));
-  const toCommentPlaceholder = (line) => {
-    const src = String(line || "");
-    if (!src.length) return src;
-    return `%${" ".repeat(Math.max(0, src.length - 1))}`;
-  };
-  let inDrumVoice = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] || "";
-    if (!inDrumVoice && isDrumHeaderLine(line)) {
-      inDrumVoice = true;
-      lines[i] = toCommentPlaceholder(line);
-      continue;
-    }
-    if (!inDrumVoice) continue;
-    if (isVoiceHeaderLine(line) && !isDrumHeaderLine(line)) {
-      inDrumVoice = false;
-      continue;
-    }
-    lines[i] = toCommentPlaceholder(line);
-  }
-  return lines.join("\n");
-}
-
-function hasDrumBarMismatchParseError(parseErrors) {
-  if (!Array.isArray(parseErrors)) return false;
-  return parseErrors.some((e) => {
-    if (!e || e.inDrumBlock !== true) return false;
-    return /Different bars/i.test(String(e.message || ""));
-  });
 }
 
 function isMidiDrumMustBeInVoicePlaybackError(message) {
@@ -15737,6 +15714,7 @@ function getPlaybackPayload() {
     let payload = { text: String(tuneText || ""), offset };
     payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
     payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
+    payload = { text: normalizeReadableMidiDrumsForPlayback(payload.text), offset: payload.offset };
     let workingText = payload.text;
     if (ignoreRepeats) workingText = stripRepeatsLengthSafe(workingText);
     const sanitized = sanitizeAbcForPlayback(workingText);
@@ -15771,8 +15749,8 @@ function getPlaybackPayload() {
   const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
   const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
   const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
-  const previewText = normalizeBlankLinesForPlayback(
-    normalizeDollarLineBreaksForPlayback(gchordPreviewText)
+  const previewText = normalizeReadableMidiDrumsForPlayback(
+    normalizeBlankLinesForPlayback(normalizeDollarLineBreaksForPlayback(gchordPreviewText))
   );
   const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
   const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
@@ -15803,6 +15781,7 @@ function getPlaybackPayload() {
   }
   payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
   payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
+  payload = { text: normalizeReadableMidiDrumsForPlayback(payload.text), offset: payload.offset };
   const sanitized = sanitizeAbcForPlayback(payload.text);
   playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
   payload = { text: sanitized.text, offset: payload.offset };
@@ -16041,6 +16020,7 @@ async function preparePlayback() {
       showToast("Voice muting for inline [V:] switches is best-effort.", 2800);
     }
   }
+  playbackText = normalizeReadableMidiDrumsForPlayback(playbackText);
   if (/[\\^_]3\/4/.test(playbackText)) {
     playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
@@ -16101,20 +16081,6 @@ async function preparePlayback() {
     abc3.tosvg("play", normalized);
     abc.tunes = abc3.tunes;
     showToast("Playback: barlines normalized (compat mode).", 3600);
-  }
-
-  // Hard guard for injected drums: if bar mismatch is reported inside V:DRUM, do not play that
-  // generated drum voice for this run. A partial/misaligned drum tail is worse than silent drums.
-  if (hasDrumBarMismatchParseError(playbackParseErrors)) {
-    playbackSanitizeWarnings.push({ kind: "playback-drums-disabled-on-bar-mismatch" });
-    const abcNoDrums = new AbcCtor(user);
-    const noDrumsText = neutralizeMidiDrumDirectivesForPlayback(
-      neutralizeInjectedDrumVoiceForPlayback(playbackText)
-    );
-    playbackParseErrors = [];
-    abcNoDrums.tosvg("play", noDrumsText);
-    abc.tunes = abcNoDrums.tunes;
-    showToast("Playback: drums disabled (bar mismatch in generated DRUM voice).", 3800);
   }
 
   // abc2svg playback is stricter than many MIDI engines (e.g. abcmidi) and rejects chord symbols placed on barlines.

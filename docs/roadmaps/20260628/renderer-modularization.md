@@ -252,7 +252,7 @@ The second shape splits files without encapsulating ownership.
 | Payload Mode | diagnostics bar, render/playback payload views, read-only mode | `diagnostics/payload_mode.js` or `tools/payload_mode/` | render/playback payloads, editor read-only, settings gate | Medium |
 | Render payload and abc2svg | header layers, offset maps, renderNow, module loading | `render/payload.js`, `render/abc2svg_loader.js`, `render/render_now.js` | abc2svg globals, editor, errors, drums | High |
 | Header layers | global/user/file header merge and dedupe | `render/header_layers.js` | settings APIs, file reads | Medium |
-| Playback sanitize/payload | repeat expansion, drum injection, lyric/chord stripping | `playback/sanitize.js`, `playback/payload.js` | drums, settings, header layers | High |
+| Playback sanitize/payload | repeat expansion, native drum payload compatibility, lyric/chord stripping | `playback/sanitize.js`, `playback/payload.js` | drums, settings, header layers | High |
 | Playback transport | player state, play/pause/stop/restart, soundfont | `playback/transport.js`, `playback/soundfont.js` | abc2svg/snd globals, UI state, settings | High |
 | Follow/highlight/autoscroll | SVG/editor highlight and autoscroll | `playback/follow_highlight.js` | render offset maps, DOM refs | High |
 | A-B / selection playback | A-B markers, scoped selection, voice mute options | `playback/selection_ab.js` | editor selection, playback plan, UI controls | Medium to High |

@@ -15,6 +15,7 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
   injectGchordOn = null,
   normalizeDollarLineBreaksForPlayback = (text) => text,
   normalizeBlankLinesForPlayback = (text) => text,
+  normalizeReadableMidiDrumsForPlayback = (text) => text,
   sanitizeAbcForPlayback = (text) => ({ text, warnings: [] }),
   expandRepeatsForPlayback = (text) => text,
   expandRepeats = false,
@@ -47,6 +48,16 @@ function buildPlaybackPayloadForDiagnosticsFromRenderText(renderText, renderOffs
 
   payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
   payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
+  const readableDrumText = normalizeReadableMidiDrumsForPlayback(payload.text);
+  if (readableDrumText !== payload.text) {
+    const beforeLines = String(payload.text || "").split(/\r\n|\n|\r/);
+    payload = { text: readableDrumText, offset: payload.offset };
+    const afterLines = String(payload.text || "").split(/\r\n|\n|\r/);
+    const len = Math.max(beforeLines.length, afterLines.length);
+    for (let i = 0; i < len; i += 1) {
+      if (beforeLines[i] !== afterLines[i]) addLineSpan(i + 1, "cm-payload-layer-playback");
+    }
+  }
   const sanitized = sanitizeAbcForPlayback(payload.text);
   payload = { text: sanitized.text, offset: payload.offset };
   const warnings = Array.isArray(sanitized.warnings) ? sanitized.warnings : [];

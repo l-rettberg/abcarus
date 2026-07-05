@@ -39,6 +39,14 @@ function run() {
   });
   assertSpan(fallback.spans, 3, 4);
 
+  const readableDrum = buildPlaybackPayloadForDiagnosticsFromRenderText("X:1\nK:C\n%%MIDI drum dddd\n%%MIDI drum +: 36 42 38 42\n%%MIDI drum +: 100 90 80 90\nC|\n", 0, {
+    normalizeReadableMidiDrumsForPlayback: () => "X:1\nK:C\n%%MIDI drum dddd 36 42 38 42 100 90 80 90\n%\n%\nC|\n",
+  });
+  assert(readableDrum.text.includes("%%MIDI drum dddd 36 42 38 42 100 90 80 90"), "readable drum payload should use canonical line");
+  assertSpan(readableDrum.spans, 3, 3);
+  assertSpan(readableDrum.spans, 4, 4);
+  assertSpan(readableDrum.spans, 5, 5);
+
   let expanded = false;
   buildPlaybackPayloadForDiagnosticsFromRenderText("X:1\nK:C\nC|\n", 0, {
     expandRepeats: true,

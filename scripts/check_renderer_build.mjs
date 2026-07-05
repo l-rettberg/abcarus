@@ -333,7 +333,7 @@ async function assertDirectiveErrorsDoNotGetMeasureStats() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
   const start = src.indexOf("function shouldComputeMeasureStatsAt(editorText, anchorOffset)");
-  const end = src.indexOf("function setErrorFocusMessage(entry, from)", start);
+  const end = src.indexOf("function isDebugMessagesEnabled()", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate measure-stats eligibility helper.");
 
   const module = { exports: {} };

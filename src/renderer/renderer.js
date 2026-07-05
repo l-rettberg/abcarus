@@ -27,36 +27,14 @@ import {
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,
 } from "./editor/abc_helpers_controller.js";
-import { createErrorsActivationHighlightPlugin } from "./editor/errors_activation_highlight_plugin.js";
-import { createErrorsActivationController } from "./editor/errors_activation_controller.js";
-import { createErrorsBarMismatchController } from "./editor/errors_bar_mismatch_controller.js";
+import { createErrorsFeature } from "./editor/errors_feature.js";
 import {
-  analyzeBarMismatchesForGutter,
   detectMeterMismatchInBarlines,
   detectRepeatMarkerAfterShortBar,
 } from "./editor/errors_bar_mismatch_model.js";
-import { createErrorsCollection } from "./editor/errors_collection.js";
-import { createErrorsFocusMessageController } from "./editor/errors_focus_message_controller.js";
-import { createErrorsJumpController } from "./editor/errors_jump_controller.js";
-import { createErrorsLifecycleController } from "./editor/errors_lifecycle_controller.js";
-import { createErrorsListController } from "./editor/errors_list_controller.js";
-import { createErrorsMeasureHighlightController } from "./editor/errors_measure_highlight_controller.js";
-import { createMeasureErrorState } from "./editor/errors_measure_state.js";
-import { createErrorsPlaybackRangeController } from "./editor/errors_playback_range_controller.js";
-import { createErrorsPopoverController } from "./editor/errors_popover_controller.js";
-import { createErrorsReporterController } from "./editor/errors_reporter_controller.js";
-import { createErrorsHighlightState } from "./editor/errors_highlight_state.js";
 import {
-  computeErrorId,
-  getErrorGroupKey,
-  getErrorGroupLabel as getErrorGroupLabelCore,
   parseErrorLocation,
 } from "./editor/errors_model.js";
-import { createErrorsNavigationState } from "./editor/errors_navigation_state.js";
-import { createErrorsNavigationController } from "./editor/errors_navigation_controller.js";
-import { createErrorsTuneScanController } from "./editor/errors_tune_scan_controller.js";
-import { createErrorsSvgHighlightController } from "./editor/errors_svg_highlight_controller.js";
-import { createErrorsRuntimeState } from "./editor/errors_runtime_state.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
@@ -562,7 +540,7 @@ const payloadModeFeature = createPayloadModeFeature({
   buildPlaybackPayload: buildPayloadModePlaybackPayload,
   stopPlayback: stopPlaybackTransport,
   resetPlaybackState,
-  clearBarMismatchMarkers: () => errorsBarMismatchController.setMarkers([]),
+  clearBarMismatchMarkers: () => errorsFeature.clearBarMismatchMarkers(),
   refreshLayerDecorations: refreshPayloadLayerDecorations,
   scheduleRender: scheduleRenderNow,
   scheduleLibraryTree: () => scheduleRenderLibraryTree(sourceFiles),
@@ -790,140 +768,101 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   buildSelectionPlaybackToast,
   globalObject: window,
 });
-const errorsNavigationState = createErrorsNavigationState();
-const errorsHighlightState = createErrorsHighlightState();
-const errorsRuntimeState = createErrorsRuntimeState({
-  isEnabled: isErrorsEnabled,
-  clearFocusMessage: clearErrorFocusMessage,
-  updateIndicator: (options) => errorsPopoverController.updateIndicator(options),
-  syncActiveNavIndex: () => syncActiveErrorNavIndex(),
-});
-const errorsSvgHighlightController = createErrorsSvgHighlightController({
-  highlightState: errorsHighlightState,
+const errorsFeature = createErrorsFeature({
+  elements: {
+    toggleButton: $btnToggleErrors,
+    prevButton: $btnPrevMeasure,
+    nextButton: $btnNextMeasure,
+    scanButton: $scanErrorTunes,
+    indicator: $errorsIndicator,
+    focusMessage: $errorsFocusMessage,
+    popover: $errorsPopover,
+    popoverTitle: $errorsPopoverTitle,
+    popoverList: $errorsListPopover,
+    list: $errorList,
+    sidebar: $sidebar,
+    sidebarBody: $sidebarBody,
+    tuneSelect: $fileTuneSelect,
+  },
+  safeBasename,
+  setButtonText,
+  showToast,
+  logError: (...args) => console.error(...args),
+  isMeasureCheckEnabled,
+  isRawMode: () => rawMode,
+  isPayloadMode,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
+  getEditorView: () => editorView,
+  getRenderPayload,
+  getLastRenderPayload: () => lastRenderPayload,
   getOutputElement: () => $out,
   getRenderPaneElement: () => $renderPane,
-  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
   findMeasureRangeAt,
+  mapRenderIdxToEditorOffset,
   mapEditorOffsetToRenderIdx,
   pickClosestNoteElement,
   maybeScrollRenderToNote,
-});
-const errorsCollection = createErrorsCollection();
-const measureErrorState = createMeasureErrorState();
-const errorsBarMismatchController = createErrorsBarMismatchController({
-  dispatchEditorRefresh: () => {
-    if (!editorView) return;
-    editorView.dispatch({
-      selection: editorView.state.selection,
-      scrollIntoView: false,
-    });
-  },
-});
-const errorsMeasureHighlightController = createErrorsMeasureHighlightController({
-  getOutputElement: () => $out,
-  getEditorRanges: () => measureErrorState.getRanges(),
-  getRenderRanges: () => errorsReporterController.getMeasureRenderRanges(),
-});
-const errorsReporterController = createErrorsReporterController({
-  collection: errorsCollection,
-  measureErrorState,
-  safeBasename,
-  isEnabled: isErrorsEnabled,
-  isMeasureCheckEnabled,
-  getActiveTuneMeta: () => activeTuneMeta,
-  getEditorText: getEditorValue,
-  getRenderPayload,
-  getLastRenderPayload: () => lastRenderPayload,
-  findMeasureRangeAt,
-  mapRenderIdxToEditorOffset,
-  setMeasureErrorRanges,
-  renderErrorList,
-  showErrorsVisible,
-  setScanErrors,
-  getEntries: getErrorEntries,
-});
-const errorsPlaybackRangeController = createErrorsPlaybackRangeController({
-  isEnabled: isErrorsEnabled,
+  getEditorIndexFromLoc,
+  setEditorSelectionAt,
+  setEditorSelectionAtLineCol,
+  getTextIndexFromLoc,
+  highlightRenderNoteAtIndex,
+  highlightSvgAtEditorOffset,
   isPlaying: () => isPlaying,
-  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
-  findMeasureRangeAt,
+  isPaused: () => isPaused,
+  getPlaybackRange: () => playbackRange,
   setPlaybackRange,
-  setSelectionAt: setEditorSelectionAt,
-  setSuppressSelectionSync: (value) => { suppressPlaybackRangeSelectionSync = Boolean(value); },
-  logError: (...args) => console.error(...args),
-});
-const errorsTuneScanController = createErrorsTuneScanController({
-  isEnabled: isErrorsEnabled,
+  setPendingPlaybackRangeOrigin: (origin) => { pendingPlaybackRangeOrigin = origin; },
+  setSuppressPlaybackRangeSelectionSync: (value) => { suppressPlaybackRangeSelectionSync = Boolean(value); },
   isDirty: () => Boolean(currentDoc && currentDoc.dirty),
   confirmUnsavedChanges,
   performSaveFlow,
   getFileContentCached,
+  getActiveFileEntry,
   selectTune,
   getActiveTuneId: () => activeTuneId,
+  getActiveTuneIdForList: () => activeTuneId,
   getEditorScroll: () => editorView && editorView.scrollDOM ? editorView.scrollDOM.scrollTop : 0,
   setEditorScroll: (value) => { if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = value; },
   getRenderScroll: () => $renderPane ? $renderPane.scrollTop : 0,
   setRenderScroll: (value) => { if ($renderPane) $renderPane.scrollTop = value; },
   setSuppressRecentEntries: (value) => { suppressRecentEntries = Boolean(value); },
-  setErrorLineOffsetFromHeader,
-  setScanButtonState: setScanErrorButtonState,
-  setScanButtonActive: setScanErrorButtonActive,
   buildTuneSelectOptions,
-  setScanErrors,
-  getErrorEntries,
   setStatus,
-  onIdleIndexChanged: updateFileContext,
-});
-const errorsLifecycleController = createErrorsLifecycleController({
-  toggleButton: $btnToggleErrors,
-  prevButton: $btnPrevMeasure,
-  nextButton: $btnNextMeasure,
-  scanButton: $scanErrorTunes,
-  indicator: $errorsIndicator,
-  focusMessage: $errorsFocusMessage,
-  setButtonText,
-  closePopover: () => errorsPopoverController.close(),
-  clearActiveHighlight: clearActiveErrorHighlight,
-  cancelTuneScan: () => errorsTuneScanController.cancel(),
-  clearTuneScanFilter: () => errorsTuneScanController.clearFilter(),
-  setScanButtonActive: setScanErrorButtonActive,
-  setScanButtonState: setScanErrorButtonState,
-  clearBarMismatchMarkers: () => errorsBarMismatchController.setMarkers([]),
-  clearErrors,
   updateFileContext,
-  getPlaybackRange: () => playbackRange,
-  setPlaybackRange,
   updateLibraryStatus,
-  updateIndicatorAndPopover: updateErrorsIndicatorAndPopover,
-  clearFocusMessage: clearErrorFocusMessage,
-  refreshErrorsNow,
+  clearPendingRenderTimer: () => {
+    if (t) {
+      clearTimeout(t);
+      t = null;
+    }
+  },
   scheduleRenderNow,
-});
-const errorsNavigationController = createErrorsNavigationController({
-  navigationState: errorsNavigationState,
-  isEnabled: isErrorsEnabled,
-  isPlaybackBusy: () => Boolean(isPlaying || isPaused),
-  getSortedItems: getSortedErrorsForNav,
-  jumpToError,
-  showToast,
+  openTuneFromLibrarySelection: (selection) => {
+    if (typeof window.openTuneFromLibrarySelection !== "function") return Promise.resolve(null);
+    return window.openTuneFromLibrarySelection(selection);
+  },
+  parseMeterParts,
+  computeMeasureStats: computeMeasureStatsAt,
 });
 
 // ---------------- A–B playback helpers ----------------
 
 function getErrorEntries() {
-  return errorsCollection.getEntries();
+  return errorsFeature.getEntries();
 }
 
 function isTuneErrorFilterActive() {
-  return errorsTuneScanController.isFilterActive();
+  return errorsFeature.isScanFilterActive();
 }
 
 function isTuneErrorScanInFlight() {
-  return errorsTuneScanController.isInFlight();
+  return errorsFeature.isScanInFlight();
 }
 
 function isErrorsEnabled() {
-  return errorsLifecycleController.isEnabled();
+  return errorsFeature.isEnabled();
 }
 
 function isAbPlanValid() {
@@ -1050,38 +989,38 @@ let lastSvgPlayheadSvg = null;
 let lastSvgPlayheadXCenter = null;
 
 function getSortedErrorsForNav() {
-  return errorsRuntimeState.getSortedErrorsForNav();
+  return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
 }
 
 function syncActiveErrorNavIndex(sortedItemsArg) {
-  errorsActivationController.syncNavIndex(sortedItemsArg);
+  errorsFeature.syncActiveNavIndex(sortedItemsArg);
 }
 
 async function activateErrorByNav(delta) {
-  await errorsNavigationController.activateByDelta(delta);
+  await errorsFeature.activateByNav(delta);
 }
 
 function clearActiveErrorHighlight(reason) {
-  errorsActivationController.clear(reason);
+  errorsFeature.clearActiveHighlight(reason);
 }
 
 function setActiveErrorHighlight(entry, from, to) {
-  errorsActivationController.set(entry, from, to);
+  errorsFeature.setActiveHighlight(entry, from, to);
 }
 
 function clearErrorsFeatureState() {
-  errorsLifecycleController.clearFeatureState();
+  errorsFeature.clearFeatureState();
 }
 
 function updateErrorsFeatureUI() {
-  errorsLifecycleController.updateUi();
+  errorsFeature.updateFeatureUi();
 }
 
 function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
-  errorsLifecycleController.setEnabled(next, { triggerRefresh });
+  errorsFeature.setEnabled(next, { triggerRefresh });
 }
 
-const errorActivationHighlightPlugin = createErrorsActivationHighlightPlugin(errorsHighlightState);
+const errorActivationHighlightPlugin = errorsFeature.plugins.activationHighlight;
 
 const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
@@ -1114,7 +1053,7 @@ const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
 });
 
 function clearSvgErrorActivationHighlight() {
-  errorsSvgHighlightController.clear();
+  errorsFeature.clearSvgHighlight();
 }
 
 function clearSvgPracticeBarHighlight() {
@@ -1411,7 +1350,7 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
 }
 
 function highlightSvgAtEditorOffset(editorOffset) {
-  return errorsSvgHighlightController.highlightAtEditorOffset(editorOffset);
+  return errorsFeature.highlightSvgAtEditorOffset(editorOffset);
 }
 
 let diagnosticsController = null;
@@ -1559,11 +1498,11 @@ const debugDumpFeature = createDebugDumpFeature({
   getPlaybackNoteTrace: () => playbackNoteTrace,
   getPlaybackParseErrors: () => playbackParseErrors,
   getPlaybackSanitizeWarnings: () => playbackSanitizeWarnings,
-  getLastRhythmErrorSuggestion: () => errorsPlaybackRangeController.getLastSuggestion(),
+  getLastRhythmErrorSuggestion: () => errorsFeature.getLastRhythmErrorSuggestion(),
   getLastRenderPayload: () => lastRenderPayload,
-  getBarMismatchMarkers: () => errorsBarMismatchController.getMarkers(),
+  getBarMismatchMarkers: () => errorsFeature.getBarMismatchMarkers(),
   getErrorEntries: () => getErrorEntries(),
-  getActiveErrorHighlight: () => errorsHighlightState.getActive(),
+  getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
   getActiveFileEntry,
   isPayloadMode,
   computeHeaderPresence,
@@ -2664,49 +2603,6 @@ const xIssuesModalController = createXIssuesModalController({
   autoFixFile: renumberXInActiveFile,
   showToast,
 });
-const errorsPopoverController = createErrorsPopoverController({
-  indicator: $errorsIndicator,
-  popover: $errorsPopover,
-  titleElement: $errorsPopoverTitle,
-  listElement: $errorsListPopover,
-  getErrors: () => errorsRuntimeState.getErrors(),
-  getActiveErrorId: () => {
-    const active = errorsHighlightState.getActive();
-    return active && active.id ? active.id : "";
-  },
-  computeErrorId,
-  onJump: jumpToError,
-});
-const errorsActivationController = createErrorsActivationController({
-  highlightState: errorsHighlightState,
-  navigationState: errorsNavigationState,
-  getSortedItems: getSortedErrorsForNav,
-  getEntries: getErrorEntries,
-  getEditorView: () => editorView,
-  getEditorIndexFromLoc,
-  clearSvgHighlight: clearSvgErrorActivationHighlight,
-  clearFocusMessage: clearErrorFocusMessage,
-  setFocusMessage: setErrorFocusMessage,
-  refreshPopover: () => errorsPopoverController.refresh(),
-  highlightSvgAtEditorOffset,
-  logError: (...args) => console.error(...args),
-});
-const errorsJumpController = createErrorsJumpController({
-  isEnabled: () => isErrorsEnabled(),
-  showToast,
-  getEditorView: () => editorView,
-  openTuneFromLibrarySelection: (selection) => {
-    if (typeof window.openTuneFromLibrarySelection !== "function") return Promise.resolve(null);
-    return window.openTuneFromLibrarySelection(selection);
-  },
-  selectTune,
-  setPendingPlaybackRangeOrigin: (origin) => { pendingPlaybackRangeOrigin = origin; },
-  setActiveHighlight: setActiveErrorHighlight,
-  highlightState: errorsHighlightState,
-  highlightSvgAtEditorOffset,
-  applyPlaybackRangeFromError,
-  logError: (...args) => console.error(...args),
-});
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
   infoElement: $aboutInfo,
@@ -2716,33 +2612,6 @@ const aboutModalController = createAboutModalController({
   enableDraggableModal,
   setStatus,
   logError: logErr,
-});
-const errorsListController = createErrorsListController({
-  listElement: $errorList,
-  getErrors: () => getErrorEntries(),
-  getActiveTuneId: () => activeTuneId,
-  getGroupKey: getErrorGroupKey,
-  getGroupLabel: getErrorGroupLabel,
-  onActivate: async (entry) => {
-    if (entry.tuneId && entry.tuneId !== activeTuneId) {
-      await selectTune(entry.tuneId);
-    }
-    if (entry.loc) {
-      setEditorSelectionAtLineCol(entry.loc.line, entry.loc.col);
-    }
-    if (entry.renderLoc && lastRenderPayload && lastRenderPayload.text) {
-      const renderIdx = getTextIndexFromLoc(lastRenderPayload.text, entry.renderLoc);
-      if (Number.isFinite(renderIdx)) highlightRenderNoteAtIndex(renderIdx);
-    }
-  },
-});
-const errorsFocusMessageController = createErrorsFocusMessageController({
-  element: $errorsFocusMessage,
-  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
-  getNavItems: getSortedErrorsForNav,
-  computeErrorId,
-  parseMeterParts,
-  computeMeasureStats: computeMeasureStatsAt,
 });
 const goToMeasureModalController = createGoToMeasureModalController();
 
@@ -3278,15 +3147,15 @@ function setScanStatus(text, title) {
 }
 
 function setLibraryErrorIndexForTune(tuneId, count) {
-  errorsTuneScanController.setTuneErrorCount(tuneId, count);
+  errorsFeature.setTuneErrorCount(tuneId, count);
 }
 
 function clearErrorIndexForFile(entry) {
-  errorsTuneScanController.clearIndexForFile(entry);
+  errorsFeature.clearIndexForFile(entry);
 }
 
 function updateLibraryErrorIndexFromCurrentErrors() {
-  errorsTuneScanController.updateIndexFromCurrentErrors(activeTuneId, getErrorEntries());
+  errorsFeature.updateIndexFromCurrentErrors(activeTuneId);
 }
 
 function stripFileExtension(name) {
@@ -3524,7 +3393,7 @@ function buildTuneSelectOptions(fileEntry) {
     return;
   }
   const sourceTunes = fileEntry.tunes.slice().sort((a, b) => (Number(a.xNumber) || 0) - (Number(b.xNumber) || 0));
-  const tunes = errorsTuneScanController.getFilteredTunes(sourceTunes);
+  const tunes = errorsFeature.getFilteredTunes(sourceTunes);
   if (isNewTuneDraft) {
     const option = document.createElement("option");
     option.value = "__new__";
@@ -3532,7 +3401,7 @@ function buildTuneSelectOptions(fileEntry) {
     option.selected = true;
     $fileTuneSelect.appendChild(option);
   }
-  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !errorsTuneScanController.hasIndexedErrors()) {
+  if (isTuneErrorFilterActive() && isTuneErrorScanInFlight() && !errorsFeature.hasIndexedErrors()) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "(Scanning errors…)";
@@ -3572,8 +3441,8 @@ function buildTuneSelectOptions(fileEntry) {
 function updateFileContext() {
   if (chordProFeature.isEnabled()) {
     chordProFeature.updateSelectOptions();
-    setScanErrorButtonVisibility(null);
-    setScanErrorButtonActive(false);
+    errorsFeature.updateScanButtonVisibility(null);
+    errorsFeature.setScanButtonActive(false);
     return;
   }
   const entry = getActiveFileEntry();
@@ -3582,13 +3451,13 @@ function updateFileContext() {
       $fileTuneSelect.textContent = "";
       $fileTuneSelect.disabled = true;
     }
-    setScanErrorButtonVisibility(null);
-    setScanErrorButtonActive(false);
+    errorsFeature.updateScanButtonVisibility(null);
+    errorsFeature.setScanButtonActive(false);
     return;
   }
   buildTuneSelectOptions(entry);
-  setScanErrorButtonVisibility(entry);
-  setScanErrorButtonActive(isTuneErrorFilterActive());
+  errorsFeature.updateScanButtonVisibility(entry);
+  errorsFeature.setScanButtonActive(isTuneErrorFilterActive());
 }
 
 function getNavigableTuneIdsFromFileSelect() {
@@ -3707,16 +3576,7 @@ function setHeaderEditorValue(text) {
   });
 }
 
-const measureErrorPlugin = measureErrorState.plugin;
-
-function setMeasureErrorRanges(ranges) {
-  measureErrorState.setRanges(ranges);
-  if (!editorView) return;
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
-}
+const measureErrorPlugin = errorsFeature.plugins.measure;
 
 const abPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
@@ -3744,10 +3604,10 @@ function refreshAbMarkers() {
   }
 }
 
-const barMismatchPlugin = errorsBarMismatchController.plugin;
+const barMismatchPlugin = errorsFeature.plugins.barMismatch;
 
 function setBarMismatchMarkers(markers) {
-  errorsBarMismatchController.setMarkers(markers);
+  errorsFeature.setBarMismatchMarkers(markers);
 }
 
 let intonationHighlightRanges = [];
@@ -4404,27 +4264,7 @@ function scheduleStartupLayoutReset() {
 }
 
 function refreshErrorsNow() {
-  if (rawMode) {
-    showToast("Raw mode: switch to tune mode for errors.", 2200);
-    return;
-  }
-  if (!isErrorsEnabled()) {
-    showToast("Errors disabled");
-    return;
-  }
-  if (t) {
-    clearTimeout(t);
-    t = null;
-  }
-  scheduleRenderNow();
-  if (isTuneErrorFilterActive() && !isTuneErrorScanInFlight()) {
-    const entry = getActiveFileEntry();
-    if (entry) {
-      setScanErrorButtonActive(true);
-      scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
-      updateLibraryStatus();
-    }
-  }
+  errorsFeature.refreshNow();
 }
 
 async function loadLastRecentEntry() {
@@ -5231,8 +5071,8 @@ function initEditor() {
   // This avoids accidental clearing from programmatic selection changes (follow playback, jump, etc.).
   editorView.dom.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    if (errorsHighlightState.isSuppressingClear()) return;
-    const activeErrorHighlight = errorsHighlightState.getActive();
+    if (errorsFeature.isHighlightSuppressingClear()) return;
+    const activeErrorHighlight = errorsFeature.getActiveHighlight();
     if (!activeErrorHighlight) return;
     if (!Number.isFinite(activeErrorHighlight.from) || !Number.isFinite(activeErrorHighlight.to)) return;
     const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY });
@@ -5434,7 +5274,7 @@ function initHeaderEditor() {
 
 function setActiveTuneText(text, metadata, options = {}) {
   if (chordProFeature.isEnabled()) chordProFeature.setMode(false);
-  if (errorsHighlightState.hasActive()) clearActiveErrorHighlight("docReplaced");
+  if (errorsFeature.hasActiveHighlight()) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
   resetPlaybackState();
   resetTransposePreviewState();
@@ -6292,7 +6132,7 @@ async function refreshLibraryIndex() {
   const rootAtStart = libraryIndex.root;
   setScanStatus("Refreshing…");
   fileContentCache.clear();
-  errorsTuneScanController.clearIndex();
+  errorsFeature.clearIndex();
   if (libraryIndex && libraryIndex.root) {
     setFileNameMeta(stripFileExtension(safeBasename(libraryIndex.root)));
   }
@@ -6335,7 +6175,7 @@ async function loadLibraryFromFolder(folder) {
   const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   setScanStatus("Scanning…");
   fileContentCache.clear();
-  errorsTuneScanController.clearIndex();
+  errorsFeature.clearIndex();
   activeTuneId = null;
   setTuneMetaText("No tune selected.");
   setFileNameMeta(stripFileExtension(safeBasename(folder || "")));
@@ -6635,45 +6475,12 @@ if ($btnLibraryRefresh) {
 
 if ($scanErrorTunes) {
   $scanErrorTunes.addEventListener("click", () => {
-    if (!isErrorsEnabled()) {
-      showToast("Errors disabled");
-      return;
-    }
-    if (rawMode) {
-      showToast("Raw mode: switch to tune mode for errors.", 2200);
-      return;
-    }
-    if (isTuneErrorScanInFlight()) return;
-    const entry = getActiveFileEntry();
-    if (!entry) return;
-    clearErrors();
-    errorsTuneScanController.invalidate();
-    if (isTuneErrorFilterActive()) {
-      errorsTuneScanController.clearFilter();
-      buildTuneSelectOptions(entry);
-      setScanErrorButtonActive(false);
-      updateLibraryStatus();
-      return;
-    }
-    errorsTuneScanController.setFilterActive(true);
-    buildTuneSelectOptions(entry);
-    setScanErrorButtonActive(true);
-    scanActiveFileForTuneErrors(entry, { filterToErrorTunes: true }).catch(() => {});
-    updateLibraryStatus();
+    errorsFeature.handleScanButtonClick();
   });
 }
 
 function startScanForErrorsFromToolbarEnable() {
-  if (!isErrorsEnabled()) return;
-  if (rawMode) return;
-  if (isPlaying || isPaused) {
-    showToast("Stop playback to scan errors");
-    return;
-  }
-  errorsTuneScanController.clearFilter();
-  errorsTuneScanController.invalidate();
-  setScanErrorButtonActive(false);
-  refreshErrorsNow();
+  errorsFeature.startScanFromToolbarEnable();
 }
 
 if ($btnFileNew) {
@@ -6977,14 +6784,6 @@ function shouldComputeMeasureStatsAt(editorText, anchorOffset) {
   return true;
 }
 
-function setErrorFocusMessage(entry, from) {
-  errorsFocusMessageController.set(entry, from);
-}
-
-function clearErrorFocusMessage() {
-  errorsFocusMessageController.clear();
-}
-
 function isDebugMessagesEnabled() {
   return Boolean(window.__abcarusDebugMessages);
 }
@@ -7074,23 +6873,19 @@ function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) 
 }
 
 function updateErrorsIndicatorAndPopover() {
-  errorsRuntimeState.updateIndicatorAndPopover();
+  errorsFeature.updateIndicatorAndPopover();
 }
 
 function setScanErrors(errorsArray) {
-  errorsRuntimeState.setErrors(errorsArray);
+  errorsFeature.setScanErrors(errorsArray);
 }
 
 function reconcileActiveErrorHighlightAfterRender({ renderSucceeded = false } = {}) {
-  errorsActivationController.reconcileAfterRender({ renderSucceeded });
+  errorsFeature.reconcileActiveHighlightAfterRender({ renderSucceeded });
 }
 
 async function jumpToError(errItem) {
-  await errorsJumpController.jumpToError(errItem);
-}
-
-function applyPlaybackRangeFromError(errItem) {
-  errorsPlaybackRangeController.applyFromError(errItem);
+  await errorsFeature.jumpToError(errItem);
 }
 
 function renderToolStatus() {
@@ -7171,11 +6966,6 @@ async function checkExternalTools() {
   renderToolStatus();
 }
 
-function setScanErrorButtonState(isScanning) {
-  if (!$scanErrorTunes) return;
-  $scanErrorTunes.disabled = Boolean(isScanning);
-}
-
 function applyLibrarySearch(value) {
   libraryTextFilter = String(value || "").trim();
   scheduleRenderLibraryTree();
@@ -7189,28 +6979,6 @@ function scheduleLibrarySearch(value) {
     librarySearchTimer = null;
     applyLibrarySearch(pendingLibrarySearch);
   }, LIBRARY_SEARCH_DEBOUNCE_MS);
-}
-
-function setScanErrorButtonActive(isActive) {
-  if (!$scanErrorTunes) return;
-  const active = Boolean(isActive);
-  $scanErrorTunes.classList.toggle("toggle-active", active);
-  if ($fileTuneSelect) {
-    $fileTuneSelect.classList.toggle("error-filter-active", active);
-  }
-}
-
-function setScanErrorButtonVisibility(entry) {
-  if (!$scanErrorTunes) return;
-  const tuneCount = entry && Array.isArray(entry.tunes) ? entry.tunes.length : 0;
-  const shouldShow = tuneCount > 1;
-  $scanErrorTunes.style.display = shouldShow ? "" : "none";
-  if (!shouldShow) {
-    errorsTuneScanController.cancel();
-    errorsTuneScanController.clearFilter();
-    setScanErrorButtonState(false);
-    setScanErrorButtonActive(false);
-  }
 }
 
 function setSoundfontStatus(text, autoClearMs) {
@@ -7309,7 +7077,7 @@ function showErrorsVisible(visible) {
 }
 
 function clearErrors() {
-  errorsReporterController.clear();
+  errorsFeature.clear();
 }
 
 let contextMenu = null;
@@ -7907,11 +7675,11 @@ async function moveTuneToFile(tuneId, targetPath) {
 }
 
 function setErrorLineOffsetFromHeader(headerText) {
-  errorsReporterController.setLineOffsetFromHeader(headerText);
+  errorsFeature.setLineOffsetFromHeader(headerText);
 }
 
 function applyMeasureHighlights(renderOffset) {
-  errorsMeasureHighlightController.apply(renderOffset);
+  errorsFeature.applyMeasureHighlights(renderOffset);
 }
 
 function isMeasureCheckEnabled() {
@@ -8455,20 +8223,12 @@ async function goToMeasureFromMenu() {
   setStatus(`Go to measure: ${n}`);
 }
 
-function getErrorGroupLabel(entry) {
-  return getErrorGroupLabelCore(entry, { safeBasename });
-}
-
-function renderErrorList() {
-  errorsListController.render();
-}
-
 function addError(message, locOverride, contextOverride) {
-  return errorsReporterController.add(message, locOverride, contextOverride);
+  return errorsFeature.add(message, locOverride, contextOverride);
 }
 
 function logErr(m, loc, context) {
-  return errorsReporterController.log(m, loc, context);
+  return errorsFeature.log(m, loc, context);
 }
 
 function clearNoteSelection() {
@@ -8739,10 +8499,6 @@ function ensureAbc2svgModulesReady(content) {
     const done = window.abc2svg.modules.load(content, () => resolve(true), () => resolve(false));
     if (done) resolve(true);
   });
-}
-
-async function scanActiveFileForTuneErrors(entry, { filterToErrorTunes = false } = {}) {
-  await errorsTuneScanController.scanActiveFile(entry, { filterToErrorTunes });
 }
 
 async function renderAbcToSvgMarkup(abcText, options = {}) {
@@ -9110,71 +8866,6 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
   });
 }
 
-function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0 } = {}) {
-  if (!editorView || rawMode || isPayloadMode() || !isErrorsEnabled()) {
-    setBarMismatchMarkers([]);
-    return;
-  }
-  try {
-    let markers = analyzeBarMismatchesForGutter(tuneText);
-    const lineDelta = Number(lineOffset) || 0;
-    const offsetDelta = Number(startOffset) || 0;
-    if ((lineDelta || offsetDelta) && Array.isArray(markers)) {
-      markers = markers.map((marker) => {
-        if (!marker) return marker;
-        const next = { ...marker };
-        if (Number.isFinite(next.offset)) next.offset = Number(next.offset) + offsetDelta;
-        if (Number.isFinite(next.line)) next.line = Number(next.line) + lineDelta;
-        return next;
-      });
-    }
-    setBarMismatchMarkers(markers);
-    if (window.__abcarusDebugBarMismatch === true) {
-      console.info("[bar-mismatch]", {
-        count: Array.isArray(markers) ? markers.length : 0,
-        first: Array.isArray(markers) ? markers.slice(0, 8) : [],
-      });
-    }
-  } catch {
-    setBarMismatchMarkers([]);
-    if (window.__abcarusDebugBarMismatch === true) {
-      console.warn("[bar-mismatch] analyze failed");
-    }
-  }
-}
-
-function addBarMismatchErrorsFromMarkers(markers) {
-  if (!isErrorsEnabled() || !editorView) return;
-  if (!Array.isArray(markers) || markers.length === 0) return;
-  const docLen = editorView.state.doc.length;
-  const clamp = (value) => Math.max(0, Math.min(docLen, Math.floor(Number(value) || 0)));
-  for (const marker of markers) {
-    if (!marker || !Number.isFinite(marker.offset)) continue;
-    const start = clamp(marker.offset);
-    const len = Math.max(1, Math.min(16, Math.floor(Number(marker.len) || 1)));
-    const end = Math.max(start + 1, clamp(start + len));
-    const barLabel = marker.barLabel
-      ? String(marker.barLabel)
-      : (marker.barNumber ? `Bar ${marker.barNumber}` : "Bar");
-    const deltaLabel = marker.deltaText ? ` ${marker.deltaText}` : "";
-    const voicePrefix = marker.voiceId ? `V:${marker.voiceId} · ` : "";
-    const detail = marker.detail ? String(marker.detail) : `${voicePrefix}${barLabel}${deltaLabel} mismatch.`;
-    const message = `Bar mismatch: ${detail}`;
-    const loc = Number.isFinite(marker.line)
-      ? { line: Number(marker.line), col: Number.isFinite(marker.col) ? Number(marker.col) : 1 }
-      : null;
-    addError(message, loc, {
-      source: "bar-mismatch",
-      skipMeasureRange: true,
-      skipLineOffset: true,
-      errorStartOffset: start,
-      errorEndOffset: end,
-      barNumber: marker.barNumber || null,
-      voiceId: marker.voiceId || "",
-    });
-  }
-}
-
 function renderNow() {
   clearNoteSelection();
   invalidateNoteHighlightIndexCache();
@@ -9197,7 +8888,7 @@ function renderNow() {
     reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
     return;
   }
-  refreshBarMismatchMarkersForTune(currentText);
+  errorsFeature.refreshBarMismatchMarkersForTune(currentText);
   const renderPayload = getRenderPayload();
   if (!assertCleanAbcText(renderPayload.text, "renderNow")) {
     logErr("ABC text corruption detected (render).");
@@ -9217,11 +8908,11 @@ function renderNow() {
     compatMap: null,
   };
   if (Number.isFinite(renderPayload.lineOffset)) {
-    errorsReporterController.setLineOffset(renderPayload.lineOffset);
+    errorsFeature.setLineOffset(renderPayload.lineOffset);
   } else {
     setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
   }
-  addBarMismatchErrorsFromMarkers(errorsBarMismatchController.getMarkers());
+  errorsFeature.addBarMismatchErrorsFromMarkers();
   setStatus("Rendering…");
 
   try {
@@ -9286,7 +8977,7 @@ function renderNow() {
         if (editorView) {
           const anchor = editorView.state.selection.main.anchor;
           highlightNoteAtIndex(anchor);
-          const activeErrorRange = errorsHighlightState.getRange();
+          const activeErrorRange = errorsFeature.getActiveHighlightRange();
           if (activeErrorRange && Number.isFinite(activeErrorRange.from)) {
             highlightSvgAtEditorOffset(activeErrorRange.from);
           }
@@ -11431,7 +11122,7 @@ function buildNewTuneDraftTemplate(nextX) {
 function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {}) {
   if (!editorView) return;
   if (!filePath) return;
-  if (errorsHighlightState.hasActive()) clearActiveErrorHighlight("docReplaced");
+  if (errorsFeature.hasActiveHighlight()) clearActiveErrorHighlight("docReplaced");
   resetPlaybackState();
 
   suppressDirty = true;
@@ -12881,7 +12572,7 @@ function shouldIgnoreMenuZoomAction() {
 
 function centerRenderPaneOnCurrentAnchor() {
   if (!$out || !$renderPane || !editorView) return;
-  const activeErrorHighlight = errorsHighlightState.getActive();
+  const activeErrorHighlight = errorsFeature.getActiveHighlight();
   const editorOffset = (activeErrorHighlight && Number.isFinite(activeErrorHighlight.from))
     ? activeErrorHighlight.from
     : editorView.state.selection.main.anchor;
@@ -13828,7 +13519,7 @@ function updatePlaybackRangeFromSelection(selection, origin) {
   if (isPlaying) return;
   // While an error anchor is active, keep the error-derived PlaybackRange stable and loopable.
   // The user can move the cursor to fix the error without losing the loop range.
-  const activeErrorHighlight = errorsHighlightState.getActive();
+  const activeErrorHighlight = errorsFeature.getActiveHighlight();
   if (activeErrorHighlight && playbackRange && playbackRange.origin === "error" && playbackRange.loop) return;
   const max = editorView.state.doc.length;
   const main = selection.main || null;
@@ -15958,7 +15649,7 @@ async function preparePlayback() {
   }
   playbackIndexOffset = playbackPayloadOffset || 0;
   if (Number.isFinite(playbackPayload.lineOffset)) {
-    errorsReporterController.setLineOffset(playbackPayload.lineOffset);
+    errorsFeature.setLineOffset(playbackPayload.lineOffset);
   } else {
     setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackIndexOffset));
   }
@@ -16103,7 +15794,7 @@ async function preparePlayback() {
         const retryPayload = getPlaybackPayload();
         playbackIndexOffset = retryPayload.offset || 0;
         if (Number.isFinite(retryPayload.lineOffset)) {
-          errorsReporterController.setLineOffset(retryPayload.lineOffset);
+          errorsFeature.setLineOffset(retryPayload.lineOffset);
         } else {
           setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackIndexOffset));
         }

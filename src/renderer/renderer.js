@@ -183,6 +183,7 @@ import { createDiagnosticsController } from "./app/diagnostics_controller.js";
 import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
 import { createToolStatusController } from "./app/tool_status_controller.js";
 import { createStatusController } from "./app/status_controller.js";
+import { createToastHoverController } from "./app/toast_hover_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -1499,6 +1500,12 @@ const toolStatusController = createToolStatusController({
   api: window.api,
   showToast,
 });
+const toastHoverController = createToastHoverController({
+  documentRef: document,
+  toastElement: $toast,
+  hoverElement: $hoverStatus,
+  isDebugMessagesEnabled,
+});
 const debugDumpFeature = createDebugDumpFeature({
   api: window.api,
   windowRef: window,
@@ -1745,7 +1752,6 @@ let libraryTextFilter = "";
 let libraryFullScanInFlight = false;
 let libraryFullScanToken = "";
 let suppressRecentEntries = false;
-let toastTimer = null;
 let lastRenderPayload = null;
 let noteHighlightIndexCache = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
@@ -5973,29 +5979,20 @@ function setButtonText(button, text) {
   else button.textContent = value;
 }
 
-let pinnedHoverStatusText = "";
-
 function setHoverStatus(text) {
-  if (!$hoverStatus) return;
-  const next = String(text || "");
-  $hoverStatus.textContent = next;
-  $hoverStatus.title = next;
+  toastHoverController.setHoverStatus(text);
 }
 
 function pinHoverStatus(text) {
-  // Keep hover status transient; avoid sticky long labels in the taskbar.
-  pinnedHoverStatusText = "";
-  setHoverStatus("");
+  toastHoverController.pinHoverStatus(text);
 }
 
 function showHoverStatus(text) {
-  const next = String(text || "");
-  if (next) setHoverStatus(next);
-  else setHoverStatus(pinnedHoverStatusText);
+  toastHoverController.showHoverStatus(text);
 }
 
 function restoreHoverStatus() {
-  setHoverStatus(pinnedHoverStatusText);
+  toastHoverController.restoreHoverStatus();
 }
 
 function setBufferStatus(text) {
@@ -6092,87 +6089,15 @@ function isDebugMessagesEnabled() {
 }
 
 function isCriticalToast(message) {
-  const msg = String(message || "").trim();
-  if (!msg) return false;
-  const criticalPrefixes = [
-    "Playback failed",
-    "Playback parse error",
-    "Selected range cannot be played safely",
-    "Range crosses repeat",
-    "Unable to ",
-    "Unable ",
-    "Failed to ",
-    "Save/Discard",
-    "Stop playback",
-    "Exit Payload Mode",
-    "Raw mode: switch",
-    "Open/select a file first",
-    "Open a file first",
-    "No working copy open",
-    "No active file selected",
-    "No file selected",
-    "Save the active file first",
-    "Close the file in the editor before renaming it",
-    "Invalid measure number",
-    "Measure ",
-    "Export not available",
-    "Import not available",
-    "Not available",
-    "Payload Mode is disabled",
-  ];
-  for (const prefix of criticalPrefixes) {
-    if (msg.startsWith(prefix)) return true;
-  }
-  if (msg.includes("cannot be played")) return true;
-  if (msg.includes("Cannot read properties")) return true;
-  return false;
+  return toastHoverController.isCriticalToast(message);
 }
 
 function showToast(message, durationMs = 4000) {
-  if (!$toast) return;
-  if (!isDebugMessagesEnabled() && !isCriticalToast(message)) return;
-  $toast.textContent = message || "";
-  $toast.classList.add("show");
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    $toast.classList.remove("show");
-    toastTimer = null;
-  }, durationMs);
+  toastHoverController.showToast(message, durationMs);
 }
 
 function showToastWithAction(message, actionLabel, actionFn, durationMs = 6000) {
-  if (!$toast) return;
-  if (!isDebugMessagesEnabled() && !isCriticalToast(message)) return;
-  const label = String(actionLabel || "").trim();
-  if (!label || typeof actionFn !== "function") {
-    showToast(message, durationMs);
-    return;
-  }
-
-  $toast.textContent = "";
-  const text = document.createElement("span");
-  text.textContent = message || "";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "toast-action";
-  btn.textContent = label;
-  btn.addEventListener("click", (e) => {
-    try { e.preventDefault(); e.stopPropagation(); } catch {}
-    try { actionFn(); } catch {}
-    try { $toast.classList.remove("show"); } catch {}
-    if (toastTimer) {
-      clearTimeout(toastTimer);
-      toastTimer = null;
-    }
-  });
-  $toast.appendChild(text);
-  $toast.appendChild(btn);
-  $toast.classList.add("show");
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    $toast.classList.remove("show");
-    toastTimer = null;
-  }, durationMs);
+  toastHoverController.showToastWithAction(message, actionLabel, actionFn, durationMs);
 }
 
 function updateErrorsIndicatorAndPopover() {

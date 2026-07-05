@@ -56,6 +56,8 @@ import {
 import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
 import { createLibraryTreeView } from "./library/tree_view.js";
+import { createLibraryContextMenu } from "./library/context_menu.js";
+import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
@@ -2692,6 +2694,77 @@ const xIssuesModalController = createXIssuesModalController({
   selectTune,
   autoFixFile: renumberXInActiveFile,
   showToast,
+});
+const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
+  api: window.api,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getHeaderDirty: () => headerDirty,
+  getRawMode: () => rawMode,
+  findTuneById,
+  getTuneText,
+  pathsEqual,
+  withFileLock,
+  refreshWorkingCopySnapshot,
+  markDiskConflictPath,
+  setFileContentInCache,
+  syncLibraryFileFromWorkingCopySnapshot,
+  appendTuneTextToFileUnlocked,
+  refreshLibraryFile,
+  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+  selectTune,
+  getNextXNumber,
+  ensureXNumberInAbc,
+  confirmAppendToFile,
+  showToast,
+});
+const libraryContextMenu = createLibraryContextMenu({
+  documentRef: document,
+  windowRef: window,
+  navigatorRef: navigator,
+  getLibraryIndex: () => libraryIndex,
+  getLibraryTextFilter: () => libraryTextFilter,
+  setLibraryTextFilter: (value) => {
+    libraryTextFilter = value || "";
+    if ($librarySearch) $librarySearch.value = libraryTextFilter;
+  },
+  getActiveTuneId: () => activeTuneId,
+  getActiveTuneUid: () => activeTuneUid,
+  getActiveTuneMeta: () => activeTuneMeta,
+  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getHeaderDirty: () => headerDirty,
+  getIsNewTuneDraft: () => isNewTuneDraft,
+  getRawMode: () => rawMode,
+  getClipboardTune: () => clipboardTune,
+  getEditorView: () => editorView,
+  getWindowApi: () => window.api,
+  pathsEqual,
+  safeBasename,
+  findTuneById,
+  hasUnsavedChangesForFile,
+  isWorkingCopyOpenForFile,
+  hasDiskConflictPath,
+  confirmReloadFromDisk,
+  discardAndReloadWorkingCopyFromDisk,
+  requestLoadLibraryFile,
+  deleteTuneById,
+  copyTuneById,
+  duplicateTuneById,
+  pasteClipboardToFile,
+  promptFindInLibrary,
+  renderLibraryTree,
+  updateLibraryStatus,
+  refreshLibraryIndex,
+  beginRenameFile,
+  openXIssues: (filePath) => xIssuesModalController.open(filePath),
+  renumberXInActiveFile,
+  openMoveTuneModal,
+  addTuneToSetList: (tuneId) => setListFeature.addTuneById(tuneId),
+  appendTuneToActiveFile: (tuneId) => appendTuneToActiveFileAction.run(tuneId),
+  buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
+  handleTemplatesContextMenuAction: (action, target) => templatesFeature.handleContextMenuAction(action, target),
+  showToast,
+  showSaveError,
 });
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
@@ -6756,283 +6829,10 @@ function clearErrors() {
   errorsFeature.clear();
 }
 
-let contextMenu = null;
-let contextMenuTarget = null;
 let clipboardTune = null;
 
 function initContextMenu() {
-  contextMenu = document.createElement("div");
-  contextMenu.className = "context-menu";
-  contextMenu.setAttribute("role", "menu");
-  document.body.appendChild(contextMenu);
-
-  contextMenu.addEventListener("click", async (e) => {
-    const target = e.target && e.target.closest ? e.target.closest(".context-menu-item") : null;
-    if (!target || !target.dataset) return;
-    if (target.classList && target.classList.contains("disabled")) return;
-    const action = target.dataset.action;
-    const menuTarget = contextMenuTarget;
-    if (action === "noop") return;
-    if (action === "loadFile" && menuTarget && menuTarget.type === "file") {
-      hideContextMenu();
-      await requestLoadLibraryFile(menuTarget.filePath);
-      return;
-    }
-    if (action === "copyFilePath" && menuTarget && menuTarget.type === "file") {
-      hideContextMenu();
-      try {
-        const text = String(menuTarget.filePath || "");
-        if (text && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-          showToast("Copied.");
-        }
-      } catch {}
-      return;
-    }
-    if (action === "reloadFileFromDisk" && menuTarget && menuTarget.type === "file") {
-      hideContextMenu();
-      const p = String(menuTarget.filePath || "");
-      if (!p) return;
-      if (!isWorkingCopyOpenForFile(p)) {
-        await showSaveError("This file is not open in the editor.");
-        return;
-      }
-      const confirm = await confirmReloadFromDisk(p);
-      if (!confirm) return;
-      const restore = rawMode ? activeTuneId : (activeTuneUid || activeTuneId);
-      const res = await discardAndReloadWorkingCopyFromDisk(p, { restoreTuneId: rawMode ? null : restore });
-      if (!res || !res.ok) {
-        await showSaveError((res && res.error) ? res.error : "Unable to reload from disk.");
-        return;
-      }
-      showToast("Reloaded from disk.", 2000);
-      return;
-    }
-    if (action === "deleteTune" && menuTarget && menuTarget.type === "tune") {
-      await deleteTuneById(menuTarget.tuneId);
-      hideContextMenu();
-      return;
-    }
-    if (action === "copyTune" && menuTarget && menuTarget.type === "tune") {
-      await copyTuneById(menuTarget.tuneId, "copy");
-      hideContextMenu();
-      return;
-    }
-    if (action === "duplicateTune" && menuTarget && menuTarget.type === "tune") {
-      await duplicateTuneById(menuTarget.tuneId);
-      hideContextMenu();
-      return;
-    }
-    if (action === "cutTune" && menuTarget && menuTarget.type === "tune") {
-      await copyTuneById(menuTarget.tuneId, "move");
-      hideContextMenu();
-      return;
-    }
-    if (action === "addToSetList" && menuTarget) {
-      const tuneId = menuTarget.type === "tune"
-        ? menuTarget.tuneId
-        : (menuTarget.type === "editor" ? activeTuneId : null);
-      hideContextMenu();
-      try {
-        await setListFeature.addTuneById(tuneId);
-        showToast("Added to Set List.", 2000);
-      } catch (e) {
-        showToast(e && e.message ? e.message : String(e), 5000);
-      }
-      return;
-    }
-    if (action === "appendTuneToActiveFile" && menuTarget && menuTarget.type === "tune") {
-      hideContextMenu();
-      try {
-        const targetPath = (activeTuneMeta && activeTuneMeta.path)
-          ? String(activeTuneMeta.path)
-          : "";
-        if (!targetPath) {
-          showToast("No active file to append to.", 2400);
-          return;
-        }
-        if (rawMode) {
-          showToast("Raw mode: switch to tune mode to append.", 2400);
-          return;
-        }
-        if ((currentDoc && currentDoc.dirty) || headerDirty) {
-          showToast("Save the active file first, then append.", 3200);
-          return;
-        }
-
-        const res = findTuneById(menuTarget.tuneId);
-        if (!res || !res.file || !res.file.path) {
-          showToast("Tune not found.", 2400);
-          return;
-        }
-        if (pathsEqual(res.file.path, targetPath)) {
-          showToast("Tune is already in the active file.", 2600);
-          return;
-        }
-
-        const tuneText = await getTuneText(res.tune, res.file);
-        const label = (() => {
-          const title = res.tune.title || res.tune.preview || "";
-          const x = res.tune.xNumber ? `X:${res.tune.xNumber}` : "";
-          return `${x} ${title}`.trim() || "Untitled";
-        })();
-        const confirm = (window.api && typeof window.api.confirmAppendToFileDetailed === "function")
-          ? await window.api.confirmAppendToFileDetailed(targetPath, label)
-          : await confirmAppendToFile(targetPath);
-        if (confirm !== "append") return;
-
-        await withFileLock(targetPath, async () => {
-          if (
-            window.api
-            && typeof window.api.openWorkingCopy === "function"
-            && typeof window.api.insertWorkingCopyTuneAfter === "function"
-            && typeof window.api.commitWorkingCopyToDisk === "function"
-          ) {
-            await window.api.openWorkingCopy(targetPath);
-            const snap = await refreshWorkingCopySnapshot();
-            if (!snap || !snap.path || !pathsEqual(snap.path, targetPath)) {
-              throw new Error("Unable to open working copy for appending.");
-            }
-            const nextX = getNextXNumber(String(snap.text || ""));
-            const prepared = ensureXNumberInAbc(tuneText, nextX);
-            const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-            const ins = await window.api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
-            if (!ins || !ins.ok) throw new Error((ins && ins.error) ? ins.error : "Unable to append.");
-            let saved = await window.api.commitWorkingCopyToDisk({ force: false });
-            if (!saved || !saved.ok) {
-              if (saved && saved.conflict) {
-                const forced = await window.api.commitWorkingCopyToDisk({ force: true });
-                if (forced && forced.ok) {
-                  markDiskConflictPath(targetPath, false);
-                  saved = forced;
-                } else {
-                  markDiskConflictPath(targetPath, true);
-                  throw new Error((forced && forced.error) ? forced.error : "Unable to save file.");
-                }
-              }
-            }
-            if (!saved || !saved.ok) {
-              throw new Error((saved && saved.error) ? saved.error : "Unable to save file.");
-            }
-            const snapAfter = await refreshWorkingCopySnapshot();
-            if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, targetPath)) {
-              setFileContentInCache(targetPath, snapAfter.text);
-              syncLibraryFileFromWorkingCopySnapshot(targetPath, snapAfter);
-            }
-            return;
-          }
-          await appendTuneTextToFileUnlocked(targetPath, tuneText);
-        });
-
-        const updatedFile = await refreshLibraryFile(targetPath, { force: true });
-        activeFilePath = targetPath;
-        if (updatedFile && updatedFile.tunes && updatedFile.tunes.length) {
-          const last = updatedFile.tunes[updatedFile.tunes.length - 1];
-          if (last && last.id) await selectTune(last.tuneUid || last.id, { skipConfirm: true });
-        }
-        showToast("Appended.", 2000);
-      } catch (e) {
-        showToast(e && e.message ? e.message : String(e), 5000);
-      }
-      return;
-    }
-    if (action === "pasteTune" && menuTarget && menuTarget.type === "file") {
-      await pasteClipboardToFile(menuTarget.filePath);
-      hideContextMenu();
-      return;
-    }
-    if (action === "findLibrary") {
-      promptFindInLibrary();
-      hideContextMenu();
-      return;
-    }
-    if (action === "clearSearch") {
-      libraryTextFilter = "";
-      if ($librarySearch) $librarySearch.value = "";
-      renderLibraryTree();
-      updateLibraryStatus();
-      hideContextMenu();
-      return;
-    }
-    if (action === "refreshLibrary") {
-      await refreshLibraryIndex();
-      hideContextMenu();
-      return;
-    }
-    if (action === "renameFile" && menuTarget && menuTarget.type === "file") {
-      beginRenameFile(menuTarget.filePath);
-      hideContextMenu();
-      return;
-    }
-    if (action === "xIssues" && menuTarget && menuTarget.type === "file") {
-      hideContextMenu();
-      await xIssuesModalController.open(menuTarget.filePath);
-      return;
-    }
-    if (action === "renumberXInFile" && menuTarget) {
-      const filePath = menuTarget.type === "file"
-        ? menuTarget.filePath
-        : (menuTarget.type === "tune" && menuTarget.tuneId ? String(menuTarget.tuneId).split("::")[0] : null);
-      if (filePath) {
-        await renumberXInActiveFile(filePath);
-      }
-      hideContextMenu();
-      return;
-    }
-    if (action === "moveTune" && menuTarget && menuTarget.type === "tune") {
-      openMoveTuneModal(menuTarget.tuneId);
-      hideContextMenu();
-    }
-    if (action === "editorCut" && menuTarget && menuTarget.type === "editor") {
-      if (editorView) editorView.focus();
-      document.execCommand("cut");
-      hideContextMenu();
-      return;
-    }
-    if (action === "editorCopy" && menuTarget && menuTarget.type === "editor") {
-      if (editorView) editorView.focus();
-      document.execCommand("copy");
-      hideContextMenu();
-      return;
-    }
-    if (action === "editorPaste" && menuTarget && menuTarget.type === "editor") {
-      if (editorView) editorView.focus();
-      document.execCommand("paste");
-      hideContextMenu();
-    }
-    if (await templatesFeature.handleContextMenuAction(action, menuTarget)) {
-      hideContextMenu();
-      return;
-    }
-  });
-
-  document.addEventListener("click", (e) => {
-    if (contextMenu && !contextMenu.contains(e.target)) hideContextMenu();
-  });
-  window.addEventListener("blur", () => hideContextMenu());
-}
-
-function buildContextMenuItems(items) {
-  contextMenu.textContent = "";
-  for (const item of items) {
-    if (item && item.separator) {
-      const sep = document.createElement("div");
-      sep.className = "context-menu-sep";
-      sep.setAttribute("role", "separator");
-      contextMenu.appendChild(sep);
-      continue;
-    }
-    const row = document.createElement("div");
-    row.className = "context-menu-item";
-    row.textContent = item.label;
-    row.dataset.action = item.action;
-    if (item.danger) row.classList.add("danger");
-    if (item.disabled) {
-      row.classList.add("disabled");
-    }
-    row.setAttribute("role", "menuitem");
-    contextMenu.appendChild(row);
-  }
+  libraryContextMenu.init();
 }
 
 function hasUnsavedChangesForFile(filePath) {
@@ -7091,106 +6891,11 @@ function splitFileIntoHeaderAndBody(fullText) {
 }
 
 function showContextMenuAt(x, y, target) {
-  if (!contextMenu) initContextMenu();
-  contextMenuTarget = target;
-  if (target.type === "tune") {
-    const targetPath = (activeTuneMeta && activeTuneMeta.path) ? String(activeTuneMeta.path) : "";
-    const sourceRes = target && target.tuneId ? findTuneById(target.tuneId) : null;
-    const sourcePath = sourceRes && sourceRes.file && sourceRes.file.path ? String(sourceRes.file.path) : "";
-    const globalDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
-    const sourceDirty = Boolean(sourcePath) && (globalDirty || hasUnsavedChangesForFile(sourcePath));
-    const canAppend = Boolean(
-      targetPath
-      && sourcePath
-      && !pathsEqual(targetPath, sourcePath)
-      && !rawMode
-      && !(currentDoc && currentDoc.dirty)
-      && !headerDirty
-      && !sourceDirty
-    );
-    const items = [{ label: "Add to Set List", action: "addToSetList" }];
-    if (canAppend) items.push({ separator: true }, { label: "Append to Active File…", action: "appendTuneToActiveFile" });
-    if (sourceDirty) {
-      items.push({ separator: true }, { label: "Save/Discard changes to enable file actions", action: "noop", disabled: true });
-    } else {
-      items.push(
-        { separator: true },
-        { label: "Copy Tune", action: "copyTune" },
-        { label: "Cut Tune", action: "cutTune" },
-        { label: "Duplicate Tune", action: "duplicateTune" },
-        { separator: true },
-        { label: "Move to…", action: "moveTune" },
-        { separator: true },
-        { label: "Renumber X (File)…", action: "renumberXInFile" },
-        { separator: true },
-        { label: "Delete Tune…", action: "deleteTune", danger: true },
-      );
-    }
-    buildContextMenuItems(items);
-  } else if (target.type === "file") {
-    const fileEntry = libraryIndex && Array.isArray(libraryIndex.files) && target.filePath
-      ? libraryIndex.files.find((f) => pathsEqual(f.path, target.filePath))
-      : null;
-    const hasXIssues = Boolean(fileEntry && fileEntry.xIssues && fileEntry.xIssues.ok === false);
-    const globalDirty = Boolean(currentDoc && currentDoc.dirty) || Boolean(headerDirty) || Boolean(isNewTuneDraft);
-    const fileDirty = Boolean(target.filePath) && (globalDirty || hasUnsavedChangesForFile(target.filePath));
-    const items = [
-      { label: "Load", action: "loadFile", disabled: !target.filePath },
-      { label: "Copy Path", action: "copyFilePath", disabled: !target.filePath },
-      { separator: true },
-      { label: "Refresh Library", action: "refreshLibrary" },
-    ];
-    if (hasXIssues) items.push({ label: "X issues…", action: "xIssues" });
-    if (
-      target.filePath
-      && isWorkingCopyOpenForFile(target.filePath)
-      && hasDiskConflictPath(target.filePath)
-    ) {
-      items.push({ label: "Reload from disk…", action: "reloadFileFromDisk" });
-    }
-    if (fileDirty) {
-      items.push({ separator: true }, { label: "Save/Discard changes to enable file actions", action: "noop", disabled: true });
-    } else {
-      items.push(
-        { separator: true },
-        { label: "Paste Tune", action: "pasteTune", disabled: !clipboardTune },
-        { label: "Rename File…", action: "renameFile" },
-        { label: "Renumber X…", action: "renumberXInFile", disabled: !target.filePath },
-      );
-    }
-    buildContextMenuItems(items);
-  } else if (target.type === "library") {
-    buildContextMenuItems([
-      { label: "Refresh Library", action: "refreshLibrary" },
-      { label: "Clear Search", action: "clearSearch", disabled: !libraryTextFilter },
-    ]);
-  } else if (target.type === "editor") {
-    const canAdd = Boolean(activeTuneId) && !rawMode;
-    buildContextMenuItems([
-      { label: "Add Active Tune to Set List", action: "addToSetList", disabled: !canAdd },
-      { label: "Cut", action: "editorCut" },
-      { label: "Copy", action: "editorCopy" },
-      { label: "Paste", action: "editorPaste" },
-    ]);
-  } else if (target.type === "templatesPreview") {
-    buildContextMenuItems(templatesFeature.buildPreviewContextMenuItems(target));
-  }
-  contextMenu.style.left = `${x}px`;
-  contextMenu.style.top = `${y}px`;
-  contextMenu.classList.add("open");
-  const rect = contextMenu.getBoundingClientRect();
-  let left = x;
-  let top = y;
-  if (rect.right > window.innerWidth) left = Math.max(8, x - rect.width);
-  if (rect.bottom > window.innerHeight) top = Math.max(8, y - rect.height);
-  contextMenu.style.left = `${left}px`;
-  contextMenu.style.top = `${top}px`;
+  libraryContextMenu.show(x, y, target);
 }
 
 function hideContextMenu() {
-  if (!contextMenu) return;
-  contextMenu.classList.remove("open");
-  contextMenuTarget = null;
+  libraryContextMenu.hide();
 }
 
 function buildRenameTargetPath(oldPath, inputName) {

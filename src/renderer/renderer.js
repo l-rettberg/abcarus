@@ -169,6 +169,7 @@ import {
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
 } from "./playback/focus_playback_model.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
+import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -3349,6 +3350,20 @@ const sourceLinkFeature = createSourceLinkFeature({
   hasEditor: () => Boolean(editorView),
   isDisabled: () => Boolean(rawMode || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
+});
+const printCurrentFeature = createPrintCurrentFeature({
+  api: window.api,
+  getEditorText: getEditorValue,
+  getActiveFileEntry,
+  getHeaderText: () => getHeaderEditorValue(),
+  buildHeaderPrefix,
+  renderAbcToSvgMarkup,
+  buildSourceLinkMarkup: (abcText) => sourceLinkFeature.buildPrintMarkup(abcText),
+  applyPrintDebugMarkup,
+  getSuggestedName: getSuggestedPrintBaseName,
+  setStatus,
+  showToast,
+  logError: logErr,
 });
 
 function setDirtyIndicator(isDirty) {
@@ -8393,33 +8408,7 @@ function getSongbookSuggestedBaseName() {
 }
 
 async function runPrintAction(type) {
-  if (!window.api) return;
-  setStatus("Rendering…");
-  const renderRes = await renderCurrentTuneSvgMarkupForPrint();
-  if (!renderRes.ok) {
-    setStatus("Error");
-    logErr(renderRes.error || "Unable to render.");
-    return;
-  }
-  const svgMarkup = applyPrintDebugMarkup(renderRes.svg);
-  let res = null;
-  const suggestedName = getSuggestedPrintBaseName();
-  if (type === "preview" && typeof window.api.printPreview === "function") {
-    res = await window.api.printPreview(svgMarkup, suggestedName);
-  } else if (type === "print" && typeof window.api.printDialog === "function") {
-    res = await window.api.printDialog(svgMarkup, suggestedName);
-  } else if (type === "pdf" && typeof window.api.exportPdf === "function") {
-    res = await window.api.exportPdf(svgMarkup, suggestedName);
-  }
-  if (res && res.ok) {
-    setStatus("OK");
-    if (type === "pdf" && res.path) {
-      showToast(`Exported PDF: ${res.path}`);
-    }
-  } else if (res && res.error) {
-    setStatus("Error");
-    logErr(res.error);
-  }
+  await printCurrentFeature.runAction(type);
 }
 
 function ensureAbc2svgModulesReady(content) {
@@ -8516,21 +8505,6 @@ async function renderAbcToSvgMarkup(abcText, options = {}) {
     if (stopOnFirstError) return { ok: false, error: message, errors };
     return { ok: false, error: message };
   }
-}
-
-async function renderCurrentTuneSvgMarkupForPrint() {
-  const tuneText = getEditorValue();
-  if (!String(tuneText || "").trim()) return { ok: false, error: "No notation to print." };
-  const entry = getActiveFileEntry();
-  const headerText = entry ? getHeaderEditorValue() : "";
-  const prefixPayload = buildHeaderPrefix(headerText, true, tuneText);
-  const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  const res = await renderAbcToSvgMarkup(text, { pageFormat: true });
-  if (res && res.ok && res.svg) {
-    const sourceMarkup = await sourceLinkFeature.buildPrintMarkup(tuneText);
-    if (sourceMarkup) res.svg = `${res.svg.trim()}\n${sourceMarkup}`;
-  }
-  return res;
 }
 
 async function getFileContentCached(filePath) {

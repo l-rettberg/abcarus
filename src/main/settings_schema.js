@@ -1016,7 +1016,7 @@ function getSettingsSchema() {
       group: "Templates",
       groupOrder: 20,
       label: "Templates folder",
-      help: "Optional folder with .abc files used as tune templates. If empty, ABCarus uses its default templates folder under user data.",
+      help: "Optional folder with .abc files used as tune templates. If empty, ABCarus uses the OS Templates folder when available, otherwise its default templates folder under user data.",
       ui: { input: "text" },
     },
     // Non-modal / internal / persisted UI prefs (kept for compatibility).

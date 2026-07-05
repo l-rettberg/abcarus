@@ -504,12 +504,53 @@ function registerIpcHandlers(ctx) {
       reportStartupStatus,
 	  } = ctx;
 
+  function readXdgTemplatesDir() {
+    if (process.platform !== "linux") return "";
+    try {
+      const configPath = path.join(app.getPath("home"), ".config", "user-dirs.dirs");
+      const text = fs.readFileSync(configPath, "utf8");
+      const match = text.match(/^\s*XDG_TEMPLATES_DIR\s*=\s*"([^"]*)"/m);
+      if (!match || !match[1]) return "";
+      return String(match[1])
+        .replace(/\$\{HOME\}/g, app.getPath("home"))
+        .replace(/\$HOME/g, app.getPath("home"));
+    } catch {
+      return "";
+    }
+  }
+
+  function existingDirectory(candidate) {
+    const dir = String(candidate || "").trim();
+    if (!dir) return "";
+    try {
+      return fs.statSync(dir).isDirectory() ? dir : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function resolvePlatformTemplatesFolder() {
+    const home = app.getPath("home");
+    const candidates = [
+      readXdgTemplatesDir(),
+      process.platform === "win32" ? path.join(app.getPath("appData"), "Microsoft", "Windows", "Templates") : "",
+      path.join(home, "Templates"),
+    ];
+    for (const candidate of candidates) {
+      const dir = existingDirectory(candidate);
+      if (dir && path.resolve(dir) === path.resolve(home)) continue;
+      if (dir) return dir;
+    }
+    return "";
+  }
+
   const resolveTemplatesFolder = () => {
     const settings = getSettings ? getSettings() : {};
     const configured = settings && typeof settings.templatesFolder === "string" ? settings.templatesFolder.trim() : "";
     const fallback = path.join(app.getPath("userData"), "templates");
-    const folder = configured || fallback;
-    return { folder, configured, fallback };
+    const platformDefault = configured ? "" : resolvePlatformTemplatesFolder();
+    const folder = configured || platformDefault || fallback;
+    return { folder, configured, fallback, platformDefault };
   };
 
   async function scanTemplatesFolder(rootDir) {
@@ -1345,7 +1386,13 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("templates:get-info", async () => {
     try {
       const resolved = resolveTemplatesFolder();
-      return { ok: true, folder: resolved.folder, configured: resolved.configured, fallback: resolved.fallback };
+      return {
+        ok: true,
+        folder: resolved.folder,
+        configured: resolved.configured,
+        fallback: resolved.fallback,
+        platformDefault: resolved.platformDefault,
+      };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }

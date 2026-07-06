@@ -2083,11 +2083,7 @@ async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = n
     suppressDirty = false;
     markHeaderClean();
     updateHeaderStateUI();
-    if (currentDoc) {
-      currentDoc.path = p;
-      currentDoc.content = parts.bodyText;
-      currentDoc.dirty = false;
-    }
+    patchCurrentDocument({ path: p, content: parts.bodyText, dirty: false }, { create: false });
     setDirtyIndicator(false);
   } else if (restoreTuneId) {
     try { await selectTune(restoreTuneId, { skipConfirm: true, suppressRecent: true }); } catch {}
@@ -2149,11 +2145,7 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null
     suppressDirty = false;
     markHeaderClean();
     updateHeaderStateUI();
-    if (currentDoc) {
-      currentDoc.path = targetPath;
-      currentDoc.content = parts.bodyText;
-      currentDoc.dirty = false;
-    }
+    patchCurrentDocument({ path: targetPath, content: parts.bodyText, dirty: false }, { create: false });
     setDirtyIndicator(false);
   } else if (restoreTuneId) {
     try { await selectTune(restoreTuneId, { skipConfirm: true, suppressRecent: true }); } catch {}
@@ -2406,10 +2398,7 @@ async function discardWorkingCopyChangesForActiveFile() {
     if (snapshot && snapshot.path && pathsEqual(snapshot.path, activeTuneMeta.path)) {
       setFileContentInCache(snapshot.path, snapshot.text);
     }
-    if (currentDoc) {
-      currentDoc.dirty = false;
-      setDirtyIndicator(false);
-    }
+    if (markCurrentDocumentClean()) setDirtyIndicator(false);
     return true;
   } catch {
     return false;
@@ -2433,10 +2422,7 @@ function reloadActiveTuneTextFromWorkingCopySnapshot() {
   suppressDirty = true;
   setEditorValue(text);
   suppressDirty = false;
-  if (currentDoc) {
-    currentDoc.content = text;
-    currentDoc.dirty = false;
-  }
+  patchCurrentDocument({ content: text, dirty: false }, { create: false });
   if (activeTuneMeta) {
     activeTuneMeta.startOffset = from;
     activeTuneMeta.endOffset = to;
@@ -7924,11 +7910,7 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
     }
 
     setFileContentInCache(p, updatedText);
-    if (currentDoc) {
-      currentDoc.path = p;
-      currentDoc.content = tuneText;
-      currentDoc.dirty = false;
-    }
+    patchCurrentDocument({ path: p, content: tuneText, dirty: false }, { create: false });
     if (includeHeader) {
       markHeaderClean();
       updateHeaderStateUI();
@@ -8070,8 +8052,7 @@ async function ensureSafeToAbandonCurrentDoc(actionLabel) {
 		  if (!normalized) return false;
 
 		  markDiskConflictPath(normalized, false);
-		  if (currentDoc) {
-		    currentDoc.dirty = false;
+		  if (markCurrentDocumentClean()) {
 	    // Do not rewrite the editor buffer on Save.
 	    // Replacing the entire doc (even with identical text) resets the selection/cursor to the start,
 		    // which is disruptive while typing (Ctrl+S). The working copy snapshot/renderer already uses
@@ -8121,12 +8102,13 @@ async function handleMissingWorkingCopySave(filePath) {
 }
 
 async function performSaveFlow() {
-  if (!currentDoc) return false;
+  const currentDocument = getCurrentDocument();
+  if (!currentDocument) return false;
   const session = resolveSaveSession();
 
   recordRecentAction("save.start", {
-    currentDocPath: currentDoc && currentDoc.path ? String(currentDoc.path) : null,
-    currentDocDirty: currentDoc ? Boolean(currentDoc.dirty) : null,
+    currentDocPath: currentDocument.path ? String(currentDocument.path) : null,
+    currentDocDirty: Boolean(currentDocument.dirty),
     headerDirty: getHeaderDirty(),
     isNewTuneDraft: Boolean(isNewTuneDraft),
     activeTunePath: activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : null,
@@ -8180,7 +8162,7 @@ async function performSaveFlow() {
   }
 
   if (chordProFeature.isEnabled()) {
-    const filePath = activeFilePath || (currentDoc && currentDoc.path) || "";
+    const filePath = activeFilePath || getCurrentDocumentPath() || "";
     if (!filePath) return performSaveAsFlow();
     const wcOk = await ensureWorkingCopyOpenForPath(filePath);
     if (!wcOk) {
@@ -8203,7 +8185,7 @@ async function performSaveFlow() {
         if (snap && snap.path && pathsEqual(snap.path, filePath)) {
           setFileContentInCache(filePath, snap.text);
         }
-        if (currentDoc) currentDoc.dirty = false;
+        markCurrentDocumentClean();
         setDirtyIndicator(false);
         updateWindowTitle();
         return true;
@@ -8216,7 +8198,7 @@ async function performSaveFlow() {
           if (snap && snap.path && pathsEqual(snap.path, filePath)) {
             setFileContentInCache(filePath, snap.text);
           }
-          if (currentDoc) currentDoc.dirty = false;
+          markCurrentDocumentClean();
           setDirtyIndicator(false);
           updateWindowTitle();
           return true;
@@ -8245,18 +8227,18 @@ async function performSaveFlow() {
     return Boolean(ok);
   }
 
-  if (session.intent === SAVE_INTENT.FULL_FILE && currentDoc.path) {
-    const filePath = currentDoc.path;
+  if (session.intent === SAVE_INTENT.FULL_FILE && getCurrentDocumentPath()) {
+    const filePath = getCurrentDocumentPath();
     if (isWorkingCopyOpenForFile(filePath)) {
       await showSaveError("Internal error: the file is open in the editor. Save via the working copy.");
       return false;
     }
-    const content = serializeDocument(currentDoc);
+    const content = serializeDocument(getCurrentDocument());
     return withFileLock(filePath, async () => {
       const res = await writeFile(filePath, content);
       if (res.ok) {
         setFileContentInCache(filePath, content);
-        currentDoc.dirty = false;
+        markCurrentDocumentClean();
         resetTransposePreviewState();
         setDirtyIndicator(false);
         setFileNameMeta(stripFileExtension(safeBasename(filePath)));
@@ -8281,14 +8263,15 @@ async function performSaveFlow() {
 }
 
 async function performSaveAsFlow() {
-  if (!currentDoc) return false;
+  const currentDocument = getCurrentDocument();
+  if (!currentDocument) return false;
 
   if (chordProFeature.isEnabled()) {
     try {
       await flushWorkingCopyFullSync();
     } catch {}
 
-    const currentPath = activeFilePath || (currentDoc && currentDoc.path) || "";
+    const currentPath = activeFilePath || getCurrentDocumentPath() || "";
     const base = currentPath ? safeBasename(currentPath) : "";
     const extMatch = base.match(/(\.[^.]+)$/);
     const suffix = extMatch ? extMatch[1] : ".cho";
@@ -8307,8 +8290,7 @@ async function performSaveAsFlow() {
       const content = String((chordProFeature.isFullView() ? getEditorValue() : chordProFeature.getFullText()) || "");
       const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
       if (!saved) return false;
-	      currentDoc.path = filePath;
-	      currentDoc.dirty = false;
+	      patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
 	      resetTransposePreviewState();
 	      activeFilePath = filePath;
       recordNavFilePath(filePath);
@@ -8330,8 +8312,7 @@ async function performSaveAsFlow() {
     if (snap && snap.path && pathsEqual(snap.path, filePath)) {
       setFileContentInCache(filePath, snap.text);
     }
-	    currentDoc.path = filePath;
-	    currentDoc.dirty = false;
+	    patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
 	    resetTransposePreviewState();
 	    activeFilePath = filePath;
     recordNavFilePath(filePath);
@@ -8369,7 +8350,7 @@ async function performSaveAsFlow() {
     && typeof window.api.writeWorkingCopyToPath === "function"
   );
   if (!hasWorkingCopy) {
-    const content = serializeDocument(currentDoc);
+    const content = serializeDocument(currentDocument);
     const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
     if (!saved) return false;
     const root = libraryIndex && libraryIndex.root ? normalizeLibraryPath(libraryIndex.root) : "";
@@ -8388,8 +8369,7 @@ async function performSaveAsFlow() {
       );
     }
     setFileContentInCache(filePath, content);
-    currentDoc.path = filePath;
-    currentDoc.dirty = false;
+    patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
     setDirtyIndicator(false);
     setFileNameMeta(stripFileExtension(safeBasename(filePath)));
     updateFileHeaderPanel();
@@ -8458,10 +8438,9 @@ function dropLibraryFileEntry(filePath) {
     activeTuneUid = null;
     activeTuneIndex = null;
   }
-  if (currentDoc && currentDoc.path && pathsEqual(currentDoc.path, p)) {
-    currentDoc.path = null;
-    currentDoc.content = "";
-    currentDoc.dirty = false;
+  const currentDocumentPath = getCurrentDocumentPath();
+  if (currentDocumentPath && pathsEqual(currentDocumentPath, p)) {
+    patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
   }
   setDirtyIndicator(false);
   updateLibraryStatus();
@@ -9221,7 +9200,7 @@ async function deleteTuneById(tuneId) {
         const nextTune = tunes[nextIndex];
         const nextKey = rawMode ? nextTune.id : (nextTune.tuneUid || nextTune.id);
         await selectTune(nextKey, { skipConfirm: true, suppressRecent: true });
-        if (currentDoc) currentDoc.dirty = false;
+        markCurrentDocumentClean();
         setDirtyIndicator(false);
       } else {
         const text = String(snapshotAfter.text || "");
@@ -9240,7 +9219,7 @@ async function deleteTuneById(tuneId) {
         activeTuneId = pseudoMeta.id;
         activeTuneUid = null;
         activeTuneIndex = null;
-        if (currentDoc) currentDoc.dirty = false;
+        markCurrentDocumentClean();
         setDirtyIndicator(false);
         markActiveTuneButton(activeTuneId);
       }
@@ -9269,9 +9248,9 @@ async function performAppendFlow() {
   }
 
   // Strict-write: when saving/appending, read the current editor text directly
-  // to avoid losing last-moment edits due to debounced `currentDoc.content` sync.
+  // to avoid losing last-moment edits due to debounced document content sync.
   const editorText = getEditorValue();
-  if (currentDoc) currentDoc.content = editorText;
+  patchCurrentDocument({ content: editorText }, { create: false });
 
   const deriveTuneLabel = () => {
     try {
@@ -9357,10 +9336,7 @@ async function performAppendFlow() {
       targetTuneUid: String(activeTuneUid || ""),
       source: "append_saved",
     });
-    if (currentDoc) {
-      currentDoc.path = filePath;
-      currentDoc.dirty = false;
-    }
+    patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
     markHeaderClean();
     updateHeaderStateUI();
     setDirtyIndicator(false);
@@ -9395,10 +9371,7 @@ async function createNewFileAtPath(filePath, content, options = {}) {
     return false;
   }
   setFileContentInCache(filePath, content);
-  if (currentDoc) {
-    currentDoc.path = filePath;
-    currentDoc.dirty = false;
-  }
+  patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
   setDirtyIndicator(false);
   setFileNameMeta(stripFileExtension(safeBasename(filePath)));
   updateFileHeaderPanel();
@@ -9574,10 +9547,7 @@ async function appendTuneTextToFileNow(filePath, tuneText, { toastOk = "" } = {}
 
     markHeaderClean();
     updateHeaderStateUI();
-    if (currentDoc) {
-      currentDoc.path = p;
-      currentDoc.dirty = false;
-    }
+    patchCurrentDocument({ path: p, dirty: false }, { create: false });
     isNewTuneDraft = false;
     setDirtyIndicator(false);
     if (toastOk) showToast(toastOk, 1800);
@@ -9858,7 +9828,7 @@ async function renumberXInActiveFile(explicitFilePath) {
     const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
     if (!saveRes || !saveRes.ok) {
       await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file after renumber.");
-      if (currentDoc) currentDoc.dirty = true;
+      patchCurrentDocument({ dirty: true }, { create: false });
       setDirtyIndicator(true);
       setStatus("Renumbered X (unsaved).");
       return;
@@ -9870,13 +9840,13 @@ async function renumberXInActiveFile(explicitFilePath) {
       attachTuneUidsToLibraryFile(filePath, snapAfterSave);
       scheduleRenderLibraryTree();
     }
-    if (currentDoc) currentDoc.dirty = false;
+    markCurrentDocumentClean();
     setDirtyIndicator(false);
     setStatus("Renumbered X.");
     return;
   }
 
-  if (currentDoc) currentDoc.dirty = true;
+  patchCurrentDocument({ dirty: true }, { create: false });
   setDirtyIndicator(true);
   setStatus("Renumbered X (unsaved).");
 }

@@ -63,6 +63,7 @@ import { createTuneClipboardController } from "./library/tune_clipboard_controll
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
+import { createDeleteTuneAction } from "./library/delete_tune_action.js";
 import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
@@ -500,6 +501,7 @@ let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
 let tuneClipboardController = null;
+let deleteTuneAction = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -3233,6 +3235,45 @@ tuneClipboardController = createTuneClipboardController({
     setFileContentInCache,
     setStatus,
     showSaveError,
+  },
+});
+
+deleteTuneAction = createDeleteTuneAction({
+  api: window.api,
+  state: {
+    getLibraryIndex: () => libraryIndex,
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneId: () => activeTuneId,
+    getRawMode: () => rawMode,
+    getHeaderDirty,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    isCurrentDocumentDirty,
+  },
+  actions: {
+    attachTuneUidsToLibraryFile,
+    confirmDeleteTune,
+    countLines,
+    discardWorkingCopyChangesForActiveFile,
+    ensureSafeToAbandonCurrentDoc,
+    findTuneById,
+    markActiveTuneButton,
+    markCurrentDocumentClean,
+    pathsEqual,
+    refreshLibraryFile,
+    refreshWorkingCopySnapshot,
+    requireCleanForFileOp,
+    safeBasename,
+    selectTune,
+    setActiveFilePath: (value) => { activeFilePath = value; },
+    setActiveTuneId: (value) => { activeTuneId = value; },
+    setActiveTuneIndex: (value) => { activeTuneIndex = value; },
+    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
+    setActiveTuneUid: (value) => { activeTuneUid = value; },
+    setActiveTuneText,
+    setDirtyIndicator,
+    setFileContentInCache,
+    showSaveError,
+    syncLibraryFileFromWorkingCopySnapshot,
   },
 });
 
@@ -8398,115 +8439,7 @@ async function pasteClipboardToFile(targetPath) {
 }
 
 async function deleteTuneById(tuneId) {
-  if (!libraryIndex || !tuneId) return;
-  const ok = await ensureSafeToAbandonCurrentDoc("deleting a tune");
-  if (!ok) return;
-
-  const found = findTuneById(tuneId);
-  if (!found || !found.tune || !found.file) return;
-  let selected = found.tune;
-  const fileMeta = found.file;
-
-  const label = selected.title || selected.preview || `X:${selected.xNumber || ""}`.trim();
-  const confirm = await confirmDeleteTune(label);
-  if (confirm !== "delete") return;
-
-  if (!(await requireCleanForFileOp(fileMeta.path, "deleting a tune"))) return;
-
-  if (
-    window.api
-    && typeof window.api.openWorkingCopy === "function"
-    && typeof window.api.deleteWorkingCopyTune === "function"
-    && typeof window.api.commitWorkingCopyToDisk === "function"
-    && fileMeta.path
-  ) {
-    if (
-      pathsEqual(activeFilePath, fileMeta.path)
-      && (isCurrentDocumentDirty() || getHeaderDirty() || Boolean(isNewTuneDraft))
-    ) {
-      await showSaveError("Please Save/Discard your unsaved changes in this file before deleting tunes.");
-      return;
-    }
-
-    try {
-      await window.api.openWorkingCopy(fileMeta.path);
-      const snapshotBefore = await refreshWorkingCopySnapshot();
-      if (snapshotBefore && snapshotBefore.path && pathsEqual(snapshotBefore.path, fileMeta.path)) {
-        attachTuneUidsToLibraryFile(fileMeta.path, snapshotBefore);
-        const refreshed = findTuneById(tuneId);
-        if (refreshed && refreshed.tune) selected = refreshed.tune;
-      }
-    } catch {}
-
-    try {
-      const payload = { tuneUid: selected.tuneUid || null, tuneIndex: selected.tuneIndex };
-      await window.api.deleteWorkingCopyTune(payload);
-
-      const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
-      if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          await showSaveError("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
-          try { await discardWorkingCopyChangesForActiveFile(); } catch {}
-          try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
-          return;
-        }
-        await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to delete tune.");
-        return;
-      }
-
-      const snapshotAfter = await refreshWorkingCopySnapshot();
-      if (!snapshotAfter || !snapshotAfter.path || !pathsEqual(snapshotAfter.path, fileMeta.path)) return;
-
-      setFileContentInCache(fileMeta.path, snapshotAfter.text);
-      const updatedFile = syncLibraryFileFromWorkingCopySnapshot(fileMeta.path, snapshotAfter);
-      activeFilePath = fileMeta.path;
-
-      if (activeTuneId === tuneId) {
-        activeTuneId = null;
-        activeTuneUid = null;
-        activeTuneIndex = null;
-        activeTuneMeta = null;
-      }
-
-      const tunes = updatedFile && Array.isArray(updatedFile.tunes) ? updatedFile.tunes : [];
-      if (tunes.length) {
-        const prevIndex = Number.isFinite(Number(payload.tuneIndex)) ? Number(payload.tuneIndex) : 0;
-        const nextIndex = Math.min(Math.max(0, prevIndex), tunes.length - 1);
-        const nextTune = tunes[nextIndex];
-        const nextKey = rawMode ? nextTune.id : (nextTune.tuneUid || nextTune.id);
-        await selectTune(nextKey, { skipConfirm: true, suppressRecent: true });
-        markCurrentDocumentClean();
-        setDirtyIndicator(false);
-      } else {
-        const text = String(snapshotAfter.text || "");
-        const pseudoMeta = {
-          id: `${fileMeta.path}::0`,
-          path: fileMeta.path,
-          basename: fileMeta.basename || safeBasename(fileMeta.path),
-          xNumber: "",
-          title: "",
-          startLine: 1,
-          endLine: countLines(text),
-          startOffset: 0,
-          endOffset: text.length,
-        };
-        setActiveTuneText(text, pseudoMeta, { suppressRecent: true });
-        activeTuneId = pseudoMeta.id;
-        activeTuneUid = null;
-        activeTuneIndex = null;
-        markCurrentDocumentClean();
-        setDirtyIndicator(false);
-        markActiveTuneButton(activeTuneId);
-      }
-      try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
-      return;
-    } catch (e) {
-      await showSaveError(e && e.message ? e.message : String(e));
-      return;
-    }
-  }
-
-  await showSaveError("Internal error: working copy delete is unavailable.");
+  await deleteTuneAction.deleteTuneById(tuneId);
 }
 
 async function performAppendFlow() {

@@ -1953,12 +1953,20 @@ function lruSet(map, key, value, maxEntries) {
   }
 }
 
+function normalizeFileContentCacheKey(filePath) {
+  return normalizeLibraryPath(filePath || "");
+}
+
 function getFileContentFromCache(filePath) {
-  return lruGet(fileContentCache, filePath);
+  const key = normalizeFileContentCacheKey(filePath);
+  if (!key) return undefined;
+  return lruGet(fileContentCache, key);
 }
 
 function setFileContentInCache(filePath, content) {
-  lruSet(fileContentCache, filePath, content, MAX_FILE_CONTENT_CACHE_ENTRIES);
+  const key = normalizeFileContentCacheKey(filePath);
+  if (!key) return;
+  lruSet(fileContentCache, key, content, MAX_FILE_CONTENT_CACHE_ENTRIES);
 }
 
 function countLinesForPrefix(text) {
@@ -5181,6 +5189,7 @@ async function selectTuneImpl(tuneId, options = {}) {
   }
 
   let content = null;
+  let contentCacheHit = false;
   let sliceStart = Number(selected.startOffset) || 0;
   let sliceEnd = Number(selected.endOffset) || 0;
   const workingCopyOpen = Boolean(fileMeta.path && isWorkingCopyOpenForFile(fileMeta.path));
@@ -5239,6 +5248,7 @@ async function selectTuneImpl(tuneId, options = {}) {
 
   if (content == null) {
     content = getFileContentFromCache(fileMeta.path);
+    contentCacheHit = content != null;
     if (content == null) {
       const res = await readFile(fileMeta.path);
       if (!res.ok) {
@@ -5248,9 +5258,11 @@ async function selectTuneImpl(tuneId, options = {}) {
       content = res.data;
       setFileContentInCache(fileMeta.path, content);
     }
+    if (perfOn) logFilePerf("selectTune: content cache", { hit: contentCacheHit, file: safeBasename(fileMeta.path) });
   }
   logStep("load content", {
     workingCopy: Boolean(workingCopyOpen),
+    cacheHit: contentCacheHit,
     chars: content == null ? 0 : String(content || "").length,
   });
 
@@ -8608,11 +8620,12 @@ async function renameLibraryFile(oldPath, newPath) {
     libraryViewStore.invalidate();
   }
 
-  if (fileContentCache.has(oldPath)) {
+  const oldCacheKey = normalizeFileContentCacheKey(oldPath);
+  if (oldCacheKey && fileContentCache.has(oldCacheKey)) {
     const cached = getFileContentFromCache(oldPath);
     if (cached != null) {
       setFileContentInCache(newPath, cached);
-      fileContentCache.delete(oldPath);
+      fileContentCache.delete(oldCacheKey);
     }
   }
 

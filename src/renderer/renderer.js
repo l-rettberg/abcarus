@@ -3292,6 +3292,7 @@ documentSessionController = createDocumentSessionController({
     readFile,
     selectTune,
     setActiveTuneText,
+    setFileContentInCache,
     setChordProMode: (next) => chordProFeature.setMode(next),
     setDirtyIndicator,
     showToast,
@@ -5097,7 +5098,38 @@ function markActiveTuneButton(tuneId) {
   libraryTreeView.markActiveTuneButton();
 }
 
+let selectTuneInFlightKey = "";
+let selectTuneInFlightPromise = null;
+
 async function selectTune(tuneId, options = {}) {
+  const key = String(tuneId || "");
+  if (
+    key
+    && selectTuneInFlightPromise
+    && selectTuneInFlightKey === key
+    && !options._syncedFromWorkingCopy
+    && !options._reparsed
+  ) {
+    if (isFilePerfEnabled()) logFilePerf("selectTune: coalesced", { tuneId: key });
+    return selectTuneInFlightPromise;
+  }
+
+  const runPromise = selectTuneImpl(tuneId, options);
+  if (key && !options._syncedFromWorkingCopy && !options._reparsed) {
+    selectTuneInFlightKey = key;
+    selectTuneInFlightPromise = runPromise;
+  }
+  try {
+    return await runPromise;
+  } finally {
+    if (selectTuneInFlightPromise === runPromise) {
+      selectTuneInFlightKey = "";
+      selectTuneInFlightPromise = null;
+    }
+  }
+}
+
+async function selectTuneImpl(tuneId, options = {}) {
   const perfOn = isFilePerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
   let tStep = t0;

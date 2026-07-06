@@ -80,6 +80,7 @@ function createDocumentSessionController({
     performSaveFlow = async () => false,
     readFile = async () => ({ ok: false }),
     selectTune = async () => {},
+    setFileContentInCache = () => {},
     setDirtyIndicator = () => {},
     setActiveTuneText = () => {},
     setChordProMode = () => {},
@@ -327,6 +328,7 @@ function createDocumentSessionController({
 
     setChordProMode(false);
     await loadLibraryFromFolder(safeDirname(filePath), { selectInitialTune: false });
+    if (readRes && readRes.ok) setFileContentInCache(filePath, readRes.data);
     const files = getLibraryFiles();
     if (!Array.isArray(files)) return;
 

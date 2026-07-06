@@ -513,7 +513,7 @@ const fileHeaderController = createFileHeaderController({
   getActiveFileEntry,
   isChordProEnabled: () => chordProFeature.isEnabled(),
   scheduleRenderNow,
-  setDirtyIndicator: () => setDirtyIndicator(Boolean(currentDoc && currentDoc.dirty)),
+  setDirtyIndicator: () => setDirtyIndicator(isCurrentDocumentDirty()),
   logError: (...args) => console.error(...args),
 });
 
@@ -635,9 +635,9 @@ const chordProFeature = createChordProFeature({
   getEditorValue,
   setEditorValue,
   setSuppressDirty: (next) => { suppressDirty = Boolean(next); },
-  getCurrentDoc: () => currentDoc,
-  setCurrentDoc: (doc) => { currentDoc = doc; },
-  setCurrentDocContent: (content) => { if (currentDoc) currentDoc.content = String(content || ""); },
+  getCurrentDoc: getCurrentDocument,
+  setCurrentDoc: (doc) => { if (documentSessionController) documentSessionController.replaceCurrentDocument(doc); else currentDoc = doc || null; },
+  setCurrentDocContent: (content) => patchCurrentDocument({ content }, { create: false }),
   isPayloadMode,
   isLibraryVisible: () => isLibraryVisible,
   isHeaderCollapsed: getHeaderCollapsed,
@@ -747,7 +747,7 @@ const printAllFeature = createPrintAllFeature({
   writeStorage: safeWriteJsonLocalStorage,
   storageKey: PRINT_ALL_OPTIONS_STORAGE_KEY,
   getActiveFileEntry,
-  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getCurrentDocDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
   performSaveFlow,
   getFileContent: getFileContentCached,
@@ -773,7 +773,7 @@ const printAllFeature = createPrintAllFeature({
   },
 });
 const setListRendererAdapter = createSetListRendererAdapter({
-  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getCurrentDocDirty: isCurrentDocumentDirty,
   getActiveTuneId: () => activeTuneId,
   getActiveFilePath: () => activeFilePath,
   getHeaderText: () => getHeaderEditorValue(),
@@ -936,7 +936,7 @@ const errorsFeature = createErrorsFeature({
   setPlaybackRange,
   setPendingPlaybackRangeOrigin: (origin) => { pendingPlaybackRangeOrigin = origin; },
   setSuppressPlaybackRangeSelectionSync: (value) => { suppressPlaybackRangeSelectionSync = Boolean(value); },
-  isDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  isDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
   performSaveFlow,
   getFileContentCached,
@@ -1605,7 +1605,7 @@ const debugDumpFeature = createDebugDumpFeature({
   documentRef: document,
   getAutoDumpDirOverride: () => AUTO_DUMP_DIR_OVERRIDE,
   getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDoc: () => currentDoc,
+  getCurrentDoc: getCurrentDocument,
   getDebugLogBuffer: () => diagnosticsController ? diagnosticsController.debugLogBuffer : [],
   getRecentActions: () => diagnosticsController ? diagnosticsController.recentActions : [],
   getEditorView: () => editorView,
@@ -2196,7 +2196,7 @@ function scheduleWorkingCopyFullSync() {
   if (isPayloadMode()) return;
   if (!chordProFeature.isEnabled()) return;
   if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
-  const filePath = String(activeFilePath || (currentDoc && currentDoc.path) || "");
+  const filePath = String(activeFilePath || getCurrentDocumentPath() || "");
   if (!filePath) return;
   if (workingCopyFullSyncTimer) clearTimeout(workingCopyFullSyncTimer);
   workingCopyFullSyncTimer = setTimeout(() => {
@@ -2356,7 +2356,7 @@ async function flushWorkingCopyFullSync() {
   if (!chordProFeature.isEnabled()) return;
   if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
 
-  const filePath = String(activeFilePath || (currentDoc && currentDoc.path) || "");
+  const filePath = String(activeFilePath || getCurrentDocumentPath() || "");
   if (!filePath) return;
   if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) return;
 
@@ -2767,7 +2767,7 @@ const libraryTreeView = createLibraryTreeView({
   setActiveFilePath: (value) => { activeFilePath = value || null; },
   getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
     ? String(activeTuneMeta.path || "")
-    : ((currentDoc && currentDoc.path) ? String(currentDoc.path || "") : ""),
+    : getCurrentDocumentPath(),
   getActiveTuneId: () => activeTuneId,
   getActiveTuneUid: () => activeTuneUid,
   isPayloadMode,
@@ -2818,7 +2818,7 @@ const xIssuesModalController = createXIssuesModalController({
 const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
   api: window.api,
   getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getCurrentDocDirty: isCurrentDocumentDirty,
   getHeaderDirty,
   getRawMode: () => rawMode,
   findTuneById,
@@ -2851,7 +2851,7 @@ const libraryContextMenu = createLibraryContextMenu({
   getActiveTuneId: () => activeTuneId,
   getActiveTuneUid: () => activeTuneUid,
   getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDocDirty: () => Boolean(currentDoc && currentDoc.dirty),
+  getCurrentDocDirty: isCurrentDocumentDirty,
   getHeaderDirty,
   getIsNewTuneDraft: () => isNewTuneDraft,
   getRawMode: () => rawMode,
@@ -2933,7 +2933,10 @@ function getCurrentNavFilePath() {
   try {
     if (activeTuneMeta && activeTuneMeta.path) return String(activeTuneMeta.path);
     if (activeFilePath) return String(activeFilePath);
-    if (currentDoc && currentDoc.path) return String(currentDoc.path);
+    {
+      const docPath = getCurrentDocumentPath();
+      if (docPath) return docPath;
+    }
   } catch {}
   return "";
 }
@@ -3072,7 +3075,7 @@ const statusController = createStatusController({
   safeDirname,
   untitledLabel: UNTITLED_UNSAVED_LABEL,
   formatPathTail,
-  getCurrentDoc: () => currentDoc,
+  getCurrentDoc: getCurrentDocument,
   getRawMode: () => rawMode,
   getRawModeFilePath: () => rawModeFilePath,
   getActiveFilePath: () => activeFilePath,
@@ -3092,7 +3095,7 @@ editStateController = createEditStateController({
   state: {
     getActiveFilePath: () => activeFilePath,
     getActiveTuneMeta: () => activeTuneMeta,
-    getCurrentDoc: () => currentDoc,
+    getCurrentDoc: getCurrentDocument,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
     getRawMode: () => rawMode,
@@ -3220,6 +3223,7 @@ documentSessionController = createDocumentSessionController({
   api: window.api,
   state: {
     getCurrentDoc: () => currentDoc,
+    setCurrentDoc: (doc) => { currentDoc = doc || null; },
     getActiveFilePath: () => activeFilePath,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
@@ -3311,7 +3315,7 @@ const importExportFeature = createImportExportFeature({
   windowRef: window,
   getEditorText: getEditorValue,
   getSuggestedBaseName,
-  getCurrentDoc: () => currentDoc,
+  getCurrentDoc: getCurrentDocument,
   getActiveFilePath: () => activeFilePath,
   getActiveTuneMeta: () => activeTuneMeta,
   getPlaybackPayload,
@@ -3349,9 +3353,7 @@ const importExportFeature = createImportExportFeature({
   },
   createBlankDocument,
   setCurrentDocument,
-  markCurrentDocumentClean: () => {
-    if (currentDoc) currentDoc.dirty = false;
-  },
+  markCurrentDocumentClean,
   setActiveTuneText,
   setImportedTuneActive: ({ tune, tuneText, file }) => {
     if (!tune || !file) return;
@@ -3436,12 +3438,9 @@ const rawModeFeature = createRawModeFeature({
     if (Object.prototype.hasOwnProperty.call(patch, "rawModeHeaderEndOffset")) rawModeHeaderEndOffset = Number(patch.rawModeHeaderEndOffset) || 0;
     if (Object.prototype.hasOwnProperty.call(patch, "rawModeOriginalTuneId")) rawModeOriginalTuneId = patch.rawModeOriginalTuneId || null;
   },
-  getCurrentDoc: () => currentDoc,
+  getCurrentDoc: getCurrentDocument,
   patchCurrentDoc: (patch = {}) => {
-    if (!currentDoc) currentDoc = createBlankDocument();
-    if (Object.prototype.hasOwnProperty.call(patch, "path")) currentDoc.path = patch.path;
-    if (Object.prototype.hasOwnProperty.call(patch, "content")) currentDoc.content = patch.content;
-    if (Object.prototype.hasOwnProperty.call(patch, "dirty")) currentDoc.dirty = Boolean(patch.dirty);
+    patchCurrentDocument(patch);
   },
   getActiveFilePath: () => activeFilePath,
   setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
@@ -3456,7 +3455,7 @@ const rawModeFeature = createRawModeFeature({
   clearUnsavedDiscardState: () => {
     resetHeaderEditorFilePath();
     markHeaderClean();
-    if (currentDoc) currentDoc.dirty = false;
+    markCurrentDocumentClean();
   },
   getHeaderDirty,
   setHeaderClean: markHeaderClean,
@@ -4222,7 +4221,7 @@ function setEditorValue(text) {
 }
 
 async function confirmRawModeLeave(contextLabel, { save } = {}) {
-  const fileDirty = Boolean(currentDoc && currentDoc.dirty);
+  const fileDirty = isCurrentDocumentDirty();
   const hdrDirty = getHeaderDirty();
   if (!fileDirty && !hdrDirty) return true;
   const choice = await confirmUnsavedChanges(contextLabel || "continuing");
@@ -4539,18 +4538,17 @@ function initEditor() {
 	  ]);
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
-      if (!suppressDirty && !isPayloadMode() && !currentDoc) {
-        currentDoc = createBlankDocument();
+      if (!suppressDirty && !isPayloadMode() && !hasCurrentDocument()) {
+        ensureCurrentDocument();
       }
       midiInputFeature.handleTypingPreviewChange(update);
       abLoopRuntime.incrementRevision();
       if (abLoopRuntime.hasPlan()) clearAbPlan({ toast: true });
-      if (!suppressDirty && currentDoc && !isPayloadMode()) {
-        currentDoc.content = update.state.doc.toString();
-        currentDoc.dirty = true;
+      if (!suppressDirty && hasCurrentDocument() && !isPayloadMode()) {
+        patchCurrentDocument({ content: update.state.doc.toString(), dirty: true }, { create: false });
         setDirtyIndicator(true);
       }
-      if (!suppressDirty && currentDoc && !isPayloadMode()) {
+      if (!suppressDirty && hasCurrentDocument() && !isPayloadMode()) {
         if (chordProFeature.isEnabled()) {
           chordProFeature.handleEditorDocChanged(update.state.doc.toString());
           scheduleWorkingCopyFullSync();
@@ -4869,13 +4867,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     logStep("metadata/status");
     sourceLinkFeature.update();
     logStep("source link");
-    if (currentDoc) {
-      currentDoc.path = metadata.path || null;
-      currentDoc.content = text;
-      currentDoc.dirty = false;
-    } else {
-      currentDoc = { path: metadata.path || null, dirty: false, content: text };
-    }
+    patchCurrentDocument({ path: metadata.path || null, content: text, dirty: false });
     if (!options.suppressRecent && !suppressRecentEntries && window.api && typeof window.api.addRecentTune === "function") {
       window.api.addRecentTune({
         path: metadata.path,
@@ -4917,13 +4909,7 @@ function setActiveTuneText(text, metadata, options = {}) {
     setTuneMetaText(UNTITLED_UNSAVED_LABEL);
     setFileNameMeta(UNTITLED_UNSAVED_LABEL);
     sourceLinkFeature.update();
-    if (currentDoc) {
-      currentDoc.path = null;
-      currentDoc.content = text || "";
-      currentDoc.dirty = markDirty;
-    } else {
-      currentDoc = { path: null, dirty: markDirty, content: text || "" };
-    }
+    patchCurrentDocument({ path: null, content: text || "", dirty: markDirty });
     updateFileContext();
     setDirtyIndicator(markDirty);
     markHeaderClean();
@@ -5385,7 +5371,7 @@ async function openRecentFile(entry) {
   const targetPath = String(entry.path || "");
   const activePath = String(
     (activeTuneMeta && activeTuneMeta.path)
-      || (currentDoc && currentDoc.path)
+      || getCurrentDocumentPath()
       || ""
   );
   const shouldForceReload = Boolean(entry && entry.forceReload);
@@ -5513,11 +5499,7 @@ async function loadLibraryFromFolder(folder) {
   suppressDirty = true;
   setEditorValue("");
   suppressDirty = false;
-  if (currentDoc) {
-    currentDoc.path = null;
-    currentDoc.content = "";
-    currentDoc.dirty = false;
-  }
+  patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
   setDirtyIndicator(false);
 
   try {
@@ -6038,15 +6020,14 @@ function refreshCursorStatus() {
 }
 
 function applyTransformedText(text, options = {}) {
-  if (!currentDoc) currentDoc = createBlankDocument();
+  ensureCurrentDocument();
   if (options.resetTransposePreview !== false) resetTransposePreviewState();
   let nextText = text || "";
   nextText = chordProFeature.applyTransformedText(nextText);
   suppressDirty = true;
   setEditorValue(nextText);
   suppressDirty = false;
-  currentDoc.content = nextText;
-  currentDoc.dirty = true;
+  patchCurrentDocument({ content: nextText, dirty: true }, { create: false });
   if (chordProFeature.isEnabled()) {
     scheduleWorkingCopyFullSync();
   }
@@ -6932,7 +6913,10 @@ function getPlaybackText() {
 function getDefaultSaveDir() {
   if (activeFilePath) return safeDirname(activeFilePath);
   if (libraryIndex && libraryIndex.root) return libraryIndex.root;
-  if (currentDoc && currentDoc.path) return safeDirname(currentDoc.path);
+  {
+    const docPath = getCurrentDocumentPath();
+    if (docPath) return safeDirname(docPath);
+  }
   return null;
 }
 
@@ -7074,13 +7058,55 @@ async function runPrintAllAction(type) {
 }
 
 function setCurrentDocument(doc) {
-  currentDoc = doc;
-  updateUIFromDocument(currentDoc);
+  const nextDoc = documentSessionController
+    ? documentSessionController.replaceCurrentDocument(doc)
+    : (currentDoc = doc);
+  updateUIFromDocument(nextDoc);
 }
 
 function clearCurrentDocument() {
-  currentDoc = null;
+  if (documentSessionController) documentSessionController.replaceCurrentDocument(null);
+  else currentDoc = null;
   showEmptyState();
+}
+
+function getCurrentDocument() {
+  return documentSessionController ? documentSessionController.getCurrentDocument() : currentDoc;
+}
+
+function hasCurrentDocument() {
+  return documentSessionController ? documentSessionController.hasCurrentDocument() : Boolean(currentDoc);
+}
+
+function getCurrentDocumentPath() {
+  return documentSessionController
+    ? documentSessionController.getCurrentDocumentPath()
+    : (currentDoc && currentDoc.path ? String(currentDoc.path) : "");
+}
+
+function isCurrentDocumentDirty() {
+  return documentSessionController ? documentSessionController.isCurrentDocumentDirty() : Boolean(currentDoc && currentDoc.dirty);
+}
+
+function ensureCurrentDocument(content = "") {
+  if (documentSessionController) return documentSessionController.ensureCurrentDocument(content);
+  if (!currentDoc) currentDoc = createBlankDocument();
+  return currentDoc;
+}
+
+function patchCurrentDocument(patch = {}, options = {}) {
+  if (documentSessionController) return documentSessionController.patchCurrentDocument(patch, options);
+  const create = options.create !== false;
+  const doc = create ? ensureCurrentDocument(options.content || "") : currentDoc;
+  if (!doc) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, "path")) doc.path = patch.path || null;
+  if (Object.prototype.hasOwnProperty.call(patch, "content")) doc.content = String(patch.content || "");
+  if (Object.prototype.hasOwnProperty.call(patch, "dirty")) doc.dirty = Boolean(patch.dirty);
+  return doc;
+}
+
+function markCurrentDocumentClean() {
+  return patchCurrentDocument({ dirty: false }, { create: false });
 }
 
 function updateUIFromDocument(doc) {
@@ -8938,7 +8964,7 @@ async function pasteClipboardToFile(targetPath) {
       // Transaction prerequisite: both files must be in a committed/safe state.
       // (If the active editor is on either file, it must be clean; otherwise the move could silently
       // commit unrelated pending changes.)
-      const hasUnsavedInActiveFile = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
+      const hasUnsavedInActiveFile = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(isNewTuneDraft);
       const activePath = activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : (activeFilePath ? String(activeFilePath) : "");
       if (
         activePath
@@ -9142,7 +9168,7 @@ async function deleteTuneById(tuneId) {
   ) {
     if (
       pathsEqual(activeFilePath, fileMeta.path)
-      && (Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft))
+      && (isCurrentDocumentDirty() || getHeaderDirty() || Boolean(isNewTuneDraft))
     ) {
       await showSaveError("Please Save/Discard your unsaved changes in this file before deleting tunes.");
       return;
@@ -9464,10 +9490,7 @@ function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {})
   setTuneMetaText(label);
   setFileNameMeta(stripFileExtension(basename || safeBasename(filePath)));
 
-  if (!currentDoc) currentDoc = createBlankDocument();
-  currentDoc.path = null;
-  currentDoc.content = text || "";
-  currentDoc.dirty = true;
+  patchCurrentDocument({ path: null, content: text || "", dirty: true });
   updateFileContext();
   setDirtyIndicator(true);
   updateFileHeaderPanel();
@@ -9569,7 +9592,7 @@ async function fileNewTuneAndAppendNow() {
     || (activeTuneMeta && activeTuneMeta.path)
     || activeFilePath
     || getCurrentNavFilePath()
-    || (currentDoc && currentDoc.path)
+    || getCurrentDocumentPath()
     || ""
   );
   if (!filePath) {
@@ -9707,7 +9730,7 @@ function renumberXInTextKeepingFirst(abcText) {
 async function renumberXInActiveFile(explicitFilePath) {
   const filePath = explicitFilePath
     || ((activeTuneMeta && activeTuneMeta.path) ? activeTuneMeta.path : null)
-    || (activeFilePath || (currentDoc && currentDoc.path) || null);
+    || (activeFilePath || getCurrentDocumentPath() || null);
   if (!filePath) {
     showToast("No active file selected.", 2200);
     return;
@@ -9721,7 +9744,7 @@ async function renumberXInActiveFile(explicitFilePath) {
   const activePath = (activeTuneMeta && activeTuneMeta.path)
     ? String(activeTuneMeta.path)
     : (activeFilePath ? String(activeFilePath) : "");
-  const globalDirty = Boolean(currentDoc && currentDoc.dirty) || getHeaderDirty() || Boolean(isNewTuneDraft);
+  const globalDirty = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(isNewTuneDraft);
   const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
 
   if (globalDirty && !isTargetActive) {

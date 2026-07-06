@@ -52,6 +52,7 @@ function createDocumentSessionController({
 } = {}) {
   const {
     getCurrentDoc = () => null,
+    setCurrentDoc = () => {},
     getActiveFilePath = () => "",
     getActiveTuneMeta = () => null,
     getActiveTuneUid = () => "",
@@ -80,6 +81,60 @@ function createDocumentSessionController({
 
   let saveSession = createEmptySaveSession();
   let abandonFlowInProgress = false;
+
+  function getCurrentDocument() {
+    return getCurrentDoc();
+  }
+
+  function hasCurrentDocument() {
+    return Boolean(getCurrentDoc());
+  }
+
+  function getCurrentDocumentPath() {
+    const doc = getCurrentDoc();
+    return doc && doc.path ? String(doc.path) : "";
+  }
+
+  function isCurrentDocumentDirty() {
+    const doc = getCurrentDoc();
+    return Boolean(doc && doc.dirty);
+  }
+
+  function replaceCurrentDocument(doc) {
+    setCurrentDoc(doc || null);
+    return getCurrentDoc();
+  }
+
+  function ensureCurrentDocument(content = "") {
+    let doc = getCurrentDoc();
+    if (!doc) {
+      doc = createBlankDocument(content);
+      setCurrentDoc(doc);
+    }
+    return doc;
+  }
+
+  function patchCurrentDocument(patch = {}, options = {}) {
+    const create = options.create !== false;
+    const doc = create ? ensureCurrentDocument(options.content || "") : getCurrentDoc();
+    if (!doc) return null;
+    if (Object.prototype.hasOwnProperty.call(patch, "path")) doc.path = patch.path || null;
+    if (Object.prototype.hasOwnProperty.call(patch, "content")) doc.content = String(patch.content || "");
+    if (Object.prototype.hasOwnProperty.call(patch, "dirty")) doc.dirty = Boolean(patch.dirty);
+    return doc;
+  }
+
+  function setCurrentDocumentContent(content, options = {}) {
+    return patchCurrentDocument({ content }, { create: Boolean(options.create) });
+  }
+
+  function setCurrentDocumentDirty(dirty, options = {}) {
+    return patchCurrentDocument({ dirty: Boolean(dirty) }, { create: Boolean(options.create) });
+  }
+
+  function markCurrentDocumentClean() {
+    return setCurrentDocumentDirty(false, { create: false });
+  }
 
   function clearSaveSession() {
     saveSession = createEmptySaveSession();
@@ -228,13 +283,23 @@ function createDocumentSessionController({
     confirmUnsavedChanges,
     deserializeToDocument,
     ensureSafeToAbandonCurrentDoc,
+    ensureCurrentDocument,
     fileClose,
     fileSave,
     fileSaveAs,
+    getCurrentDocument,
+    getCurrentDocumentPath,
+    hasCurrentDocument,
+    isCurrentDocumentDirty,
+    markCurrentDocumentClean,
+    patchCurrentDocument,
+    replaceCurrentDocument,
     resolveSaveSession,
     requestCloseDocument,
     requestQuitApplication,
     serializeDocument,
+    setCurrentDocumentContent,
+    setCurrentDocumentDirty,
     setSaveSession,
   };
 }

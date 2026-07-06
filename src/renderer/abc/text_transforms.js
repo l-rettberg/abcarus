@@ -258,6 +258,16 @@ function ensureXNumberInAbc(abcText, xNumber) {
   return lines.join("\n");
 }
 
+function appendTuneToContent(existingContent, tuneText) {
+  const existing = existingContent || "";
+  const tune = String(tuneText || "").replace(/\s+$/, "");
+  if (!existing.trim()) return `${tune}\n`;
+  let separator = "\n\n";
+  if (existing.endsWith("\n\n")) separator = "";
+  else if (existing.endsWith("\n")) separator = "\n";
+  return `${existing}${separator}${tune}\n`;
+}
+
 function renumberXLinesConsecutive(fullText) {
   const text = String(fullText || "");
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
@@ -290,6 +300,7 @@ function removeTuneFromContent(content, startOffset, endOffset) {
 }
 
 export {
+  appendTuneToContent,
   ensureCopyTitleInAbc,
   ensureXNumberInAbc,
   getNextXNumber,

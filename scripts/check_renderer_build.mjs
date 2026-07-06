@@ -14,6 +14,8 @@ async function assertSaveIntentGuards() {
   const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
   const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
+  const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
+  const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -83,13 +85,13 @@ async function assertSaveIntentGuards() {
   if (!src.includes("!scopedMode")) {
     throw new Error("Playback reuse must be disabled for scoped (selection/ab/focus) modes.");
   }
-  if (!src.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
+  if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (!src.includes("await window.api.reloadWorkingCopyFromDisk();")) {
+  if (!libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk();")) {
     throw new Error("openRecentFile() must reload existing working copy from disk.");
   }
-  if (!src.includes("await refreshLibraryFile(targetPath, { force: true });")) {
+  if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 

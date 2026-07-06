@@ -84,7 +84,7 @@ function createDocumentSessionController({
     setActiveTuneText = () => {},
     setChordProMode = () => {},
     showToast = () => {},
-    showOpenDialog = async () => "",
+    showOpenDialog: showOpenDialogAction = null,
     clearCurrentDocument = () => {},
     updateHeaderStateUI = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
@@ -163,6 +163,12 @@ function createDocumentSessionController({
 
   function markCurrentDocumentClean() {
     return setCurrentDocumentDirty(false, { create: false });
+  }
+
+  async function showOpenDialog() {
+    if (typeof showOpenDialogAction === "function") return showOpenDialogAction();
+    if (!api || typeof api.showOpenDialog !== "function") return null;
+    return api.showOpenDialog();
   }
 
   function clearSaveSession() {

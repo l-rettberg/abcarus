@@ -3238,7 +3238,6 @@ documentSessionController = createDocumentSessionController({
     setChordProMode: (next) => chordProFeature.setMode(next),
     setDirtyIndicator,
     showToast,
-    showOpenDialog,
     updateHeaderStateUI,
     pathsEqual,
     safeDirname,
@@ -7658,11 +7657,6 @@ async function confirmImportMusicXmlTarget(filePath) {
 async function confirmDeleteTune(label) {
   if (!window.api || typeof window.api.confirmDeleteTune !== "function") return "cancel";
   return window.api.confirmDeleteTune(label);
-}
-
-async function showOpenDialog() {
-  if (!window.api || typeof window.api.showOpenDialog !== "function") return null;
-  return window.api.showOpenDialog();
 }
 
 async function showSaveDialog(suggestedName, suggestedDir) {

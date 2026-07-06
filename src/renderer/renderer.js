@@ -189,6 +189,7 @@ import { createToastHoverController } from "./app/toast_hover_controller.js";
 import { createFileHeaderController } from "./app/file_header_controller.js";
 import { createFileContextController } from "./app/file_context_controller.js";
 import { createEditStateController } from "./app/edit_state_controller.js";
+import { createFileOperationGuard } from "./app/file_operation_guard.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -480,6 +481,7 @@ let rawModeOriginalTuneId = null;
 let payloadModeDecorations = null;
 let fileContextController = null;
 let editStateController = null;
+let fileOperationGuard = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -3100,6 +3102,20 @@ editStateController = createEditStateController({
   actions: {
     renderUnifiedStatus: () => renderUnifiedStatus(),
     updateWindowTitle: () => updateWindowTitle(),
+  },
+  utils: {
+    pathsEqual,
+  },
+});
+
+fileOperationGuard = createFileOperationGuard({
+  state: {
+    getActiveEditFilePath,
+    getWorkingCopySnapshot: () => workingCopySnapshot,
+    hasGlobalUnsavedChanges,
+  },
+  actions: {
+    showSaveError,
   },
   utils: {
     pathsEqual,
@@ -5926,22 +5942,11 @@ function hasUnsavedChangesInActiveEditContext() {
 }
 
 async function requireCleanForFileOp(targetPath, actionLabel) {
-  const p = String(targetPath || "");
-  const label = String(actionLabel || "this action");
-  const activePath = getActiveEditFilePath();
-  if (!hasGlobalUnsavedChanges()) return true;
-  if (activePath && p && !pathsEqual(activePath, p)) {
-    await showSaveError(`Please Save/Discard your current changes before ${label}.`);
-    return false;
-  }
-  await showSaveError(`${label} is disabled while the file has unsaved changes. Save/Discard first.`);
-  return false;
+  return fileOperationGuard ? fileOperationGuard.requireCleanForFileOp(targetPath, actionLabel) : false;
 }
 
 function isWorkingCopyOpenForFile(filePath) {
-  const p = String(filePath || "");
-  if (!p) return false;
-  return Boolean(workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p));
+  return fileOperationGuard ? fileOperationGuard.isWorkingCopyOpenForFile(filePath) : false;
 }
 
 function splitFileIntoHeaderAndBody(fullText) {

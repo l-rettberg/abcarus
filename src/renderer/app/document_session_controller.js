@@ -326,7 +326,7 @@ function createDocumentSessionController({
     }
 
     setChordProMode(false);
-    await loadLibraryFromFolder(safeDirname(filePath));
+    await loadLibraryFromFolder(safeDirname(filePath), { selectInitialTune: false });
     const files = getLibraryFiles();
     if (!Array.isArray(files)) return;
 

@@ -5476,8 +5476,9 @@ async function refreshLibraryIndex() {
 	  }
 }
 
-async function loadLibraryFromFolder(folder) {
+async function loadLibraryFromFolder(folder, options = {}) {
   if (!window.api || !folder) return;
+  const selectInitialTune = options.selectInitialTune !== false;
   reportStartupStatus("Scanning library…");
   statusController.markStartupAutoLoadStarted();
   const perfOn = isStartupPerfEnabled();
@@ -5532,22 +5533,24 @@ async function loadLibraryFromFolder(folder) {
     libraryUiStateController.expandInitialCollapsedState();
     const restoredSelection = applyLibraryUiStateFromSettings(latestSettingsSnapshot);
     scheduleRenderLibraryTree();
-    let firstTuneId = null;
-    const restoredTune = restoredSelection && restoredSelection.tuneSelection
-      ? await restoreLibraryTuneSelection(restoredSelection.tuneSelection)
-      : false;
-    if (!restoredTune) {
-      for (const file of libraryIndex.files || []) {
-        if (file.tunes && file.tunes.length) {
-          firstTuneId = file.tunes[0].id;
-          break;
+    if (selectInitialTune) {
+      let firstTuneId = null;
+      const restoredTune = restoredSelection && restoredSelection.tuneSelection
+        ? await restoreLibraryTuneSelection(restoredSelection.tuneSelection)
+        : false;
+      if (!restoredTune) {
+        for (const file of libraryIndex.files || []) {
+          if (file.tunes && file.tunes.length) {
+            firstTuneId = file.tunes[0].id;
+            break;
+          }
         }
-      }
-      if (firstTuneId) {
-        reportStartupStatus("Opening first tune…");
-        const tSel0 = perfOn ? perfNowMs() : 0;
-        await selectTune(firstTuneId);
-        if (perfOn) logStartupPerf("selectTune(first)", { ms: Math.round(perfNowMs() - tSel0) });
+        if (firstTuneId) {
+          reportStartupStatus("Opening first tune…");
+          const tSel0 = perfOn ? perfNowMs() : 0;
+          await selectTune(firstTuneId);
+          if (perfOn) logStartupPerf("selectTune(first)", { ms: Math.round(perfNowMs() - tSel0) });
+        }
       }
     }
     updateLibraryStatus();

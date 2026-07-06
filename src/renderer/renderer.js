@@ -1502,6 +1502,22 @@ function logStartupPerf(label, data) {
   if (diagnosticsController) diagnosticsController.logStartupPerf(label, data);
 }
 
+function isFilePerfEnabled() {
+  try {
+    return window.__abcarusPerfFiles === true || isStartupPerfEnabled();
+  } catch {
+    return false;
+  }
+}
+
+function logFilePerf(label, data) {
+  if (!isFilePerfEnabled()) return;
+  try {
+    if (data !== undefined) console.log(`[perf:file] ${label}`, data);
+    else console.log(`[perf:file] ${label}`);
+  } catch {}
+}
+
 function isRenderPerfEnabled() {
   try {
     return window.__abcarusPerfRender === true || isStartupPerfEnabled();
@@ -5041,8 +5057,20 @@ function markActiveTuneButton(tuneId) {
 }
 
 async function selectTune(tuneId, options = {}) {
-  const perfOn = isStartupPerfEnabled();
+  const perfOn = isFilePerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
+  let tStep = t0;
+  const logStep = (label, data = {}) => {
+    if (!perfOn) return;
+    const now = perfNowMs();
+    logFilePerf(`selectTune: ${label}`, {
+      ms: Math.round(now - tStep),
+      totalMs: Math.round(now - t0),
+      tuneId: String(tuneId || ""),
+      ...data,
+    });
+    tStep = now;
+  };
   if (!libraryIndex || !tuneId) return;
   recordRecentAction("selectTune.start", {
     tuneId: String(tuneId),
@@ -5055,6 +5083,7 @@ async function selectTune(tuneId, options = {}) {
     const ok = await ensureSafeToAbandonCurrentDoc("switching tunes");
     if (!ok) return { ok: false, cancelled: true };
   }
+  logStep("confirm");
   let selected = null;
   let fileMeta = null;
 
@@ -5068,6 +5097,7 @@ async function selectTune(tuneId, options = {}) {
   }
 
   if (!selected || !fileMeta) return { ok: false, error: "Tune not found." };
+  logStep("find tune", { file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "" });
 
   try {
     if (window.api && typeof window.api.openWorkingCopy === "function" && fileMeta.path) {
@@ -5076,7 +5106,7 @@ async function selectTune(tuneId, options = {}) {
         recordRecentAction("wc.open", { path: String(fileMeta.path), reason: "selectTune" });
         await window.api.openWorkingCopy(fileMeta.path);
         const snapshot = await refreshWorkingCopySnapshot();
-        if (perfOn) logStartupPerf("selectTune: openWorkingCopy", { ms: Math.round(perfNowMs() - tWc0), file: safeBasename(fileMeta.path) });
+        if (perfOn) logFilePerf("selectTune: openWorkingCopy", { ms: Math.round(perfNowMs() - tWc0), file: safeBasename(fileMeta.path) });
         if (snapshot && snapshot.path && pathsEqual(snapshot.path, fileMeta.path)) {
           attachTuneUidsToLibraryFile(fileMeta.path, snapshot);
           scheduleRenderLibraryTree();
@@ -5154,6 +5184,10 @@ async function selectTune(tuneId, options = {}) {
       setFileContentInCache(fileMeta.path, content);
     }
   }
+  logStep("load content", {
+    workingCopy: Boolean(workingCopyOpen),
+    chars: content == null ? 0 : String(content || "").length,
+  });
 
   const isTuneSliceValid = (fullText, tune) => {
     if (!fullText || !tune || !Number.isFinite(Number(tune.startOffset))) return false;
@@ -5180,6 +5214,7 @@ async function selectTune(tuneId, options = {}) {
       }
     } catch {}
   }
+  logStep("validate slice");
 
   const tuneText = content.slice(sliceStart, sliceEnd);
   activeTuneId = selected.id;
@@ -5203,6 +5238,7 @@ async function selectTune(tuneId, options = {}) {
     startOffset: sliceStart,
     endOffset: sliceEnd,
   }, { suppressRecent: options.suppressRecent || false });
+  logStep("set active text", { tuneChars: String(tuneText || "").length });
   // Reset playback/selection state on tune switch to avoid leaking selection-mode playback flags.
   selectionPlaybackRuntime.clearSelectionCapture();
   resetPlaybackState();
@@ -5214,7 +5250,7 @@ async function selectTune(tuneId, options = {}) {
   clearAbPlan();
   scheduleAutoWcDump("switch", selected && selected.xNumber ? `X:${String(selected.xNumber)}` : "");
   if (perfOn) {
-    logStartupPerf("selectTune() done", {
+    logFilePerf("selectTune: done", {
       ms: Math.round(perfNowMs() - t0),
       file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "",
       x: selected && selected.xNumber ? String(selected.xNumber) : "",
@@ -5481,9 +5517,12 @@ async function loadLibraryFromFolder(folder, options = {}) {
   const selectInitialTune = options.selectInitialTune !== false;
   reportStartupStatus("Scanning library…");
   statusController.markStartupAutoLoadStarted();
-  const perfOn = isStartupPerfEnabled();
+  const perfOn = isFilePerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
-  if (perfOn) logStartupPerf("loadLibraryFromFolder() start", { folder: abbreviatePathForLog(folder, 3) });
+  if (perfOn) logFilePerf("loadLibraryFromFolder: start", {
+    folder: abbreviatePathForLog(folder, 3),
+    selectInitialTune,
+  });
   const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   setScanStatus("Scanning…");
   fileContentCache.clear();
@@ -5501,7 +5540,7 @@ async function loadLibraryFromFolder(folder, options = {}) {
     if (typeof window.api.scanLibraryDiscover === "function") {
       const tDisc0 = perfOn ? perfNowMs() : 0;
       const discovered = await window.api.scanLibraryDiscover(folder, { token: scanToken, computeMeta: true });
-      if (perfOn) logStartupPerf("scanLibraryDiscover()", { ms: Math.round(perfNowMs() - tDisc0), files: discovered && discovered.files ? discovered.files.length : 0 });
+      if (perfOn) logFilePerf("loadLibraryFromFolder: discover", { ms: Math.round(perfNowMs() - tDisc0), files: discovered && discovered.files ? discovered.files.length : 0 });
       if (discovered && discovered.root && Array.isArray(discovered.files)) {
         if (!libraryIndex && folder !== discovered.root) {
           // proceed: first load
@@ -5525,7 +5564,9 @@ async function loadLibraryFromFolder(folder, options = {}) {
       return;
     }
     reportStartupStatus("Indexing tunes…");
+    const tIndex0 = perfOn ? perfNowMs() : 0;
     await ensureFullLibraryIndex({ reason: "library" });
+    if (perfOn) logFilePerf("loadLibraryFromFolder: full index", { ms: Math.round(perfNowMs() - tIndex0) });
     if (libraryIndex && libraryIndex.root && libraryIndex.root !== folder) return;
 
     clearLibraryFilter();
@@ -5549,12 +5590,12 @@ async function loadLibraryFromFolder(folder, options = {}) {
           reportStartupStatus("Opening first tune…");
           const tSel0 = perfOn ? perfNowMs() : 0;
           await selectTune(firstTuneId);
-          if (perfOn) logStartupPerf("selectTune(first)", { ms: Math.round(perfNowMs() - tSel0) });
+          if (perfOn) logFilePerf("loadLibraryFromFolder: select first", { ms: Math.round(perfNowMs() - tSel0) });
         }
       }
     }
     updateLibraryStatus();
-    if (perfOn) logStartupPerf("loadLibraryFromFolder() done", { ms: Math.round(perfNowMs() - t0) });
+    if (perfOn) logFilePerf("loadLibraryFromFolder: done", { ms: Math.round(perfNowMs() - t0) });
     markStartupUiReady();
 		  } catch (e) {
 		    setScanStatus("Scan failed");

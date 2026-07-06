@@ -110,6 +110,27 @@ export function createLibraryLifecycleController({
   let selectTuneInFlightKey = "";
   let selectTuneInFlightPromise = null;
 
+  function findLoadedFileEntry(filePath) {
+    const p = String(filePath || "");
+    const libraryIndex = getLibraryIndex();
+    if (!p || !libraryIndex || !Array.isArray(libraryIndex.files)) return null;
+    return libraryIndex.files.find((f) => f && f.path && pathsEqual(f.path, p)) || null;
+  }
+
+  function findRecentTuneInFileEntry(fileEntry, entry) {
+    if (!fileEntry || !Array.isArray(fileEntry.tunes) || !entry) return null;
+    const startOffset = Number(entry.startOffset) || 0;
+    const id = `${entry.path}::${startOffset}`;
+    let tune = fileEntry.tunes.find((t) => t && t.id === id) || null;
+    if (!tune && entry.xNumber) tune = fileEntry.tunes.find((t) => String(t && (t.xNumber || "")) === String(entry.xNumber)) || null;
+    if (!tune && entry.title) {
+      const title = String(entry.title || "").trim().toLowerCase();
+      tune = fileEntry.tunes.find((t) => String(t && (t.title || "")).trim().toLowerCase() === title) || null;
+    }
+    if (!tune && fileEntry.tunes.length) tune = fileEntry.tunes[0];
+    return tune || null;
+  }
+
   function setActiveTuneText(text, metadata, options = {}) {
     const perfOn = isRenderPerfEnabled();
     const t0 = perfOn ? perfNowMs() : 0;
@@ -524,17 +545,18 @@ export function createLibraryLifecycleController({
     if (!ok) return { ok: false, cancelled: true };
 
     setChordProMode(false);
-    const fileEntry = await loadSingleLibraryFile(entry.path);
+    let fileEntry = findLoadedFileEntry(entry.path);
     if (fileEntry && Array.isArray(fileEntry.tunes)) {
-      const startOffset = Number(entry.startOffset) || 0;
-      const id = `${entry.path}::${startOffset}`;
-      let tune = fileEntry.tunes.find((t) => t && t.id === id) || null;
-      if (!tune && entry.xNumber) tune = fileEntry.tunes.find((t) => String(t && (t.xNumber || "")) === String(entry.xNumber)) || null;
-      if (!tune && entry.title) {
-        const title = String(entry.title || "").trim().toLowerCase();
-        tune = fileEntry.tunes.find((t) => String(t && (t.title || "")).trim().toLowerCase() === title) || null;
+      const tune = findRecentTuneInFileEntry(fileEntry, entry);
+      if (tune && tune.id) {
+        await selectTune(tune.tuneUid || tune.id, { skipConfirm: true, suppressRecent: true });
+        return { ok: true };
       }
-      if (!tune && fileEntry.tunes.length) tune = fileEntry.tunes[0];
+    }
+
+    fileEntry = await loadSingleLibraryFile(entry.path);
+    if (fileEntry && Array.isArray(fileEntry.tunes)) {
+      const tune = findRecentTuneInFileEntry(fileEntry, entry);
       if (tune && tune.id) {
         await selectTune(tune.tuneUid || tune.id, { skipConfirm: true, suppressRecent: true });
         return { ok: true };
@@ -596,6 +618,10 @@ export function createLibraryLifecycleController({
         }
       } catch {}
       try { await refreshLibraryFile(targetPath, { force: true }); } catch {}
+    }
+    const loadedFileEntry = findLoadedFileEntry(entry.path);
+    if (loadedFileEntry && Array.isArray(loadedFileEntry.tunes) && loadedFileEntry.tunes.length) {
+      return loadLibraryFileIntoEditor(entry.path);
     }
     const readRes = await readFile(entry.path);
     if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(entry.path))) {

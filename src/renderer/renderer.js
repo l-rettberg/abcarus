@@ -4350,6 +4350,18 @@ async function loadLastRecentEntry() {
     const res = await window.api.getLastRecent();
     if (res && res.entry) candidates = [res];
   }
+
+  const folderCandidate = candidates.find((res) => res && res.type === "folder" && res.entry && res.entry.path);
+  if (folderCandidate && folderCandidate.entry) {
+    reportStartupStatus("Opening recent folder…");
+    try {
+      await loadLibraryFromFolder(folderCandidate.entry.path, { selectInitialTune: false });
+      if (libraryIndex && libraryIndex.root) {
+        statusController.markStartupRecentOpenStarted();
+      }
+    } catch {}
+  }
+
   for (const res of candidates) {
     if (!res || !res.entry) continue;
     if (res.type === "tune") {
@@ -4371,6 +4383,10 @@ async function loadLastRecentEntry() {
       continue;
     }
     if (res.type === "folder") {
+      if (libraryIndex && libraryIndex.root && pathsEqual(libraryIndex.root, res.entry.path)) {
+        statusController.markStartupRecentOpenStarted();
+        return true;
+      }
       reportStartupStatus("Opening recent folder…");
       const opened = await openRecentFolder(res.entry);
       if (opened && opened.ok) {

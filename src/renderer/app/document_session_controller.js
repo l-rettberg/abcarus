@@ -51,8 +51,8 @@ function createDocumentSessionController({
   actions = {},
 } = {}) {
   const {
-    getCurrentDoc = () => null,
-    setCurrentDoc = () => {},
+    getCurrentDoc: externalGetCurrentDoc = null,
+    setCurrentDoc: externalSetCurrentDoc = null,
     getActiveFilePath = () => "",
     getActiveTuneMeta = () => null,
     getActiveTuneUid = () => "",
@@ -81,6 +81,23 @@ function createDocumentSessionController({
 
   let saveSession = createEmptySaveSession();
   let abandonFlowInProgress = false;
+  let currentDocument = null;
+
+  function getCurrentDoc() {
+    return typeof externalGetCurrentDoc === "function"
+      ? externalGetCurrentDoc()
+      : currentDocument;
+  }
+
+  function setCurrentDoc(doc) {
+    const nextDoc = doc || null;
+    if (typeof externalSetCurrentDoc === "function") {
+      externalSetCurrentDoc(nextDoc);
+      return getCurrentDoc();
+    }
+    currentDocument = nextDoc;
+    return currentDocument;
+  }
 
   function getCurrentDocument() {
     return getCurrentDoc();

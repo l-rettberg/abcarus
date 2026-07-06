@@ -447,7 +447,6 @@ ee2e2d c2dcBA             | "E"  B2cBAG   "A"   ABGA3  :|
 "E7"   EEE2FG "A" ABcde2  | "E"  e2dc2B   "A"   AGBA3  :|
 %--------------------------------------------------------
 `;
-let currentDoc = null;
 let suppressDirty = false;
 let transposePreviewBaseText = null;
 let transposePreviewHeaderText = null;
@@ -636,7 +635,7 @@ const chordProFeature = createChordProFeature({
   setEditorValue,
   setSuppressDirty: (next) => { suppressDirty = Boolean(next); },
   getCurrentDoc: getCurrentDocument,
-  setCurrentDoc: (doc) => { if (documentSessionController) documentSessionController.replaceCurrentDocument(doc); else currentDoc = doc || null; },
+  setCurrentDoc: (doc) => { setCurrentDocument(doc || null); },
   setCurrentDocContent: (content) => patchCurrentDocument({ content }, { create: false }),
   isPayloadMode,
   isLibraryVisible: () => isLibraryVisible,
@@ -3208,8 +3207,6 @@ documentLifecycleController = createDocumentLifecycleController({
 documentSessionController = createDocumentSessionController({
   api: window.api,
   state: {
-    getCurrentDoc: () => currentDoc,
-    setCurrentDoc: (doc) => { currentDoc = doc || null; },
     getActiveFilePath: () => activeFilePath,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
@@ -7044,51 +7041,41 @@ async function runPrintAllAction(type) {
 }
 
 function setCurrentDocument(doc) {
-  const nextDoc = documentSessionController
-    ? documentSessionController.replaceCurrentDocument(doc)
-    : (currentDoc = doc);
+  if (!documentSessionController) return null;
+  const nextDoc = documentSessionController.replaceCurrentDocument(doc);
   updateUIFromDocument(nextDoc);
+  return nextDoc;
 }
 
 function clearCurrentDocument() {
   if (documentSessionController) documentSessionController.replaceCurrentDocument(null);
-  else currentDoc = null;
   showEmptyState();
 }
 
 function getCurrentDocument() {
-  return documentSessionController ? documentSessionController.getCurrentDocument() : currentDoc;
+  return documentSessionController ? documentSessionController.getCurrentDocument() : null;
 }
 
 function hasCurrentDocument() {
-  return documentSessionController ? documentSessionController.hasCurrentDocument() : Boolean(currentDoc);
+  return documentSessionController ? documentSessionController.hasCurrentDocument() : false;
 }
 
 function getCurrentDocumentPath() {
-  return documentSessionController
-    ? documentSessionController.getCurrentDocumentPath()
-    : (currentDoc && currentDoc.path ? String(currentDoc.path) : "");
+  return documentSessionController ? documentSessionController.getCurrentDocumentPath() : "";
 }
 
 function isCurrentDocumentDirty() {
-  return documentSessionController ? documentSessionController.isCurrentDocumentDirty() : Boolean(currentDoc && currentDoc.dirty);
+  return documentSessionController ? documentSessionController.isCurrentDocumentDirty() : false;
 }
 
 function ensureCurrentDocument(content = "") {
   if (documentSessionController) return documentSessionController.ensureCurrentDocument(content);
-  if (!currentDoc) currentDoc = createBlankDocument();
-  return currentDoc;
+  return null;
 }
 
 function patchCurrentDocument(patch = {}, options = {}) {
   if (documentSessionController) return documentSessionController.patchCurrentDocument(patch, options);
-  const create = options.create !== false;
-  const doc = create ? ensureCurrentDocument(options.content || "") : currentDoc;
-  if (!doc) return null;
-  if (Object.prototype.hasOwnProperty.call(patch, "path")) doc.path = patch.path || null;
-  if (Object.prototype.hasOwnProperty.call(patch, "content")) doc.content = String(patch.content || "");
-  if (Object.prototype.hasOwnProperty.call(patch, "dirty")) doc.dirty = Boolean(patch.dirty);
-  return doc;
+  return null;
 }
 
 function markCurrentDocumentClean() {

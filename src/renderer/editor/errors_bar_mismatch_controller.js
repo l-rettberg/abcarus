@@ -10,6 +10,7 @@ function createErrorsBarMismatchController({
 } = {}) {
   let markers = [];
   let version = 0;
+  let pendingRefreshRaf = null;
 
   function mapMarkers(changes, docLength) {
     if (!markers.length || !changes) return;
@@ -46,10 +47,40 @@ function createErrorsBarMismatchController({
     decorations: (value) => value.decorations,
   });
 
-  function setMarkers(nextMarkers) {
+  function refreshEditor() {
+    if (typeof dispatchEditorRefresh === "function") dispatchEditorRefresh();
+  }
+
+  function cancelPendingRefresh() {
+    if (!pendingRefreshRaf) return;
+    try {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(pendingRefreshRaf);
+    } catch {}
+    pendingRefreshRaf = null;
+  }
+
+  function scheduleEditorRefresh() {
+    cancelPendingRefresh();
+    try {
+      if (typeof requestAnimationFrame === "function") {
+        pendingRefreshRaf = requestAnimationFrame(() => {
+          pendingRefreshRaf = null;
+          refreshEditor();
+        });
+        return;
+      }
+    } catch {}
+    refreshEditor();
+  }
+
+  function setMarkers(nextMarkers, options = {}) {
     markers = Array.isArray(nextMarkers) ? nextMarkers : [];
     version += 1;
-    if (typeof dispatchEditorRefresh === "function") dispatchEditorRefresh();
+    if (options && options.deferRefresh) scheduleEditorRefresh();
+    else {
+      cancelPendingRefresh();
+      refreshEditor();
+    }
   }
 
   return {

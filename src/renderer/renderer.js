@@ -7389,7 +7389,7 @@ function renderNow() {
     });
     tPrepareStep = now;
   };
-  errorsFeature.refreshBarMismatchMarkersForTune(currentText);
+  errorsFeature.refreshBarMismatchMarkersForTune(currentText, { deferEditorRefresh: true });
   logPrepareStep("bar mismatch");
   const renderPayload = getRenderPayload();
   logPrepareStep("payload", {

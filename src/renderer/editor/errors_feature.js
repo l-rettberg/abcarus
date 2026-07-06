@@ -188,7 +188,7 @@ function createErrorsFeature({
     barMismatchController.setMarkers([]);
   }
 
-  function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0 } = {}) {
+  function refreshBarMismatchMarkersForTune(tuneText, { lineOffset = 0, startOffset = 0, deferEditorRefresh = false } = {}) {
     const editorView = typeof getEditorView === "function" ? getEditorView() : null;
     const rawMode = typeof isRawMode === "function" ? Boolean(isRawMode()) : false;
     const payloadMode = typeof isPayloadMode === "function" ? Boolean(isPayloadMode()) : false;
@@ -209,7 +209,7 @@ function createErrorsFeature({
           return next;
         });
       }
-      barMismatchController.setMarkers(markers);
+      barMismatchController.setMarkers(markers, { deferRefresh: Boolean(deferEditorRefresh) });
       if (window.__abcarusDebugBarMismatch === true) {
         console.info("[bar-mismatch]", {
           count: Array.isArray(markers) ? markers.length : 0,

@@ -7254,12 +7254,14 @@ let pendingRenderRaf = null;
 let renderRequestToken = 0;
 let pendingRenderPerfContext = null;
 let activeRenderPerfContext = null;
+let pendingBarMismatchAnalysisRaf = null;
 
 function setRenderBusy(next) {
   if (playbackUiController) playbackUiController.setRenderBusy(next);
 }
 
 function clearRenderOutput(statusText = "Ready") {
+  cancelPendingBarMismatchAnalysis();
   setBarMismatchMarkers([]);
   setStatus(statusText || "Ready");
   if ($out) $out.innerHTML = "";
@@ -7267,6 +7269,39 @@ function clearRenderOutput(statusText = "Ready") {
   setRenderBusy(false);
   updateLibraryErrorIndexFromCurrentErrors();
   reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+}
+
+function cancelPendingBarMismatchAnalysis() {
+  if (!pendingBarMismatchAnalysisRaf) return;
+  try {
+    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(pendingBarMismatchAnalysisRaf);
+  } catch {}
+  pendingBarMismatchAnalysisRaf = null;
+}
+
+function scheduleBarMismatchAnalysisAfterRender(tuneText, token) {
+  cancelPendingBarMismatchAnalysis();
+  if (!errorsFeature || !tuneText) return;
+  try {
+    if (typeof requestAnimationFrame !== "function") return;
+    const text = String(tuneText || "");
+    pendingBarMismatchAnalysisRaf = requestAnimationFrame(() => {
+      pendingBarMismatchAnalysisRaf = null;
+      if (Number(token) !== Number(renderRequestToken)) return;
+      const perfOn = isRenderPerfEnabled();
+      const t0 = perfOn ? perfNowMs() : 0;
+      errorsFeature.refreshBarMismatchMarkersForTune(text, { deferEditorRefresh: true });
+      errorsFeature.addBarMismatchErrorsFromMarkers();
+      updateLibraryErrorIndexFromCurrentErrors();
+      errorsFeature.updateIndicatorAndPopover();
+      if (perfOn) {
+        logRenderPerf("bar mismatch: after render", {
+          token,
+          ms: Math.round(perfNowMs() - t0),
+        });
+      }
+    });
+  } catch {}
 }
 
 function scheduleRenderNow({ delayMs = 0, clearOutput = false, source = "" } = {}) {
@@ -7349,6 +7384,10 @@ function renderNow() {
   const perfOn = isRenderPerfEnabled();
   const tRender0 = perfOn ? perfNowMs() : 0;
   const perfContext = activeRenderPerfContext;
+  const renderToken = perfContext && Number.isFinite(Number(perfContext.token))
+    ? Number(perfContext.token)
+    : Number(renderRequestToken);
+  cancelPendingBarMismatchAnalysis();
   clearNoteSelection();
   invalidateNoteHighlightIndexCache();
   clearErrors();
@@ -7389,8 +7428,6 @@ function renderNow() {
     });
     tPrepareStep = now;
   };
-  errorsFeature.refreshBarMismatchMarkersForTune(currentText, { deferEditorRefresh: true });
-  logPrepareStep("bar mismatch");
   const renderPayload = getRenderPayload();
   logPrepareStep("payload", {
     payloadChars: renderPayload && renderPayload.text ? String(renderPayload.text).length : 0,
@@ -7422,8 +7459,6 @@ function renderNow() {
   } else {
     setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
   }
-  errorsFeature.addBarMismatchErrorsFromMarkers();
-  logPrepareStep("error index");
   setStatus("Rendering…");
   if (perfOn) {
     logRenderPerf("renderNow: prepared", {
@@ -7525,6 +7560,7 @@ function renderNow() {
         setRenderBusy(false);
         updateLibraryErrorIndexFromCurrentErrors();
         reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
+        scheduleBarMismatchAnalysisAfterRender(currentText, renderToken);
         if (perfOn) {
           logRenderPerf("renderNow: done", {
             token: perfContext ? perfContext.token : null,

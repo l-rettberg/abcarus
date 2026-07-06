@@ -72,7 +72,7 @@ function createDocumentSessionController({
   const {
     discardWorkingCopyChangesForActiveFile = async () => false,
     flushLibraryPrefsSave = async () => {},
-    loadLibraryFromFolder = async () => {},
+    loadSingleLibraryFile = async () => null,
     markHeaderClean = () => {},
     openChordProFile = async () => {},
     performRawSaveFlow = async () => false,
@@ -80,7 +80,6 @@ function createDocumentSessionController({
     performSaveFlow = async () => false,
     readFile = async () => ({ ok: false }),
     selectTune = async () => {},
-    setFileContentInCache = () => {},
     setDirtyIndicator = () => {},
     setActiveTuneText = () => {},
     setChordProMode = () => {},
@@ -327,12 +326,9 @@ function createDocumentSessionController({
     }
 
     setChordProMode(false);
-    await loadLibraryFromFolder(safeDirname(filePath), { selectInitialTune: false });
-    if (readRes && readRes.ok) setFileContentInCache(filePath, readRes.data);
-    const files = getLibraryFiles();
-    if (!Array.isArray(files)) return;
-
-    const fileEntry = files.find((f) => pathsEqual(f && f.path, filePath));
+    const fileEntry = await loadSingleLibraryFile(filePath, {
+      content: readRes && readRes.ok ? readRes.data : null,
+    });
     if (fileEntry && Array.isArray(fileEntry.tunes) && fileEntry.tunes.length) {
       await selectTune(fileEntry.tunes[0].id);
     } else {

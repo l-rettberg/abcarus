@@ -3291,7 +3291,7 @@ documentSessionController = createDocumentSessionController({
     clearCurrentDocument,
     discardWorkingCopyChangesForActiveFile,
     flushLibraryPrefsSave,
-    loadLibraryFromFolder,
+    loadSingleLibraryFile,
     markHeaderClean,
     openChordProFile: (filePath, text) => chordProFeature.open(filePath, text),
     performRawSaveFlow,
@@ -3300,7 +3300,6 @@ documentSessionController = createDocumentSessionController({
     readFile,
     selectTune,
     setActiveTuneText,
-    setFileContentInCache,
     setChordProMode: (next) => chordProFeature.setMode(next),
     setDirtyIndicator,
     showToast,
@@ -5439,14 +5438,19 @@ async function openRecentTune(entry) {
   if (!ok) return { ok: false, cancelled: true };
 
   chordProFeature.setMode(false);
-  const dir = safeDirname(entry.path);
-  await loadLibraryFromFolder(dir);
-  if (libraryIndex && libraryIndex.files) {
-    const id = `${entry.path}::${entry.startOffset || 0}`;
-    const fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, entry.path));
-    const tune = fileEntry ? fileEntry.tunes.find((t) => t.id === id) : null;
-    if (tune) {
-      await selectTune(tune.id);
+  const fileEntry = await loadSingleLibraryFile(entry.path);
+  if (fileEntry && Array.isArray(fileEntry.tunes)) {
+    const startOffset = Number(entry.startOffset) || 0;
+    const id = `${entry.path}::${startOffset}`;
+    let tune = fileEntry.tunes.find((t) => t && t.id === id) || null;
+    if (!tune && entry.xNumber) tune = fileEntry.tunes.find((t) => String(t && (t.xNumber || "")) === String(entry.xNumber)) || null;
+    if (!tune && entry.title) {
+      const title = String(entry.title || "").trim().toLowerCase();
+      tune = fileEntry.tunes.find((t) => String(t && (t.title || "")).trim().toLowerCase() === title) || null;
+    }
+    if (!tune && fileEntry.tunes.length) tune = fileEntry.tunes[0];
+    if (tune && tune.id) {
+      await selectTune(tune.tuneUid || tune.id, { skipConfirm: true, suppressRecent: true });
       return { ok: true };
     }
   }
@@ -5513,7 +5517,15 @@ async function openRecentFile(entry) {
     await chordProFeature.open(entry.path, readRes.data, { suppressRecent: true });
     return { ok: true };
   }
-  return await loadLibraryFileIntoEditor(entry.path);
+  const fileEntry = await loadSingleLibraryFile(entry.path, {
+    content: readRes && readRes.ok ? readRes.data : null,
+  });
+  if (fileEntry && Array.isArray(fileEntry.tunes) && fileEntry.tunes.length) {
+    const first = fileEntry.tunes[0];
+    await selectTune(first.tuneUid || first.id, { skipConfirm: true, suppressRecent: true });
+    return { ok: true };
+  }
+  return { ok: false, error: "No tunes found in file." };
 }
 
 async function openRecentFolder(entry) {
@@ -5677,11 +5689,50 @@ async function loadLibraryFromFolder(folder, options = {}) {
     updateLibraryStatus();
     if (perfOn) logFilePerf("loadLibraryFromFolder: done", { ms: Math.round(perfNowMs() - t0) });
     markStartupUiReady();
-		  } catch (e) {
-		    setScanStatus("Scan failed");
-		    logErr((e && e.stack) ? e.stack : String(e));
-        markStartupUiReady();
-		  }
+  } catch (e) {
+    setScanStatus("Scan failed");
+    logErr((e && e.stack) ? e.stack : String(e));
+    markStartupUiReady();
+  }
+}
+
+async function loadSingleLibraryFile(filePath, options = {}) {
+  const p = String(filePath || "");
+  if (!p || !window.api || typeof window.api.parseLibraryFile !== "function") return null;
+  const perfOn = isFilePerfEnabled();
+  const t0 = perfOn ? perfNowMs() : 0;
+  if (perfOn) logFilePerf("loadSingleLibraryFile: start", { file: safeBasename(p) });
+  if (Object.prototype.hasOwnProperty.call(options, "content") && options.content != null) {
+    setFileContentInCache(p, options.content);
+  }
+  try {
+    const res = await window.api.parseLibraryFile(p, { force: Boolean(options.force) });
+    if (!res || !Array.isArray(res.files) || !res.files.length) return null;
+    const fileEntry = res.files[0];
+    libraryIndex = {
+      root: res.root || safeDirname(p),
+      files: [fileEntry],
+      indexMode: "single",
+    };
+    libraryViewStore.invalidate();
+    updateLibraryRootUI();
+    clearLibraryFilter();
+    activeFilePath = null;
+    libraryUiStateController.expandInitialCollapsedState();
+    scheduleRenderLibraryTree();
+    updateLibraryStatus();
+    if (perfOn) logFilePerf("loadSingleLibraryFile: done", {
+      ms: Math.round(perfNowMs() - t0),
+      file: safeBasename(p),
+      tunes: Array.isArray(fileEntry.tunes) ? fileEntry.tunes.length : 0,
+    });
+    markStartupUiReady();
+    return fileEntry;
+  } catch (e) {
+    logErr((e && e.stack) ? e.stack : String(e));
+    markStartupUiReady();
+    return null;
+  }
 }
 
 async function loadLibraryFileIntoEditor(filePath) {

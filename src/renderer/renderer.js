@@ -192,6 +192,7 @@ import { createFileContextController } from "./app/file_context_controller.js";
 import { createEditStateController } from "./app/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/playback_ui_controller.js";
+import { createDocumentLifecycleController } from "./app/document_lifecycle_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -485,6 +486,7 @@ let fileContextController = null;
 let editStateController = null;
 let fileOperationGuard = null;
 let playbackUiController = null;
+let documentLifecycleController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -3202,6 +3204,45 @@ playbackUiController = createPlaybackUiController({
     setButtonText,
     updateAbUi,
     updatePracticeUi,
+  },
+});
+
+documentLifecycleController = createDocumentLifecycleController({
+  elements: {
+    output: $out,
+  },
+  state: {
+    getRawMode: () => rawMode,
+  },
+  actions: {
+    setRawModeUi: setRawModeUI,
+    setChordProMode: (enabled) => chordProFeature.setMode(Boolean(enabled)),
+    resetChordProState: () => chordProFeature.resetState(),
+    resetRawModeState: () => {
+      rawModeFilePath = null;
+      rawModeHeaderEndOffset = 0;
+      rawModeOriginalTuneId = null;
+    },
+    setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+    setEditorText: setEditorValue,
+    scheduleRender: scheduleRenderNow,
+    setRenderBusy,
+    clearActiveTuneState: () => {
+      activeTuneMeta = null;
+      activeTuneId = null;
+      activeFilePath = null;
+    },
+    clearSaveSession,
+    markHeaderClean,
+    setTuneMetaText,
+    setFileNameMeta,
+    clearErrors,
+    setStatus,
+    updateFileHeaderPanel,
+    updateHeaderStateUi: updateHeaderStateUI,
+  },
+  constants: {
+    untitledLabel: UNTITLED_UNSAVED_LABEL,
   },
 });
 
@@ -7004,7 +7045,7 @@ async function runPrintAllAction(type) {
 
 function setCurrentDocument(doc) {
   currentDoc = doc;
-  updateUIFromDocument(doc);
+  updateUIFromDocument(currentDoc);
 }
 
 function clearCurrentDocument() {
@@ -7013,35 +7054,11 @@ function clearCurrentDocument() {
 }
 
 function updateUIFromDocument(doc) {
-  suppressDirty = true;
-  setEditorValue(doc ? doc.content : "");
-  suppressDirty = false;
-  if (!rawMode) scheduleRenderNow({ clearOutput: true });
+  if (documentLifecycleController) documentLifecycleController.applyDocumentToUi(doc);
 }
 
 function showEmptyState() {
-  setRawModeUI(false);
-  chordProFeature.setMode(false);
-  chordProFeature.resetState();
-  rawModeFilePath = null;
-  rawModeHeaderEndOffset = 0;
-  rawModeOriginalTuneId = null;
-  suppressDirty = true;
-  setEditorValue("");
-  suppressDirty = false;
-  $out.innerHTML = "";
-  setRenderBusy(false);
-  activeTuneMeta = null;
-  activeTuneId = null;
-  activeFilePath = null;
-  clearSaveSession();
-  markHeaderClean();
-  setTuneMetaText(UNTITLED_UNSAVED_LABEL);
-  setFileNameMeta(UNTITLED_UNSAVED_LABEL);
-  clearErrors();
-  setStatus("Ready");
-  updateFileHeaderPanel();
-  updateHeaderStateUI();
+  if (documentLifecycleController) documentLifecycleController.showEmptyState();
 }
 
 function getAbcCtor() {

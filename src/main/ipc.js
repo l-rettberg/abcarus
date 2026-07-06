@@ -1535,6 +1535,16 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("app:quit", async () => {
     requestQuit();
   });
+  ipcMain.handle("app:cancel-quit", async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win && win.__abcarusForceQuitTimer) {
+        clearTimeout(win.__abcarusForceQuitTimer);
+        win.__abcarusForceQuitTimer = null;
+      }
+    } catch {}
+    return true;
+  });
   ipcMain.handle("settings:get", async () => {
     return getSettings();
   });

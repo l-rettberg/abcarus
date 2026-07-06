@@ -119,6 +119,7 @@ contextBridge.exposeInMainWorld("api", {
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   previewYouTubeSource: async (url) => ipcRenderer.invoke("source:preview-youtube", url),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
+  cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),

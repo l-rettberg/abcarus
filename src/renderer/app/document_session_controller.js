@@ -198,14 +198,22 @@ function createDocumentSessionController({
   async function requestQuitApplication() {
     if (abandonFlowInProgress) return;
     abandonFlowInProgress = true;
+    let quitRequested = false;
     try {
+      if (api && typeof api.cancelQuitRequest === "function") {
+        try { await api.cancelQuitRequest(); } catch {}
+      }
       const ok = await confirmAbandonIfDirty("quitting");
       if (!ok) return;
       await flushLibraryPrefsSave();
       if (api && typeof api.quitApplication === "function") {
+        quitRequested = true;
         await api.quitApplication();
       }
     } finally {
+      if (!quitRequested && api && typeof api.cancelQuitRequest === "function") {
+        try { await api.cancelQuitRequest(); } catch {}
+      }
       abandonFlowInProgress = false;
     }
   }

@@ -191,6 +191,7 @@ import { createFileHeaderController } from "./app/file_header_controller.js";
 import { createFileContextController } from "./app/file_context_controller.js";
 import { createEditStateController } from "./app/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/file_operation_guard.js";
+import { createPlaybackUiController } from "./app/playback_ui_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -483,6 +484,7 @@ let payloadModeDecorations = null;
 let fileContextController = null;
 let editStateController = null;
 let fileOperationGuard = null;
+let playbackUiController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -3144,6 +3146,62 @@ fileOperationGuard = createFileOperationGuard({
   },
   utils: {
     pathsEqual,
+  },
+});
+
+playbackUiController = createPlaybackUiController({
+  elements: {
+    renderPane: $renderPane,
+    playButton: $btnPlay,
+    pauseButton: $btnPause,
+    playPauseButton: $btnPlayPause,
+    stopButton: $btnStop,
+    resetLayoutButton: $btnResetLayout,
+    focusModeButton: $btnFocusMode,
+    toggleLibraryButton: $btnToggleLibrary,
+    libraryRefreshButton: $btnLibraryRefresh,
+    libraryClearFilterButton: $btnLibraryClearFilter,
+    groupBySelect: $groupBy,
+    sortBySelect: $sortBy,
+    sortTunesBySelect: $sortTunesBy,
+    librarySearchInput: $librarySearch,
+    tuneSelect: $fileTuneSelect,
+    fileNewButton: $btnFileNew,
+    fileOpenButton: $btnFileOpen,
+    fileSaveButton: $btnFileSave,
+    fileCloseButton: $btnFileClose,
+    toggleRawButton: $btnToggleRaw,
+    toggleErrorsButton: $btnToggleErrors,
+    toggleFollowButton: $btnToggleFollow,
+    toggleGlobalsButton: $btnToggleGlobals,
+    fileHeaderToggle: $fileHeaderToggle,
+    fileHeaderSaveButton: $fileHeaderSave,
+    fileHeaderReloadButton: $fileHeaderReload,
+    practiceTempoInput: $practiceTempo,
+    practiceLoopEnabled: $practiceLoopEnabled,
+    practiceLoopFrom: $practiceLoopFrom,
+    practiceLoopTo: $practiceLoopTo,
+    selectionSuppressEnabled: $selectionSuppressEnabled,
+    selectionGchordsEnabled: $selectionGchordsEnabled,
+    selectionDrumsEnabled: $selectionDrumsEnabled,
+    selectionMutedVoices: $selectionMutedVoices,
+    fontsButton: $btnFonts,
+    xIssuesAutoFixButton: $xIssuesAutoFix,
+    xIssuesJumpButton: $xIssuesJump,
+    xIssuesCopyButton: $xIssuesCopy,
+    xIssuesCloseButton: $xIssuesClose,
+  },
+  state: {
+    getIsPlaying: () => isPlaying,
+    getIsPaused: () => isPaused,
+    getWaitingForFirstNote: () => waitingForFirstNote,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+    isChordProFullView: () => chordProFeature.isFullView(),
+  },
+  actions: {
+    setButtonText,
+    updateAbUi,
+    updatePracticeUi,
   },
 });
 
@@ -7131,13 +7189,9 @@ function stripSepForRender(text) {
 let pendingRenderTimer = null;
 let pendingRenderRaf = null;
 let renderRequestToken = 0;
-let renderBusy = false;
 
 function setRenderBusy(next) {
-  renderBusy = Boolean(next);
-  try {
-    if ($renderPane) $renderPane.classList.toggle("is-rendering", renderBusy);
-  } catch {}
+  if (playbackUiController) playbackUiController.setRenderBusy(next);
 }
 
 function clearRenderOutput(statusText = "Ready") {
@@ -11160,98 +11214,15 @@ function getPlaybackSourceKey() {
 }
 
 function updatePlayButton() {
-  if ($btnPlay) {
-    $btnPlay.classList.toggle("active", Boolean(isPlaying));
-    $btnPlay.disabled = false;
-  }
-  if ($btnPause) {
-    $btnPause.classList.toggle("active", Boolean(isPaused));
-    $btnPause.disabled = !(isPlaying || isPaused);
-  }
-  if ($btnStop) {
-    $btnStop.disabled = !(isPlaying || isPaused || waitingForFirstNote);
-  }
-  if ($btnPlayPause) {
-    $btnPlayPause.classList.toggle("active", Boolean(isPlaying || isPaused));
-    $btnPlayPause.disabled = false;
-    $btnPlayPause.classList.toggle("is-playing", Boolean(isPlaying));
-    if (isPlaying) setButtonText($btnPlayPause, "Pause");
-    else if (isPaused) setButtonText($btnPlayPause, "Resume");
-    else setButtonText($btnPlayPause, "Play");
-  }
-  updatePlaybackInteractionLock();
-  updatePracticeUi();
-  updateAbUi();
+  if (playbackUiController) playbackUiController.updatePlayButton();
 }
 
 function isPlaybackBusy() {
-  return Boolean(isPlaying || isPaused || waitingForFirstNote);
+  return playbackUiController ? playbackUiController.isPlaybackBusy() : Boolean(isPlaying || isPaused || waitingForFirstNote);
 }
 
 function updatePlaybackInteractionLock() {
-  const busy = isPlaybackBusy();
-  const disable = (el, allowWhileBusy = false) => {
-    if (!el) return;
-    el.disabled = busy && !allowWhileBusy;
-  };
-
-  // Allowlist during playback: transport controls + view-only controls (zoom is via menu).
-  disable($btnPlay, true);
-  disable($btnPause, true);
-  disable($btnPlayPause, true);
-  disable($btnStop, true);
-  disable($btnResetLayout, true);
-  disable($btnFocusMode, true);
-
-  // Block file/library/tool actions while playing/paused/loading to prevent state races.
-  disable($btnToggleLibrary);
-  disable($btnLibraryRefresh);
-  disable($btnLibraryClearFilter);
-  disable($groupBy);
-  disable($sortBy);
-  disable($sortTunesBy);
-  disable($librarySearch);
-  disable($fileTuneSelect);
-
-  disable($btnFileNew);
-  disable($btnFileOpen);
-  disable($btnFileSave);
-  disable($btnFileClose);
-  disable($btnToggleRaw);
-
-  disable($btnToggleErrors);
-  disable($btnToggleFollow);
-  disable($btnToggleGlobals);
-  disable($fileHeaderToggle);
-  disable($fileHeaderSave);
-  disable($fileHeaderReload);
-
-  disable($practiceTempo, true);
-  disable($practiceLoopEnabled);
-  disable($practiceLoopFrom);
-  disable($practiceLoopTo);
-  disable($selectionSuppressEnabled);
-  disable($selectionGchordsEnabled);
-  disable($selectionDrumsEnabled);
-  disable($selectionMutedVoices);
-
-  disable($btnFonts);
-
-  disable($xIssuesAutoFix);
-  disable($xIssuesJump);
-  disable($xIssuesCopy);
-  disable($xIssuesClose, true);
-
-  updateAbUi();
-
-  if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
-    if ($btnPlay) $btnPlay.disabled = true;
-    if ($btnPause) $btnPause.disabled = true;
-    if ($btnPlayPause) $btnPlayPause.disabled = true;
-    if ($btnStop) $btnStop.disabled = true;
-    if ($btnToggleFollow) $btnToggleFollow.disabled = true;
-    if ($btnToggleErrors) $btnToggleErrors.disabled = true;
-  }
+  if (playbackUiController) playbackUiController.updatePlaybackInteractionLock();
 }
 
 function buildTransportPlaybackPlan() {

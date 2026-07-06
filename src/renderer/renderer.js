@@ -4572,7 +4572,7 @@ function initEditor() {
           scheduleWorkingCopyFullSync();
         } else if (activeTuneUid) scheduleWorkingCopyTuneSync();
       }
-      if (!rawMode && !chordProFeature.isFullView()) {
+      if (!suppressDirty && !rawMode && !chordProFeature.isFullView()) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
         sourceLinkFeature.scheduleUpdate();
@@ -4854,14 +4854,27 @@ function initHeaderEditor() {
 function setActiveTuneText(text, metadata, options = {}) {
   const perfOn = isRenderPerfEnabled();
   const t0 = perfOn ? perfNowMs() : 0;
+  let tStep = t0;
+  const logStep = (label, data = {}) => {
+    if (!perfOn) return;
+    const now = perfNowMs();
+    logRenderPerf(`setActiveTuneText: ${label}`, {
+      ms: Math.round(now - tStep),
+      totalMs: Math.round(now - t0),
+      ...data,
+    });
+    tStep = now;
+  };
   if (chordProFeature.isEnabled()) chordProFeature.setMode(false);
   if (errorsFeature.hasActiveHighlight()) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
   resetPlaybackState();
   resetTransposePreviewState();
+  logStep("reset state");
   suppressDirty = true;
   setEditorValue(text);
   suppressDirty = false;
+  logStep("set editor value", { chars: String(text || "").length });
   if (metadata) {
     activeTuneMeta = { ...metadata };
     activeFilePath = metadata.path || null;
@@ -4869,7 +4882,9 @@ function setActiveTuneText(text, metadata, options = {}) {
     refreshHeaderLayers().catch(() => {});
     setTuneMetaText(buildTuneMetaLabel(metadata));
     setFileNameMeta(stripFileExtension(metadata.basename || ""));
+    logStep("metadata/status");
     sourceLinkFeature.update();
+    logStep("source link");
     if (currentDoc) {
       currentDoc.path = metadata.path || null;
       currentDoc.content = text;
@@ -4895,7 +4910,9 @@ function setActiveTuneText(text, metadata, options = {}) {
         basename: metadata.basename,
       });
     }
+    logStep("recent/doc state");
     updateFileContext();
+    logStep("file context");
     setDirtyIndicator(false);
     setSaveSession({
       intent: SAVE_INTENT.REPLACE_TUNE,
@@ -4903,6 +4920,7 @@ function setActiveTuneText(text, metadata, options = {}) {
       targetTuneUid: String(metadata.tuneUid || activeTuneUid || ""),
       source: "setActiveTuneText.metadata",
     });
+    logStep("dirty/save session");
   } else {
     const markDirty = Boolean(options && options.markDirty);
     activeTuneMeta = null;
@@ -4929,9 +4947,11 @@ function setActiveTuneText(text, metadata, options = {}) {
     clearSaveSession();
   }
   updateFileHeaderPanel();
+  logStep("file header panel");
   if (metadata && metadata.id) {
     maybeResetFocusLoopForTune(metadata.id);
   }
+  logStep("focus loop");
   if (perfOn) {
     logRenderPerf("setActiveTuneText: before schedule", {
       ms: Math.round(perfNowMs() - t0),
@@ -7357,8 +7377,25 @@ function renderNow() {
     return;
   }
   const tPrepare0 = perfOn ? perfNowMs() : 0;
+  let tPrepareStep = tPrepare0;
+  const logPrepareStep = (label, data = {}) => {
+    if (!perfOn) return;
+    const now = perfNowMs();
+    logRenderPerf(`renderNow: prepare ${label}`, {
+      token: perfContext ? perfContext.token : null,
+      ms: Math.round(now - tPrepareStep),
+      totalMs: Math.round(now - tPrepare0),
+      ...data,
+    });
+    tPrepareStep = now;
+  };
   errorsFeature.refreshBarMismatchMarkersForTune(currentText);
+  logPrepareStep("bar mismatch");
   const renderPayload = getRenderPayload();
+  logPrepareStep("payload", {
+    payloadChars: renderPayload && renderPayload.text ? String(renderPayload.text).length : 0,
+    offset: renderPayload ? (renderPayload.offset || 0) : 0,
+  });
   if (!assertCleanAbcText(renderPayload.text, "renderNow")) {
     logErr("ABC text corruption detected (render).");
     setStatus("Error");
@@ -7370,6 +7407,10 @@ function renderNow() {
   const sepStripInitial = stripSepForRender(renderTextBase);
   let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextBase;
   let sepFallbackUsed = sepStripInitial.replaced;
+  logPrepareStep("normalize", {
+    renderChars: String(renderText || "").length,
+    sepFallbackUsed,
+  });
   lastRenderPayload = {
     text: renderText,
     offset: renderPayload.offset || 0,
@@ -7382,6 +7423,7 @@ function renderNow() {
     setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
   }
   errorsFeature.addBarMismatchErrorsFromMarkers();
+  logPrepareStep("error index");
   setStatus("Rendering…");
   if (perfOn) {
     logRenderPerf("renderNow: prepared", {

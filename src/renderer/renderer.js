@@ -55,8 +55,10 @@ import {
 } from "./drums.js";
 import { createLibraryViewStore } from "./library/store.js";
 import { createLibraryActions } from "./library/actions.js";
+import { buildGroupEntries as buildGroupEntriesCore } from "./library/group_entries.js";
 import { createLibraryMetadataController } from "./library/library_metadata_controller.js";
 import { createLibraryLifecycleController } from "./library/library_lifecycle_controller.js";
+import { createLibraryShellController } from "./library/library_shell_controller.js";
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
@@ -67,7 +69,7 @@ import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import {
   getEntryTuneCount,
 } from "./library/sorting_filtering.js";
-import { GROUP_LABELS, createLibraryUiStateController } from "./library/ui_state_controller.js";
+import { createLibraryUiStateController } from "./library/ui_state_controller.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import {
   alignBarsInText,
@@ -495,6 +497,7 @@ let documentLifecycleController = null;
 let documentSessionController = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
+let libraryShellController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -2624,6 +2627,35 @@ const templatesFeature = createTemplatesFeature({
 const libraryViewStore = createLibraryViewStore({
   getIndex: () => libraryIndex,
   safeBasename,
+});
+libraryShellController = createLibraryShellController({
+  api: window.api,
+  documentRef: document,
+  windowRef: window,
+  elements: {
+    main: $main,
+  },
+  state: {
+    getLibraryVisible: () => isLibraryVisible,
+    setLibraryVisibleState: (value) => { isLibraryVisible = Boolean(value); },
+    isLibraryDisabled: () => chordProFeature.isEnabled(),
+    getLastSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
+    getLibraryIndex: () => libraryIndex,
+  },
+  actions: {
+    ensureSafeToAbandonCurrentDoc,
+    loadLibraryFromFolder,
+    renderBufferStatus,
+    resetRightPaneSplit,
+    scheduleSaveLibraryPrefs,
+    setPaneSizes,
+    setStatus,
+    showOpenFolderDialog,
+    showToast,
+  },
+  constants: {
+    MIN_PANE_WIDTH,
+  },
 });
 libraryUiStateController = createLibraryUiStateController({
   windowRef: window,
@@ -4941,87 +4973,15 @@ function insertTextAtEditorSelection(text) {
 }
 
 function setLibraryVisible(visible, { persist = true } = {}) {
-  if (chordProFeature.isEnabled() && visible) return;
-  isLibraryVisible = visible;
-  document.body.classList.toggle("library-hidden", !visible);
-  renderBufferStatus();
-  if (visible) {
-    setPaneSizes(libraryUiStateController.getLastSidebarWidth() || MIN_PANE_WIDTH);
-  } else if ($main) {
-    $main.style.gridTemplateColumns = `0px 0px 1fr`;
-  }
-  if (persist) {
-    scheduleSaveLibraryPrefs({ libraryPaneVisible: Boolean(visible) });
-  }
+  return libraryShellController.setLibraryVisible(visible, { persist });
 }
 
 function toggleLibrary() {
-  if (chordProFeature.isEnabled()) {
-    showToast("Library is disabled while editing ChordPro.", 2400);
-    return;
-  }
-  setLibraryVisible(!isLibraryVisible);
-  // Toggling the library pane changes available width; reset the editor/render split so the UI looks tidy.
-  requestAnimationFrame(() => {
-    try { resetRightPaneSplit(); } catch {}
-  });
-}
-
-function getGroupValue(tune, mode) {
-  if (!tune) return "";
-  if (mode === "x") return tune.xNumber || "";
-  if (mode === "titlekey") return normalizeTitleKey(tune.title || tune.preview || "", 25);
-  if (mode === "composer") return tune.composer || "";
-  if (mode === "meter") return tune.meter || "";
-  if (mode === "key") return tune.key || "";
-  if (mode === "unit") return tune.unitLength || "";
-  if (mode === "tempo") return tune.tempo || "";
-  if (mode === "rhythm") return tune.rhythm || "";
-  if (mode === "source") return tune.source || "";
-  if (mode === "origin") return tune.origin || "";
-  if (mode === "group") return tune.group || "";
-  return "";
+  return libraryShellController.toggleLibrary();
 }
 
 function buildGroupEntries(files, mode) {
-  if (mode === "file") {
-    return files.map((file) => ({
-      id: file.path,
-      label: file.basename,
-      tunes: Array.isArray(file.tunes) ? file.tunes : [],
-      tuneCount: Number.isFinite(file.tuneCount) ? file.tuneCount : undefined,
-      xIssues: file && file.xIssues ? file.xIssues : undefined,
-      isFile: true,
-      updatedAtMs: file.updatedAtMs || 0,
-    }));
-  }
-
-  const entries = new Map();
-  for (const file of files) {
-    const tunes = Array.isArray(file.tunes) ? file.tunes : [];
-    for (const tune of tunes) {
-      const value = getGroupValue(tune, mode) || "Unknown";
-      const groupId = `${mode}:${value}`;
-      if (!entries.has(groupId)) {
-        entries.set(groupId, {
-          id: groupId,
-          label: `${GROUP_LABELS[mode]}: ${value}`,
-          tunes: [],
-          isFile: false,
-          updatedAtMs: 0,
-        });
-      }
-      entries.get(groupId).tunes.push({
-        ...tune,
-        __fileUpdatedAtMs: file.updatedAtMs || 0,
-        filePath: file.path || "",
-      });
-      const updatedAtMs = file.updatedAtMs || 0;
-      const entry = entries.get(groupId);
-      if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
-    }
-  }
-  return Array.from(entries.values());
+  return buildGroupEntriesCore(files, mode, { normalizeTitleKey });
 }
 
 function scheduleRenderLibraryTree(files = null) {
@@ -5058,33 +5018,11 @@ async function openRecentFile(entry) {
 }
 
 async function openRecentFolder(entry) {
-  if (!entry || !entry.path) return { ok: false, error: "Missing path." };
-  if (chordProFeature.isEnabled()) {
-    showToast("Library is disabled while editing ChordPro.", 2400);
-    return { ok: false, error: "Library is disabled while editing ChordPro." };
-  }
-  const ok = await ensureSafeToAbandonCurrentDoc("opening a recent folder");
-  if (!ok) return { ok: false, cancelled: true };
-  await loadLibraryFromFolder(entry.path);
-  if (libraryIndex && libraryIndex.root) return { ok: true };
-  return { ok: false, error: "Unable to load folder." };
+  return libraryShellController.openRecentFolder(entry);
 }
 
 async function scanAndLoadLibrary() {
-  if (chordProFeature.isEnabled()) {
-    showToast("Library is disabled while editing ChordPro.", 2400);
-    return;
-  }
-  if (!window.api) return;
-  const ok = await ensureSafeToAbandonCurrentDoc("opening a folder");
-  if (!ok) return;
-  const folder = await showOpenFolderDialog();
-  if (!folder) return;
-
-  await loadLibraryFromFolder(folder);
-  if (window.api && typeof window.api.addRecentFolder === "function") {
-    window.api.addRecentFolder({ path: folder, label: folder });
-  }
+  return libraryShellController.scanAndLoadLibrary();
 }
 
 async function refreshLibraryIndex() {

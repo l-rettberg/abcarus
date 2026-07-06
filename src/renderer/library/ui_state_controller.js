@@ -8,21 +8,7 @@ import {
   sortLibraryFiles as sortLibraryFilesCore,
   sortTunes as sortTunesCore,
 } from "./sorting_filtering.js";
-
-const GROUP_LABELS = {
-  file: "File",
-  x: "X",
-  titlekey: "T",
-  composer: "C",
-  meter: "M",
-  key: "K",
-  unit: "L",
-  tempo: "Q",
-  rhythm: "R",
-  source: "S",
-  origin: "O",
-  group: "G",
-};
+import { GROUP_LABELS } from "./group_entries.js";
 
 function normalizeTitleKey(raw, maxLen = 25, strict = false) {
   const input = String(raw || "");

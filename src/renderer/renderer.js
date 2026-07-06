@@ -1498,6 +1498,22 @@ function logStartupPerf(label, data) {
   if (diagnosticsController) diagnosticsController.logStartupPerf(label, data);
 }
 
+function isRenderPerfEnabled() {
+  try {
+    return window.__abcarusPerfRender === true || isStartupPerfEnabled();
+  } catch {
+    return false;
+  }
+}
+
+function logRenderPerf(label, data) {
+  if (!isRenderPerfEnabled()) return;
+  try {
+    if (data !== undefined) console.log(`[perf:render] ${label}`, data);
+    else console.log(`[perf:render] ${label}`);
+  } catch {}
+}
+
 function reportStartupStatus(text) {
   if (diagnosticsController) diagnosticsController.reportStartupStatus(text);
 }
@@ -4836,6 +4852,8 @@ function initHeaderEditor() {
 }
 
 function setActiveTuneText(text, metadata, options = {}) {
+  const perfOn = isRenderPerfEnabled();
+  const t0 = perfOn ? perfNowMs() : 0;
   if (chordProFeature.isEnabled()) chordProFeature.setMode(false);
   if (errorsFeature.hasActiveHighlight()) clearActiveErrorHighlight("docReplaced");
   isNewTuneDraft = false;
@@ -4914,7 +4932,15 @@ function setActiveTuneText(text, metadata, options = {}) {
   if (metadata && metadata.id) {
     maybeResetFocusLoopForTune(metadata.id);
   }
-  scheduleRenderNow({ clearOutput: true });
+  if (perfOn) {
+    logRenderPerf("setActiveTuneText: before schedule", {
+      ms: Math.round(perfNowMs() - t0),
+      chars: String(text || "").length,
+      file: metadata && metadata.path ? safeBasename(metadata.path) : "",
+      x: metadata && metadata.xNumber ? String(metadata.xNumber) : "",
+    });
+  }
+  scheduleRenderNow({ clearOutput: true, source: metadata ? "setActiveTuneText:metadata" : "setActiveTuneText:plain" });
 }
 
 function insertTextAtEditorSelection(text) {
@@ -7206,6 +7232,8 @@ function stripSepForRender(text) {
 let pendingRenderTimer = null;
 let pendingRenderRaf = null;
 let renderRequestToken = 0;
+let pendingRenderPerfContext = null;
+let activeRenderPerfContext = null;
 
 function setRenderBusy(next) {
   if (playbackUiController) playbackUiController.setRenderBusy(next);
@@ -7221,7 +7249,7 @@ function clearRenderOutput(statusText = "Ready") {
   reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
 }
 
-function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
+function scheduleRenderNow({ delayMs = 0, clearOutput = false, source = "" } = {}) {
   if (rawMode || chordProFeature.isFullView()) return;
   renderRequestToken += 1;
   const token = renderRequestToken;
@@ -7241,9 +7269,43 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
     } catch {}
   }
 
+  if (isRenderPerfEnabled()) {
+    pendingRenderPerfContext = {
+      token,
+      requestedAtMs: perfNowMs(),
+      source: String(source || "scheduleRenderNow"),
+      clearOutput: Boolean(clearOutput),
+      delayMs: Number(delayMs) || 0,
+      editorChars: String(getEditorValue() || "").length,
+    };
+    logRenderPerf("schedule", {
+      token,
+      source: pendingRenderPerfContext.source,
+      clearOutput: pendingRenderPerfContext.clearOutput,
+      delayMs: pendingRenderPerfContext.delayMs,
+      editorChars: pendingRenderPerfContext.editorChars,
+    });
+  } else {
+    pendingRenderPerfContext = null;
+  }
+
   const run = () => {
     if (token !== renderRequestToken) return;
-    renderNow();
+    activeRenderPerfContext = pendingRenderPerfContext && pendingRenderPerfContext.token === token
+      ? pendingRenderPerfContext
+      : null;
+    if (activeRenderPerfContext) {
+      logRenderPerf("raf -> renderNow", {
+        token,
+        source: activeRenderPerfContext.source,
+        waitMs: Math.round(perfNowMs() - activeRenderPerfContext.requestedAtMs),
+      });
+    }
+    try {
+      renderNow();
+    } finally {
+      activeRenderPerfContext = null;
+    }
   };
 
   if (delayMs > 0) {
@@ -7264,6 +7326,9 @@ function scheduleRenderNow({ delayMs = 0, clearOutput = false } = {}) {
 }
 
 function renderNow() {
+  const perfOn = isRenderPerfEnabled();
+  const tRender0 = perfOn ? perfNowMs() : 0;
+  const perfContext = activeRenderPerfContext;
   clearNoteSelection();
   invalidateNoteHighlightIndexCache();
   clearErrors();
@@ -7283,8 +7348,15 @@ function renderNow() {
     setRenderBusy(false);
     updateLibraryErrorIndexFromCurrentErrors();
     reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
+    if (perfOn) {
+      logRenderPerf("renderNow: empty", {
+        token: perfContext ? perfContext.token : null,
+        totalMs: Math.round(perfNowMs() - tRender0),
+      });
+    }
     return;
   }
+  const tPrepare0 = perfOn ? perfNowMs() : 0;
   errorsFeature.refreshBarMismatchMarkersForTune(currentText);
   const renderPayload = getRenderPayload();
   if (!assertCleanAbcText(renderPayload.text, "renderNow")) {
@@ -7311,6 +7383,16 @@ function renderNow() {
   }
   errorsFeature.addBarMismatchErrorsFromMarkers();
   setStatus("Rendering…");
+  if (perfOn) {
+    logRenderPerf("renderNow: prepared", {
+      token: perfContext ? perfContext.token : null,
+      source: perfContext ? perfContext.source : "direct",
+      ms: Math.round(perfNowMs() - tPrepare0),
+      editorChars: currentText.length,
+      payloadChars: String(renderText || "").length,
+      offset: renderPayload.offset || 0,
+    });
+  }
 
   try {
     ensureAbc2svgLoader();
@@ -7355,7 +7437,16 @@ function renderNow() {
 
         const abc = new AbcCtor(user);
         abcInstance = abc;
+        const tSvg0 = perfOn ? perfNowMs() : 0;
         abc.tosvg("out", renderText);
+        if (perfOn) {
+          logRenderPerf("renderNow: abc2svg", {
+            token: perfContext ? perfContext.token : null,
+            attempt: attempts,
+            ms: Math.round(perfNowMs() - tSvg0),
+            svgParts: svgParts.length,
+          });
+        }
         const meterWarn = detectMeterMismatchInBarlines(renderText);
         if (meterWarn && meterWarn.detail) {
           addError(`Warning: Meter mismatch: ${meterWarn.detail}`, meterWarn.loc || null, { skipMeasureRange: true });
@@ -7367,6 +7458,7 @@ function renderNow() {
 
         const svg = svgParts.join("");
         if (!svg.trim()) throw new Error("No SVG output produced (see errors).");
+        const tDom0 = perfOn ? perfNowMs() : 0;
         $out.innerHTML = svg;
         invalidateNoteHighlightIndexCache();
         applyMeasureHighlights(renderPayload.offset || 0);
@@ -7391,6 +7483,15 @@ function renderNow() {
         setRenderBusy(false);
         updateLibraryErrorIndexFromCurrentErrors();
         reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
+        if (perfOn) {
+          logRenderPerf("renderNow: done", {
+            token: perfContext ? perfContext.token : null,
+            domMs: Math.round(perfNowMs() - tDom0),
+            totalMs: Math.round(perfNowMs() - tRender0),
+            svgChars: svg.length,
+            errors: errorsFeature.getErrors ? errorsFeature.getErrors().length : undefined,
+          });
+        }
         break;
       } catch (e) {
         if (!sepFallbackUsed) {

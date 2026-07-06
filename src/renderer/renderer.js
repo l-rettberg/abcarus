@@ -193,6 +193,11 @@ import { createEditStateController } from "./app/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/playback_ui_controller.js";
 import { createDocumentLifecycleController } from "./app/document_lifecycle_controller.js";
+import {
+  SAVE_INTENT,
+  createBlankDocument as createBlankDocumentModel,
+  createDocumentSessionController,
+} from "./app/document_session_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");
@@ -475,7 +480,6 @@ function setAccumulatedTransposePreview(baseText, headerText, delta) {
   transposePreviewDelta = Number(delta) || 0;
 }
 let editorView = null;
-let abandonFlowInProgress = false;
 let isNewTuneDraft = false;
 let rawMode = false;
 let rawModeFilePath = null;
@@ -487,6 +491,7 @@ let editStateController = null;
 let fileOperationGuard = null;
 let playbackUiController = null;
 let documentLifecycleController = null;
+let documentSessionController = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -2633,18 +2638,6 @@ let activeTuneUid = null;
 let activeTuneIndex = null;
 let activeTuneMeta = null;
 let activeFilePath = null;
-const SAVE_INTENT = Object.freeze({
-  NONE: "none",
-  REPLACE_TUNE: "replace_tune",
-  APPEND_TO_FILE: "append_to_file",
-  FULL_FILE: "full_file",
-});
-let saveSession = {
-  intent: SAVE_INTENT.NONE,
-  targetPath: "",
-  targetTuneUid: "",
-  source: "",
-};
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
@@ -2946,56 +2939,17 @@ function getCurrentNavFilePath() {
 }
 
 function clearSaveSession() {
-  saveSession = {
-    intent: SAVE_INTENT.NONE,
-    targetPath: "",
-    targetTuneUid: "",
-    source: "",
-  };
+  if (documentSessionController) documentSessionController.clearSaveSession();
 }
 
 function setSaveSession(next) {
-  const n = next || {};
-  const intent = String(n.intent || SAVE_INTENT.NONE);
-  saveSession = {
-    intent: Object.values(SAVE_INTENT).includes(intent) ? intent : SAVE_INTENT.NONE,
-    targetPath: String(n.targetPath || ""),
-    targetTuneUid: String(n.targetTuneUid || ""),
-    source: String(n.source || ""),
-  };
+  if (documentSessionController) documentSessionController.setSaveSession(next);
 }
 
 function resolveSaveSession() {
-  if (chordProFeature.isEnabled()) {
-    const path = String(activeFilePath || (currentDoc && currentDoc.path) || getCurrentNavFilePath() || "");
-    if (path) return { intent: SAVE_INTENT.FULL_FILE, targetPath: path, targetTuneUid: "", source: "chordpro" };
-  }
-  if (rawMode) {
-    const path = String(rawModeFilePath || activeFilePath || (currentDoc && currentDoc.path) || getCurrentNavFilePath() || "");
-    if (path) return { intent: SAVE_INTENT.FULL_FILE, targetPath: path, targetTuneUid: "", source: "raw" };
-  }
-  if (isNewTuneDraft) {
-    const path = String(activeFilePath || getCurrentNavFilePath() || "");
-    if (path) return { intent: SAVE_INTENT.APPEND_TO_FILE, targetPath: path, targetTuneUid: "", source: "draft" };
-  }
-  if (activeTuneMeta && activeTuneMeta.path) {
-    const path = String(activeTuneMeta.path || "");
-    if (path) {
-      return {
-        intent: SAVE_INTENT.REPLACE_TUNE,
-        targetPath: path,
-        targetTuneUid: String(activeTuneUid || ""),
-        source: "active_tune",
-      };
-    }
-  }
-  if (currentDoc && currentDoc.path) {
-    return { intent: SAVE_INTENT.FULL_FILE, targetPath: String(currentDoc.path), targetTuneUid: "", source: "doc_path" };
-  }
-  if (saveSession && saveSession.intent && saveSession.intent !== SAVE_INTENT.NONE) {
-    return { ...saveSession };
-  }
-  return { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "none" };
+  return documentSessionController
+    ? documentSessionController.resolveSaveSession()
+    : { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "none" };
 }
 
 function hasFullLibraryIndex() {
@@ -3259,6 +3213,36 @@ documentLifecycleController = createDocumentLifecycleController({
   },
   constants: {
     untitledLabel: UNTITLED_UNSAVED_LABEL,
+  },
+});
+
+documentSessionController = createDocumentSessionController({
+  api: window.api,
+  state: {
+    getCurrentDoc: () => currentDoc,
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneUid: () => activeTuneUid,
+    getCurrentNavFilePath,
+    getHeaderDirty,
+    hasUnsavedChangesInActiveEditContext,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+    isNewTuneDraft: () => isNewTuneDraft,
+    isPayloadMode,
+    isRawMode: () => rawMode,
+    getRawModeFilePath: () => rawModeFilePath,
+  },
+  actions: {
+    clearCurrentDocument,
+    discardWorkingCopyChangesForActiveFile,
+    flushLibraryPrefsSave,
+    markHeaderClean,
+    performRawSaveFlow,
+    performSaveAsFlow,
+    performSaveFlow,
+    setDirtyIndicator,
+    showToast,
+    updateHeaderStateUI,
   },
 });
 
@@ -7626,20 +7610,21 @@ setLibraryVisible(false);
 checkExternalTools().catch(() => {});
 
 function serializeDocument(doc) {
-  return doc.content;
+  return documentSessionController
+    ? documentSessionController.serializeDocument(doc)
+    : String(doc && doc.content ? doc.content : "");
 }
 
 function deserializeToDocument(data) {
-  return {
-    path: null,
-    dirty: false,
-    content: data,
-  };
+  return documentSessionController
+    ? documentSessionController.deserializeToDocument(data)
+    : createBlankDocumentModel(data);
 }
 
 async function confirmUnsavedChanges(contextLabel) {
-  if (!window.api || typeof window.api.confirmUnsavedChanges !== "function") return "cancel";
-  return window.api.confirmUnsavedChanges(contextLabel);
+  return documentSessionController
+    ? documentSessionController.confirmUnsavedChanges(contextLabel)
+    : "cancel";
 }
 
 async function confirmOverwrite(filePath) {
@@ -8043,29 +8028,15 @@ async function applyAbc2abcTransform(options) {
 }
 
 async function confirmAbandonIfDirty(contextLabel) {
-  const tuneDirty = Boolean(currentDoc && currentDoc.dirty);
-  const hdrDirty = getHeaderDirty();
-  const fileDirty = hasUnsavedChangesInActiveEditContext();
-  if (!tuneDirty && !hdrDirty && !fileDirty) return true;
-
-  const choice = await confirmUnsavedChanges(contextLabel);
-  if (choice === "cancel") return false;
-  if (choice === "dont_save") {
-    // Explicit discard path: user chose not to save.
-    markHeaderClean();
-    updateHeaderStateUI();
-    if (tuneDirty) {
-      await discardWorkingCopyChangesForActiveFile();
-    }
-    return true;
-  }
-
-  const ok = rawMode ? await performRawSaveFlow() : await performSaveFlow();
-  return Boolean(ok);
+  return documentSessionController
+    ? documentSessionController.confirmAbandonIfDirty(contextLabel)
+    : false;
 }
 
 async function ensureSafeToAbandonCurrentDoc(actionLabel) {
-  return confirmAbandonIfDirty(actionLabel);
+  return documentSessionController
+    ? documentSessionController.ensureSafeToAbandonCurrentDoc(actionLabel)
+    : false;
 }
 
 		async function finalizeWorkingCopySave(filePath) {
@@ -9646,60 +9617,23 @@ async function importMidi() {
 }
 
 async function fileSave() {
-  if (!currentDoc) return;
-  if (isPayloadMode()) {
-    showToast("Payload Mode is diagnostics-only (no saves).", 2600);
-    return;
-  }
-  if (rawMode) {
-    await performRawSaveFlow();
-    return;
-  }
-  await performSaveFlow();
+  if (documentSessionController) await documentSessionController.fileSave();
 }
 
 async function fileSaveAs() {
-  if (!currentDoc) return;
-  if (isPayloadMode()) {
-    showToast("Exit Payload Mode to Save As.", 2400);
-    return;
-  }
-  await performSaveAsFlow();
+  if (documentSessionController) await documentSessionController.fileSaveAs();
 }
 
 async function requestCloseDocument() {
-  if (abandonFlowInProgress) return;
-  if (!currentDoc) return;
-  abandonFlowInProgress = true;
-  try {
-    const ok = await confirmAbandonIfDirty("closing this file");
-    if (!ok) return;
-    clearCurrentDocument();
-    setDirtyIndicator(false);
-  } finally {
-    abandonFlowInProgress = false;
-  }
+  if (documentSessionController) await documentSessionController.requestCloseDocument();
 }
 
 async function requestQuitApplication() {
-  if (abandonFlowInProgress) return;
-  abandonFlowInProgress = true;
-  try {
-    const ok = await confirmAbandonIfDirty("quitting");
-    if (!ok) return;
-    await flushLibraryPrefsSave();
-    if (window.api && typeof window.api.quitApplication === "function") {
-      await window.api.quitApplication();
-    }
-  } finally {
-    abandonFlowInProgress = false;
-  }
+  if (documentSessionController) await documentSessionController.requestQuitApplication();
 }
 
 async function fileClose() {
-  // Unified close behavior: close current file to empty state.
-  // Keep this wrapper for toolbar call sites.
-  await requestCloseDocument();
+  if (documentSessionController) await documentSessionController.fileClose();
 }
 
 async function exportMusicXml() {

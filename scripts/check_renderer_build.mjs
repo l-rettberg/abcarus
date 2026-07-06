@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 async function assertSaveIntentGuards() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
+  const documentSessionPath = "src/renderer/app/document_session_controller.js";
+  const documentSession = await readFile(documentSessionPath, "utf8").catch(() => "");
   const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
   const focusPlaybackModelPath = "src/renderer/playback/focus_playback_model.js";
@@ -13,11 +15,11 @@ async function assertSaveIntentGuards() {
   const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
 
-  if (!src.includes("const SAVE_INTENT = Object.freeze(")) {
-    throw new Error("Missing SAVE_INTENT model in renderer.");
+  if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
+    throw new Error("Missing SAVE_INTENT model in document session controller.");
   }
-  if (!src.includes("function resolveSaveSession()")) {
-    throw new Error("Missing resolveSaveSession() in renderer.");
+  if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
+    throw new Error("Missing resolveSaveSession() document-session boundary.");
   }
   if (!src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")) {
     throw new Error("Missing post-commit working-copy save verification.");

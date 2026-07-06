@@ -1969,6 +1969,7 @@ function countLinesForPrefix(text) {
 }
 
 let workingCopySnapshot = null;
+let lazyWorkingCopyOpenSeq = 0;
 const diskConflictPaths = new Set();
 
 function markDiskConflictPath(filePath, hasConflict) {
@@ -2048,6 +2049,46 @@ async function ensureWorkingCopyOpenForPath(filePath) {
   } catch {}
 
   return false;
+}
+
+function scheduleLazyWorkingCopyOpenForActiveFile(filePath, reason = "selectTune") {
+  const p = String(filePath || "");
+  if (!p) return;
+  if (!window.api || typeof window.api.openWorkingCopy !== "function") return;
+  if (workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p)) return;
+
+  const seq = (lazyWorkingCopyOpenSeq += 1);
+  const perfOn = isFilePerfEnabled();
+  const t0 = perfOn ? perfNowMs() : 0;
+  recordRecentAction("wc.open.lazy", { path: p, reason });
+
+  window.api.openWorkingCopy(p).then(async (res) => {
+    if (seq !== lazyWorkingCopyOpenSeq) return;
+    if (res && res.ok === false) {
+      if (perfOn) logFilePerf("lazyWorkingCopyOpen: failed", { ms: Math.round(perfNowMs() - t0), file: safeBasename(p), error: res.error || "" });
+      return;
+    }
+    const snapshot = await refreshWorkingCopySnapshot();
+    if (seq !== lazyWorkingCopyOpenSeq) return;
+    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) return;
+    attachTuneUidsToLibraryFile(p, snapshot);
+    scheduleRenderLibraryTree();
+    if (perfOn) logFilePerf("lazyWorkingCopyOpen: done", { ms: Math.round(perfNowMs() - t0), file: safeBasename(p) });
+    if (
+      activeTuneMeta
+      && activeTuneMeta.path
+      && pathsEqual(activeTuneMeta.path, p)
+      && isCurrentDocumentDirty()
+    ) {
+      scheduleWorkingCopyTuneSync();
+    }
+  }).catch((err) => {
+    if (perfOn) logFilePerf("lazyWorkingCopyOpen: error", {
+      ms: Math.round(perfNowMs() - t0),
+      file: safeBasename(p),
+      error: err && err.message ? String(err.message) : String(err),
+    });
+  });
 }
 
 async function confirmReloadFromDisk(filePath) {
@@ -5099,21 +5140,13 @@ async function selectTune(tuneId, options = {}) {
   if (!selected || !fileMeta) return { ok: false, error: "Tune not found." };
   logStep("find tune", { file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "" });
 
-  try {
-    if (window.api && typeof window.api.openWorkingCopy === "function" && fileMeta.path) {
-      if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, fileMeta.path)) {
-        const tWc0 = perfOn ? perfNowMs() : 0;
-        recordRecentAction("wc.open", { path: String(fileMeta.path), reason: "selectTune" });
-        await window.api.openWorkingCopy(fileMeta.path);
-        const snapshot = await refreshWorkingCopySnapshot();
-        if (perfOn) logFilePerf("selectTune: openWorkingCopy", { ms: Math.round(perfNowMs() - tWc0), file: safeBasename(fileMeta.path) });
-        if (snapshot && snapshot.path && pathsEqual(snapshot.path, fileMeta.path)) {
-          attachTuneUidsToLibraryFile(fileMeta.path, snapshot);
-          scheduleRenderLibraryTree();
-        }
-      }
-    }
-  } catch {}
+  const needsLazyWorkingCopyOpen = Boolean(
+    fileMeta.path
+    && (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, fileMeta.path))
+  );
+  if (needsLazyWorkingCopyOpen) {
+    logStep("defer working copy", { file: safeBasename(fileMeta.path) });
+  }
 
   let content = null;
   let sliceStart = Number(selected.startOffset) || 0;
@@ -5239,6 +5272,9 @@ async function selectTune(tuneId, options = {}) {
     endOffset: sliceEnd,
   }, { suppressRecent: options.suppressRecent || false });
   logStep("set active text", { tuneChars: String(tuneText || "").length });
+  if (needsLazyWorkingCopyOpen) {
+    scheduleLazyWorkingCopyOpenForActiveFile(fileMeta.path, "selectTune");
+  }
   // Reset playback/selection state on tune switch to avoid leaking selection-mode playback flags.
   selectionPlaybackRuntime.clearSelectionCapture();
   resetPlaybackState();

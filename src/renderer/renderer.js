@@ -58,6 +58,7 @@ import { createLibraryActions } from "./library/actions.js";
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
+import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
@@ -2627,8 +2628,6 @@ let saveSession = {
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
-let renamingFilePath = null;
-let renameInFlight = false;
 let latestSettingsSnapshot = null;
 
 const templatesFeature = createTemplatesFeature({
@@ -2708,6 +2707,32 @@ const libraryActions = createLibraryActions({
   openTuneFromSelection: openTuneFromLibrarySelection,
 });
 window.libraryActions = libraryActions;
+const renameFileController = createRenameFileController({
+  elements: {
+    libraryTree: $libraryTree,
+  },
+  state: {
+    getActiveEditFilePath,
+    hasGlobalUnsavedChanges,
+    hasUnsavedChangesForFile,
+    isWorkingCopyOpenForFile,
+  },
+  actions: {
+    renderLibraryTree,
+    renameLibraryFile,
+    showSaveError,
+    showToast,
+    withFileLocks,
+  },
+  io: {
+    fileExists,
+    renameFile,
+  },
+  utils: {
+    pathsEqual,
+    safeDirname,
+  },
+});
 const libraryTreeView = createLibraryTreeView({
   documentRef: document,
   windowRef: window,
@@ -2723,8 +2748,8 @@ const libraryTreeView = createLibraryTreeView({
   sortGroupEntries,
   sortTunes: (tunes) => sortTunes(tunes, libraryUiStateController.getTuneSortMode()),
   getEntryTuneCount,
-  getRenamingFilePath: () => renamingFilePath,
-  setRenamingFilePath: (value) => { renamingFilePath = value || null; },
+  getRenamingFilePath: () => renameFileController.getRenamingFilePath(),
+  setRenamingFilePath: (value) => renameFileController.setRenamingFilePath(value),
   getActiveFilePath: () => activeFilePath,
   setActiveFilePath: (value) => { activeFilePath = value || null; },
   getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
@@ -5965,100 +5990,12 @@ function hideContextMenu() {
   libraryContextMenu.hide();
 }
 
-function buildRenameTargetPath(oldPath, inputName) {
-  const trimmed = String(inputName || "").trim();
-  if (!trimmed) return "";
-  if (/[\\/]/.test(trimmed)) return "";
-  let name = trimmed;
-  if (!/\.[^.]+$/.test(name)) name += ".abc";
-  const dir = safeDirname(oldPath);
-  if (!dir) return "";
-  return `${dir}/${name}`;
-}
-
 function beginRenameFile(filePath) {
-  if (!filePath) return;
-  const activePath = getActiveEditFilePath();
-  if (hasGlobalUnsavedChanges() && activePath && !pathsEqual(activePath, filePath)) {
-    showToast("Save/Discard your current changes before renaming files.", 2600);
-    return;
-  }
-  if (hasUnsavedChangesForFile(filePath)) {
-    showToast("Save/Discard changes before renaming files.", 2600);
-    return;
-  }
-  if (isWorkingCopyOpenForFile(filePath)) {
-    showToast("Close the file in the editor before renaming it.", 2600);
-    return;
-  }
-  renamingFilePath = filePath;
-  renderLibraryTree();
-  requestAnimationFrame(() => {
-    const input = $libraryTree
-      ? $libraryTree.querySelector(`input[data-file-path="${CSS.escape(filePath)}"]`)
-      : null;
-    if (input) {
-      input.focus();
-      input.select();
-    }
-  });
+  renameFileController.beginRenameFile(filePath);
 }
 
 async function commitRenameFile(oldPath, inputName) {
-  if (renameInFlight) return;
-  if (!renamingFilePath || renamingFilePath !== oldPath) return;
-  renameInFlight = true;
-  try {
-    const activePath = getActiveEditFilePath();
-    if (hasGlobalUnsavedChanges() && activePath && !pathsEqual(activePath, oldPath)) {
-      await showSaveError("Refusing to rename: you have unsaved changes in another file. Save/Discard them and try again.");
-      renamingFilePath = null;
-      renderLibraryTree();
-      return;
-    }
-    if (hasUnsavedChangesForFile(oldPath)) {
-      await showSaveError("Refusing to rename: the file has unsaved changes. Save/Discard them and try again.");
-      renamingFilePath = null;
-      renderLibraryTree();
-      return;
-    }
-    if (isWorkingCopyOpenForFile(oldPath)) {
-      await showSaveError("Refusing to rename: the file is open in the editor. Close it and try again.");
-      renamingFilePath = null;
-      renderLibraryTree();
-      return;
-    }
-    const newPath = buildRenameTargetPath(oldPath, inputName);
-    if (!newPath) {
-      renamingFilePath = null;
-      renderLibraryTree();
-      return;
-    }
-    if (newPath === oldPath) {
-      renamingFilePath = null;
-      renderLibraryTree();
-      return;
-    }
-    await withFileLocks([oldPath, newPath], async () => {
-      if (await fileExists(newPath)) {
-        await showSaveError("A file with that name already exists.");
-        renamingFilePath = null;
-        renderLibraryTree();
-        return;
-      }
-      const res = await renameFile(oldPath, newPath);
-      if (!res || !res.ok) {
-        await showSaveError(res && res.error ? res.error : "Unable to rename file.");
-        renamingFilePath = null;
-        renderLibraryTree();
-        return;
-      }
-      renamingFilePath = null;
-      await renameLibraryFile(oldPath, newPath);
-    });
-  } finally {
-    renameInFlight = false;
-  }
+  await renameFileController.commitRenameFile(oldPath, inputName);
 }
 
 function openMoveTuneModal(tuneId) {

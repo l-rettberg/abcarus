@@ -58,8 +58,11 @@ function createDocumentSessionController({
     getActiveTuneUid = () => "",
     getCurrentNavFilePath = () => "",
     getHeaderDirty = () => false,
+    getLibraryFiles = () => [],
     hasUnsavedChangesInActiveEditContext = () => false,
     isChordProEnabled = () => false,
+    isChordProFilePath = () => false,
+    isChordProText = () => false,
     isNewTuneDraft = () => false,
     isPayloadMode = () => false,
     isRawMode = () => false,
@@ -69,14 +72,23 @@ function createDocumentSessionController({
   const {
     discardWorkingCopyChangesForActiveFile = async () => false,
     flushLibraryPrefsSave = async () => {},
+    loadLibraryFromFolder = async () => {},
     markHeaderClean = () => {},
+    openChordProFile = async () => {},
     performRawSaveFlow = async () => false,
     performSaveAsFlow = async () => false,
     performSaveFlow = async () => false,
+    readFile = async () => ({ ok: false }),
+    selectTune = async () => {},
     setDirtyIndicator = () => {},
+    setActiveTuneText = () => {},
+    setChordProMode = () => {},
     showToast = () => {},
+    showOpenDialog = async () => "",
     clearCurrentDocument = () => {},
     updateHeaderStateUI = () => {},
+    pathsEqual = (a, b) => String(a || "") === String(b || ""),
+    safeDirname = () => "",
   } = actions;
 
   let saveSession = createEmptySaveSession();
@@ -294,6 +306,32 @@ function createDocumentSessionController({
     await requestCloseDocument();
   }
 
+  async function fileOpen() {
+    const ok = await ensureSafeToAbandonCurrentDoc("opening a file");
+    if (!ok) return;
+
+    const filePath = await showOpenDialog();
+    if (!filePath) return;
+
+    const readRes = await readFile(filePath);
+    if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(filePath))) {
+      await openChordProFile(filePath, readRes.data);
+      return;
+    }
+
+    setChordProMode(false);
+    await loadLibraryFromFolder(safeDirname(filePath));
+    const files = getLibraryFiles();
+    if (!Array.isArray(files)) return;
+
+    const fileEntry = files.find((f) => pathsEqual(f && f.path, filePath));
+    if (fileEntry && Array.isArray(fileEntry.tunes) && fileEntry.tunes.length) {
+      await selectTune(fileEntry.tunes[0].id);
+    } else {
+      setActiveTuneText("", null);
+    }
+  }
+
   return {
     clearSaveSession,
     confirmAbandonIfDirty,
@@ -302,6 +340,7 @@ function createDocumentSessionController({
     ensureSafeToAbandonCurrentDoc,
     ensureCurrentDocument,
     fileClose,
+    fileOpen,
     fileSave,
     fileSaveAs,
     getCurrentDocument,

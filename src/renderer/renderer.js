@@ -3212,8 +3212,11 @@ documentSessionController = createDocumentSessionController({
     getActiveTuneUid: () => activeTuneUid,
     getCurrentNavFilePath,
     getHeaderDirty,
+    getLibraryFiles: () => (libraryIndex && Array.isArray(libraryIndex.files)) ? libraryIndex.files : [],
     hasUnsavedChangesInActiveEditContext,
     isChordProEnabled: () => chordProFeature.isEnabled(),
+    isChordProFilePath,
+    isChordProText,
     isNewTuneDraft: () => isNewTuneDraft,
     isPayloadMode,
     isRawMode: () => rawMode,
@@ -3223,13 +3226,22 @@ documentSessionController = createDocumentSessionController({
     clearCurrentDocument,
     discardWorkingCopyChangesForActiveFile,
     flushLibraryPrefsSave,
+    loadLibraryFromFolder,
     markHeaderClean,
+    openChordProFile: (filePath, text) => chordProFeature.open(filePath, text),
     performRawSaveFlow,
     performSaveAsFlow,
     performSaveFlow,
+    readFile,
+    selectTune,
+    setActiveTuneText,
+    setChordProMode: (next) => chordProFeature.setMode(next),
     setDirtyIndicator,
     showToast,
+    showOpenDialog,
     updateHeaderStateUI,
+    pathsEqual,
+    safeDirname,
   },
 });
 
@@ -9565,27 +9577,7 @@ async function fileNewTuneAndAppendNow() {
 }
 
 async function fileOpen() {
-  const ok = await ensureSafeToAbandonCurrentDoc("opening a file");
-  if (!ok) return;
-
-  const filePath = await showOpenDialog();
-  if (!filePath) return;
-
-  const readRes = await readFile(filePath);
-  if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(filePath))) {
-    await chordProFeature.open(filePath, readRes.data);
-    return;
-  }
-  chordProFeature.setMode(false);
-  await loadLibraryFromFolder(safeDirname(filePath));
-  if (libraryIndex && libraryIndex.files) {
-    const fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, filePath));
-    if (fileEntry && fileEntry.tunes && fileEntry.tunes.length) {
-      await selectTune(fileEntry.tunes[0].id);
-    } else {
-      setActiveTuneText("", null);
-    }
-  }
+  if (documentSessionController) await documentSessionController.fileOpen();
 }
 
 async function importMusicXml() {

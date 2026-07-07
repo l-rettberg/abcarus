@@ -66,6 +66,7 @@ import { createAppendTuneToActiveFileAction } from "./library/append_tune_action
 import { createDeleteTuneAction } from "./library/delete_tune_action.js";
 import { createDuplicateTuneAction } from "./library/duplicate_tune_action.js";
 import { createPasteMoveTuneAction } from "./library/paste_move_tune_action.js";
+import { createRenumberXAction } from "./library/renumber_x_action.js";
 import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
@@ -105,6 +106,7 @@ import {
   ensureXNumberInAbc,
   getNextXNumber,
   removeTuneFromContent,
+  renumberXInTextKeepingFirst,
   renumberXLinesConsecutive,
 } from "./abc/text_transforms.js";
 import { createPerdeService } from "./microtonal/perde_service.js";
@@ -507,6 +509,7 @@ let tuneClipboardController = null;
 let deleteTuneAction = null;
 let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
+let renumberXAction = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -2415,6 +2418,13 @@ async function flushWorkingCopyTuneSync() {
   }
 }
 
+function resetWorkingCopyTuneSyncDebounce() {
+  workingCopyTuneSyncEpoch += 1;
+  if (workingCopyTuneSyncTimer) clearTimeout(workingCopyTuneSyncTimer);
+  workingCopyTuneSyncTimer = null;
+  workingCopyTuneSyncQueued = false;
+}
+
 async function flushWorkingCopyFullSync() {
   const epoch = workingCopyFullSyncEpoch;
   if (workingCopyFullSyncInFlight) {
@@ -3356,6 +3366,48 @@ pasteMoveTuneAction = createPasteMoveTuneAction({
     syncLibraryFileFromWorkingCopySnapshot,
     withFileLock,
     withFileLocks,
+    writeFile,
+  },
+});
+
+renumberXAction = createRenumberXAction({
+  api: window.api,
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneIndex: () => activeTuneIndex,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneUid: () => activeTuneUid,
+    getCurrentDocumentPath,
+    getHeaderDirty,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    getLibraryIndex: () => libraryIndex,
+    getRawMode: () => rawMode,
+    isCurrentDocumentDirty,
+    isWorkingCopyOpenForFile,
+  },
+  actions: {
+    attachTuneUidsToLibraryFile,
+    flushWorkingCopyTuneSync,
+    getActiveFileEntry,
+    hasUnsavedChangesForFile,
+    markCurrentDocumentClean,
+    markDiskConflictPath,
+    pathsEqual,
+    patchCurrentDocument,
+    readFile,
+    refreshLibraryFile,
+    refreshWorkingCopySnapshot,
+    renumberXLinesConsecutive,
+    resetWorkingCopyTuneSyncDebounce,
+    scheduleRenderLibraryTree,
+    selectTune,
+    setDirtyIndicator,
+    setFileContentInCache,
+    setStatus,
+    showSaveError,
+    showToast,
+    updateFileContext,
+    withFileLock,
     writeFile,
   },
 });
@@ -8439,214 +8491,8 @@ async function exportMp3() {
   await importExportFeature.exportMp3();
 }
 
-function renumberXInTextKeepingFirst(abcText) {
-  const lines = String(abcText || "").split(/\r\n|\n|\r/);
-  const xStartRe = /^(\s*X:\s*)(.*)$/;
-  const out = [];
-  let base = null;
-  let tuneIndex = 0;
-
-  for (const line of lines) {
-    const match = line.match(xStartRe);
-    if (!match) {
-      out.push(line);
-      continue;
-    }
-
-    const prefix = match[1];
-    const rest = match[2] || "";
-    const numMatch = rest.match(/^(\s*)(\d+)(.*)$/);
-
-    if (base == null) {
-      if (numMatch) {
-        const num = Number(numMatch[2]);
-        if (Number.isFinite(num)) {
-          base = num;
-          tuneIndex = 0;
-          out.push(line);
-          continue;
-        }
-      }
-
-      base = 1;
-      tuneIndex = 0;
-      out.push(`${prefix}${base}${rest}`);
-      continue;
-    }
-
-    tuneIndex += 1;
-    const next = base + tuneIndex;
-    if (numMatch) {
-      out.push(`${prefix}${numMatch[1]}${next}${numMatch[3]}`);
-    } else {
-      out.push(`${prefix}${next}${rest}`);
-    }
-  }
-
-  if (base == null) {
-    return { ok: false, error: "No X: headers found in file." };
-  }
-
-  return {
-    ok: true,
-    abcText: out.join("\n"),
-    base,
-    tuneCount: tuneIndex + 1,
-  };
-}
-
 async function renumberXInActiveFile(explicitFilePath) {
-  const filePath = explicitFilePath
-    || ((activeTuneMeta && activeTuneMeta.path) ? activeTuneMeta.path : null)
-    || (activeFilePath || getCurrentDocumentPath() || null);
-  if (!filePath) {
-    showToast("No active file selected.", 2200);
-    return;
-  }
-
-  if (rawMode) {
-    showToast("Raw mode: switch to tune mode to renumber.", 2400);
-    return;
-  }
-
-  const activePath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path)
-    : (activeFilePath ? String(activeFilePath) : "");
-  const globalDirty = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(isNewTuneDraft);
-  const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
-
-  if (globalDirty && !isTargetActive) {
-    await showSaveError("Please Save/Discard your current changes before renumbering another file.");
-    return;
-  }
-  if (hasUnsavedChangesForFile(filePath)) {
-    await showSaveError("Renumber X is disabled while the file has unsaved changes. Save/Discard first.");
-    return;
-  }
-
-  // Non-open file: do a safe disk-first renumber (read → transform → write).
-  if (!isTargetActive && !isWorkingCopyOpenForFile(filePath)) {
-    try {
-      await withFileLock(filePath, async () => {
-        const readRes = await readFile(filePath);
-        if (!readRes || !readRes.ok) throw new Error((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-        const before = String(readRes.data || "");
-        const verifyRes = await readFile(filePath);
-        if (!verifyRes || !verifyRes.ok) throw new Error((verifyRes && verifyRes.error) ? verifyRes.error : "Unable to verify file.");
-        if (String(verifyRes.data || "") !== before) throw new Error("Refusing to renumber: file changed on disk. Refresh/reopen and try again.");
-        const ren = renumberXLinesConsecutive(before);
-        if (!ren || !ren.ok) throw new Error((ren && ren.error) ? ren.error : "Unable to renumber X.");
-        const writeRes = await writeFile(filePath, ren.text);
-        if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write file.");
-        setFileContentInCache(filePath, ren.text);
-      });
-      await refreshLibraryFile(filePath, { force: true });
-      setStatus("Renumbered X.");
-      return;
-    } catch (e) {
-      await showSaveError(e && e.message ? e.message : String(e));
-      return;
-    }
-  }
-
-  try {
-    if (window.api && typeof window.api.openWorkingCopy === "function") {
-      await window.api.openWorkingCopy(filePath);
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-        attachTuneUidsToLibraryFile(filePath, snapshot);
-      }
-    }
-  } catch {}
-
-  try { await flushWorkingCopyTuneSync(); } catch {}
-
-  if (!window.api || typeof window.api.renumberWorkingCopyXStartingAt1 !== "function") {
-    await showSaveError("Working copy renumber API is unavailable.");
-    return;
-  }
-
-  const prevIndex = Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null;
-  const prevUid = activeTuneUid;
-  const prevFileEntry = getActiveFileEntry();
-  const prevTuneCount = prevFileEntry && Array.isArray(prevFileEntry.tunes) ? prevFileEntry.tunes.length : 0;
-
-  const res = await window.api.renumberWorkingCopyXStartingAt1();
-  if (!res || !res.ok) {
-    await showSaveError((res && res.error) ? res.error : "Unable to renumber X.");
-    return;
-  }
-
-  const snapshot = await refreshWorkingCopySnapshot();
-  if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, filePath)) {
-    await showSaveError("Unable to refresh working copy after renumber.");
-    return;
-  }
-
-  setFileContentInCache(filePath, snapshot.text);
-  attachTuneUidsToLibraryFile(filePath, snapshot);
-  scheduleRenderLibraryTree();
-  updateFileContext();
-
-  // Keep the editor aligned with the active tune slice (its X line changed).
-  // If we can't reliably restore the exact tune, fall back to best-effort selection.
-  const fileEntry = libraryIndex && Array.isArray(libraryIndex.files)
-    ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
-    : null;
-  const tunes = fileEntry && Array.isArray(fileEntry.tunes) ? fileEntry.tunes : [];
-  const countSame = Boolean(prevTuneCount && Array.isArray(snapshot.tunes) && snapshot.tunes.length === prevTuneCount);
-
-  const candidate = (() => {
-    if (prevUid && countSame) return tunes.find((t) => t && t.tuneUid === prevUid) || null;
-    if (activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, filePath)) {
-      const startOff = Number.isFinite(Number(activeTuneMeta.startOffset)) ? Number(activeTuneMeta.startOffset) : null;
-      if (startOff != null) return tunes.find((t) => Number(t.startOffset) === startOff) || null;
-    }
-    if (prevIndex != null) return tunes[Math.max(0, Math.min(tunes.length - 1, prevIndex))] || null;
-    return tunes.length ? tunes[0] : null;
-  })();
-
-  if (candidate) {
-    const key = candidate.tuneUid || candidate.id;
-    if (key) {
-      // Avoid late debounced pushes of stale editor text overwriting the renumber result.
-      try {
-        workingCopyTuneSyncEpoch += 1;
-        if (workingCopyTuneSyncTimer) clearTimeout(workingCopyTuneSyncTimer);
-        workingCopyTuneSyncTimer = null;
-        workingCopyTuneSyncQueued = false;
-      } catch {}
-      await selectTune(key, { skipConfirm: true, suppressRecent: true });
-    }
-  }
-
-  // Renumber X is a structural operation; if the file was clean (required), commit immediately so
-  // users can continue navigating and running file ops without being stuck in a dirty state.
-  if (window.api && typeof window.api.commitWorkingCopyToDisk === "function") {
-    const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
-    if (!saveRes || !saveRes.ok) {
-      await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file after renumber.");
-      patchCurrentDocument({ dirty: true }, { create: false });
-      setDirtyIndicator(true);
-      setStatus("Renumbered X (unsaved).");
-      return;
-    }
-    markDiskConflictPath(filePath, false);
-    const snapAfterSave = await refreshWorkingCopySnapshot();
-    if (snapAfterSave && snapAfterSave.path && pathsEqual(snapAfterSave.path, filePath)) {
-      setFileContentInCache(filePath, snapAfterSave.text);
-      attachTuneUidsToLibraryFile(filePath, snapAfterSave);
-      scheduleRenderLibraryTree();
-    }
-    markCurrentDocumentClean();
-    setDirtyIndicator(false);
-    setStatus("Renumbered X.");
-    return;
-  }
-
-  patchCurrentDocument({ dirty: true }, { create: false });
-  setDirtyIndicator(true);
-  setStatus("Renumbered X (unsaved).");
+  await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
 
 async function appQuit() {

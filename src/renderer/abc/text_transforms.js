@@ -290,6 +290,57 @@ function renumberXLinesConsecutive(fullText) {
   return { ok: true, text: out.join(newline), count: n };
 }
 
+function renumberXInTextKeepingFirst(abcText) {
+  const lines = String(abcText || "").split(/\r\n|\n|\r/);
+  const xStartRe = /^(\s*X:\s*)(.*)$/;
+  const out = [];
+  let base = null;
+  let tuneIndex = 0;
+
+  for (const line of lines) {
+    const match = line.match(xStartRe);
+    if (!match) {
+      out.push(line);
+      continue;
+    }
+
+    const prefix = match[1];
+    const rest = match[2] || "";
+    const numMatch = rest.match(/^(\s*)(\d+)(.*)$/);
+
+    if (base == null) {
+      if (numMatch) {
+        const num = Number(numMatch[2]);
+        if (Number.isFinite(num)) {
+          base = num;
+          tuneIndex = 0;
+          out.push(line);
+          continue;
+        }
+      }
+
+      base = 1;
+      tuneIndex = 0;
+      out.push(`${prefix}${base}${rest}`);
+      continue;
+    }
+
+    tuneIndex += 1;
+    const next = base + tuneIndex;
+    if (numMatch) out.push(`${prefix}${numMatch[1]}${next}${numMatch[3]}`);
+    else out.push(`${prefix}${next}${rest}`);
+  }
+
+  if (base == null) return { ok: false, error: "No X: headers found in file." };
+
+  return {
+    ok: true,
+    abcText: out.join("\n"),
+    base,
+    tuneCount: tuneIndex + 1,
+  };
+}
+
 function removeTuneFromContent(content, startOffset, endOffset) {
   let before = String(content || "").slice(0, startOffset);
   let after = String(content || "").slice(endOffset);
@@ -305,6 +356,7 @@ export {
   ensureXNumberInAbc,
   getNextXNumber,
   removeTuneFromContent,
+  renumberXInTextKeepingFirst,
   renumberXLinesConsecutive,
   transformLengthScaling,
 };

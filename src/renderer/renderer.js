@@ -68,6 +68,7 @@ import { createDeleteTuneAction } from "./library/delete_tune_action.js";
 import { createDuplicateTuneAction } from "./library/duplicate_tune_action.js";
 import { createPasteMoveTuneAction } from "./library/paste_move_tune_action.js";
 import { createRenumberXAction } from "./library/renumber_x_action.js";
+import { createNewFileAction } from "./library/new_file_action.js";
 import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
@@ -512,6 +513,7 @@ let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
+let newFileAction = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -2648,6 +2650,64 @@ appendCurrentTuneAction = createAppendCurrentTuneAction({
     syncLibraryFileFromWorkingCopySnapshot,
     updateHeaderStateUI,
     withFileLock,
+  },
+});
+
+newFileAction = createNewFileAction({
+  api: window.api,
+  SAVE_INTENT,
+  constants: {
+    newFileMinimalAbc: NEW_FILE_MINIMAL_ABC,
+    templateAbc: TEMPLATE_ABC,
+  },
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneMeta: () => activeTuneMeta,
+    hasActiveErrorHighlight: () => errorsFeature.hasActiveHighlight(),
+    hasEditor: () => Boolean(editorView),
+  },
+  actions: {
+    clearActiveErrorHighlight,
+    confirmOverwrite,
+    ensureSafeToAbandonCurrentDoc,
+    ensureXNumberInAbc,
+    fileExists,
+    getDefaultSaveDir,
+    getFileContentCached,
+    getNextXNumber,
+    getSuggestedBaseName,
+    loadLibraryFileIntoEditor,
+    markDirtyEditorSet: (value) => { suppressDirty = Boolean(value); },
+    mkdirp,
+    patchCurrentDocument,
+    recordNavFilePath,
+    refreshHeaderLayers,
+    refreshLibraryFile,
+    refreshWorkingCopySnapshot,
+    resetPlaybackState,
+    safeBasename,
+    safeDirname,
+    scheduleRenderNow,
+    setActiveFilePath: (value) => { activeFilePath = value; },
+    setActiveTuneId: (value) => { activeTuneId = value; },
+    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
+    setActiveTuneText,
+    setDirtyIndicator,
+    setEditorValue,
+    setFileContentInCache,
+    setFileNameMeta,
+    setNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
+    setSaveSession,
+    setTuneMetaText,
+    showSaveDialog,
+    showSaveError,
+    showToast,
+    stripFileExtension,
+    updateFileContext,
+    updateFileHeaderPanel,
+    updateWindowTitle,
+    withFileLock,
+    writeFile,
   },
 });
 
@@ -8152,114 +8212,19 @@ async function performAppendFlow() {
 }
 
 async function fileNew() {
-  const ok = await ensureSafeToAbandonCurrentDoc("creating a new file");
-  if (!ok) return;
-  const suggestedName = `${getSuggestedBaseName() || "NewTune"}.abc`;
-  const suggestedDir = getDefaultSaveDir();
-  const filePath = await showSaveDialog(suggestedName, suggestedDir);
-  if (!filePath) return;
-  const created = await createNewFileAtPath(filePath, NEW_FILE_MINIMAL_ABC, { confirmOverwrite: false });
-  if (created) {
-    showToast("New file created.", 2200);
-  }
+  await newFileAction.fileNew();
 }
 
 async function createNewFileAtPath(filePath, content, options = {}) {
-  if (!filePath) return false;
-  const dir = safeDirname(filePath);
-  if (dir) await mkdirp(dir);
-  if (await fileExists(filePath) && options.confirmOverwrite) {
-    const ok = await confirmOverwrite(filePath);
-    if (!ok) return false;
-  }
-  const writeRes = await withFileLock(filePath, async () => writeFile(filePath, content));
-  if (!writeRes || !writeRes.ok) {
-    await showSaveError((writeRes && writeRes.error) ? writeRes.error : "Unable to create file.");
-    return false;
-  }
-  setFileContentInCache(filePath, content);
-  patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
-  setDirtyIndicator(false);
-  setFileNameMeta(stripFileExtension(safeBasename(filePath)));
-  updateFileHeaderPanel();
-  updateWindowTitle();
-  try {
-    await refreshLibraryFile(filePath, { force: true });
-  } catch {}
-  const switched = await loadLibraryFileIntoEditor(filePath);
-  if (switched && switched.ok) return true;
-  // Fallback: ensure the session is still pointed at the chosen path even if library navigation fails.
-  activeFilePath = filePath;
-  recordNavFilePath(filePath);
-  try {
-    if (window.api && typeof window.api.openWorkingCopy === "function") {
-      await window.api.openWorkingCopy(filePath);
-      await refreshWorkingCopySnapshot();
-    }
-  } catch {}
-  setActiveTuneText(content, null, { markDirty: false });
-  return true;
+  return newFileAction.createNewFileAtPath(filePath, content, options);
 }
 
 async function fileNewFromTemplate() {
-  const ok = await ensureSafeToAbandonCurrentDoc("creating a new tune");
-  if (!ok) return;
-
-  const targetPath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path)
-    : (activeFilePath ? String(activeFilePath) : "");
-  if (!targetPath) {
-    setActiveTuneText(TEMPLATE_ABC, null, { markDirty: true });
-    showToast("Template opened.", 1800);
-    return;
-  }
-
-  let nextX = "";
-  try {
-    const res = await getFileContentCached(targetPath);
-    if (res && res.ok) nextX = getNextXNumber(res.data || "");
-  } catch {}
-
-  const withX = ensureXNumberInAbc(TEMPLATE_ABC, nextX || "");
-  setNewTuneDraftInActiveFile(withX, {
-    filePath: targetPath,
-    basename: (activeTuneMeta && activeTuneMeta.basename) ? activeTuneMeta.basename : safeBasename(targetPath),
-    xNumber: nextX,
-  });
-  showToast("New tune draft from template (Save will append to the active file).", 3200);
+  await newFileAction.fileNewFromTemplate();
 }
 
 function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {}) {
-  if (!editorView) return;
-  if (!filePath) return;
-  if (errorsFeature.hasActiveHighlight()) clearActiveErrorHighlight("docReplaced");
-  resetPlaybackState();
-
-  suppressDirty = true;
-  setEditorValue(text);
-  suppressDirty = false;
-
-  isNewTuneDraft = true;
-  activeTuneMeta = null;
-  activeTuneId = null;
-  activeFilePath = filePath;
-  setSaveSession({
-    intent: SAVE_INTENT.APPEND_TO_FILE,
-    targetPath: String(filePath || ""),
-    targetTuneUid: "",
-    source: "new_tune_draft",
-  });
-
-  refreshHeaderLayers().catch(() => {});
-  const label = xNumber ? `New tune (X:${xNumber})` : "New tune";
-  setTuneMetaText(label);
-  setFileNameMeta(stripFileExtension(basename || safeBasename(filePath)));
-
-  patchCurrentDocument({ path: null, content: text || "", dirty: true });
-  updateFileContext();
-  setDirtyIndicator(true);
-  updateFileHeaderPanel();
-  scheduleRenderNow({ clearOutput: true });
+  return newFileAction.setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber });
 }
 
 async function fileNewTune() {

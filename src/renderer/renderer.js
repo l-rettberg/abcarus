@@ -2655,55 +2655,34 @@ appendCurrentTuneAction = createAppendCurrentTuneAction({
 
 newFileAction = createNewFileAction({
   api: window.api,
-  SAVE_INTENT,
   constants: {
     newFileMinimalAbc: NEW_FILE_MINIMAL_ABC,
     templateAbc: TEMPLATE_ABC,
   },
-  state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneMeta: () => activeTuneMeta,
-    hasActiveErrorHighlight: () => errorsFeature.hasActiveHighlight(),
-    hasEditor: () => Boolean(editorView),
-  },
   actions: {
-    clearActiveErrorHighlight,
     confirmOverwrite,
     ensureSafeToAbandonCurrentDoc,
     ensureXNumberInAbc,
     fileExists,
     getDefaultSaveDir,
-    getFileContentCached,
-    getNextXNumber,
     getSuggestedBaseName,
     loadLibraryFileIntoEditor,
-    markDirtyEditorSet: (value) => { suppressDirty = Boolean(value); },
     mkdirp,
     patchCurrentDocument,
     recordNavFilePath,
-    refreshHeaderLayers,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
-    resetPlaybackState,
     safeBasename,
     safeDirname,
-    scheduleRenderNow,
     setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneId: (value) => { activeTuneId = value; },
-    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
     setActiveTuneText,
     setDirtyIndicator,
-    setEditorValue,
     setFileContentInCache,
     setFileNameMeta,
-    setNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
-    setSaveSession,
-    setTuneMetaText,
     showSaveDialog,
     showSaveError,
     showToast,
     stripFileExtension,
-    updateFileContext,
     updateFileHeaderPanel,
     updateWindowTitle,
     withFileLock,
@@ -8221,10 +8200,6 @@ async function createNewFileAtPath(filePath, content, options = {}) {
 
 async function fileNewFromTemplate() {
   await newFileAction.fileNewFromTemplate();
-}
-
-function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {}) {
-  return newFileAction.setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber });
 }
 
 async function fileNewTune() {

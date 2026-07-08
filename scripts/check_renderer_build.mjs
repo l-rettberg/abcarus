@@ -16,6 +16,8 @@ async function assertSaveIntentGuards() {
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
   const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
+  const saveFlowPath = "src/renderer/app/save_flow_controller.js";
+  const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -27,10 +29,11 @@ async function assertSaveIntentGuards() {
     throw new Error("Missing post-commit working-copy save verification.");
   }
 
-  const saveStart = src.indexOf("async function performSaveFlow()");
-  const saveEnd = src.indexOf("async function performSaveAsFlow()", saveStart);
+  const saveOwner = saveFlow.includes("async function performSaveFlow()") ? saveFlow : src;
+  const saveStart = saveOwner.indexOf("async function performSaveFlow()");
+  const saveEnd = saveOwner.indexOf("async function performSaveAsFlow()", saveStart);
   if (saveStart < 0 || saveEnd < 0) throw new Error("Unable to isolate performSaveFlow().");
-  const saveBody = src.slice(saveStart, saveEnd);
+  const saveBody = saveOwner.slice(saveStart, saveEnd);
   if (!saveBody.includes("const session = resolveSaveSession();")) {
     throw new Error("performSaveFlow() must route by resolveSaveSession().");
   }

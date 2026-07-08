@@ -104,7 +104,7 @@ function createTemplatesFeature({
     return false;
   }
 
-  async function getPreparedTemplateText() {
+  async function getSelectedTemplateText() {
     const item = controller.getSelectedItem();
     if (!item) return "";
     let slice = await controller.getSelectedText();
@@ -112,10 +112,15 @@ function createTemplatesFeature({
       await showSaveError("Template is empty.");
       return "";
     }
-    if (!/^[\t ]*X:/m.test(slice)) {
-      slice = ensureXNumberInAbc(slice, "");
-    }
     return slice;
+  }
+
+  function hasTuneHeader(text) {
+    return /^[\t ]*X:/m.test(String(text || ""));
+  }
+
+  function prepareTuneTemplate(text) {
+    return hasTuneHeader(text) ? String(text || "") : ensureXNumberInAbc(text, "");
   }
 
   async function insertSelectedTemplate(modeOverride = "") {
@@ -125,11 +130,16 @@ function createTemplatesFeature({
       return false;
     }
 
-    let slice = await getPreparedTemplateText();
+    let slice = await getSelectedTemplateText();
     if (!slice) return false;
 
     const mode = String(modeOverride || "insert");
     if (mode === "insert") {
+      if (hasTuneHeader(slice)) {
+        const appended = await appendTuneTextToFile(entry.path, slice, { toastOk: "Template appended." });
+        if (appended) controller.close();
+        return Boolean(appended);
+      }
       if (isPayloadMode()) {
         showToast("Exit Payload Mode to insert a template.", 2400);
         return false;
@@ -149,12 +159,13 @@ function createTemplatesFeature({
         showToast("Exit Payload Mode to replace a tune.", 2400);
         return false;
       }
-      setEditorText(slice.trimEnd());
+      setEditorText(prepareTuneTemplate(slice).trimEnd());
       showToast("Template replaced current tune.", 2200);
       controller.close();
       return true;
     }
 
+    slice = prepareTuneTemplate(slice);
     const appended = await appendTuneTextToFile(entry.path, slice, { toastOk: "Template appended." });
     if (appended) controller.close();
     return Boolean(appended);

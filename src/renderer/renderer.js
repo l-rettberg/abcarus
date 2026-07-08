@@ -63,6 +63,7 @@ import { createTuneClipboardController } from "./library/tune_clipboard_controll
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
+import { createAppendCurrentTuneAction } from "./library/append_current_tune_action.js";
 import { createDeleteTuneAction } from "./library/delete_tune_action.js";
 import { createDuplicateTuneAction } from "./library/duplicate_tune_action.js";
 import { createPasteMoveTuneAction } from "./library/paste_move_tune_action.js";
@@ -510,6 +511,7 @@ let deleteTuneAction = null;
 let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
 let renumberXAction = null;
+let appendCurrentTuneAction = null;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -2607,6 +2609,47 @@ const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
 let latestSettingsSnapshot = null;
+
+appendCurrentTuneAction = createAppendCurrentTuneAction({
+  api: window.api,
+  SAVE_INTENT,
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneUid: () => activeTuneUid,
+    getCurrentDocumentPath,
+    getCurrentNavFilePath,
+    getEditorText: getEditorValue,
+    getSaveSession: resolveSaveSession,
+  },
+  actions: {
+    confirmAppendToFile,
+    ensureSafeToAbandonCurrentDoc,
+    ensureXNumberInAbc,
+    getActiveFileEntry,
+    getNextXNumber,
+    markDiskConflictPath,
+    markHeaderClean,
+    parseTuneIdentityFields,
+    patchCurrentDocument,
+    pathsEqual,
+    refreshLibraryFile,
+    refreshWorkingCopySnapshot,
+    resolveWorkingCopySaveConflictDefault,
+    selectTune,
+    setActiveFilePath: (value) => { activeFilePath = value; },
+    setFileContentInCache,
+    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
+    setSaveSession,
+    setStatus,
+    setDirtyIndicator,
+    showSaveError,
+    showToast,
+    syncLibraryFileFromWorkingCopySnapshot,
+    updateHeaderStateUI,
+    withFileLock,
+  },
+});
 
 const templatesFeature = createTemplatesFeature({
   elements: {
@@ -8105,113 +8148,7 @@ async function deleteTuneById(tuneId) {
 }
 
 async function performAppendFlow() {
-  const session = resolveSaveSession();
-  const filePath = String(
-    session.targetPath
-    || activeFilePath
-    || getCurrentNavFilePath()
-    || ""
-  );
-  if (!filePath) {
-    await showSaveError("Select a target file in the Library panel first.");
-    return false;
-  }
-
-  // Strict-write: when saving/appending, read the current editor text directly
-  // to avoid losing last-moment edits due to debounced document content sync.
-  const editorText = getEditorValue();
-  patchCurrentDocument({ content: editorText }, { create: false });
-
-  const deriveTuneLabel = () => {
-    try {
-      const parsed = parseTuneIdentityFields(editorText);
-      const xPart = parsed && parsed.xNumber ? `X:${parsed.xNumber}` : "";
-      const title = parsed && parsed.title ? String(parsed.title) : "";
-      return `${xPart} ${title}`.trim() || "Untitled";
-    } catch {
-      return "Untitled";
-    }
-  };
-  const confirm = (window.api && typeof window.api.confirmAppendToFileDetailed === "function")
-    ? await window.api.confirmAppendToFileDetailed(filePath, deriveTuneLabel())
-    : await confirmAppendToFile(filePath);
-  if (confirm !== "append") return false;
-
-  if (
-    !window.api
-    || typeof window.api.openWorkingCopy !== "function"
-    || typeof window.api.insertWorkingCopyTuneAfter !== "function"
-    || typeof window.api.commitWorkingCopyToDisk !== "function"
-  ) {
-    await showSaveError("Internal error: working copy append is unavailable.");
-    return false;
-  }
-
-  return withFileLock(filePath, async () => {
-    await window.api.openWorkingCopy(filePath);
-    const snap = await refreshWorkingCopySnapshot();
-    if (!snap || !snap.path || !pathsEqual(snap.path, filePath)) {
-      await showSaveError("Unable to open working copy for appending.");
-      return false;
-    }
-
-    const nextX = getNextXNumber(String(snap.text || ""));
-    const prepared = ensureXNumberInAbc(editorText, nextX);
-    const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-    const insertRes = await window.api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
-    if (!insertRes || !insertRes.ok) {
-      await showSaveError((insertRes && insertRes.error) ? insertRes.error : "Unable to append to file.");
-      return false;
-    }
-
-    const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
-    if (!saveRes || !saveRes.ok) {
-      if (saveRes && saveRes.conflict) {
-        const resolved = await resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId: null });
-        if (resolved && resolved.ok && resolved.action === "overwrite") {
-          // continue below (post-save snapshot/refresh)
-        } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-          showToast("Saved copy and switched.", 3000);
-          return true;
-        } else {
-          if (resolved && resolved.action === "discard_reload") showToast("Reloaded from disk.", 2200);
-          else if (resolved && resolved.error) await showSaveError(resolved.error);
-          else setStatus("Save canceled.");
-          return false;
-        }
-      }
-      await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-      return false;
-    }
-
-    markDiskConflictPath(filePath, false);
-    const snapAfter = await refreshWorkingCopySnapshot();
-    if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, filePath)) {
-      setFileContentInCache(filePath, snapAfter.text);
-      syncLibraryFileFromWorkingCopySnapshot(filePath, snapAfter);
-    }
-    const updatedFile = await refreshLibraryFile(filePath, { force: true });
-    activeFilePath = filePath;
-    if (updatedFile && Array.isArray(updatedFile.tunes) && updatedFile.tunes.length) {
-      const last = updatedFile.tunes[updatedFile.tunes.length - 1];
-      if (last && last.id) {
-        await selectTune(last.tuneUid || last.id, { skipConfirm: true, suppressRecent: true });
-      }
-    }
-
-    isNewTuneDraft = false;
-    setSaveSession({
-      intent: SAVE_INTENT.REPLACE_TUNE,
-      targetPath: filePath,
-      targetTuneUid: String(activeTuneUid || ""),
-      source: "append_saved",
-    });
-    patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
-    markHeaderClean();
-    updateHeaderStateUI();
-    setDirtyIndicator(false);
-    return true;
-  });
+  return appendCurrentTuneAction.performAppendFlow();
 }
 
 async function fileNew() {
@@ -8292,21 +8229,6 @@ async function fileNewFromTemplate() {
   showToast("New tune draft from template (Save will append to the active file).", 3200);
 }
 
-function buildNewTuneDraftTemplate(nextX) {
-  const x = Number.isFinite(Number(nextX)) ? Number(nextX) : "";
-  const xLine = x ? `X:${x}` : "X:";
-  return [
-    xLine,
-    "T:",
-    "C:",
-    "M:4/4",
-    "L:1/8",
-    "Q:1/4=120",
-    "K:C",
-    "",
-  ].join("\n");
-}
-
 function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {}) {
   if (!editorView) return;
   if (!filePath) return;
@@ -8341,110 +8263,15 @@ function setNewTuneDraftInActiveFile(text, { filePath, basename, xNumber } = {})
 }
 
 async function fileNewTune() {
-  // Keep the menu action compatible, but use the same semantics as the [+] button:
-  // immediately append a new tune to the active file and save it.
-  await fileNewTuneAndAppendNow();
+  await appendCurrentTuneAction.fileNewTune();
 }
 
 async function appendTuneTextToFileNow(filePath, tuneText, { toastOk = "" } = {}) {
-  const p = String(filePath || "");
-  if (!p) return false;
-  const raw = String(tuneText || "");
-  if (!raw.trim()) return false;
-  if (
-    !window.api
-    || typeof window.api.openWorkingCopy !== "function"
-    || typeof window.api.insertWorkingCopyTuneAfter !== "function"
-    || typeof window.api.commitWorkingCopyToDisk !== "function"
-  ) {
-    await showSaveError("Internal error: working copy is unavailable.");
-    return false;
-  }
-
-  return withFileLock(p, async () => {
-    await window.api.openWorkingCopy(p);
-    const snap = await refreshWorkingCopySnapshot();
-    if (!snap || !snap.path || !pathsEqual(snap.path, p)) {
-      await showSaveError("Unable to open working copy.");
-      return false;
-    }
-
-    const nextX = getNextXNumber(String(snap.text || ""));
-    const prepared = ensureXNumberInAbc(raw, nextX);
-    const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-
-    const insertRes = await window.api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
-    if (!insertRes || !insertRes.ok) {
-      await showSaveError((insertRes && insertRes.error) ? insertRes.error : "Unable to add tune.");
-      return false;
-    }
-
-    const saveRes = await window.api.commitWorkingCopyToDisk({ force: false });
-    if (!saveRes || !saveRes.ok) {
-      if (saveRes && saveRes.conflict) {
-        const resolved = await resolveWorkingCopySaveConflictDefault(p, { restoreTuneId: null });
-        if (resolved && resolved.ok && resolved.action === "overwrite") {
-          // continue below (post-save snapshot/refresh)
-        } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-          showToast("Saved copy and switched.", 3000);
-          return true;
-        } else {
-          if (resolved && resolved.action === "discard_reload") showToast("Reloaded from disk.", 2200);
-          else if (resolved && resolved.error) await showSaveError(resolved.error);
-          else setStatus("Save canceled.");
-          return false;
-        }
-      }
-      await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-      return false;
-    }
-
-    markDiskConflictPath(p, false);
-    const snapAfter = await refreshWorkingCopySnapshot();
-    if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, p)) {
-      setFileContentInCache(p, snapAfter.text);
-      syncLibraryFileFromWorkingCopySnapshot(p, snapAfter);
-    }
-
-    const updatedFile = await refreshLibraryFile(p, { force: true });
-    activeFilePath = p;
-    if (updatedFile && Array.isArray(updatedFile.tunes) && updatedFile.tunes.length) {
-      const last = updatedFile.tunes[updatedFile.tunes.length - 1];
-      if (last && last.id) {
-        await selectTune(last.tuneUid || last.id, { skipConfirm: true, suppressRecent: true });
-      }
-    }
-
-    markHeaderClean();
-    updateHeaderStateUI();
-    patchCurrentDocument({ path: p, dirty: false }, { create: false });
-    isNewTuneDraft = false;
-    setDirtyIndicator(false);
-    if (toastOk) showToast(toastOk, 1800);
-    return true;
-  });
+  return appendCurrentTuneAction.appendTextToFileNow(filePath, tuneText, { toastOk });
 }
 
 async function fileNewTuneAndAppendNow() {
-  const entry = getActiveFileEntry();
-  const filePath = String(
-    (entry && entry.path)
-    || (activeTuneMeta && activeTuneMeta.path)
-    || activeFilePath
-    || getCurrentNavFilePath()
-    || getCurrentDocumentPath()
-    || ""
-  );
-  if (!filePath) {
-    showToast("Open/select a file first.", 2400);
-    return;
-  }
-
-  const ok = await ensureSafeToAbandonCurrentDoc("creating a new tune");
-  if (!ok) return;
-
-  const template = buildNewTuneDraftTemplate("");
-  await appendTuneTextToFileNow(filePath, template, { toastOk: "New tune added." });
+  await appendCurrentTuneAction.fileNewTuneAndAppendNow();
 }
 
 async function fileOpen() {

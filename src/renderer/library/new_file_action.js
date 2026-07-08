@@ -69,7 +69,6 @@ export function createNewFileAction({
     updateWindowTitle();
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
     const switched = await loadLibraryFileIntoEditor(filePath);
-    if (switched && switched.ok) return true;
     setActiveFilePath(filePath);
     recordNavFilePath(filePath);
     try {
@@ -78,7 +77,16 @@ export function createNewFileAction({
         await refreshWorkingCopySnapshot();
       }
     } catch {}
+    if (switched && switched.ok) {
+      patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+      setDirtyIndicator(false);
+      updateWindowTitle();
+      return true;
+    }
     setActiveTuneText(content, null, { markDirty: false });
+    patchCurrentDocument({ path: filePath, content, dirty: false }, { create: false });
+    setDirtyIndicator(false);
+    updateWindowTitle();
     return true;
   }
 

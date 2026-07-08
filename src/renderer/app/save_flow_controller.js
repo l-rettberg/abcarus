@@ -423,7 +423,7 @@ export function createSaveFlowController({
       await refreshLibraryFile(filePath, { force: true });
     } catch {}
 
-    const switched = await loadLibraryFileIntoEditor(filePath);
+    const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
     if (switched && switched.ok) {
       const libraryIndex = getLibraryIndex();
       const root = libraryIndex && libraryIndex.root ? normalizeLibraryPath(libraryIndex.root) : "";

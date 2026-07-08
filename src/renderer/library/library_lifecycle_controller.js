@@ -764,8 +764,12 @@ export function createLibraryLifecycleController({
     }
   }
 
-  async function loadLibraryFileIntoEditor(filePath) {
+  async function loadLibraryFileIntoEditor(filePath, options = {}) {
     if (!filePath) return { ok: false, error: "Missing file path." };
+    const tuneSelectOptions = {
+      skipConfirm: Boolean(options.skipConfirm),
+      suppressRecent: Boolean(options.suppressRecent),
+    };
     let chordproText = null;
     try {
       if (api && typeof api.openWorkingCopy === "function") {
@@ -801,7 +805,7 @@ export function createLibraryLifecycleController({
       if (fileEntry.tunes && fileEntry.tunes.length) {
         const first = fileEntry.tunes[0];
         const key = first ? (first.tuneUid || first.id) : "";
-        if (key) await selectTune(key);
+        if (key) await selectTune(key, tuneSelectOptions);
         return { ok: true };
       }
       const tuneCount = Number.isFinite(fileEntry.tuneCount) ? fileEntry.tuneCount : null;
@@ -811,7 +815,7 @@ export function createLibraryLifecycleController({
         if (updated && updated.tunes && updated.tunes.length) {
           const first = updated.tunes[0];
           const key = first ? (first.tuneUid || first.id) : "";
-          if (key) await selectTune(key);
+          if (key) await selectTune(key, tuneSelectOptions);
           return { ok: true };
         }
       }
@@ -822,7 +826,7 @@ export function createLibraryLifecycleController({
     if (inMemory.ok) return inMemory;
 
     const dir = safeDirname(filePath);
-    await loadLibraryFromFolder(dir);
+    await loadLibraryFromFolder(dir, { selectInitialTune: false });
     const afterLoad = await resolveFromIndex();
     if (afterLoad.ok) return afterLoad;
     return { ok: false, error: afterLoad.error || `File not found in library: ${safeBasename(filePath)}` };

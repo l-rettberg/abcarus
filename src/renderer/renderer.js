@@ -5394,8 +5394,8 @@ async function loadSingleLibraryFile(filePath, options = {}) {
   return libraryLifecycleController.loadSingleLibraryFile(filePath, options);
 }
 
-async function loadLibraryFileIntoEditor(filePath) {
-  return libraryLifecycleController.loadLibraryFileIntoEditor(filePath);
+async function loadLibraryFileIntoEditor(filePath, options = {}) {
+  return libraryLifecycleController.loadLibraryFileIntoEditor(filePath, options);
 }
 
 async function requestLoadLibraryFile(filePath) {

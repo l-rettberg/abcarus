@@ -285,11 +285,14 @@ export function createPasteMoveTuneAction({
         const finalTarget = renumTarget.abcText;
 
         const updatedSource = removeTuneFromContent(sourceContent, startOffset, endOffset);
-        const renumSource = renumberXInTextKeepingFirst(updatedSource);
-        if (!renumSource || !renumSource.ok || typeof renumSource.abcText !== "string") {
-          throw new Error("Unable to renumber source file after move.");
+        let finalSource = updatedSource;
+        if (/^[\t ]*X:/m.test(updatedSource)) {
+          const renumSource = renumberXInTextKeepingFirst(updatedSource);
+          if (!renumSource || !renumSource.ok || typeof renumSource.abcText !== "string") {
+            throw new Error("Unable to renumber source file after move.");
+          }
+          finalSource = renumSource.abcText;
         }
-        const finalSource = renumSource.abcText;
 
         const useWorkingCopyCommit = Boolean(
           api

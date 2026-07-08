@@ -2717,9 +2717,7 @@ saveFlowController = createSaveFlowController({
   },
   actions: {
     attachTuneUidsToLibraryFile,
-    confirmOverwrite,
     createNewFileAtPath,
-    fileExists,
     flushWorkingCopyFullSync,
     flushWorkingCopyTuneSync,
     getDefaultSaveDir,

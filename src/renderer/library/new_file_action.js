@@ -68,7 +68,7 @@ export function createNewFileAction({
     updateFileHeaderPanel();
     updateWindowTitle();
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
-    const switched = await loadLibraryFileIntoEditor(filePath);
+    const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
     setActiveFilePath(filePath);
     recordNavFilePath(filePath);
     try {

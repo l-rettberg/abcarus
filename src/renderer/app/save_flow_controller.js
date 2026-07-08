@@ -27,9 +27,7 @@ export function createSaveFlowController({
 
   const {
     attachTuneUidsToLibraryFile = () => {},
-    confirmOverwrite = async () => false,
     createNewFileAtPath = async () => false,
-    fileExists = async () => false,
     flushWorkingCopyFullSync = async () => {},
     flushWorkingCopyTuneSync = async () => {},
     getDefaultSaveDir = () => "",
@@ -329,10 +327,6 @@ export function createSaveFlowController({
         return true;
       }
 
-      if (await fileExists(filePath)) {
-        const ok = await confirmOverwrite(filePath);
-        if (!ok) return false;
-      }
       const out = await api.writeWorkingCopyToPathAndSwitch(filePath);
       if (!out || !out.ok) {
         await showSaveError((out && out.error) ? out.error : "Unable to save file.");
@@ -410,10 +404,6 @@ export function createSaveFlowController({
       return true;
     }
 
-    if (await fileExists(filePath)) {
-      const ok = await confirmOverwrite(filePath);
-      if (!ok) return false;
-    }
     const out = await api.writeWorkingCopyToPath(filePath);
     if (!out || !out.ok) {
       await showSaveError((out && out.error) ? out.error : "Unable to save file.");

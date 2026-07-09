@@ -261,10 +261,15 @@ async function commitWorkingCopyToDisk({ force = false } = {}) {
     && fpNow
     && (Number(fpOnOpen.mtimeMs) !== Number(fpNow.mtimeMs) || Number(fpOnOpen.size) !== Number(fpNow.size))
   );
-  // By policy, the in-app working copy session is authoritative for its file.
-  // If the file changed on disk while a working copy is open, we overwrite on Save.
-  // (Callers may pass `force=true` for explicitness, but the default behavior is the same.)
-  const overwroteExternalChanges = Boolean(hasConflict && !force);
+  if (hasConflict && !force) {
+    return {
+      ok: false,
+      conflict: true,
+      diskFingerprintOnOpen: fpOnOpen,
+      diskFingerprintNow: fpNow,
+    };
+  }
+  const overwroteExternalChanges = Boolean(hasConflict && force);
 
   const text = String(state.text || "");
   try {

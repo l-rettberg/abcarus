@@ -2130,6 +2130,21 @@ async function confirmReloadFromDisk(filePath) {
 async function resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId = null } = {}) {
   const p = String(filePath || "");
   if (!p) return { ok: false, cancelled: true, action: "cancel" };
+  if (!window.api || typeof window.api.confirmSaveConflict !== "function") {
+    markDiskConflictPath(p, true);
+    return { ok: false, action: "cancel", error: "File changed on disk. Save conflict dialog is unavailable." };
+  }
+  const choice = await window.api.confirmSaveConflict(p);
+  if (choice === "save_copy_as") {
+    return saveWorkingCopyCopyAsAndSwitch(p, { restoreTuneId });
+  }
+  if (choice === "discard_reload") {
+    return discardAndReloadWorkingCopyFromDisk(p, { restoreTuneId });
+  }
+  if (choice !== "overwrite") {
+    markDiskConflictPath(p, true);
+    return { ok: false, cancelled: true, action: "cancel" };
+  }
   const forced = await window.api.commitWorkingCopyToDisk({ force: true });
   if (forced && forced.ok) {
     markDiskConflictPath(p, false);
@@ -2197,12 +2212,6 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null
   if (!targetPath) return { ok: false, cancelled: true };
 
   await withFileLock(targetPath, async () => {
-    if (await fileExists(targetPath)) {
-      const confirm = (window.api && typeof window.api.confirmOverwrite === "function")
-        ? await window.api.confirmOverwrite(targetPath)
-        : "cancel";
-      if (confirm !== "replace") throw new Error("Cancelled.");
-    }
     await window.api.openWorkingCopy(fromPath);
     const writeRes = await window.api.writeWorkingCopyToPathAndSwitch(targetPath);
     if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to save copy.");

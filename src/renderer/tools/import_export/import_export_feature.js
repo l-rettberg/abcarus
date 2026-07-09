@@ -242,13 +242,8 @@ function createImportExportFeature({
             const saveRes = await api.commitWorkingCopyToDisk({ force: false });
             if (!saveRes || !saveRes.ok) {
               if (saveRes && saveRes.conflict) {
-                const forced = await api.commitWorkingCopyToDisk({ force: true });
-                if (forced && forced.ok) {
-                  markDiskConflictPath(targetPath, false);
-                } else {
-                  markDiskConflictPath(targetPath, true);
-                  throw new Error((forced && forced.error) ? forced.error : "Unable to save file.");
-                }
+                markDiskConflictPath(targetPath, true);
+                throw new Error("Refusing to import: file changed on disk. Reload/reopen the file and try again.");
               }
               if (!saveRes || !saveRes.ok) {
                 throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");

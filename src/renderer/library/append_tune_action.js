@@ -81,14 +81,8 @@ function createAppendTuneToActiveFileAction({
           let saved = await api.commitWorkingCopyToDisk({ force: false });
           if (!saved || !saved.ok) {
             if (saved && saved.conflict) {
-              const forced = await api.commitWorkingCopyToDisk({ force: true });
-              if (forced && forced.ok) {
-                markDiskConflictPath(targetPath, false);
-                saved = forced;
-              } else {
-                markDiskConflictPath(targetPath, true);
-                throw new Error((forced && forced.error) ? forced.error : "Unable to save file.");
-              }
+              markDiskConflictPath(targetPath, true);
+              throw new Error("Refusing to append: file changed on disk. Reload/reopen the file and try again.");
             }
           }
           if (!saved || !saved.ok) {

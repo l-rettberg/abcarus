@@ -219,9 +219,8 @@ export function createSaveFlowController({
           return true;
         }
         if (res && res.conflict) {
-          const forced = await api.commitWorkingCopyToDisk({ force: true });
-          if (forced && forced.ok) {
-            markDiskConflictPath(filePath, false);
+          const resolved = await resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId: getActiveTuneUid() || getActiveTuneId() });
+          if (resolved && resolved.ok && resolved.action === "overwrite") {
             const snap = await refreshWorkingCopySnapshot();
             if (snap && snap.path && pathsEqual(snap.path, filePath)) {
               setFileContentInCache(filePath, snap.text);
@@ -231,8 +230,15 @@ export function createSaveFlowController({
             updateWindowTitle();
             return true;
           }
-          markDiskConflictPath(filePath, true);
-          await showSaveError((forced && forced.error) ? forced.error : "Unable to save file.");
+          if (resolved && resolved.ok && resolved.action === "save_copy_as") {
+            setStatus("Saved copy and switched.");
+            return true;
+          }
+          if (resolved && resolved.action === "discard_reload") {
+            setStatus("Reloaded from disk.");
+            return false;
+          }
+          if (resolved && resolved.error) await showSaveError(resolved.error);
           return false;
         }
         await showSaveError((res && res.error) ? res.error : "Unable to save file.");

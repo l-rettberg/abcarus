@@ -92,14 +92,8 @@ export function createDuplicateTuneAction({
         let saveRes = await api.commitWorkingCopyToDisk({ force: false });
         if (!saveRes || !saveRes.ok) {
           if (saveRes && saveRes.conflict) {
-            const forced = await api.commitWorkingCopyToDisk({ force: true });
-            if (forced && forced.ok) {
-              markDiskConflictPath(res.file.path, false);
-              saveRes = forced;
-            } else {
-              markDiskConflictPath(res.file.path, true);
-              throw new Error((forced && forced.error) ? forced.error : "Unable to save file after duplication.");
-            }
+            markDiskConflictPath(res.file.path, true);
+            throw new Error("Refusing to duplicate: file changed on disk. Reload/reopen the file and try again.");
           }
         }
         if (!saveRes || !saveRes.ok) {

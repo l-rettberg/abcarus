@@ -10,6 +10,16 @@ const {
   applyFullText,
 } = require("../../src/main/workingCopyStore");
 
+async function walkFiles(dir, out = []) {
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) await walkFiles(p, out);
+    else if (entry.isFile() && /\.(js|mjs)$/.test(entry.name)) out.push(p);
+  }
+  return out;
+}
+
 async function withTempDir(fn) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "abcarus-wc-"));
   try {
@@ -53,8 +63,40 @@ async function testConflictDoesNotOverwriteByDefault() {
   });
 }
 
+async function testForcedCommitsStayExplicitlyAuthorized() {
+  const root = path.resolve(__dirname, "../..");
+  const rendererFiles = await walkFiles(path.join(root, "src", "renderer"));
+  const violations = [];
+  const forcedPattern = /commitWorkingCopyToDisk\(\{\s*force:\s*true\s*\}\)/g;
+
+  for (const filePath of rendererFiles) {
+    const rel = path.relative(root, filePath).replace(/\\/g, "/");
+    const text = await fs.promises.readFile(filePath, "utf8");
+    let match;
+    while ((match = forcedPattern.exec(text))) {
+      const start = Math.max(0, match.index - 500);
+      const end = Math.min(text.length, match.index + 500);
+      const context = text.slice(start, end);
+      const allowedMissingFileRecreate = rel === "src/renderer/app/save_flow_controller.js"
+        && context.includes('choice === "recreate"');
+      const allowedUserConfirmedOverwrite = rel === "src/renderer/renderer.js"
+        && context.includes('choice !== "overwrite"');
+      if (!allowedMissingFileRecreate && !allowedUserConfirmedOverwrite) {
+        violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
+      }
+    }
+  }
+
+  assert.deepStrictEqual(
+    violations,
+    [],
+    `Unauthorized forced working-copy commits:\n${violations.join("\n")}`
+  );
+}
+
 async function main() {
   await testConflictDoesNotOverwriteByDefault();
+  await testForcedCommitsStayExplicitlyAuthorized();
   console.log("% PASS working copy conflict guard");
 }
 

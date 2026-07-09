@@ -303,21 +303,15 @@ export function createPasteMoveTuneAction({
         );
 
         if (useWorkingCopyCommit) {
-          const commitViaWorkingCopy = async (filePath, text, { force = false } = {}) => {
+          const commitViaWorkingCopy = async (filePath, text) => {
             await api.openWorkingCopy(filePath);
             const applyRes = await api.applyWorkingCopyFullText(text);
             if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy.");
-            let saveRes = await api.commitWorkingCopyToDisk({ force: Boolean(force) });
+            let saveRes = await api.commitWorkingCopyToDisk({ force: false });
             if (!saveRes || !saveRes.ok) {
               if (saveRes && saveRes.conflict) {
-                const forced = await api.commitWorkingCopyToDisk({ force: true });
-                if (forced && forced.ok) {
-                  markDiskConflictPath(filePath, false);
-                  saveRes = forced;
-                } else {
-                  markDiskConflictPath(filePath, true);
-                  throw new Error((forced && forced.error) ? forced.error : "Unable to save file.");
-                }
+                markDiskConflictPath(filePath, true);
+                throw new Error("Refusing to move: file changed on disk. Reload/reopen the file and try again.");
               }
             }
             if (!saveRes || !saveRes.ok) {
@@ -334,7 +328,7 @@ export function createPasteMoveTuneAction({
           try {
             await commitViaWorkingCopy(sourcePath, finalSource);
           } catch (e) {
-            try { await commitViaWorkingCopy(targetPath, targetContent, { force: false }); } catch {}
+            try { await commitViaWorkingCopy(targetPath, targetContent); } catch {}
             throw e;
           }
         } else {

@@ -180,6 +180,15 @@ import {
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import {
+  getRenderCompatMapFromPayload,
+  mapEditorOffsetToRenderIdx as mapEditorOffsetToRenderIdxCore,
+  mapRenderIdxToEditorOffset as mapRenderIdxToEditorOffsetCore,
+  mapRenderOffsetToSourceOffset as mapRenderOffsetToSourceOffsetCore,
+  mapSourceOffsetToRenderOffset as mapSourceOffsetToRenderOffsetCore,
+  normalizeHeaderNoneSpacing,
+  stripSepForRender,
+} from "./render/render_payload_model.js";
+import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
   sanitizeFileBaseName,
@@ -1906,57 +1915,23 @@ const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
 
 function getRenderCompatMap() {
-  return lastRenderPayload && lastRenderPayload.compatMap ? lastRenderPayload.compatMap : null;
+  return getRenderCompatMapFromPayload(lastRenderPayload);
 }
 
 function mapSourceOffsetToRenderOffset(offset, compatMap = getRenderCompatMap()) {
-  const raw = Number(offset);
-  if (!Number.isFinite(raw)) return raw;
-  const map = compatMap;
-  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
-  let lo = 0;
-  let hi = map.shifts.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if ((map.shifts[mid].srcPos || 0) <= raw) lo = mid + 1;
-    else hi = mid;
-  }
-  const shift = lo > 0 ? map.shifts[lo - 1] : null;
-  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
-  return raw + delta;
+  return mapSourceOffsetToRenderOffsetCore(offset, compatMap);
 }
 
 function mapRenderOffsetToSourceOffset(offset, compatMap = getRenderCompatMap()) {
-  const raw = Number(offset);
-  if (!Number.isFinite(raw)) return raw;
-  const map = compatMap;
-  if (!map || !Array.isArray(map.shifts) || !map.shifts.length) return raw;
-  let lo = 0;
-  let hi = map.shifts.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if ((map.shifts[mid].outPos || 0) <= raw) lo = mid + 1;
-    else hi = mid;
-  }
-  const shift = lo > 0 ? map.shifts[lo - 1] : null;
-  const delta = shift && Number.isFinite(shift.delta) ? shift.delta : 0;
-  return raw - delta;
+  return mapRenderOffsetToSourceOffsetCore(offset, compatMap);
 }
 
 function mapEditorOffsetToRenderIdx(editorOffset, payload = lastRenderPayload) {
-  const raw = Number(editorOffset);
-  if (!Number.isFinite(raw)) return raw;
-  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
-  const sourcePos = raw + renderOffset;
-  return mapSourceOffsetToRenderOffset(sourcePos, payload && payload.compatMap ? payload.compatMap : null);
+  return mapEditorOffsetToRenderIdxCore(editorOffset, payload);
 }
 
 function mapRenderIdxToEditorOffset(renderIdx, payload = lastRenderPayload) {
-  const raw = Number(renderIdx);
-  if (!Number.isFinite(raw)) return raw;
-  const renderOffset = payload && Number.isFinite(payload.offset) ? payload.offset : 0;
-  const sourcePos = mapRenderOffsetToSourceOffset(raw, payload && payload.compatMap ? payload.compatMap : null);
-  return Math.max(0, sourcePos - renderOffset);
+  return mapRenderIdxToEditorOffsetCore(renderIdx, payload);
 }
 
 function lruGet(map, key) {
@@ -6687,23 +6662,6 @@ function ensureMidiGenLoaded() {
   return midiGenLoadPromise;
 }
 
-function normalizeHeaderNoneSpacing(text) {
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  const out = [];
-  for (const line of lines) {
-    const match = line.match(/^(\s*[KM]:)(\s+)(none\b.*)$/i);
-    if (match) {
-      const lead = match[1];
-      const gap = match[2] || "";
-      const rest = match[3] || "";
-      out.push(`${lead}${rest}${" ".repeat(gap.length)}`);
-    } else {
-      out.push(line);
-    }
-  }
-  return out.join("\n");
-}
-
 function injectPlaybackMidiFxControls(text, offset) {
   const fxSettings = resolvePlaybackFxSettings(latestSettingsSnapshot || {});
   const reverbRaw = fxSettings && fxSettings.playbackMidiReverb != null
@@ -6746,20 +6704,6 @@ function assertCleanAbcText(text, originLabel) {
     return false;
   }
   return true;
-}
-
-function stripSepForRender(text) {
-  const value = String(text || "");
-  let replaced = false;
-  // Important: keep the output string length identical to the input.
-  // The SVG <-> editor mapping uses character offsets; changing length breaks follow/highlight after a %%sep line.
-  const stripped = value.replace(/^[ \t]*%%sep\b.*$/gmi, (line) => {
-    replaced = true;
-    const len = String(line || "").length;
-    if (len <= 0) return "%";
-    return `%${" ".repeat(Math.max(0, len - 1))}`;
-  });
-  return { text: stripped, replaced };
 }
 
 let pendingRenderTimer = null;

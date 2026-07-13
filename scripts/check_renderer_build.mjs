@@ -378,12 +378,15 @@ async function assertDirectiveErrorsDoNotGetMeasureStats() {
 async function assertSepIsPrestrippedForRender() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("function stripSepForRender(text)");
-  const end = src.indexOf("let pendingRenderTimer", start);
+  const renderPayloadModelPath = "src/renderer/render/render_payload_model.js";
+  const modelSrc = await readFile(renderPayloadModelPath, "utf8");
+  const start = modelSrc.indexOf("export function stripSepForRender(text)");
+  const end = modelSrc.length;
   if (start < 0 || end < 0) throw new Error("Unable to isolate %%sep render helper.");
 
   const module = { exports: {} };
-  const load = new Function("module", "exports", `${src.slice(start, end)}\nmodule.exports = { stripSepForRender };\n`);
+  const helperSrc = modelSrc.slice(start, end).replace(/export\s+function\s+stripSepForRender/, "function stripSepForRender");
+  const load = new Function("module", "exports", `${helperSrc}\nmodule.exports = { stripSepForRender };\n`);
   load(module, module.exports);
   const { stripSepForRender } = module.exports;
   const input = "X:1\nK:C\nC |]\n%%sep 20 20 100\nW:words\n";

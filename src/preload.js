@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("dialog:confirm-reload-from-disk", filePath || ""),
   confirmMissingOnDisk: async (filePath) =>
     ipcRenderer.invoke("dialog:confirm-missing-on-disk", filePath || ""),
+  confirmSaveAsForPermissionDenied: async (filePath, message) =>
+    ipcRenderer.invoke("dialog:confirm-save-as-for-permission-denied", {
+      filePath: filePath || "",
+      message: message == null ? "" : String(message),
+    }),
   getMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:get"),
   saveMakamDnaUser: async (text) => ipcRenderer.invoke("makam-dna:user:save", { text: text == null ? "" : String(text) }),
   clearMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:clear"),

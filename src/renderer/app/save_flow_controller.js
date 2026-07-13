@@ -126,6 +126,22 @@ export function createSaveFlowController({
     return { ok: false, cancelled: true };
   }
 
+  function isPermissionDeniedSaveError(error) {
+    const msg = String(error || "");
+    return /\b(EACCES|EPERM)\b/i.test(msg) || /permission denied/i.test(msg);
+  }
+
+  async function handlePermissionDeniedSave(filePath, message) {
+    const p = String(filePath || "");
+    if (!p) return false;
+    const msg = String(message || "");
+    if (!isPermissionDeniedSaveError(msg)) return false;
+    if (!api || typeof api.confirmSaveAsForPermissionDenied !== "function") return false;
+    const choice = await api.confirmSaveAsForPermissionDenied(p, msg);
+    if (choice !== "save_as") return false;
+    return performSaveAsFlow();
+  }
+
   async function performSaveFlow() {
     const currentDocument = getCurrentDocument();
     if (!currentDocument) return false;
@@ -241,6 +257,7 @@ export function createSaveFlowController({
           if (resolved && resolved.error) await showSaveError(resolved.error);
           return false;
         }
+        if (await handlePermissionDeniedSave(filePath, (res && res.error) ? res.error : "")) return true;
         await showSaveError((res && res.error) ? res.error : "Unable to save file.");
         return false;
       }
@@ -279,6 +296,7 @@ export function createSaveFlowController({
           updateFileHeaderPanel();
           return true;
         }
+        if (await handlePermissionDeniedSave(filePath, res.error || "")) return true;
         await showSaveError(res.error || "Unable to save file.");
         return false;
       });

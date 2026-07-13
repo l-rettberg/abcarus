@@ -861,6 +861,25 @@ function registerIpcHandlers(ctx) {
     return "cancel";
   });
 
+  ipcMain.handle("dialog:confirm-save-as-for-permission-denied", async (event, payload) => {
+    const parent = getParentForDialog(event, "confirm-save-as-for-permission-denied");
+    const data = payload && typeof payload === "object" ? payload : {};
+    const p = String(data.filePath || "");
+    const base = p ? path.basename(p) : "file";
+    const message = data.message ? String(data.message) : "";
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: "warning",
+      buttons: ["Save As…", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+      message: "Original file is not writable",
+      detail: message
+        ? `ABCarus cannot write “${base}”. Save a copy to another location?\n\n${message}`
+        : `ABCarus cannot write “${base}”. Save a copy to another location?`,
+    });
+    return response === 0 ? "save_as" : "cancel";
+  });
+
   ipcMain.handle("dialog:confirm-reload-from-disk", async (event, filePath) => {
     const parent = getParentForDialog(event, "confirm-reload-from-disk");
     const p = String(filePath || "");

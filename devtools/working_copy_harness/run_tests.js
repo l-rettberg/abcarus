@@ -7,6 +7,8 @@ const {
   openWorkingCopyFromPath,
   closeWorkingCopy,
   commitWorkingCopyToDisk,
+  getWorkingCopySnapshot,
+  reloadWorkingCopyFromDisk,
   applyFullText,
 } = require("../../src/main/workingCopyStore");
 
@@ -63,18 +65,72 @@ async function testConflictDoesNotOverwriteByDefault() {
   });
 }
 
+async function testDirtyWorkingCopyCannotBeReplacedByOpen() {
+  await withTempDir(async (dir) => {
+    const firstPath = path.join(dir, "first.abc");
+    const secondPath = path.join(dir, "second.abc");
+    const firstText = "X:1\nT:First\nK:C\nC\n";
+    const dirtyText = "X:1\nT:Dirty First\nK:C\nD\n";
+    const secondText = "X:1\nT:Second\nK:C\nE\n";
+
+    await fs.promises.writeFile(firstPath, firstText, "utf8");
+    await fs.promises.writeFile(secondPath, secondText, "utf8");
+    await openWorkingCopyFromPath(firstPath);
+    applyFullText(dirtyText);
+
+    await assert.rejects(
+      () => openWorkingCopyFromPath(secondPath),
+      /Refusing to replace a dirty working copy/
+    );
+
+    const snap = getWorkingCopySnapshot();
+    assert.strictEqual(snap.path, firstPath, "dirty working copy path must remain unchanged");
+    assert.strictEqual(snap.text, dirtyText, "dirty working copy text must remain intact");
+    assert.strictEqual(snap.dirty, true, "dirty working copy must remain dirty");
+  });
+}
+
+async function testDirtyWorkingCopyCannotBeReloadedByDefault() {
+  await withTempDir(async (dir) => {
+    const filePath = path.join(dir, "reload.abc");
+    const original = "X:1\nT:Original\nK:C\nC\n";
+    const dirtyText = "X:1\nT:Dirty\nK:C\nD\n";
+    const diskText = "X:1\nT:Disk\nK:C\nE\n";
+
+    await fs.promises.writeFile(filePath, original, "utf8");
+    await openWorkingCopyFromPath(filePath);
+    applyFullText(dirtyText);
+    await fs.promises.writeFile(filePath, diskText, "utf8");
+
+    await assert.rejects(
+      () => reloadWorkingCopyFromDisk(),
+      /Refusing to reload a dirty working copy/
+    );
+
+    let snap = getWorkingCopySnapshot();
+    assert.strictEqual(snap.text, dirtyText, "failed reload must preserve dirty text");
+    assert.strictEqual(snap.dirty, true, "failed reload must preserve dirty flag");
+
+    await reloadWorkingCopyFromDisk({ force: true });
+    snap = getWorkingCopySnapshot();
+    assert.strictEqual(snap.text, diskText, "forced reload should replace WC text from disk");
+    assert.strictEqual(snap.dirty, false, "forced reload should clear dirty flag");
+  });
+}
+
 async function testForcedCommitsStayExplicitlyAuthorized() {
   const root = path.resolve(__dirname, "../..");
   const rendererFiles = await walkFiles(path.join(root, "src", "renderer"));
   const violations = [];
   const forcedPattern = /commitWorkingCopyToDisk\(\{\s*force:\s*true\s*\}\)/g;
+  const forcedReloadPattern = /reloadWorkingCopyFromDisk\(\{\s*force:\s*true\s*\}\)/g;
 
   for (const filePath of rendererFiles) {
     const rel = path.relative(root, filePath).replace(/\\/g, "/");
     const text = await fs.promises.readFile(filePath, "utf8");
     let match;
     while ((match = forcedPattern.exec(text))) {
-      const start = Math.max(0, match.index - 500);
+      const start = Math.max(0, match.index - 1500);
       const end = Math.min(text.length, match.index + 500);
       const context = text.slice(start, end);
       const allowedMissingFileRecreate = rel === "src/renderer/app/save_flow_controller.js"
@@ -82,6 +138,20 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
       const allowedUserConfirmedOverwrite = rel === "src/renderer/renderer.js"
         && context.includes('choice !== "overwrite"');
       if (!allowedMissingFileRecreate && !allowedUserConfirmedOverwrite) {
+        violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
+      }
+    }
+    while ((match = forcedReloadPattern.exec(text))) {
+      const start = Math.max(0, match.index - 1500);
+      const end = Math.min(text.length, match.index + 500);
+      const context = text.slice(start, end);
+      const allowedDiscardReload = rel === "src/renderer/renderer.js"
+        && context.includes("function discardAndReloadWorkingCopyFromDisk");
+      const allowedDiscardActive = rel === "src/renderer/renderer.js"
+        && context.includes("function discardWorkingCopyChangesForActiveFile");
+      const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
+        && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");
+      if (!allowedDiscardReload && !allowedDiscardActive && !allowedPostSimpleSaveAlign) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
       }
     }
@@ -96,6 +166,8 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
 
 async function main() {
   await testConflictDoesNotOverwriteByDefault();
+  await testDirtyWorkingCopyCannotBeReplacedByOpen();
+  await testDirtyWorkingCopyCannotBeReloadedByDefault();
   await testForcedCommitsStayExplicitlyAuthorized();
   console.log("% PASS working copy conflict guard");
 }

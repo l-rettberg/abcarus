@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld("api", {
   closeWorkingCopy: async () => ipcRenderer.invoke("workingcopy:close"),
   getWorkingCopySnapshot: async () => ipcRenderer.invoke("workingcopy:get"),
   getWorkingCopyMeta: async () => ipcRenderer.invoke("workingcopy:get-meta"),
-  reloadWorkingCopyFromDisk: async () => ipcRenderer.invoke("workingcopy:reload"),
+  reloadWorkingCopyFromDisk: async (payload) => ipcRenderer.invoke("workingcopy:reload", payload || {}),
   commitWorkingCopyToDisk: async (payload) => ipcRenderer.invoke("workingcopy:commit", payload || {}),
   writeWorkingCopyToPath: async (filePath) => ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "" }),
   writeWorkingCopyToPathAndSwitch: async (filePath) =>

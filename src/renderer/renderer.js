@@ -2164,7 +2164,7 @@ async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = n
   ) return { ok: false, error: "Working copy reload is unavailable." };
 
   await window.api.openWorkingCopy(p);
-  const reloaded = await window.api.reloadWorkingCopyFromDisk();
+  const reloaded = await window.api.reloadWorkingCopyFromDisk({ force: true });
   if (!reloaded || !reloaded.ok) return { ok: false, error: "Unable to reload from disk." };
 
   const snapReloaded = await refreshWorkingCopySnapshot();
@@ -2495,7 +2495,7 @@ async function discardWorkingCopyChangesForActiveFile() {
   if (!window.api || typeof window.api.reloadWorkingCopyFromDisk !== "function") return false;
 
   try {
-    const res = await window.api.reloadWorkingCopyFromDisk();
+    const res = await window.api.reloadWorkingCopyFromDisk({ force: true });
     if (!res || !res.ok) return false;
     const snapshot = await refreshWorkingCopySnapshot();
     if (snapshot && snapshot.path && pathsEqual(snapshot.path, activeTuneMeta.path)) {
@@ -7580,7 +7580,7 @@ async function alignWorkingCopyWithDiskAfterSimpleSave(filePath) {
   if (!p || !isWorkingCopyOpenForFile(p)) return;
   try {
     if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
-      await window.api.reloadWorkingCopyFromDisk();
+      await window.api.reloadWorkingCopyFromDisk({ force: true });
       await refreshWorkingCopySnapshot();
     }
   } catch {}

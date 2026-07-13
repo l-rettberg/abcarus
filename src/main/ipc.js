@@ -727,9 +727,10 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle("workingcopy:reload", async () => {
+  ipcMain.handle("workingcopy:reload", async (_event, payload) => {
     try {
-      const meta = await reloadWorkingCopyFromDisk();
+      const force = Boolean(payload && payload.force);
+      const meta = await reloadWorkingCopyFromDisk({ force });
       return { ok: true, meta };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

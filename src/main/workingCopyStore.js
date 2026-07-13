@@ -157,6 +157,9 @@ async function openWorkingCopyFromPath(filePath) {
   const p = String(filePath || "");
   if (!p) throw new Error("Missing file path.");
   if (state && state.path === p) return getWorkingCopyMetaSnapshot();
+  if (state && state.dirty && state.path && state.path !== p) {
+    throw new Error("Refusing to replace a dirty working copy. Save, discard, or reload it first.");
+  }
 
   const raw = await fs.promises.readFile(p);
   const decoded = decodeAbcTextFromBuffer(raw);
@@ -198,8 +201,11 @@ async function closeWorkingCopy() {
   return true;
 }
 
-async function reloadWorkingCopyFromDisk() {
+async function reloadWorkingCopyFromDisk({ force = false } = {}) {
   if (!state || !state.path) throw new Error("No working copy open.");
+  if (state.dirty && !force) {
+    throw new Error("Refusing to reload a dirty working copy. Save or explicitly discard it first.");
+  }
   const p = String(state.path || "");
   const raw = await fs.promises.readFile(p);
   const decoded = decodeAbcTextFromBuffer(raw);

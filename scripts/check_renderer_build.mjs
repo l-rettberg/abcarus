@@ -18,6 +18,8 @@ async function assertSaveIntentGuards() {
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
   const saveFlowPath = "src/renderer/app/save_flow_controller.js";
   const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
+  const workingCopySyncPath = "src/renderer/app/working_copy_sync_controller.js";
+  const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -98,14 +100,15 @@ async function assertSaveIntentGuards() {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 
-  const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
-  const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);
+  const syncOwner = workingCopySync.includes("async function flushTuneSync()") ? workingCopySync : src;
+  const syncStart = syncOwner.indexOf("async function flushTuneSync()");
+  const syncEnd = syncOwner.indexOf("function resetTuneSyncDebounce()", syncStart);
   if (syncStart < 0 || syncEnd < 0) throw new Error("Unable to isolate flushWorkingCopyTuneSync().");
-  const syncBody = src.slice(syncStart, syncEnd);
+  const syncBody = syncOwner.slice(syncStart, syncEnd);
   if (!syncBody.includes("ensureXNumberInAbc(tuneTextRaw")) {
     throw new Error("flushWorkingCopyTuneSync() must normalize tune text via ensureXNumberInAbc().");
   }
-  if (!syncBody.includes("workingCopyTuneSyncRunPromise")) {
+  if (!syncBody.includes("tuneSyncRunPromise")) {
     throw new Error("flushWorkingCopyTuneSync() must wait for in-flight sync before save commits.");
   }
   if (!syncBody.includes("result = { ok: true, path: filePath };")) {

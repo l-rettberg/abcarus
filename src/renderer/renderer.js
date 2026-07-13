@@ -207,6 +207,7 @@ import { createFileOperationGuard } from "./app/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/playback_ui_controller.js";
 import { createDocumentLifecycleController } from "./app/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/save_flow_controller.js";
+import { createWorkingCopySyncController } from "./app/working_copy_sync_controller.js";
 import {
   SAVE_INTENT,
   createBlankDocument as createBlankDocumentModel,
@@ -2252,286 +2253,46 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null
   return { ok: true, updatedFile, targetPath };
 }
 
-let workingCopyTuneSyncTimer = null;
-let workingCopyTuneSyncInFlight = false;
-let workingCopyTuneSyncQueued = false;
-let workingCopyTuneSyncEpoch = 0;
-let workingCopyTuneSyncRunPromise = null;
-const WORKING_COPY_TUNE_SYNC_DEBOUNCE_MS = 450;
-
-let workingCopyFullSyncTimer = null;
-let workingCopyFullSyncInFlight = false;
-let workingCopyFullSyncQueued = false;
-let workingCopyFullSyncEpoch = 0;
-const WORKING_COPY_FULL_SYNC_DEBOUNCE_MS = 450;
+let workingCopySyncController = null;
 
 function scheduleWorkingCopyTuneSync() {
-  if (rawMode) return;
-  if (isPayloadMode()) return;
-  if (chordProFeature.isEnabled()) return;
-  if (!activeTuneUid) return;
-  if (!activeTuneMeta || !activeTuneMeta.path) return;
-  if (!window.api || typeof window.api.applyWorkingCopyTuneText !== "function") return;
-  if (workingCopyTuneSyncTimer) clearTimeout(workingCopyTuneSyncTimer);
-  workingCopyTuneSyncTimer = setTimeout(() => {
-    workingCopyTuneSyncTimer = null;
-    flushWorkingCopyTuneSync().catch(() => {});
-  }, WORKING_COPY_TUNE_SYNC_DEBOUNCE_MS);
+  if (workingCopySyncController) workingCopySyncController.scheduleTuneSync();
 }
 
 function scheduleWorkingCopyFullSync() {
-  if (rawMode) return;
-  if (isPayloadMode()) return;
-  if (!chordProFeature.isEnabled()) return;
-  if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
-  const filePath = String(activeFilePath || getCurrentDocumentPath() || "");
-  if (!filePath) return;
-  if (workingCopyFullSyncTimer) clearTimeout(workingCopyFullSyncTimer);
-  workingCopyFullSyncTimer = setTimeout(() => {
-    workingCopyFullSyncTimer = null;
-    flushWorkingCopyFullSync().catch(() => {});
-  }, WORKING_COPY_FULL_SYNC_DEBOUNCE_MS);
+  if (workingCopySyncController) workingCopySyncController.scheduleFullSync();
 }
 
 function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
-  if (rawMode) return false;
-  if (isPayloadMode()) return false;
-  if (!activeTuneMeta || !activeTuneMeta.path) return false;
-  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)) return false;
-
-  if (activeTuneUid) {
-    const byUid = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
-      tuneUid: activeTuneUid,
-      tuneIndex: null,
-      startOffset: null,
-    });
-    if (byUid && byUid.tuneUid) {
-      if (Number.isFinite(Number(byUid.tuneIndex))) activeTuneIndex = Number(byUid.tuneIndex);
-      if (activeTuneMeta) {
-        activeTuneMeta.startOffset = byUid.start;
-        activeTuneMeta.endOffset = byUid.end;
-      }
-      return true;
-    }
-  }
-
-  const resolved = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
-    tuneUid: null,
-    tuneIndex: activeTuneIndex,
-    startOffset: activeTuneMeta.startOffset,
-  });
-  if (!resolved || !resolved.tuneUid) return false;
-  activeTuneUid = resolved.tuneUid;
-  if (Number.isFinite(Number(resolved.tuneIndex))) activeTuneIndex = Number(resolved.tuneIndex);
-  try {
-    if (activeTuneMeta) {
-      activeTuneMeta.startOffset = Number(resolved.start);
-      activeTuneMeta.endOffset = Number(resolved.end);
-    }
-  } catch {}
-  return true;
+  return workingCopySyncController
+    ? workingCopySyncController.tryResolveActiveTuneUidFromSnapshot()
+    : false;
 }
 
 async function flushWorkingCopyTuneSync() {
-  if (workingCopyTuneSyncTimer) {
-    clearTimeout(workingCopyTuneSyncTimer);
-    workingCopyTuneSyncTimer = null;
-  }
-  const epoch = workingCopyTuneSyncEpoch;
-  if (workingCopyTuneSyncInFlight) {
-    workingCopyTuneSyncQueued = true;
-    if (workingCopyTuneSyncRunPromise) {
-      return workingCopyTuneSyncRunPromise;
-    }
-    return { ok: false, error: "Tune sync is already running." };
-  }
-  if (rawMode) return { ok: false, skipped: true, reason: "raw_mode" };
-  if (isPayloadMode()) return { ok: false, skipped: true, reason: "payload_mode" };
-  if (chordProFeature.isEnabled()) return { ok: false, skipped: true, reason: "chordpro_mode" };
-  if (!activeTuneUid) {
-    // Some open paths (e.g., recents / stale library metadata) may not have a tuneUid yet.
-    // Try to self-heal from the current working copy snapshot; otherwise refuse to sync.
-    if (!tryResolveActiveTuneUidFromWorkingCopySnapshot()) {
-      return { ok: false, error: "Unable to resolve active tune in working copy." };
-    }
-  }
-  if (!activeTuneMeta || !activeTuneMeta.path) return { ok: false, error: "Active tune path is missing." };
-  if (!window.api || typeof window.api.applyWorkingCopyTuneText !== "function") {
-    return { ok: false, error: "Working copy tune sync is unavailable." };
-  }
-
-  const filePath = String(activeTuneMeta.path || "");
-  if (!filePath) return { ok: false, error: "Active tune path is missing." };
-  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) {
-    return { ok: false, error: "Working copy snapshot does not match the active tune file." };
-  }
-
-  const tuneTextRaw = getEditorValue();
-  const targetX = (activeTuneMeta && activeTuneMeta.xNumber != null)
-    ? String(activeTuneMeta.xNumber || "").trim()
-    : "";
-  const tuneText = targetX
-    ? ensureXNumberInAbc(tuneTextRaw, targetX)
-    : ensureXNumberInAbc(tuneTextRaw, "");
-  workingCopyTuneSyncInFlight = true;
-  const runPromise = (async () => {
-    let result = { ok: false, error: "Working copy tune sync did not complete." };
-    try {
-      const res = await window.api.applyWorkingCopyTuneText({
-        tuneUid: activeTuneUid,
-        tuneIndex: activeTuneIndex,
-        text: tuneText,
-      });
-      if (epoch !== workingCopyTuneSyncEpoch) {
-        result = { ok: false, stale: true, error: "Working copy tune sync was superseded." };
-        return result;
-      }
-      if (!res || !res.ok) {
-        result = { ok: false, error: (res && res.error) ? String(res.error) : "Unable to apply tune text to working copy." };
-        return result;
-      }
-
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (epoch !== workingCopyTuneSyncEpoch) {
-        result = { ok: false, stale: true, error: "Working copy tune sync was superseded." };
-        return result;
-      }
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-        setFileContentInCache(filePath, snapshot.text);
-        const tuneEntry = resolveTuneEntryFromSnapshot(snapshot, {
-          tuneUid: activeTuneUid,
-          tuneIndex: activeTuneIndex,
-          startOffset: activeTuneMeta && activeTuneMeta.startOffset,
-        });
-        if (tuneEntry && Number.isFinite(Number(tuneEntry.tuneIndex))) {
-          activeTuneIndex = tuneEntry.tuneIndex;
-        }
-        if (tuneEntry && activeTuneMeta) {
-          activeTuneMeta.startOffset = tuneEntry.start;
-          activeTuneMeta.endOffset = tuneEntry.end;
-        }
-        result = { ok: true, path: filePath };
-      } else {
-        result = { ok: false, error: "Working copy snapshot was not refreshed after tune sync." };
-      }
-    } finally {
-      workingCopyTuneSyncInFlight = false;
-      if (epoch === workingCopyTuneSyncEpoch && workingCopyTuneSyncQueued) {
-        workingCopyTuneSyncQueued = false;
-        result = await flushWorkingCopyTuneSync();
-      }
-    }
-    return result;
-  })();
-  workingCopyTuneSyncRunPromise = runPromise;
-  try {
-    return await runPromise;
-  } finally {
-    if (workingCopyTuneSyncRunPromise === runPromise) {
-      workingCopyTuneSyncRunPromise = null;
-    }
-  }
+  return workingCopySyncController
+    ? workingCopySyncController.flushTuneSync()
+    : { ok: false, error: "Working copy sync controller is unavailable." };
 }
 
 function resetWorkingCopyTuneSyncDebounce() {
-  workingCopyTuneSyncEpoch += 1;
-  if (workingCopyTuneSyncTimer) clearTimeout(workingCopyTuneSyncTimer);
-  workingCopyTuneSyncTimer = null;
-  workingCopyTuneSyncQueued = false;
+  if (workingCopySyncController) workingCopySyncController.resetTuneSyncDebounce();
 }
 
 async function flushWorkingCopyFullSync() {
-  const epoch = workingCopyFullSyncEpoch;
-  if (workingCopyFullSyncInFlight) {
-    workingCopyFullSyncQueued = true;
-    return;
-  }
-  if (rawMode) return;
-  if (isPayloadMode()) return;
-  if (!chordProFeature.isEnabled()) return;
-  if (!window.api || typeof window.api.applyWorkingCopyFullText !== "function") return;
-
-  const filePath = String(activeFilePath || getCurrentDocumentPath() || "");
-  if (!filePath) return;
-  if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) return;
-
-  workingCopyFullSyncInFlight = true;
-  try {
-    const nextText = chordProFeature.isFullView() ? getEditorValue() : chordProFeature.getFullText();
-    const res = await window.api.applyWorkingCopyFullText(String(nextText || ""));
-    if (epoch !== workingCopyFullSyncEpoch) return;
-    if (!res || !res.ok) return;
-    const snapshot = await refreshWorkingCopySnapshot();
-    if (epoch !== workingCopyFullSyncEpoch) return;
-    if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-      setFileContentInCache(filePath, snapshot.text);
-    }
-  } finally {
-    workingCopyFullSyncInFlight = false;
-    if (epoch === workingCopyFullSyncEpoch && workingCopyFullSyncQueued) {
-      workingCopyFullSyncQueued = false;
-      await flushWorkingCopyFullSync();
-    }
-  }
+  return workingCopySyncController ? workingCopySyncController.flushFullSync() : undefined;
 }
 
 async function discardWorkingCopyChangesForActiveFile() {
-  workingCopyTuneSyncEpoch += 1;
-  if (workingCopyTuneSyncTimer) {
-    clearTimeout(workingCopyTuneSyncTimer);
-    workingCopyTuneSyncTimer = null;
-  }
-  workingCopyTuneSyncQueued = false;
-  workingCopyFullSyncEpoch += 1;
-  if (workingCopyFullSyncTimer) {
-    clearTimeout(workingCopyFullSyncTimer);
-    workingCopyFullSyncTimer = null;
-  }
-  workingCopyFullSyncQueued = false;
-
-  if (rawMode) return false;
-  if (chordProFeature.isEnabled()) return false;
-  if (!activeTuneMeta || !activeTuneMeta.path) return false;
-  if (!window.api || typeof window.api.reloadWorkingCopyFromDisk !== "function") return false;
-
-  try {
-    const res = await window.api.reloadWorkingCopyFromDisk({ force: true });
-    if (!res || !res.ok) return false;
-    const snapshot = await refreshWorkingCopySnapshot();
-    if (snapshot && snapshot.path && pathsEqual(snapshot.path, activeTuneMeta.path)) {
-      setFileContentInCache(snapshot.path, snapshot.text);
-    }
-    if (markCurrentDocumentClean()) setDirtyIndicator(false);
-    return true;
-  } catch {
-    return false;
-  }
+  return workingCopySyncController
+    ? workingCopySyncController.discardChangesForActiveFile()
+    : false;
 }
 
 function reloadActiveTuneTextFromWorkingCopySnapshot() {
-  if (rawMode) return false;
-  if (!workingCopySnapshot || !workingCopySnapshot.path || !workingCopySnapshot.text) return false;
-  if (!activeTuneMeta || !activeTuneMeta.path) return false;
-  if (!pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)) return false;
-
-  const tuneIndex = Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null;
-  if (tuneIndex == null) return false;
-  const t = Array.isArray(workingCopySnapshot.tunes) ? workingCopySnapshot.tunes[tuneIndex] : null;
-  if (!t || !Number.isFinite(Number(t.start)) || !Number.isFinite(Number(t.end))) return false;
-
-  const from = Number(t.start);
-  const to = Number(t.end);
-  const text = String(workingCopySnapshot.text).slice(from, to);
-  suppressDirty = true;
-  setEditorValue(text);
-  suppressDirty = false;
-  patchCurrentDocument({ content: text, dirty: false }, { create: false });
-  if (activeTuneMeta) {
-    activeTuneMeta.startOffset = from;
-    activeTuneMeta.endOffset = to;
-  }
-  setDirtyIndicator(false);
-  return true;
+  return workingCopySyncController
+    ? workingCopySyncController.reloadActiveTuneTextFromSnapshot()
+    : false;
 }
 
 function syncLibraryFileFromWorkingCopySnapshot(filePath, snapshot) {
@@ -2543,34 +2304,9 @@ function attachTuneUidsToLibraryFile(filePath, snapshot) {
 }
 
 function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset } = {}) {
-  if (!snapshot || !Array.isArray(snapshot.tunes)) return null;
-  const tunes = snapshot.tunes;
-  let idx = -1;
-  if (tuneUid) {
-    idx = tunes.findIndex((t) => t && t.tuneUid && t.tuneUid === tuneUid);
-  }
-  if (idx < 0 && Number.isFinite(Number(tuneIndex))) {
-    const candidate = Number(tuneIndex);
-    if (candidate >= 0 && candidate < tunes.length) idx = candidate;
-  }
-  if (idx < 0 && Number.isFinite(Number(startOffset))) {
-    const target = Number(startOffset);
-    if (Number.isFinite(target)) {
-      idx = tunes.findIndex((t) => Number.isFinite(Number(t && t.start)) && Number(t.start) === target);
-    }
-  }
-  if (idx < 0 || idx >= tunes.length) return null;
-  const tune = tunes[idx];
-  if (!tune) return null;
-  const start = Number(tune.start);
-  const end = Number(tune.end);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) return null;
-  return {
-    tuneUid: tune.tuneUid || "",
-    tuneIndex: idx,
-    start,
-    end,
-  };
+  return workingCopySyncController
+    ? workingCopySyncController.resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset })
+    : null;
 }
 
 async function verifyWorkingCopySaveReachedDisk(filePath) {
@@ -2622,6 +2358,45 @@ const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
 let latestSettingsSnapshot = null;
+
+workingCopySyncController = createWorkingCopySyncController({
+  api: window.api,
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneIndex: () => activeTuneIndex,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneUid: () => activeTuneUid,
+    getChordProFullText: () => chordProFeature.getFullText(),
+    getCurrentDocumentPath,
+    getRawMode: () => rawMode,
+    getWorkingCopySnapshot: () => workingCopySnapshot,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+    isChordProFullView: () => chordProFeature.isFullView(),
+    isPayloadMode,
+  },
+  actions: {
+    ensureXNumberInAbc,
+    getEditorValue,
+    markCurrentDocumentClean,
+    patchCurrentDocument,
+    pathsEqual,
+    refreshWorkingCopySnapshot,
+    setActiveTuneIndex: (value) => { activeTuneIndex = Number.isFinite(Number(value)) ? Number(value) : null; },
+    setActiveTuneMetaOffsets: (start, end) => {
+      if (!activeTuneMeta) return;
+      activeTuneMeta.startOffset = Number(start);
+      activeTuneMeta.endOffset = Number(end);
+    },
+    setActiveTuneUid: (value) => { activeTuneUid = value ? String(value) : null; },
+    setDirtyIndicator,
+    setEditorValueClean: (text) => {
+      suppressDirty = true;
+      setEditorValue(text);
+      suppressDirty = false;
+    },
+    setFileContentInCache,
+  },
+});
 
 appendCurrentTuneAction = createAppendCurrentTuneAction({
   api: window.api,

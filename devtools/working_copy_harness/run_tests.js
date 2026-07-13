@@ -149,9 +149,11 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
         && context.includes("function discardAndReloadWorkingCopyFromDisk");
       const allowedDiscardActive = rel === "src/renderer/renderer.js"
         && context.includes("function discardWorkingCopyChangesForActiveFile");
+      const allowedDiscardActiveModule = rel === "src/renderer/app/working_copy_sync_controller.js"
+        && context.includes("async function discardChangesForActiveFile");
       const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
         && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");
-      if (!allowedDiscardReload && !allowedDiscardActive && !allowedPostSimpleSaveAlign) {
+      if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
       }
     }

@@ -929,6 +929,7 @@ export function initSettings(api) {
           if (!file) return;
           const list = getEditorFontUserFiles();
           if (!list.includes(file)) return;
+          if (!confirm(`Delete ABCarus installed copy of "${file}"?\n\nThe original external font file will not be touched.`)) return;
           if (!api || typeof api.removeFont !== "function") return;
           const res = await api.removeFont(file).catch(() => null);
           if (!res || !res.ok) return;
@@ -1102,7 +1103,7 @@ export function initSettings(api) {
         if (!m) return;
         const fileName = String(m[1] || "");
         if (!fileName) return;
-        const ok = confirm(`Remove user font "${fileName}"?`);
+        const ok = confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`);
         if (!ok) return;
         if (!api || typeof api.removeFont !== "function") return;
         const removedRef = `user:${fileName}`;

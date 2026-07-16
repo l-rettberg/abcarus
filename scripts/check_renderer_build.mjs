@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 async function assertSaveIntentGuards() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
-  const documentSessionPath = "src/renderer/app/document_session_controller.js";
+  const documentSessionPath = "src/renderer/app/document/document_session_controller.js";
   const documentSession = await readFile(documentSessionPath, "utf8").catch(() => "");
   const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
@@ -16,9 +16,9 @@ async function assertSaveIntentGuards() {
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
   const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
-  const saveFlowPath = "src/renderer/app/save_flow_controller.js";
+  const saveFlowPath = "src/renderer/app/document/save_flow_controller.js";
   const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
-  const workingCopySyncPath = "src/renderer/app/working_copy_sync_controller.js";
+  const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
   const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {

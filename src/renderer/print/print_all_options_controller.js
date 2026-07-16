@@ -2,7 +2,7 @@ import {
   clampTranslateToViewport,
   formatTranslateXY,
   readTranslateXY,
-} from "../app/modal_geometry.js";
+} from "../app/ui/modal_geometry.js";
 
 function normalizePrintAllPageBreaks(value) {
   const mode = String(value || "").trim();

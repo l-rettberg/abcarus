@@ -197,31 +197,31 @@ import {
   clampTranslateToViewport,
   formatTranslateXY,
   readTranslateXY,
-} from "./app/modal_geometry.js";
-import { createAboutModalController } from "./app/about_modal_controller.js";
-import { createGoToMeasureModalController } from "./app/go_to_measure_modal_controller.js";
-import { enableDraggableModal } from "./app/draggable_modal.js";
-import { enableDraggableFixedPopover } from "./app/draggable_fixed_popover.js";
-import { enableDraggableToolPanel } from "./app/draggable_tool_panel.js";
-import { createLayoutController } from "./app/layout_controller.js";
-import { createDiagnosticsController } from "./app/diagnostics_controller.js";
-import { createDebugDumpFeature } from "./app/debug_dump_feature.js";
-import { createToolStatusController } from "./app/tool_status_controller.js";
-import { createStatusController } from "./app/status_controller.js";
-import { createToastHoverController } from "./app/toast_hover_controller.js";
-import { createFileHeaderController } from "./app/file_header_controller.js";
-import { createFileContextController } from "./app/file_context_controller.js";
-import { createEditStateController } from "./app/edit_state_controller.js";
-import { createFileOperationGuard } from "./app/file_operation_guard.js";
-import { createPlaybackUiController } from "./app/playback_ui_controller.js";
-import { createDocumentLifecycleController } from "./app/document_lifecycle_controller.js";
-import { createSaveFlowController } from "./app/save_flow_controller.js";
-import { createWorkingCopySyncController } from "./app/working_copy_sync_controller.js";
+} from "./app/ui/modal_geometry.js";
+import { createAboutModalController } from "./app/ui/about_modal_controller.js";
+import { createGoToMeasureModalController } from "./app/ui/go_to_measure_modal_controller.js";
+import { enableDraggableModal } from "./app/ui/draggable_modal.js";
+import { enableDraggableFixedPopover } from "./app/ui/draggable_fixed_popover.js";
+import { enableDraggableToolPanel } from "./app/ui/draggable_tool_panel.js";
+import { createLayoutController } from "./app/ui/layout_controller.js";
+import { createDiagnosticsController } from "./app/diagnostics/diagnostics_controller.js";
+import { createDebugDumpFeature } from "./app/diagnostics/debug_dump_feature.js";
+import { createToolStatusController } from "./app/ui/tool_status_controller.js";
+import { createStatusController } from "./app/ui/status_controller.js";
+import { createToastHoverController } from "./app/ui/toast_hover_controller.js";
+import { createFileHeaderController } from "./app/document/file_header_controller.js";
+import { createFileContextController } from "./app/document/file_context_controller.js";
+import { createEditStateController } from "./app/document/edit_state_controller.js";
+import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
+import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
+import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
+import { createSaveFlowController } from "./app/document/save_flow_controller.js";
+import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
 import {
   SAVE_INTENT,
   createBlankDocument as createBlankDocumentModel,
   createDocumentSessionController,
-} from "./app/document_session_controller.js";
+} from "./app/document/document_session_controller.js";
 
 const $editorHost = document.getElementById("abc-editor");
 const $out = document.getElementById("out");

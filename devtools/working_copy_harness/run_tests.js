@@ -133,7 +133,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
       const start = Math.max(0, match.index - 1500);
       const end = Math.min(text.length, match.index + 500);
       const context = text.slice(start, end);
-      const allowedMissingFileRecreate = rel === "src/renderer/app/save_flow_controller.js"
+      const allowedMissingFileRecreate = rel === "src/renderer/app/document/save_flow_controller.js"
         && context.includes('choice === "recreate"');
       const allowedUserConfirmedOverwrite = rel === "src/renderer/renderer.js"
         && context.includes('choice !== "overwrite"');
@@ -149,7 +149,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
         && context.includes("function discardAndReloadWorkingCopyFromDisk");
       const allowedDiscardActive = rel === "src/renderer/renderer.js"
         && context.includes("function discardWorkingCopyChangesForActiveFile");
-      const allowedDiscardActiveModule = rel === "src/renderer/app/working_copy_sync_controller.js"
+      const allowedDiscardActiveModule = rel === "src/renderer/app/document/working_copy_sync_controller.js"
         && context.includes("async function discardChangesForActiveFile");
       const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
         && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");

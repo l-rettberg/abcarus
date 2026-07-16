@@ -2720,17 +2720,22 @@ async function createWindow() {
     }
     const hasMod = input.control || input.meta;
     if (!hasMod || !input.shift || input.alt) return;
-    const key = input.key;
-    if (key === "ArrowUp") {
+    const key = String(input.key || "");
+    const code = String(input.code || "");
+    const isArrowUp = key === "ArrowUp" || key === "Up" || code === "ArrowUp" || code === "Up";
+    const isArrowDown = key === "ArrowDown" || key === "Down" || code === "ArrowDown" || code === "Down";
+    const isArrowRight = key === "ArrowRight" || key === "Right" || code === "ArrowRight" || code === "Right";
+    const isArrowLeft = key === "ArrowLeft" || key === "Left" || code === "ArrowLeft" || code === "Left";
+    if (isArrowUp) {
       event.preventDefault();
       sendMenuAction("transformTransposeUp");
-    } else if (key === "ArrowDown") {
+    } else if (isArrowDown) {
       event.preventDefault();
       sendMenuAction("transformTransposeDown");
-    } else if (key === "ArrowRight") {
+    } else if (isArrowRight) {
       event.preventDefault();
       sendMenuAction("transformDouble");
-    } else if (key === "ArrowLeft") {
+    } else if (isArrowLeft) {
       event.preventDefault();
       sendMenuAction("transformHalf");
     } else if (key === "A" || key === "a") {
@@ -2878,6 +2883,39 @@ async function runUiSmoke(win) {
       true
     );
     exitUiSmoke(Boolean(playbackResult && playbackResult.ok), "playback", playbackResult);
+    return;
+  }
+
+  if (process.env.ABCARUS_DEV_TRANSFORM_KEYS_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const setupResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const hook = window.__abcarusDevTransformSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.getText !== "function") {
+          return { ok: false, reason: "missing-transform-hook" };
+        }
+        hook.setText("X:1\\nT:Test\\nM:4/4\\nL:1/8\\nK:C\\nC2 D E F | G A B c |]\\n");
+        return { ok: true, text: hook.getText() || "" };
+      })()`,
+      true
+    );
+    if (!setupResult || !setupResult.ok) {
+      exitUiSmoke(false, "transform keys setup", setupResult);
+      return;
+    }
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right", modifiers: ["control", "shift"] });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right", modifiers: ["control", "shift"] });
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const afterDouble = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    const afterDoubleText = String(afterDouble || "");
+    const result = {
+      ok: afterDoubleText.includes("L:1/16") && afterDoubleText.includes("C4"),
+      afterDouble: afterDoubleText.slice(0, 160),
+    };
+    exitUiSmoke(Boolean(result.ok), "transform keys", result);
     return;
   }
 

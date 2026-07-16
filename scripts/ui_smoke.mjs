@@ -17,6 +17,10 @@ env.ABCARUS_DEV_UI_SMOKE = "1";
 env.ABCARUS_DEV_NO_MAXIMIZE = "1";
 if (args.has("--playback")) env.ABCARUS_DEV_PLAYBACK_SMOKE = "1";
 if (args.has("--transform")) env.ABCARUS_DEV_TRANSFORM_SMOKE = "1";
+if (args.has("--transform-keys")) {
+  env.ABCARUS_DEV_TRANSFORM_SMOKE = "1";
+  env.ABCARUS_DEV_TRANSFORM_KEYS_SMOKE = "1";
+}
 delete env.ELECTRON_RUN_AS_NODE;
 
 const child = spawn(electronBinary, ["."], {

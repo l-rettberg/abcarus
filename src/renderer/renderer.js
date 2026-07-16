@@ -226,6 +226,10 @@ import { createFileContextController } from "./app/document/file_context_control
 import { createEditStateController } from "./app/document/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
+import {
+  setEditorHelpFromSettings as applyEditorHelpSettings,
+  setUiFontsFromSettings as applyUiFontSettings,
+} from "./app/ui/settings_applicator.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
 import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
@@ -1630,50 +1634,18 @@ function abbreviatePathForLog(fullPath, tailSegments = 3) {
 }
 
 function setUiFontsFromSettings(settings) {
-  const root = document && document.documentElement ? document.documentElement : null;
-  if (!root) return;
-  const family = settings && typeof settings.uiFontFamily === "string" ? settings.uiFontFamily.trim() : "";
-  const size = settings && Number.isFinite(Number(settings.uiFontSize)) ? Number(settings.uiFontSize) : NaN;
-  const libraryFamily = settings && typeof settings.libraryUiFontFamily === "string" ? settings.libraryUiFontFamily.trim() : "";
-  const librarySize = settings && Number.isFinite(Number(settings.libraryUiFontSize)) ? Number(settings.libraryUiFontSize) : NaN;
-  try {
-    if (family) root.style.setProperty("--font-family-ui", family);
-    else root.style.removeProperty("--font-family-ui");
-  } catch {}
-  try {
-    if (Number.isFinite(size) && size > 0) root.style.setProperty("--font-size-ui", `${Math.round(size)}px`);
-    else root.style.removeProperty("--font-size-ui");
-  } catch {}
-  try {
-    if (libraryFamily) root.style.setProperty("--library-font-family", libraryFamily);
-    else root.style.removeProperty("--library-font-family");
-  } catch {}
-  try {
-    if (Number.isFinite(librarySize) && librarySize > 0) root.style.setProperty("--library-font-size", `${Math.round(librarySize)}px`);
-    else root.style.removeProperty("--library-font-size");
-  } catch {}
-
-  // Belt-and-suspenders: apply directly to the Library Tree element too.
-  // This avoids “it didn't change” reports if CSS vars are overridden elsewhere.
-  try {
-    const tree = document.getElementById("libraryTree");
-    if (tree) {
-      tree.style.fontFamily = libraryFamily || "";
-      tree.style.fontSize = (Number.isFinite(librarySize) && librarySize > 0) ? `${Math.round(librarySize)}px` : "";
-    }
-  } catch {}
+  applyUiFontSettings({
+    documentRef: document,
+    settings,
+    libraryTree: $libraryTree,
+  });
 }
 
 function setEditorHelpFromSettings(settings) {
-  const enabled = settings ? Boolean(settings.editorHelpEnabled) : true;
-  // Keep this narrow: only toggle "Editor Help" surfaces.
-  // Do not touch other compartments (tuning mode, payload read-only, etc.).
-  try {
-    reconfigureAbcExtensions({
-      completionEnabled: enabled,
-      hoverEnabled: enabled,
-    });
-  } catch {}
+  applyEditorHelpSettings({
+    settings,
+    reconfigureEditor: reconfigureAbcExtensions,
+  });
 }
 
 const devConfig = (() => {

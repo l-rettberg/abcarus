@@ -188,6 +188,7 @@ import {
   normalizeHeaderNoneSpacing,
   stripSepForRender,
 } from "./render/render_payload_model.js";
+import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -548,6 +549,22 @@ const {
   serializeDocument,
   deserializeToDocument,
 } = currentDocumentController;
+
+const abc2svgLoader = createAbc2svgLoader({
+  windowRef: window,
+  documentRef: document,
+  actions: {
+    scheduleRender: () => scheduleRenderNow(),
+    logError: logErr,
+  },
+});
+const {
+  getAbcCtor,
+  ensureAbc2svgLoader,
+  ensureAbc2svgModules,
+  ensureAbc2svgModulesAsync,
+  ensureMidiGenLoaded,
+} = abc2svgLoader;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -6565,73 +6582,6 @@ function setPrintAllFromSettings(settings) {
 
 async function runPrintAllAction(type) {
   await printAllFeature.runAction(type);
-}
-
-function getAbcCtor() {
-  return (window.abc2svg && window.abc2svg.Abc) ? window.abc2svg.Abc : window.Abc;
-}
-
-function ensureAbc2svgLoader() {
-  if (!window.abc2svg || window.abc2svg.__abcarusLoader) return;
-  const base = new URL("../../third_party/abc2svg/", window.location.href).href;
-  const loaded = new Set();
-  window.abc2svg.loadjs = (fn, relay, onerror) => {
-    if (loaded.has(fn)) {
-      if (relay) relay();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = `${base}${fn}`;
-    script.async = true;
-    script.onload = () => {
-      loaded.add(fn);
-      if (relay) relay();
-    };
-    script.onerror = () => {
-      if (onerror) onerror(fn);
-    };
-    document.head.appendChild(script);
-  };
-  window.abc2svg.__abcarusLoader = true;
-}
-
-function ensureAbc2svgModules(content) {
-  if (!window.abc2svg || !window.abc2svg.modules || typeof window.abc2svg.modules.load !== "function") {
-    return true;
-  }
-  return window.abc2svg.modules.load(content, () => scheduleRenderNow(), logErr);
-}
-
-function ensureAbc2svgModulesAsync(content) {
-  if (!window.abc2svg || !window.abc2svg.modules || typeof window.abc2svg.modules.load !== "function") {
-    return Promise.resolve(true);
-  }
-  return new Promise((resolve) => {
-    const ok = window.abc2svg.modules.load(
-      content,
-      () => resolve(true),
-      () => resolve(false)
-    );
-    if (ok) resolve(true);
-  });
-}
-
-let midiGenLoadPromise = null;
-function ensureMidiGenLoaded() {
-  if (typeof window.midigen === "function") return Promise.resolve();
-  if (midiGenLoadPromise) return midiGenLoadPromise;
-  ensureAbc2svgLoader();
-  midiGenLoadPromise = new Promise((resolve, reject) => {
-    if (!window.abc2svg || typeof window.abc2svg.loadjs !== "function") {
-      reject(new Error("abc2svg loader not available."));
-      return;
-    }
-    window.abc2svg.loadjs("midigen.js", () => {
-      if (typeof window.midigen === "function") resolve();
-      else reject(new Error("midigen.js loaded but midigen() not found."));
-    }, (fn) => reject(new Error(`Failed to load ${fn}`)));
-  });
-  return midiGenLoadPromise;
 }
 
 function injectPlaybackMidiFxControls(text, offset) {

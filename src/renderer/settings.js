@@ -568,6 +568,7 @@ export function initSettings(api) {
         } else {
           meta.el.value = String(value || "");
         }
+        if (typeof meta.updateRemoveEnabled === "function") meta.updateRemoveEnabled();
       } else if ((kind === "number" || kind === "text") && meta.el) {
         meta.el.value = String(value == null ? "" : value);
       }
@@ -919,7 +920,12 @@ export function initSettings(api) {
           const v = String(select.value || "");
           const m = v.match(/^user:(.+)$/);
           const file = m ? String(m[1] || "") : "";
-          removeBtn.disabled = !file || !getEditorFontUserFiles().includes(file);
+          const canRemove = Boolean(file && getEditorFontUserFiles().includes(file));
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.title = canRemove
+            ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
+            : "No ABCarus-installed editor font copy is selected.";
         };
 
         removeBtn.addEventListener("click", async () => {
@@ -948,7 +954,7 @@ export function initSettings(api) {
         wrap.appendChild(addBtn);
         wrap.appendChild(removeBtn);
         row.appendChild(wrap);
-        controlByKey.set(entry.key, { entry, el: select });
+        controlByKey.set(entry.key, { entry, el: select, updateRemoveEnabled });
         return row;
       }
 
@@ -1151,11 +1157,19 @@ export function initSettings(api) {
       const updateRemoveEnabled = () => {
         const current = String(select.value || "");
         if (isSoundfontSelect) {
-          removeBtn.disabled = !isSoundfontPath(current);
-          removeBtn.title = removeBtn.disabled ? "Bundled soundfonts cannot be removed." : "";
+          const canRemove = isSoundfontPath(current);
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Remove link" : "No link";
+          removeBtn.title = canRemove
+            ? "Remove this external soundfont reference from ABCarus. The file will not be deleted."
+            : "Bundled/default soundfonts cannot be removed from this list.";
         } else {
-          removeBtn.disabled = !/^user:/.test(current);
-          removeBtn.title = removeBtn.disabled ? "Only user-installed fonts can be removed." : "";
+          const canRemove = /^user:/.test(current);
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.title = canRemove
+            ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
+            : "Only ABCarus-installed font copies can be deleted.";
         }
       };
       select.addEventListener("change", updateRemoveEnabled);
@@ -1164,7 +1178,7 @@ export function initSettings(api) {
       wrap.appendChild(addBtn);
       wrap.appendChild(removeBtn);
       row.appendChild(wrap);
-      controlByKey.set(entry.key, { entry, el: select });
+      controlByKey.set(entry.key, { entry, el: select, updateRemoveEnabled });
       return row;
     }
 

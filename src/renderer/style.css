@@ -3440,6 +3440,12 @@ button.primary:not(:disabled):hover,
   min-width: 0;
 }
 
+.settings-select-row button:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
+}
+
 @media (max-width: 860px) {
   /* Keep Settings in a stable 2-pane desktop layout; do not collapse to 1-column. */
   .modal-card.settings-card {

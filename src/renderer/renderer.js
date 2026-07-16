@@ -217,9 +217,9 @@ import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
 import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
+import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import {
   SAVE_INTENT,
-  createBlankDocument as createBlankDocumentModel,
   createDocumentSessionController,
 } from "./app/document/document_session_controller.js";
 
@@ -526,6 +526,28 @@ let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
 let newFileAction = null;
+
+const currentDocumentController = createCurrentDocumentController({
+  state: {
+    getDocumentSessionController: () => documentSessionController,
+    getDocumentLifecycleController: () => documentLifecycleController,
+  },
+});
+const {
+  setCurrentDocument,
+  clearCurrentDocument,
+  getCurrentDocument,
+  hasCurrentDocument,
+  getCurrentDocumentPath,
+  isCurrentDocumentDirty,
+  ensureCurrentDocument,
+  patchCurrentDocument,
+  markCurrentDocumentClean,
+  updateUIFromDocument,
+  showEmptyState,
+  serializeDocument,
+  deserializeToDocument,
+} = currentDocumentController;
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -6545,56 +6567,6 @@ async function runPrintAllAction(type) {
   await printAllFeature.runAction(type);
 }
 
-function setCurrentDocument(doc) {
-  if (!documentSessionController) return null;
-  const nextDoc = documentSessionController.replaceCurrentDocument(doc);
-  updateUIFromDocument(nextDoc);
-  return nextDoc;
-}
-
-function clearCurrentDocument() {
-  if (documentSessionController) documentSessionController.replaceCurrentDocument(null);
-  showEmptyState();
-}
-
-function getCurrentDocument() {
-  return documentSessionController ? documentSessionController.getCurrentDocument() : null;
-}
-
-function hasCurrentDocument() {
-  return documentSessionController ? documentSessionController.hasCurrentDocument() : false;
-}
-
-function getCurrentDocumentPath() {
-  return documentSessionController ? documentSessionController.getCurrentDocumentPath() : "";
-}
-
-function isCurrentDocumentDirty() {
-  return documentSessionController ? documentSessionController.isCurrentDocumentDirty() : false;
-}
-
-function ensureCurrentDocument(content = "") {
-  if (documentSessionController) return documentSessionController.ensureCurrentDocument(content);
-  return null;
-}
-
-function patchCurrentDocument(patch = {}, options = {}) {
-  if (documentSessionController) return documentSessionController.patchCurrentDocument(patch, options);
-  return null;
-}
-
-function markCurrentDocumentClean() {
-  return patchCurrentDocument({ dirty: false }, { create: false });
-}
-
-function updateUIFromDocument(doc) {
-  if (documentLifecycleController) documentLifecycleController.applyDocumentToUi(doc);
-}
-
-function showEmptyState() {
-  if (documentLifecycleController) documentLifecycleController.showEmptyState();
-}
-
 function getAbcCtor() {
   return (window.abc2svg && window.abc2svg.Abc) ? window.abc2svg.Abc : window.Abc;
 }
@@ -7081,18 +7053,6 @@ setLibraryVisible(false);
 })();
 
 checkExternalTools().catch(() => {});
-
-function serializeDocument(doc) {
-  return documentSessionController
-    ? documentSessionController.serializeDocument(doc)
-    : String(doc && doc.content ? doc.content : "");
-}
-
-function deserializeToDocument(data) {
-  return documentSessionController
-    ? documentSessionController.deserializeToDocument(data)
-    : createBlankDocumentModel(data);
-}
 
 async function confirmUnsavedChanges(contextLabel) {
   return documentSessionController

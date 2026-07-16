@@ -99,6 +99,47 @@ export function createDiagnosticsController({
     } catch {}
   };
 
+  const isFilePerfEnabled = () => {
+    try {
+      return window.__abcarusPerfFiles === true || isStartupPerfEnabled();
+    } catch {
+      return false;
+    }
+  };
+
+  const logFilePerf = (label, data) => {
+    if (!isFilePerfEnabled()) return;
+    try {
+      if (data !== undefined) console.log(`[perf:file] ${label}`, data);
+      else console.log(`[perf:file] ${label}`);
+    } catch {}
+  };
+
+  const isRenderPerfEnabled = () => {
+    try {
+      return window.__abcarusPerfRender === true || isStartupPerfEnabled();
+    } catch {
+      return false;
+    }
+  };
+
+  const logRenderPerf = (label, data) => {
+    if (!isRenderPerfEnabled()) return;
+    try {
+      if (data !== undefined) console.log(`[perf:render] ${label}`, data);
+      else console.log(`[perf:render] ${label}`);
+    } catch {}
+  };
+
+  const abbreviatePathForLog = (fullPath, tailSegments = 3) => {
+    if (!fullPath) return "";
+    const raw = String(fullPath);
+    const sep = raw.includes("\\") ? "\\" : "/";
+    const parts = raw.split(/[\\/]+/).filter(Boolean);
+    if (parts.length <= tailSegments) return raw;
+    return ["...", ...parts.slice(-tailSegments)].join(sep);
+  };
+
   const reportStartupStatus = (text) => {
     try {
       if (api && typeof api.reportStartupStatus === "function") {
@@ -185,9 +226,15 @@ export function createDiagnosticsController({
   return {
     debugLogBuffer,
     recentActions,
+    abbreviatePathForLog,
     installConsoleCapture,
+    isFilePerfEnabled,
+    isIntonationPerfEnabled,
+    isRenderPerfEnabled,
     isStartupPerfEnabled,
+    logFilePerf,
     logIntonationPerf,
+    logRenderPerf,
     logStartupPerf,
     perfNowMs,
     recordDebugLog,

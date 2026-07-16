@@ -1591,7 +1591,7 @@ function perfNowMs() {
 }
 
 function isIntonationPerfEnabled() {
-  try { return window.__abcarusPerfIntonation === true; } catch { return false; }
+  return diagnosticsController ? diagnosticsController.isIntonationPerfEnabled() : false;
 }
 
 function logIntonationPerf(label, data) {
@@ -1606,35 +1606,19 @@ function logStartupPerf(label, data) {
 }
 
 function isFilePerfEnabled() {
-  try {
-    return window.__abcarusPerfFiles === true || isStartupPerfEnabled();
-  } catch {
-    return false;
-  }
+  return diagnosticsController ? diagnosticsController.isFilePerfEnabled() : false;
 }
 
 function logFilePerf(label, data) {
-  if (!isFilePerfEnabled()) return;
-  try {
-    if (data !== undefined) console.log(`[perf:file] ${label}`, data);
-    else console.log(`[perf:file] ${label}`);
-  } catch {}
+  if (diagnosticsController) diagnosticsController.logFilePerf(label, data);
 }
 
 function isRenderPerfEnabled() {
-  try {
-    return window.__abcarusPerfRender === true || isStartupPerfEnabled();
-  } catch {
-    return false;
-  }
+  return diagnosticsController ? diagnosticsController.isRenderPerfEnabled() : false;
 }
 
 function logRenderPerf(label, data) {
-  if (!isRenderPerfEnabled()) return;
-  try {
-    if (data !== undefined) console.log(`[perf:render] ${label}`, data);
-    else console.log(`[perf:render] ${label}`);
-  } catch {}
+  if (diagnosticsController) diagnosticsController.logRenderPerf(label, data);
 }
 
 function reportStartupStatus(text) {
@@ -1642,12 +1626,7 @@ function reportStartupStatus(text) {
 }
 
 function abbreviatePathForLog(fullPath, tailSegments = 3) {
-  if (!fullPath) return "";
-  const raw = String(fullPath);
-  const sep = raw.includes("\\") ? "\\" : "/";
-  const parts = raw.split(/[\\/]+/).filter(Boolean);
-  if (parts.length <= tailSegments) return raw;
-  return ["…", ...parts.slice(-tailSegments)].join(sep);
+  return diagnosticsController ? diagnosticsController.abbreviatePathForLog(fullPath, tailSegments) : "";
 }
 
 function setUiFontsFromSettings(settings) {

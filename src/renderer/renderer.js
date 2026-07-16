@@ -177,6 +177,7 @@ import {
 import {
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
 } from "./playback/focus_playback_model.js";
+import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import {
@@ -565,6 +566,24 @@ const {
   ensureAbc2svgModulesAsync,
   ensureMidiGenLoaded,
 } = abc2svgLoader;
+
+const soundfontController = createSoundfontController({
+  windowRef: window,
+  api: window.api,
+  elements: {
+    label: $soundfontLabel,
+  },
+  state: {
+    isPlaying: () => isPlaying,
+    isPaused: () => isPaused,
+    isWaitingForFirstNote: () => waitingForFirstNote,
+  },
+  actions: {
+    ensurePlayer: () => ensurePlayer(),
+    setBufferStatus: (text) => setBufferStatus(text),
+    setStatus: (text) => setStatus(text),
+  },
+});
 
 const fileHeaderController = createFileHeaderController({
   elements: {
@@ -1717,10 +1736,10 @@ const debugDumpFeature = createDebugDumpFeature({
   getPlaybackLoopEnabled: () => playbackLoopEnabled,
   getPlaybackLoopFromMeasure: () => playbackLoopFromMeasure,
   getPlaybackLoopToMeasure: () => playbackLoopToMeasure,
-  getSoundfontName: () => soundfontName,
-  getSoundfontSource: () => soundfontSource,
-  getSoundfontReadyName: () => soundfontReadyName,
-  getLastSoundfontApplied: () => lastSoundfontApplied,
+  getSoundfontName: () => soundfontController.getName(),
+  getSoundfontSource: () => soundfontController.getSource(),
+  getSoundfontReadyName: () => soundfontController.getReadyName(),
+  getLastSoundfontApplied: () => soundfontController.getLastApplied(),
   getPlaybackIndexOffset: () => playbackIndexOffset,
   getPlaybackRange: () => playbackRange,
   getActivePlaybackRange: () => activePlaybackRange,
@@ -1943,13 +1962,6 @@ let globalHeaderGlobalText = "";
 let abc2svgNotationFontFile = "";
 let abc2svgTextFontFile = "";
 let fontDirs = { bundledDir: "", userDir: "" };
-let soundfontName = "TimGM6mb.sf2";
-let soundfontSource = "abc2svg.sf2";
-let soundfontReadyName = null;
-let soundfontLoadPromise = null;
-let soundfontLoadTarget = null;
-let soundfontStatusTimer = null;
-const STREAMING_SF2 = new Set();
 const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
 
@@ -5515,39 +5527,11 @@ function scheduleLibrarySearch(value) {
 }
 
 function setSoundfontStatus(text, autoClearMs) {
-  setBufferStatus(text || "");
-  if (soundfontStatusTimer) clearTimeout(soundfontStatusTimer);
-  soundfontStatusTimer = null;
-  if (text && autoClearMs) {
-    soundfontStatusTimer = setTimeout(() => {
-      setBufferStatus("");
-      soundfontStatusTimer = null;
-    }, autoClearMs);
-  }
+  soundfontController.setStatus(text, autoClearMs);
 }
 
 function setSoundfontCaption(text) {
-  if (!$soundfontLabel) return;
-  const next = text || "Soundfont:";
-  $soundfontLabel.textContent = next;
-  const isLoading = String(next).toLowerCase().includes("loading");
-  $soundfontLabel.classList.toggle("loading", isLoading);
-}
-
-function toFileUrl(filePath) {
-  const raw = String(filePath || "");
-  if (!raw) return "";
-  if (raw.startsWith("file://")) return raw;
-  if (/^[a-zA-Z]:\\/.test(raw)) {
-    return `file:///${raw.replace(/\\/g, "/")}`;
-  }
-  if (raw.startsWith("/")) return new URL(raw, window.location.href).href;
-  return raw;
-}
-
-async function updateSoundfontLoadingStatus(name) {
-  if (soundfontLoadTarget !== name) return;
-  setSoundfontCaption("Loading...");
+  soundfontController.setCaption(text);
 }
 
 let lastCursorStatus = null;
@@ -7947,7 +7931,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
     const prevSettings = latestSettingsSnapshot;
     latestSettingsSnapshot = settings || null;
 	    const prevHeader = `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`;
-	    const prevSoundfont = soundfontName;
+	    const prevSoundfont = soundfontController.getName();
       const prevChordproBinPath = prevSettings && prevSettings.chordproBinPath ? String(prevSettings.chordproBinPath) : "";
       const prevChordproRepoPath = prevSettings && prevSettings.chordproRepoPath ? String(prevSettings.chordproRepoPath) : "";
 	    setUiFontsFromSettings(settings);
@@ -7980,7 +7964,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
     if (settings && prevHeader !== `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`) {
       scheduleRenderNow();
     }
-	    if (settings && prevSoundfont !== soundfontName) {
+	    if (settings && prevSoundfont !== soundfontController.getName()) {
 	      resetSoundfontCache();
 	      if (player && typeof player.stop === "function") {
         suppressOnEnd = true;
@@ -8269,7 +8253,6 @@ let followVoiceIndex = null;
 let drumVelocityMap = buildDefaultDrumVelocityMap();
 let lastPlaybackMeta = null;
 let lastPlaybackPayloadCache = null;
-let lastSoundfontApplied = null;
 let lastPreparedPlaybackKey = null;
 let playbackNoteTrace = [];
 let playbackParseErrors = [];
@@ -9500,102 +9483,11 @@ function maybeScrollRenderToNote(el) {
 }
 
 async function ensureSoundfontLoaded() {
-  // already loaded
-  const desired = soundfontName || "TimGM6mb.sf2";
-  if (
-    soundfontReadyName === desired
-    && (soundfontSource !== "abc2svg.sf2" || (window.abc2svg && window.abc2svg.sf2))
-  ) return;
-  if (soundfontLoadPromise && soundfontLoadTarget === desired) return soundfontLoadPromise;
-
-  if (!window.abc2svg) window.abc2svg = {};
-
-  const withTimeout = (promise, ms, label) => {
-    const timeoutMs = Number(ms) > 0 ? Number(ms) : 0;
-    if (!timeoutMs) return promise;
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        reject(new Error(`${label || "Operation"} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      Promise.resolve(promise).then((value) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        resolve(value);
-      }, (err) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
-  };
-
-  const loadSoundfont = async (name) => {
-    const isPath = name.startsWith("/") || /^[a-zA-Z]:\\/.test(name) || name.startsWith("file://");
-    const sf2Url = isPath
-      ? toFileUrl(name)
-      : new URL(`../../third_party/sf2/${name}`, window.location.href).href;
-    if (isPath || STREAMING_SF2.has(name)) {
-      window.abc2svg.sf2 = null;
-      soundfontSource = sf2Url;
-      soundfontReadyName = name;
-      return;
-    }
-    if (!window.api || typeof window.api.readFileBase64 !== "function") {
-      throw new Error("preload API missing: window.api.readFileBase64");
-    }
-    let b64 = "";
-    try {
-      // Reading and base64-encoding SF2 can be slow on some platforms; avoid hanging forever.
-      b64 = await withTimeout(window.api.readFileBase64(sf2Url), 15000, "Soundfont load");
-    } catch (e) {
-      // Fallback: let the player load SF2 from a local file URL instead of embedding base64.
-      window.abc2svg.sf2 = null;
-      soundfontSource = sf2Url;
-      soundfontReadyName = name;
-      return;
-    }
-    if (!b64 || !b64.length) throw new Error("SF2 base64 is empty");
-    window.abc2svg.sf2 = b64; // raw base64
-    soundfontSource = "abc2svg.sf2";
-    soundfontReadyName = name;
-  };
-
-  soundfontLoadTarget = desired;
-  setSoundfontCaption("Loading...");
-  updateSoundfontLoadingStatus(desired);
-  soundfontLoadPromise = (async () => {
-    let ok = false;
-    try {
-      await loadSoundfont(desired);
-      ok = true;
-    } catch (e) {
-      if (desired === "TimGM6mb.sf2") throw e;
-      await loadSoundfont("TimGM6mb.sf2");
-      ok = true;
-    } finally {
-      soundfontLoadPromise = null;
-      soundfontLoadTarget = null;
-      if (ok) setSoundfontStatus("", 0);
-      if (!waitingForFirstNote) setSoundfontCaption();
-      if (ok && !isPlaying && !isPaused && !waitingForFirstNote) setStatus("OK");
-    }
-  })();
-  return soundfontLoadPromise;
+  return soundfontController.ensureLoaded();
 }
 
 async function ensureSoundfontReady() {
-  await ensureSoundfontLoaded();
-  const desired = soundfontSource || "abc2svg.sf2";
-  const p = ensurePlayer();
-  if (typeof p.set_sfu === "function" && desired !== lastSoundfontApplied) {
-    p.set_sfu(desired);
-    lastSoundfontApplied = desired;
-  }
+  return soundfontController.ensureReady();
 }
 
 function ensurePlayer() {
@@ -9784,7 +9676,7 @@ function ensurePlayer() {
   }
 
   // Key: tell snd-1.js to use SF2 from window.abc2svg.sf2
-  if (typeof player.set_sfu === "function") player.set_sfu(soundfontSource || "abc2svg.sf2");
+  if (typeof player.set_sfu === "function") player.set_sfu(soundfontController.getSource() || "abc2svg.sf2");
   try { sessionStorage.setItem("audio", "sf2"); } catch {}
 
   return player;
@@ -10508,9 +10400,7 @@ function setPlaybackAutoScrollFromSettings(settings) {
 }
 
 function setSoundfontFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  const next = String(settings.soundfontName || "");
-  soundfontName = next || "TimGM6mb.sf2";
+  soundfontController.setFromSettings(settings);
 }
 
 function setDrumVelocityFromSettings(settings) {
@@ -10528,12 +10418,7 @@ function setDrumVelocityFromSettings(settings) {
 }
 
 function resetSoundfontCache() {
-  if (window.abc2svg) window.abc2svg.sf2 = null;
-  if (window.abcsf2 && Array.isArray(window.abcsf2)) window.abcsf2.length = 0;
-  soundfontSource = "abc2svg.sf2";
-  soundfontReadyName = null;
-  soundfontLoadPromise = null;
-  soundfontLoadTarget = null;
+  soundfontController.resetCache();
 }
 
 async function loadHeaderLayer(path) {
@@ -11495,9 +11380,7 @@ async function startPlaybackFromRange(rangeOverride) {
 		  try {
 		    if (!canReuse) {
 		      stopPlaybackForRestart();
-		      const desired = soundfontName || "TimGM6mb.sf2";
 	      setSoundfontCaption("Loading...");
-	      updateSoundfontLoadingStatus(desired);
 		      selectionPlaybackRuntime.setSelectionMode(selectionMode);
 		      await preparePlayback();
 		    } else {
@@ -11732,7 +11615,7 @@ async function playDrumPreview(pitch, velocity) {
     isPreviewing = true;
     await ensureSoundfontLoaded();
     const p = ensurePlayer();
-    if (typeof p.set_sfu === "function") p.set_sfu(soundfontSource || "abc2svg.sf2");
+    if (typeof p.set_sfu === "function") p.set_sfu(soundfontController.getSource() || "abc2svg.sf2");
     try { sessionStorage.setItem("audio", "sf2"); } catch {}
     if (typeof p.clear === "function") p.clear();
     const AbcCtor = getAbcCtor();

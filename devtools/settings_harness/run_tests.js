@@ -41,9 +41,6 @@ function main() {
     playbackSelectionMuteGchords: false,
     playbackSelectionAllowMidiDrums: false,
     playbackSelectionMutedVoices: "",
-    playbackMidiFxPreset: "Custom",
-    playbackMidiReverb: 0,
-    playbackMidiChorus: 0,
   };
   for (const [key, expected] of Object.entries(requiredDefaults)) {
     assert(seen.has(key), `missing schema key: ${key}`);

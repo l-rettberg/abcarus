@@ -177,7 +177,6 @@ import {
 import {
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
 } from "./playback/focus_playback_model.js";
-import { injectPlaybackMidiFxControls } from "./playback/playback_midi_fx_model.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import {
@@ -7902,7 +7901,6 @@ if (window.api && typeof window.api.getSettings === "function") {
 			      if (settings) {
 			      const prevSettings = latestSettingsSnapshot;
 			      latestSettingsSnapshot = settings;
-			      syncPlaybackFxPreset(settings, prevSettings);
 			      logStartupPerf("apply settings: begin");
 			      setUiFontsFromSettings(settings);
 			      setEditorHelpFromSettings(settings);
@@ -7910,7 +7908,6 @@ if (window.api && typeof window.api.getSettings === "function") {
 			      setAbc2svgFontsFromSettings(settings);
 	    setSoundfontFromSettings(settings);
 	    setDrumVelocityFromSettings(settings);
-      setPlaybackFxFromSettings(settings);
       midiInputFeature.applyMidiSettings(settings);
       midiInputFeature.applyNoteTypingPreviewSettings(settings);
 	        setLayoutFromSettings(settings);
@@ -7949,7 +7946,6 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
   window.api.onSettingsChanged((settings) => {
     const prevSettings = latestSettingsSnapshot;
     latestSettingsSnapshot = settings || null;
-    syncPlaybackFxPreset(settings, prevSettings);
 	    const prevHeader = `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`;
 	    const prevSoundfont = soundfontName;
       const prevChordproBinPath = prevSettings && prevSettings.chordproBinPath ? String(prevSettings.chordproBinPath) : "";
@@ -7960,7 +7956,6 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	    setAbc2svgFontsFromSettings(settings);
 		    setSoundfontFromSettings(settings);
 		    setDrumVelocityFromSettings(settings);
-      setPlaybackFxFromSettings(settings);
       midiInputFeature.applyMidiSettings(settings);
       midiInputFeature.applyNoteTypingPreviewSettings(settings);
       setLayoutFromSettings(settings);
@@ -8305,77 +8300,6 @@ let playbackNeedsReprepare = false;
 let focusModeEnabled = false;
 let focusPrevRenderZoom = null;
 let focusPrevLibraryVisible = null;
-
-const PLAYBACK_FX_PRESETS = Object.freeze({
-  Off: { reverb: 0, chorus: 0 },
-  Room: { reverb: 28, chorus: 12 },
-  Hall: { reverb: 48, chorus: 18 },
-});
-
-function normalizePlaybackFxPreset(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "Custom";
-  if (raw === "Custom" || raw === "Off" || raw === "Room" || raw === "Hall") return raw;
-  return "Custom";
-}
-
-function clampPlaybackFxValue(value, fallback) {
-  const v = Number(value);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(0, Math.min(127, Math.round(v)));
-}
-
-function resolvePlaybackFxSettings(settings) {
-  if (!settings || typeof settings !== "object") return settings;
-  const preset = normalizePlaybackFxPreset(settings.playbackMidiFxPreset);
-  const presetValues = PLAYBACK_FX_PRESETS[preset];
-  if (!presetValues) return settings;
-  return {
-    playbackMidiReverb: clampPlaybackFxValue(presetValues.reverb, 0),
-    playbackMidiChorus: clampPlaybackFxValue(presetValues.chorus, 0),
-  };
-}
-
-function syncPlaybackFxPreset(settings, prevSettings) {
-  if (!settings || typeof settings !== "object") return;
-  const preset = normalizePlaybackFxPreset(settings.playbackMidiFxPreset);
-  const presetValues = PLAYBACK_FX_PRESETS[preset];
-  if (!presetValues) return;
-
-  const reverb = clampPlaybackFxValue(settings.playbackMidiReverb, presetValues.reverb);
-  const chorus = clampPlaybackFxValue(settings.playbackMidiChorus, presetValues.chorus);
-  if (reverb === presetValues.reverb && chorus === presetValues.chorus) return;
-
-  const prevPreset = prevSettings ? normalizePlaybackFxPreset(prevSettings.playbackMidiFxPreset) : preset;
-  const presetChanged = preset !== prevPreset;
-  if (presetChanged) {
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackMidiReverb: presetValues.reverb, playbackMidiChorus: presetValues.chorus }).catch(() => {});
-    }
-    return;
-  }
-
-  if (window.api && typeof window.api.updateSettings === "function") {
-    window.api.updateSettings({ playbackMidiFxPreset: "Custom" }).catch(() => {});
-  }
-}
-
-function applyPlaybackFxToConfig(conf, settings) {
-  if (!conf) return;
-  const src = resolvePlaybackFxSettings(settings || latestSettingsSnapshot || {});
-  const toLevel = (value) => {
-    const v = Number(value);
-    if (!Number.isFinite(v) || v <= 0) return 0;
-    return Math.max(1, Math.min(127, Math.round(v)));
-  };
-  conf.reverb = toLevel(src.playbackMidiReverb);
-  conf.chorus = toLevel(src.playbackMidiChorus);
-}
-
-function setPlaybackFxFromSettings(settings) {
-  if (!playerConfig) return;
-  applyPlaybackFxToConfig(playerConfig, settings);
-}
 
 function setRenderZoomCss(zoom) {
   const v = Number(zoom);
@@ -9847,7 +9771,6 @@ function ensurePlayer() {
     },
     err: (m) => logErr(m),
   };
-  applyPlaybackFxToConfig(conf, latestSettingsSnapshot);
   playerConfig = conf;
   player = AbcPlay(conf);
 
@@ -10982,13 +10905,8 @@ async function preparePlayback() {
     showToast("No ABC block to play.", 2200);
     return;
   }
-  const fxInjected = injectPlaybackMidiFxControls(
-    playbackPayload.text,
-    playbackPayload.offset || 0,
-    resolvePlaybackFxSettings(latestSettingsSnapshot || {})
-  );
-  const playbackPayloadText = fxInjected.text;
-  const playbackPayloadOffset = fxInjected.offset;
+  const playbackPayloadText = playbackPayload.text;
+  const playbackPayloadOffset = playbackPayload.offset || 0;
   const selectionMode = selectionPlaybackRuntime.isSelectionMode();
   lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayloadText || ""}`) || /\[\s*P\s*:/i.test(playbackPayloadText || "");
   if (Array.isArray(playbackSanitizeWarnings) && playbackSanitizeWarnings.length) {

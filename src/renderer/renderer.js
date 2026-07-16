@@ -3707,6 +3707,46 @@ const abcTransformFeature = createAbcTransformFeature({
   alignBarsInText,
 });
 abcTransformFeature.installDevSmoke();
+
+function installDevUiSmokeHook() {
+  if (!devConfig || devConfig.ABCARUS_DEV_UI_SMOKE !== "1") return false;
+  window.__abcarusDevUiSmoke = {
+    setText: (text) => {
+      suppressDirty = true;
+      try {
+        setEditorValue(String(text || ""));
+      } finally {
+        suppressDirty = false;
+      }
+      scheduleRenderNow({ clearOutput: true, source: "ui-smoke" });
+    },
+    getText: () => getEditorValue(),
+    scheduleRender: () => scheduleRenderNow({ clearOutput: true, source: "ui-smoke" }),
+    clickPlay: () => {
+      if ($btnPlayPause) $btnPlayPause.click();
+    },
+    clickStop: () => {
+      if ($btnStop) $btnStop.click();
+    },
+    snapshot: () => ({
+      isPlaying: Boolean(isPlaying),
+      isPaused: Boolean(isPaused),
+      waitingForFirstNote: Boolean(waitingForFirstNote),
+      playbackStartArmed: Boolean(playbackStartArmed),
+      playText: $btnPlayPause ? String($btnPlayPause.textContent || "").trim() : "",
+      playActive: $btnPlayPause ? $btnPlayPause.classList.contains("active") : false,
+      playDisabled: $btnPlayPause ? Boolean($btnPlayPause.disabled) : true,
+      stopDisabled: $btnStop ? Boolean($btnStop.disabled) : true,
+      status: $status ? String($status.textContent || "").trim() : "",
+      toast: $toast ? String($toast.textContent || "").trim() : "",
+      hasSvg: Boolean($out && $out.querySelector("svg")),
+      playbackDebug: window.__abcarusPlaybackDebug || null,
+    }),
+  };
+  return true;
+}
+
+installDevUiSmokeHook();
 const rawModeFeature = createRawModeFeature({
   api: window.api,
   documentRef: document,

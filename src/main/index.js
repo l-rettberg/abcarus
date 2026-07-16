@@ -2765,6 +2765,122 @@ async function createWindow() {
 }
 
 async function runUiSmoke(win) {
+  const exitUiSmoke = (ok, label, result) => {
+    try {
+      const prefix = ok ? "PASS" : "FAIL";
+      const log = ok ? console.log : console.error;
+      log(`[ui-smoke] ${prefix} ${label}`, JSON.stringify(result || {}));
+    } catch {}
+    process.exitCode = ok ? 0 : 1;
+    isQuitting = true;
+    try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
+  };
+
+  if (process.env.ABCARUS_DEV_PLAYBACK_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const playbackResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitFor = async (predicate, timeoutMs, stepMs = 100) => {
+          const start = Date.now();
+          let last = null;
+          while (Date.now() - start < timeoutMs) {
+            last = predicate();
+            if (last && last.ok) return last;
+            await wait(stepMs);
+          }
+          return last || { ok: false };
+        };
+        const compactSnapshot = (snap) => ({
+          isPlaying: !!(snap && snap.isPlaying),
+          isPaused: !!(snap && snap.isPaused),
+          waitingForFirstNote: !!(snap && snap.waitingForFirstNote),
+          playbackStartArmed: !!(snap && snap.playbackStartArmed),
+          playText: snap ? snap.playText : "",
+          playActive: !!(snap && snap.playActive),
+          playDisabled: !!(snap && snap.playDisabled),
+          stopDisabled: !!(snap && snap.stopDisabled),
+          status: snap ? snap.status : "",
+          toast: snap ? snap.toast : "",
+          hasSvg: !!(snap && snap.hasSvg),
+          debugSymbols: snap && snap.playbackDebug ? snap.playbackDebug.symbols : undefined,
+          debugMeasures: snap && snap.playbackDebug ? snap.playbackDebug.measures : undefined,
+        });
+        const hook = window.__abcarusDevUiSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.snapshot !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-ui-hook" };
+        }
+        const abc = [
+          "X:1",
+          "T:UI Playback Smoke",
+          "M:4/4",
+          "L:1/4",
+          "Q:1/4=96",
+          "K:C",
+          "C D E F | G A B c | c B A G | F E D C |",
+          "C D E F | G A B c | c B A G | F E D C |]"
+        ].join("\\n") + "\\n";
+        hook.setText(abc);
+        const rendered = await waitFor(() => {
+          const snap = hook.snapshot();
+          return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+        }, 8000, 120);
+        if (!rendered.ok) {
+          return { ok: false, phase: "render", reason: "missing-svg", last: rendered.snap };
+        }
+        if (typeof hook.clickPlay !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-click-play" };
+        }
+        hook.clickPlay();
+        const failurePattern = /Playback failed|Playback parse error|failed to start|not mappable|invalid/i;
+        const startSamples = [];
+        const started = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          startSamples.push(compact);
+          if (startSamples.length > 10) startSamples.shift();
+          const text = String((compact.status || "") + " " + (compact.toast || ""));
+          if (failurePattern.test(text)) {
+            return { ok: false, failed: true, snap: compact };
+          }
+          const active = !!(
+            compact.isPlaying
+            || compact.waitingForFirstNote
+            || compact.playbackStartArmed
+            || compact.playActive
+            || /Pause|Resume/i.test(String(compact.playText || ""))
+          );
+          return { ok: active, snap: compact };
+        }, 7000, 120);
+        if (!started.ok) {
+          return {
+            ok: false,
+            phase: "start",
+            reason: started.failed ? "playback-failed" : "playback-did-not-start",
+            last: started.snap,
+            samples: startSamples,
+          };
+        }
+        if (typeof hook.clickStop === "function") hook.clickStop();
+        const stopped = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          return {
+            ok: !compact.isPlaying && !compact.waitingForFirstNote && !compact.playbackStartArmed && !compact.playActive,
+            snap: compact,
+          };
+        }, 4000, 120);
+        if (!stopped.ok) {
+          return { ok: false, phase: "stop", reason: "playback-did-not-stop", last: stopped.snap };
+        }
+        return { ok: true, rendered: rendered.snap, started: started.snap, stopped: stopped.snap };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(playbackResult && playbackResult.ok), "playback", playbackResult);
+    return;
+  }
+
   if (process.env.ABCARUS_DEV_TRANSFORM_SMOKE === "1") {
     await new Promise((resolve) => setTimeout(resolve, 1800));
     const transformResult = await win.webContents.executeJavaScript(
@@ -2781,10 +2897,7 @@ async function runUiSmoke(win) {
       true
     );
     if (!transformResult || !transformResult.ok) {
-      console.error("[ui-smoke] FAIL transform setup", JSON.stringify(transformResult || {}));
-      process.exitCode = 1;
-      isQuitting = true;
-      try { app.exit(1); } catch { process.exit(1); }
+      exitUiSmoke(false, "transform setup", transformResult);
       return;
     }
     sendMenuAction("transformDouble");
@@ -2810,17 +2923,13 @@ async function runUiSmoke(win) {
       afterTranspose,
     };
     if (result.ok) {
-      console.log("[ui-smoke] PASS transform", JSON.stringify({
+      exitUiSmoke(true, "transform", {
         afterDouble: String(afterDouble || "").slice(0, 80),
         afterTranspose: String(afterTranspose || "").slice(0, 80),
-      }));
-      process.exitCode = 0;
+      });
     } else {
-      console.error("[ui-smoke] FAIL transform", JSON.stringify(result));
-      process.exitCode = 1;
+      exitUiSmoke(false, "transform", result);
     }
-    isQuitting = true;
-    try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
     return;
   }
 
@@ -2902,21 +3011,7 @@ async function runUiSmoke(win) {
     true
   );
 
-  if (result && result.ok) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log("[ui-smoke] PASS", JSON.stringify(result));
-    } catch {}
-    process.exitCode = 0;
-  } else {
-    try {
-      // eslint-disable-next-line no-console
-      console.error("[ui-smoke] FAIL", JSON.stringify(result || {}));
-    } catch {}
-    process.exitCode = 1;
-  }
-  isQuitting = true;
-  try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
+  exitUiSmoke(Boolean(result && result.ok), "layout", result);
 }
 
 app.whenReady().then(async () => {

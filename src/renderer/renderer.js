@@ -217,6 +217,7 @@ import { enableDraggableToolPanel } from "./app/ui/draggable_tool_panel.js";
 import { createLayoutController } from "./app/ui/layout_controller.js";
 import { createDiagnosticsController } from "./app/diagnostics/diagnostics_controller.js";
 import { createDebugDumpFeature } from "./app/diagnostics/debug_dump_feature.js";
+import { installDevUiSmokeHook } from "./app/diagnostics/dev_ui_smoke_hook.js";
 import { createToolStatusController } from "./app/ui/tool_status_controller.js";
 import { createStatusController } from "./app/ui/status_controller.js";
 import { createToastHoverController } from "./app/ui/toast_hover_controller.js";
@@ -3707,46 +3708,40 @@ const abcTransformFeature = createAbcTransformFeature({
   alignBarsInText,
 });
 abcTransformFeature.installDevSmoke();
-
-function installDevUiSmokeHook() {
-  if (!devConfig || devConfig.ABCARUS_DEV_UI_SMOKE !== "1") return false;
-  window.__abcarusDevUiSmoke = {
-    setText: (text) => {
-      suppressDirty = true;
-      try {
-        setEditorValue(String(text || ""));
-      } finally {
-        suppressDirty = false;
-      }
-      scheduleRenderNow({ clearOutput: true, source: "ui-smoke" });
-    },
-    getText: () => getEditorValue(),
-    scheduleRender: () => scheduleRenderNow({ clearOutput: true, source: "ui-smoke" }),
-    clickPlay: () => {
-      if ($btnPlayPause) $btnPlayPause.click();
-    },
-    clickStop: () => {
-      if ($btnStop) $btnStop.click();
-    },
-    snapshot: () => ({
-      isPlaying: Boolean(isPlaying),
-      isPaused: Boolean(isPaused),
-      waitingForFirstNote: Boolean(waitingForFirstNote),
-      playbackStartArmed: Boolean(playbackStartArmed),
-      playText: $btnPlayPause ? String($btnPlayPause.textContent || "").trim() : "",
-      playActive: $btnPlayPause ? $btnPlayPause.classList.contains("active") : false,
-      playDisabled: $btnPlayPause ? Boolean($btnPlayPause.disabled) : true,
-      stopDisabled: $btnStop ? Boolean($btnStop.disabled) : true,
-      status: $status ? String($status.textContent || "").trim() : "",
-      toast: $toast ? String($toast.textContent || "").trim() : "",
-      hasSvg: Boolean($out && $out.querySelector("svg")),
-      playbackDebug: window.__abcarusPlaybackDebug || null,
-    }),
-  };
-  return true;
-}
-
-installDevUiSmokeHook();
+installDevUiSmokeHook({
+  windowRef: window,
+  devConfig,
+  setEditorText: (text) => {
+    suppressDirty = true;
+    try {
+      setEditorValue(String(text || ""));
+    } finally {
+      suppressDirty = false;
+    }
+  },
+  getEditorText: getEditorValue,
+  scheduleRender: () => scheduleRenderNow({ clearOutput: true, source: "ui-smoke" }),
+  elements: {
+    playButton: $btnPlayPause,
+    stopButton: $btnStop,
+    status: $status,
+    toast: $toast,
+  },
+  clickPlay: () => {
+    if ($btnPlayPause) $btnPlayPause.click();
+  },
+  clickStop: () => {
+    if ($btnStop) $btnStop.click();
+  },
+  getState: () => ({
+    isPlaying,
+    isPaused,
+    waitingForFirstNote,
+    playbackStartArmed,
+  }),
+  getHasSvg: () => Boolean($out && $out.querySelector("svg")),
+  getPlaybackDebug: () => window.__abcarusPlaybackDebug || null,
+});
 const rawModeFeature = createRawModeFeature({
   api: window.api,
   documentRef: document,

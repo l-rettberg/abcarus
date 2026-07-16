@@ -7,7 +7,6 @@ import {
   keymap,
   ViewPlugin,
   indentUnit,
-  openSearchPanel,
   gotoLine,
   foldService,
   foldGutter,
@@ -19,6 +18,16 @@ import {
 import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
 import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
+import {
+  foldBeginTextBlocks,
+  indentSelectionLess,
+  indentSelectionMore,
+  initSearchPanelShortcuts,
+  isInBeginTextBlockAtLine,
+  moveLineSelection,
+  openFindPanel,
+  openReplacePanel,
+} from "./editor/editor_commands.js";
 import {
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
@@ -4272,137 +4281,6 @@ function getEditorValue() {
   return editorView.state.doc.toString();
 }
 
-function openFindPanel(view) {
-  openSearchPanel(view);
-  applySearchPanelHints(view);
-  return true;
-}
-
-function openReplacePanel(view) {
-  openSearchPanel(view);
-  applySearchPanelHints(view);
-  setTimeout(() => {
-    const panel = view.dom.querySelector(".cm-search");
-    if (!panel) return;
-    const replace = panel.querySelector("input[name='replace']");
-    if (replace) {
-      replace.focus();
-      replace.select();
-    }
-  }, 0);
-  return true;
-}
-
-function getSelectedLines(state) {
-  const lines = [];
-  const seen = new Set();
-  for (const range of state.selection.ranges) {
-    const fromLine = state.doc.lineAt(range.from);
-    const toLine = state.doc.lineAt(range.to);
-    const last = (range.to === toLine.from && range.to > range.from)
-      ? Math.max(fromLine.number, toLine.number - 1)
-      : toLine.number;
-    for (let lineNo = fromLine.number; lineNo <= last; lineNo += 1) {
-      const line = state.doc.line(lineNo);
-      if (seen.has(line.from)) continue;
-      seen.add(line.from);
-      lines.push(line);
-    }
-  }
-  return lines;
-}
-
-function indentSelectionMore(view) {
-  if (view.state.readOnly) return false;
-  const unit = view.state.facet(indentUnit);
-  const changes = getSelectedLines(view.state).map((line) => ({
-    from: line.from,
-    insert: unit,
-  }));
-  if (!changes.length) return false;
-  view.dispatch({ changes, userEvent: "input.indent" });
-  return true;
-}
-
-function indentSelectionLess(view) {
-  if (view.state.readOnly) return false;
-  const unit = view.state.facet(indentUnit);
-  const unitSize = unit.length;
-  const changes = [];
-  for (const line of getSelectedLines(view.state)) {
-    const match = /^[\t ]+/.exec(line.text);
-    if (!match) continue;
-    const prefix = match[0];
-    let remove = 0;
-    if (prefix.startsWith("\t")) remove = 1;
-    else remove = Math.min(prefix.length, unitSize);
-    if (remove > 0) {
-      changes.push({ from: line.from, to: line.from + remove, insert: "" });
-    }
-  }
-  if (!changes.length) return false;
-  view.dispatch({ changes, userEvent: "delete.dedent" });
-  return true;
-}
-
-function setSearchQueryPattern(pattern, useRegex = true) {
-  if (!editorView) return;
-  openSearchPanel(editorView);
-  setTimeout(() => {
-    const panel = editorView.dom.querySelector(".cm-search");
-    if (!panel) return;
-    const searchInput = panel.querySelector("input[name='search']");
-    const regexInput = panel.querySelector("input[name='re']");
-    if (!searchInput || !regexInput) return;
-    searchInput.value = pattern;
-    regexInput.checked = useRegex;
-    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-    searchInput.dispatchEvent(new Event("change", { bubbles: true }));
-    if (useRegex) {
-      regexInput.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-    searchInput.focus();
-    searchInput.select();
-  }, 0);
-}
-
-function foldBeginTextBlocks(state, lineStart, lineEnd) {
-  const line = state.doc.lineAt(lineStart);
-  if (!/^%%\s*begintext\b/i.test(line.text)) return null;
-  for (let i = line.number + 1; i <= state.doc.lines; i += 1) {
-    const next = state.doc.line(i);
-    if (/^%%\s*endtext\b/i.test(next.text)) {
-      return { from: line.to, to: next.from };
-    }
-  }
-  return null;
-}
-
-function isInBeginTextBlockAtLine(state, lineNumber) {
-  const n = Math.max(1, Math.min(state.doc.lines, Number(lineNumber) || 1));
-  for (let i = n; i >= 1; i -= 1) {
-    const text = String(state.doc.line(i).text || "");
-    if (/^%%\s*endtext\b/i.test(text)) return false;
-    if (/^%%\s*begintext\b/i.test(text)) return true;
-  }
-  return false;
-}
-
-function moveLineSelection(view, delta) {
-  const { state } = view;
-  const ranges = [];
-  for (const range of state.selection.ranges) {
-    const line = state.doc.lineAt(range.head);
-    const targetLineNumber = Math.max(1, Math.min(state.doc.lines, line.number + delta));
-    const targetLine = state.doc.line(targetLineNumber);
-    const col = range.head - line.from;
-    const pos = Math.min(targetLine.to, targetLine.from + col);
-    ranges.push(EditorSelection.cursor(pos));
-  }
-  view.dispatch({ selection: EditorSelection.create(ranges), scrollIntoView: true });
-  return true;
-}
-
 function resetLayout() {
   if (settingsController) settingsController.zoomReset();
   resetRightPaneSplit();
@@ -4979,138 +4857,6 @@ function initEditor() {
     showContextMenuAt(ev.clientX, ev.clientY, { type: "editor" });
   });
   setCursorStatus(1, 1, 1, state.doc.lines, state.doc.length);
-}
-
-function initSearchPanelShortcuts() {
-  const findButtonByLabel = (panel, label) => {
-    if (!panel) return null;
-    const buttons = Array.from(panel.querySelectorAll("button"));
-    const want = String(label || "").trim().toLowerCase();
-    return buttons.find((btn) => String(btn.textContent || "").trim().toLowerCase() === want) || null;
-  };
-
-  const triggerPanelAction = (panel, action) => {
-    const btn = findButtonByLabel(panel, action);
-    if (!btn) return false;
-    btn.click();
-    return true;
-  };
-
-  document.addEventListener("keydown", (e) => {
-    const activeEl = document.activeElement;
-    const panel = activeEl && activeEl.closest ? activeEl.closest(".cm-search") : null;
-    if (!panel) return;
-
-    const key = e.key;
-    const isEnter = key === "Enter";
-    const isF3 = key === "F3";
-    const ctrl = e.ctrlKey || e.metaKey;
-    const shift = e.shiftKey;
-    const alt = e.altKey;
-
-    // Enter / Shift+Enter: next/previous match (standard behavior in many editors).
-    if (isEnter && !ctrl && !alt) {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerPanelAction(panel, shift ? "previous" : "next");
-      return;
-    }
-
-    // F3 / Shift+F3: next/previous match (common desktop shortcut).
-    if (isF3 && !ctrl && !alt) {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerPanelAction(panel, shift ? "previous" : "next");
-      return;
-    }
-
-    // Ctrl+Enter: replace (when replace UI is present).
-    if (isEnter && ctrl && !alt && !shift) {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerPanelAction(panel, "replace");
-      return;
-    }
-
-    // Ctrl+Shift+Enter OR Alt+Enter: replace all (avoid Ctrl+A which is "select all" in inputs).
-    if (isEnter && ((ctrl && shift) || alt)) {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerPanelAction(panel, "replace all");
-    }
-  }, true);
-}
-
-function applySearchPanelHints(view) {
-  if (!view) return;
-  setTimeout(() => {
-    const panel = view.dom.querySelector(".cm-search");
-    if (!panel) return;
-    try {
-      const next = panel.querySelector("button[name='next']");
-      if (next) next.title = "Next (Enter / F3)";
-      const prev = panel.querySelector("button[name='prev']");
-      if (prev) prev.title = "Previous (Shift+Enter / Shift+F3)";
-      const all = panel.querySelector("button[name='select']");
-      if (all) all.title = "Select all matches";
-      const replaceBtn = panel.querySelector("button[name='replace']");
-      if (replaceBtn) replaceBtn.title = "Replace (Ctrl+Enter)";
-      const replaceAllBtn = panel.querySelector("button[name='replaceAll']");
-      if (replaceAllBtn) replaceAllBtn.title = "Replace all (Ctrl+Shift+Enter / Alt+Enter)";
-    } catch {}
-    try {
-      wireSearchPanelHotkeys(panel);
-    } catch {}
-  }, 0);
-}
-
-function wireSearchPanelHotkeys(panel) {
-  if (!panel || !panel.dataset) return;
-  if (panel.dataset.abcarusHotkeys === "1") return;
-  panel.dataset.abcarusHotkeys = "1";
-
-  const clickNamed = (name) => {
-    const btn = panel.querySelector(`button[name='${name}']`);
-    if (!btn || btn.disabled) return false;
-    btn.click();
-    return true;
-  };
-
-  panel.addEventListener("keydown", (ev) => {
-    if (!ev) return;
-    const key = String(ev.key || "");
-
-    if (key === "F3") {
-      if (ev.shiftKey) {
-        if (clickNamed("prev")) ev.preventDefault();
-      } else if (clickNamed("next")) {
-        ev.preventDefault();
-      }
-      return;
-    }
-
-    if (key !== "Enter") return;
-    const hasCtrl = Boolean(ev.ctrlKey || ev.metaKey);
-
-    // Search navigation.
-    if (!hasCtrl && !ev.altKey) {
-      if (ev.shiftKey) {
-        if (clickNamed("prev")) ev.preventDefault();
-      } else if (clickNamed("next")) {
-        ev.preventDefault();
-      }
-      return;
-    }
-
-    // Replace actions.
-    if (hasCtrl || ev.altKey) {
-      if (ev.shiftKey || ev.altKey) {
-        if (clickNamed("replaceAll")) ev.preventDefault();
-      } else if (clickNamed("replace")) {
-        ev.preventDefault();
-      }
-    }
-  }, true);
 }
 
 function initHeaderEditor() {

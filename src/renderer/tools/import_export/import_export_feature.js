@@ -523,15 +523,27 @@ function createImportExportFeature({
     const win = windowRef || {};
     const prevAbc = win.abc;
     const prevUser = win.user;
+    const abc2svgGlobal = win.abc2svg || null;
+    const prevPrintErr = abc2svgGlobal ? abc2svgGlobal.printErr : undefined;
     let abc = null;
     try {
       abc = new AbcCtor(user);
       win.abc = abc;
       win.user = user;
+      if (abc2svgGlobal && typeof abc2svgGlobal.printErr !== "function") {
+        abc2svgGlobal.printErr = (message) => {
+          const msg = String(message || "").trim();
+          if (msg) errors.push(msg);
+        };
+      }
       abc.tosvg("midi_export", text);
       if (typeof win.midigen !== "function") throw new Error("midigen() not loaded.");
       win.midigen();
     } finally {
+      if (abc2svgGlobal) {
+        if (prevPrintErr === undefined) delete abc2svgGlobal.printErr;
+        else abc2svgGlobal.printErr = prevPrintErr;
+      }
       if (prevAbc === undefined) delete win.abc;
       else win.abc = prevAbc;
       if (prevUser === undefined) delete win.user;

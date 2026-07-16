@@ -1105,11 +1105,31 @@ export function initSettings(api) {
         const ok = confirm(`Remove user font "${fileName}"?`);
         if (!ok) return;
         if (!api || typeof api.removeFont !== "function") return;
+        const removedRef = `user:${fileName}`;
+        const effectiveBeforeRemove = getEffectiveSettings();
         const res = await api.removeFont(fileName).catch(() => null);
         if (!res || !res.ok) {
           alert(res && res.error ? res.error : "Failed to remove font.");
           return;
         }
+        const patch = {};
+        if (String(effectiveBeforeRemove.abc2svgNotationFontFile || "") === removedRef) {
+          patch.abc2svgNotationFontFile = "";
+        }
+        if (String(effectiveBeforeRemove.abc2svgTextFontFile || "") === removedRef) {
+          patch.abc2svgTextFontFile = "";
+        }
+        if (String(effectiveBeforeRemove.editorFontFamily || "").includes(`ABCarus User Font: ${fileName}`)) {
+          patch.editorFontFamily = String(defaultSettings.editorFontFamily || "");
+        }
+        if (Object.keys(patch).length) {
+          const nextDraft = { ...(draftPatch || {}) };
+          for (const key of Object.keys(patch)) delete nextDraft[key];
+          setDraftPatch(nextDraft);
+          await updateSettings(patch).catch(() => {});
+        }
+        setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => String(name || "") !== fileName));
+        ensureEditorUserFontFaces();
         const list = await api.listFonts().catch(() => null);
         if (list && list.ok) {
           cachedFontLists = {
@@ -1124,14 +1144,7 @@ export function initSettings(api) {
           };
         }
         refreshFontSelectControls();
-        const removedRef = `user:${fileName}`;
-        const effective = getEffectiveSettings();
-        if (String(effective.abc2svgNotationFontFile || "") === removedRef) {
-          stageSetting("abc2svgNotationFontFile", "");
-        }
-        if (String(effective.abc2svgTextFontFile || "") === removedRef) {
-          stageSetting("abc2svgTextFontFile", "");
-        }
+        updateRemoveEnabled();
       });
 
       const updateRemoveEnabled = () => {

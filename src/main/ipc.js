@@ -1677,7 +1677,10 @@ function registerIpcHandlers(ctx) {
       const safeName = sanitizeFontFileName(fileName);
       if (!safeName) return { ok: false, error: "Invalid font filename." };
       const targetPath = path.join(userDir, safeName);
-      await fs.promises.unlink(targetPath);
+      await fs.promises.unlink(targetPath).catch((e) => {
+        if (e && e.code === "ENOENT") return;
+        throw e;
+      });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

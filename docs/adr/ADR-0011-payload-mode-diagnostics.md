@@ -3,6 +3,13 @@ ADR-0011 — Payload Mode (Diagnostics)
 Date: 2026-01-25  
 Status: Proposed
 
+Update 2026-07-16: Still proposed as a diagnostic-mode product contract, but
+implementation details must follow ADR-0017. Payload Mode internals should be a
+diagnostics/render domain module rather than `renderer.js` logic. Current
+runtime behavior may intentionally differ by surface, for example editable
+render payload and read-only playback payload; update this ADR before treating
+the MVP acceptance list as fully accepted.
+
 ## Context
 
 When troubleshooting rendering or playback issues, users need to see the *exact payload* sent to `abc2svg`, including:

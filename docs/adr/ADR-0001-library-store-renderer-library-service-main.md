@@ -3,6 +3,13 @@
 Date: 2026-01-02  
 Status: Accepted
 
+Update 2026-07-16: Clarified by ADR-0017. In this ADR, “renderer”
+means the renderer process/domain layer, not specifically
+`src/renderer/renderer.js`. Library state and actions may live renderer-side,
+but feature-specific library/search/sort/move/rendering internals should be
+owned by library/document modules or facades. `renderer.js` remains app-shell
+wiring and orchestration only.
+
 ## Context
 
 In ABCarus, the library UI (Tree + Modal) relies on filesystem scanning, metadata extraction (discover), parsing (parse), and write operations (rename/move/bulk). With large collections, the bottleneck quickly shifts from CPU to cross-process synchronization: payload sizes and event frequency between Electron processes. Trying to keep a canonical `LibraryStore` in `main` and “stream” state into the renderer effectively becomes its own project: diffs, state versions, resync recovery, deduplication, and payload controls—otherwise IPC turns into a slow cache layered on top of a slow pipeline.

@@ -1,12 +1,17 @@
 ADR-0012 — Feature Gating & Lazy Loading (Microtonal Tools + Payload Mode default OFF)
 
 Date: 2026-01-26  
-Status: Proposed
+Status: Proposed; amended by ADR-0016
 
 Update 2026-07-03: ADR-0016 renames the user-facing Makam Tools boundary to
 **Support microtonal notation**. Existing `makamToolsEnabled` and
 `studyToolsEnabled` settings are legacy aliases for the canonical
 `supportMicrotonalNotation` setting.
+
+Update 2026-07-16: When this ADR says “Microtonal Tools”, read it as the
+ADR-0016 umbrella setting **Support microtonal notation**. ADR-0017 supplies
+the active renderer/domain ownership rules for implementing these gates without
+leaving feature-specific tails in `renderer.js`.
 
 ## Context
 

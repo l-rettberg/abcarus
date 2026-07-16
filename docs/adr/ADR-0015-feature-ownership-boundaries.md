@@ -1,7 +1,13 @@
 # ADR-0015 — Feature Ownership Boundaries
 
 Date: 2026-07-03
-Status: Proposed
+Status: Proposed; extended by ADR-0017
+
+Update 2026-07-16: ADR-0017 extends this feature-boundary rule into the active
+renderer domain modularization contract. Keep using this ADR for the principle
+that feature extraction means ownership extraction, but use ADR-0017 for
+milestone process, tail classification, line-count health targets, performance
+guardrails, and stop/rollback rules.
 
 ## Context
 

@@ -3,6 +3,13 @@
 Date: 2026-01-04  
 Status: Accepted
 
+Update 2026-07-16: Implementation placement is amended by ADR-0016 and
+ADR-0017. Native transpose remains accepted behavior, but microtonal-specific
+logic belongs under the microtonal/domain boundary where practical, and
+`renderer.js` should not remain the long-term owner of transpose fallback,
+header integration, or feature-specific command internals. Existing IPC/menu
+strings remain stable.
+
 ## Context
 
 Historically, ABCarus used the external `abc2abc` tool (abcMIDI) for transposition. This adds a dependency on an external binary, platform-specific behavioral differences, and limits evolution (in particular: microtonal logic and handling of gchords in quotes).

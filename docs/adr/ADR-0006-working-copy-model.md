@@ -5,6 +5,14 @@ Date: 2026-01-17
 Decision Owner: Architect  
 Applies to: Editor, Import/Export, Transformers, Jobs, Save/Conflict handling
 
+Update 2026-07-16: Amended by ADR-0017. The Working Copy authority model
+remains accepted, but save/file/lifecycle work is now explicitly high-risk and
+must preserve snappy, low-prompt everyday workflows. The earlier JobManager
+language is not a mandate to introduce a heavy framework during renderer
+modularization; use the smallest domain boundary that preserves snapshot,
+conflict, and strict-write invariants. Any future JobManager-style design needs
+its own ADR or explicit milestone.
+
 ---
 
 ## Context

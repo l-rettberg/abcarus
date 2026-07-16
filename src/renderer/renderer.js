@@ -177,6 +177,7 @@ import {
 import {
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
 } from "./playback/focus_playback_model.js";
+import { injectPlaybackMidiFxControls } from "./playback/playback_midi_fx_model.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import {
@@ -6584,34 +6585,6 @@ async function runPrintAllAction(type) {
   await printAllFeature.runAction(type);
 }
 
-function injectPlaybackMidiFxControls(text, offset) {
-  const fxSettings = resolvePlaybackFxSettings(latestSettingsSnapshot || {});
-  const reverbRaw = fxSettings && fxSettings.playbackMidiReverb != null
-    ? Number(fxSettings.playbackMidiReverb)
-    : NaN;
-  const chorusRaw = fxSettings && fxSettings.playbackMidiChorus != null
-    ? Number(fxSettings.playbackMidiChorus)
-    : NaN;
-  const toLevel = (value) => {
-    if (!Number.isFinite(value) || value <= 0) return null;
-    return Math.max(1, Math.min(127, Math.round(value)));
-  };
-  const reverb = toLevel(reverbRaw);
-  const chorus = toLevel(chorusRaw);
-  if (!reverb && !chorus) {
-    return { text, offset: Number(offset) || 0 };
-  }
-
-  const lines = [];
-  if (reverb) lines.push(`%%MIDI control 91 ${reverb}`);
-  if (chorus) lines.push(`%%MIDI control 93 ${chorus}`);
-  const insert = `${lines.join("\n")}\n`;
-  const base = String(text || "");
-  const idx = Math.max(0, Math.min(base.length, Number(offset) || 0));
-  const next = `${base.slice(0, idx)}${insert}${base.slice(idx)}`;
-  return { text: next, offset: idx + insert.length };
-}
-
 function normalizeAccThreeQuarterToneForAbc2svg(text) {
   // abc2svg has built-in glyphs for quarter-tones as 1/2 semitone (acc-1_2) and 3/2 semitones (acc-3_2),
   // but some real-world ABC uses 3/4 tone accidentals written as "_3/4" or "^3/4".
@@ -11009,7 +10982,11 @@ async function preparePlayback() {
     showToast("No ABC block to play.", 2200);
     return;
   }
-  const fxInjected = injectPlaybackMidiFxControls(playbackPayload.text, playbackPayload.offset || 0);
+  const fxInjected = injectPlaybackMidiFxControls(
+    playbackPayload.text,
+    playbackPayload.offset || 0,
+    resolvePlaybackFxSettings(latestSettingsSnapshot || {})
+  );
   const playbackPayloadText = fxInjected.text;
   const playbackPayloadOffset = fxInjected.offset;
   const selectionMode = selectionPlaybackRuntime.isSelectionMode();

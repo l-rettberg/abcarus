@@ -19,24 +19,14 @@ import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
 import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import {
-  deleteCharBeforeCursor,
   foldBeginTextBlocks,
-  getActiveEditorView,
-  getEditorSelectionSignature as getEditorSelectionSignatureForView,
-  getFocusedEditorView as getFocusedEditorViewFromRefs,
   indentSelectionLess,
   indentSelectionMore,
   initSearchPanelShortcuts,
-  insertTextAtCursor,
   isInBeginTextBlockAtLine,
   moveLineSelection,
   openFindPanel,
   openReplacePanel,
-  scrollToPosInEditor as scrollViewToPos,
-  setEditorSelectionAt as setEditorSelectionAtView,
-  setEditorSelectionAtLineCol as setEditorSelectionAtLineColView,
-  setEditorSelectionRange as setEditorSelectionRangeView,
-  toggleLineComments as toggleLineCommentsForView,
 } from "./editor/editor_commands.js";
 import {
   parseDecorationCatalogEnrichment,
@@ -4418,7 +4408,42 @@ async function performRawSaveFlow() {
 }
 
 function scrollToPosInEditor(pos, { y = "start" } = {}) {
-  scrollViewToPos(editorView, pos, { y });
+  if (!editorView) return;
+  const docLen = editorView.state.doc.length;
+  const safePos = Math.max(0, Math.min(Number(pos) || 0, docLen));
+  const effects = [];
+  if (typeof EditorView.scrollIntoView === "function") {
+    try {
+      effects.push(EditorView.scrollIntoView(safePos, { y }));
+    } catch {}
+  }
+  editorView.dispatch({
+    selection: EditorSelection.cursor(safePos),
+    effects,
+    scrollIntoView: true,
+  });
+  if (typeof editorView.lineBlockAt !== "function" || !editorView.scrollDOM) return;
+  const applyManualScroll = () => {
+    try {
+      const block = editorView.lineBlockAt(safePos);
+      if (!block || !Number.isFinite(Number(block.top))) return;
+      const top = Math.max(0, Number(block.top) - 8);
+      editorView.scrollDOM.scrollTop = top;
+    } catch {}
+  };
+  if (typeof editorView.requestMeasure === "function") {
+    try {
+      editorView.requestMeasure({
+        read: () => editorView.lineBlockAt(safePos),
+        write: (block) => {
+          if (!block || !Number.isFinite(Number(block.top))) return;
+          editorView.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
+        },
+      });
+      return;
+    } catch {}
+  }
+  applyManualScroll();
 }
 
 function selectTuneInRaw(tuneId) {
@@ -4438,36 +4463,114 @@ async function leaveRawModeForAction(contextLabel) {
 }
 
 function toggleLineComments(view) {
-  return toggleLineCommentsForView(view, {
-    isEditingBlocked: () => Boolean(isPlaying || isPaused || waitingForFirstNote),
-    showToast,
-  });
+  if (!view) return false;
+  if (isPlaying || isPaused || waitingForFirstNote) {
+    showToast("Playback active: stop before editing.", 2400);
+    return true;
+  }
+
+  const doc = view.state.doc;
+  const ranges = view.state.selection.ranges || [];
+  if (!ranges.length) return false;
+
+  const lineNumbers = new Set();
+  for (const r of ranges) {
+    const from = Math.min(r.from, r.to);
+    const to = Math.max(r.from, r.to);
+    const fromLine = doc.lineAt(from);
+    const toLine = doc.lineAt(to);
+    for (let n = fromLine.number; n <= toLine.number; n += 1) {
+      lineNumbers.add(n);
+    }
+  }
+  const lines = Array.from(lineNumbers).sort((a, b) => a - b);
+  if (!lines.length) return false;
+
+  const lineInfo = lines.map((n) => doc.line(n));
+  const isCommented = (lineText) => {
+    const m = /^[\t ]*/.exec(lineText);
+    const i = m ? m[0].length : 0;
+    return lineText[i] === "%";
+  };
+  const allCommented = lineInfo.every((ln) => isCommented(ln.text));
+
+  const changes = [];
+  for (let idx = lineInfo.length - 1; idx >= 0; idx -= 1) {
+    const ln = lineInfo[idx];
+    const text = ln.text;
+    const m = /^[\t ]*/.exec(text);
+    const indentLen = m ? m[0].length : 0;
+    const at = ln.from + indentLen;
+    if (allCommented) {
+      if (text[indentLen] === "%") {
+        const next = text[indentLen + 1];
+        const removeLen = next === " " ? 2 : 1;
+        changes.push({ from: at, to: at + removeLen, insert: "" });
+      }
+    } else {
+      changes.push({ from: at, to: at, insert: "% " });
+    }
+  }
+
+  if (!changes.length) return true;
+  view.dispatch({ changes });
+  return true;
 }
 
 function getFocusedEditorView() {
-  return getFocusedEditorViewFromRefs({
-    documentRef: document,
-    editorView,
-    headerView: fileHeaderController.getEditorView(),
-  });
+  const activeEl = document.activeElement;
+  const headerView = fileHeaderController.getEditorView();
+  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
+  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
+  return editorView || headerView || null;
 }
 
 // --- MIDI input / typing preview ---
 
 function getActiveEditorViewForMidi() {
-  return getActiveEditorView({
-    documentRef: document,
-    editorView,
-    headerView: fileHeaderController.getEditorView(),
-  });
+  const activeEl = document.activeElement;
+  const headerView = fileHeaderController.getEditorView();
+  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
+  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
+  return null;
 }
 
 function insertEditorTextAtCursor(text, userEvent = "input") {
-  return insertTextAtCursor(getActiveEditorViewForMidi(), text, userEvent);
+  const view = getActiveEditorViewForMidi();
+  if (!view || !text) return false;
+  const sel = view.state.selection.main;
+  const from = sel.from;
+  const to = sel.to;
+  const insert = String(text);
+  const cursorPos = from + insert.length;
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: EditorSelection.cursor(cursorPos),
+    userEvent,
+  });
+  return true;
 }
 
 function deleteEditorCharBeforeCursorForMidi() {
-  return deleteCharBeforeCursor(getActiveEditorViewForMidi());
+  const view = getActiveEditorViewForMidi();
+  if (!view) return false;
+  const sel = view.state.selection.main;
+  if (!sel.empty) {
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: "" },
+      selection: EditorSelection.cursor(sel.from),
+      userEvent: "delete",
+    });
+    return true;
+  }
+  if (sel.from <= 0) return false;
+  const from = sel.from - 1;
+  view.dispatch({
+    changes: { from, to: sel.from, insert: "" },
+    selection: EditorSelection.cursor(from),
+    userEvent: "delete",
+  });
+  return true;
 }
 
 const midiInputFeature = createMidiInputFeature({
@@ -4765,7 +4868,19 @@ function setActiveTuneText(text, metadata, options = {}) {
 }
 
 function insertTextAtEditorSelection(text) {
-  return insertTextAtCursor(editorView, text, "input");
+  if (!editorView) return false;
+  if (!text) return false;
+  try {
+    const sel = editorView.state.selection;
+    editorView.dispatch({
+      changes: { from: sel.main.from, to: sel.main.to, insert: text },
+      selection: { anchor: sel.main.from + text.length },
+      userEvent: "input",
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function setLibraryVisible(visible, { persist = true } = {}) {
@@ -5999,20 +6114,32 @@ function highlightRenderNoteAtIndex(renderIdx) {
 
 function setEditorSelectionAt(idx) {
   if (!editorView || !Number.isFinite(idx)) return;
-  const pos = Math.max(0, Math.min(idx, editorView.state.doc.length));
-  setEditorSelectionAtView(editorView, pos);
+  const max = editorView.state.doc.length;
+  const pos = Math.max(0, Math.min(idx, max));
+  editorView.dispatch({
+    selection: EditorSelection.cursor(pos),
+    scrollIntoView: true,
+  });
   highlightNoteAtIndex(pos);
 }
 
 function setEditorSelectionRange(start, end) {
   if (!editorView || !Number.isFinite(start)) return;
-  const anchor = Math.max(0, Math.min(start, editorView.state.doc.length));
-  setEditorSelectionRangeView(editorView, start, end);
+  const max = editorView.state.doc.length;
+  const anchor = Math.max(0, Math.min(start, max));
+  const head = Number.isFinite(end) ? Math.max(anchor, Math.min(end, max)) : anchor;
+  editorView.dispatch({
+    selection: EditorSelection.range(anchor, head),
+    scrollIntoView: true,
+  });
   highlightNoteAtIndex(anchor);
 }
 
 function setEditorSelectionAtLineCol(line, col) {
-  setEditorSelectionAtLineColView(editorView, line, col);
+  if (!editorView || !Number.isFinite(line) || !Number.isFinite(col)) return;
+  const lineInfo = editorView.state.doc.line(Math.max(1, Math.min(line, editorView.state.doc.lines)));
+  const pos = Math.min(lineInfo.to, lineInfo.from + Math.max(0, col - 1));
+  setEditorSelectionAt(pos);
 }
 
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
@@ -8657,7 +8784,13 @@ function getEditorMeasureStartOffset() {
 }
 
 function getEditorSelectionSignature() {
-  return getEditorSelectionSignatureForView(editorView);
+  if (!editorView) return "";
+  const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
+  if (!sel) return "";
+  const max = editorView.state.doc.length;
+  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+  return `${anchor}:${head}`;
 }
 
 function shouldResumeFromPause() {

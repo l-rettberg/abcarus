@@ -1,5 +1,4 @@
 import {
-  EditorView,
   EditorSelection,
   indentUnit,
   openSearchPanel,
@@ -113,191 +112,6 @@ function moveLineSelection(view, delta) {
   }
   view.dispatch({ selection: EditorSelection.create(ranges), scrollIntoView: true });
   return true;
-}
-
-function scrollToPosInEditor(view, pos, { y = "start" } = {}) {
-  if (!view) return;
-  const docLen = view.state.doc.length;
-  const safePos = Math.max(0, Math.min(Number(pos) || 0, docLen));
-  const effects = [];
-  if (typeof EditorView.scrollIntoView === "function") {
-    try {
-      effects.push(EditorView.scrollIntoView(safePos, { y }));
-    } catch {}
-  }
-  view.dispatch({
-    selection: EditorSelection.cursor(safePos),
-    effects,
-    scrollIntoView: true,
-  });
-  if (typeof view.lineBlockAt !== "function" || !view.scrollDOM) return;
-  const applyManualScroll = () => {
-    try {
-      const block = view.lineBlockAt(safePos);
-      if (!block || !Number.isFinite(Number(block.top))) return;
-      const top = Math.max(0, Number(block.top) - 8);
-      view.scrollDOM.scrollTop = top;
-    } catch {}
-  };
-  if (typeof view.requestMeasure === "function") {
-    try {
-      view.requestMeasure({
-        read: () => view.lineBlockAt(safePos),
-        write: (block) => {
-          if (!block || !Number.isFinite(Number(block.top))) return;
-          view.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
-        },
-      });
-      return;
-    } catch {}
-  }
-  applyManualScroll();
-}
-
-function toggleLineComments(view, { isEditingBlocked = () => false, showToast = () => {} } = {}) {
-  if (!view) return false;
-  if (isEditingBlocked()) {
-    showToast("Playback active: stop before editing.", 2400);
-    return true;
-  }
-
-  const doc = view.state.doc;
-  const ranges = view.state.selection.ranges || [];
-  if (!ranges.length) return false;
-
-  const lineNumbers = new Set();
-  for (const r of ranges) {
-    const from = Math.min(r.from, r.to);
-    const to = Math.max(r.from, r.to);
-    const fromLine = doc.lineAt(from);
-    const toLine = doc.lineAt(to);
-    for (let n = fromLine.number; n <= toLine.number; n += 1) {
-      lineNumbers.add(n);
-    }
-  }
-  const lines = Array.from(lineNumbers).sort((a, b) => a - b);
-  if (!lines.length) return false;
-
-  const lineInfo = lines.map((n) => doc.line(n));
-  const isCommented = (lineText) => {
-    const m = /^[\t ]*/.exec(lineText);
-    const i = m ? m[0].length : 0;
-    return lineText[i] === "%";
-  };
-  const allCommented = lineInfo.every((ln) => isCommented(ln.text));
-
-  const changes = [];
-  for (let idx = lineInfo.length - 1; idx >= 0; idx -= 1) {
-    const ln = lineInfo[idx];
-    const text = ln.text;
-    const m = /^[\t ]*/.exec(text);
-    const indentLen = m ? m[0].length : 0;
-    const at = ln.from + indentLen;
-    if (allCommented) {
-      if (text[indentLen] === "%") {
-        const next = text[indentLen + 1];
-        const removeLen = next === " " ? 2 : 1;
-        changes.push({ from: at, to: at + removeLen, insert: "" });
-      }
-    } else {
-      changes.push({ from: at, to: at, insert: "% " });
-    }
-  }
-
-  if (!changes.length) return true;
-  view.dispatch({ changes });
-  return true;
-}
-
-function getFocusedEditorView({ documentRef = document, editorView = null, headerView = null } = {}) {
-  const activeEl = documentRef.activeElement;
-  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
-  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
-  return editorView || headerView || null;
-}
-
-function getActiveEditorView({ documentRef = document, editorView = null, headerView = null } = {}) {
-  const activeEl = documentRef.activeElement;
-  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
-  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
-  return null;
-}
-
-function insertTextAtCursor(view, text, userEvent = "input") {
-  if (!view || !text) return false;
-  const sel = view.state.selection.main;
-  const from = sel.from;
-  const to = sel.to;
-  const insert = String(text);
-  const cursorPos = from + insert.length;
-  view.dispatch({
-    changes: { from, to, insert },
-    selection: EditorSelection.cursor(cursorPos),
-    userEvent,
-  });
-  return true;
-}
-
-function deleteCharBeforeCursor(view) {
-  if (!view) return false;
-  const sel = view.state.selection.main;
-  if (!sel.empty) {
-    view.dispatch({
-      changes: { from: sel.from, to: sel.to, insert: "" },
-      selection: EditorSelection.cursor(sel.from),
-      userEvent: "delete",
-    });
-    return true;
-  }
-  if (sel.from <= 0) return false;
-  const from = sel.from - 1;
-  view.dispatch({
-    changes: { from, to: sel.from, insert: "" },
-    selection: EditorSelection.cursor(from),
-    userEvent: "delete",
-  });
-  return true;
-}
-
-function setEditorSelectionAt(view, idx) {
-  if (!view) return;
-  const docLen = view.state.doc.length;
-  const pos = Math.max(0, Math.min(Number(idx) || 0, docLen));
-  view.dispatch({
-    selection: EditorSelection.cursor(pos),
-    scrollIntoView: true,
-  });
-}
-
-function setEditorSelectionRange(view, start, end) {
-  if (!view) return;
-  const docLen = view.state.doc.length;
-  const anchor = Math.max(0, Math.min(Number(start) || 0, docLen));
-  const head = Number.isFinite(Number(end))
-    ? Math.max(anchor, Math.min(Number(end), docLen))
-    : anchor;
-  view.dispatch({
-    selection: EditorSelection.range(anchor, head),
-    scrollIntoView: true,
-  });
-}
-
-function setEditorSelectionAtLineCol(view, line, col) {
-  if (!view) return;
-  const lineNo = Math.max(1, Math.min(Number(line) || 1, view.state.doc.lines));
-  const lineInfo = view.state.doc.line(lineNo);
-  const pos = lineInfo.from + Math.max(0, Math.min((Number(col) || 1) - 1, lineInfo.length));
-  setEditorSelectionAt(view, pos);
-}
-
-function getEditorSelectionSignature(view) {
-  if (!view) return "";
-  const sel = view.state.selection && view.state.selection.main ? view.state.selection.main : null;
-  if (!sel) return "";
-  const max = view.state.doc.length;
-  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
-  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
-  return `${anchor}:${head}`;
 }
 
 function initSearchPanelShortcuts(documentRef = document) {
@@ -427,22 +241,12 @@ function wireSearchPanelHotkeys(panel) {
 }
 
 export {
-  deleteCharBeforeCursor,
   foldBeginTextBlocks,
-  getActiveEditorView,
-  getEditorSelectionSignature,
-  getFocusedEditorView,
   indentSelectionLess,
   indentSelectionMore,
   initSearchPanelShortcuts,
-  insertTextAtCursor,
   isInBeginTextBlockAtLine,
   moveLineSelection,
   openFindPanel,
   openReplacePanel,
-  scrollToPosInEditor,
-  setEditorSelectionAt,
-  setEditorSelectionAtLineCol,
-  setEditorSelectionRange,
-  toggleLineComments,
 };

@@ -199,6 +199,7 @@ import {
   stripSepForRender,
 } from "./render/render_payload_model.js";
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
+import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -1022,7 +1023,7 @@ const errorsFeature = createErrorsFeature({
   getEditorText: () => editorView ? editorView.state.doc.toString() : "",
   getEditorView: () => editorView,
   getRenderPayload,
-  getLastRenderPayload: () => lastRenderPayload,
+  getLastRenderPayload: () => getLastRenderPayload(),
   getOutputElement: () => $out,
   getRenderPaneElement: () => $renderPane,
   findMeasureRangeAt,
@@ -1477,8 +1478,8 @@ function highlightSvgFollowBarAtEditorOffset(editorOffset) {
   if (!$out || !$renderPane) return false;
   if (!Number.isFinite(editorOffset)) return false;
   if (!editorView) return false;
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const editorText = editorView.state.doc.toString();
   const measure = findMeasureRangeAt(editorText, editorOffset);
@@ -1717,7 +1718,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getPlaybackParseErrors: () => playbackParseErrors,
   getPlaybackSanitizeWarnings: () => playbackSanitizeWarnings,
   getLastRhythmErrorSuggestion: () => errorsFeature.getLastRhythmErrorSuggestion(),
-  getLastRenderPayload: () => lastRenderPayload,
+  getLastRenderPayload: () => getLastRenderPayload(),
   getBarMismatchMarkers: () => errorsFeature.getBarMismatchMarkers(),
   getErrorEntries: () => getErrorEntries(),
   getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
@@ -1912,7 +1913,7 @@ let libraryFilter = null;
 let libraryFilterLabel = "";
 let libraryTextFilter = "";
 let suppressRecentEntries = false;
-let lastRenderPayload = null;
+let renderPipelineController = null;
 let noteHighlightIndexCache = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let globalHeaderText = "";
@@ -1927,7 +1928,11 @@ const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
 
 function getRenderCompatMap() {
-  return getRenderCompatMapFromPayload(lastRenderPayload);
+  return getRenderCompatMapFromPayload(getLastRenderPayload());
+}
+
+function getLastRenderPayload() {
+  return renderPipelineController ? renderPipelineController.getLastPayload() : null;
 }
 
 function mapSourceOffsetToRenderOffset(offset, compatMap = getRenderCompatMap()) {
@@ -1938,11 +1943,11 @@ function mapRenderOffsetToSourceOffset(offset, compatMap = getRenderCompatMap())
   return mapRenderOffsetToSourceOffsetCore(offset, compatMap);
 }
 
-function mapEditorOffsetToRenderIdx(editorOffset, payload = lastRenderPayload) {
+function mapEditorOffsetToRenderIdx(editorOffset, payload = getLastRenderPayload()) {
   return mapEditorOffsetToRenderIdxCore(editorOffset, payload);
 }
 
-function mapRenderIdxToEditorOffset(renderIdx, payload = lastRenderPayload) {
+function mapRenderIdxToEditorOffset(renderIdx, payload = getLastRenderPayload()) {
   return mapRenderIdxToEditorOffsetCore(renderIdx, payload);
 }
 
@@ -3971,8 +3976,8 @@ function highlightSvgIntonationBarsAtEditorOffsets(offsets) {
     clearSvgIntonationBarHighlight();
     return false;
   }
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const editorText = editorView.state.doc.toString();
   const measures = new Map();
@@ -4017,8 +4022,8 @@ function highlightSvgIntonationNotesAtEditorOffsets(offsets) {
   clearSvgIntonationNoteHighlight();
   if (!list.length) return false;
 
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const hits = new Set();
   const maxHits = 800; // keep UI responsive for very dense tunes
@@ -4208,8 +4213,8 @@ function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
   if (!$out || !$renderPane) return false;
   if (!Number.isFinite(editorOffset)) return false;
   if (!editorView) return false;
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const editorText = editorView.state.doc.toString();
   const measure = findMeasureRangeAt(editorText, editorOffset);
@@ -6059,8 +6064,8 @@ function findNearestNoteHighlightElements(renderIdx, maxDelta = 240) {
 function highlightNoteAtIndex(idx) {
   if (!$out) return;
   clearNoteSelection();
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const renderIdx = Number.isFinite(idx) ? mapEditorOffsetToRenderIdx(idx) : idx;
   const els = $out.querySelectorAll("._" + renderIdx + "_");
@@ -6316,353 +6321,68 @@ function assertCleanAbcText(text, originLabel) {
   return true;
 }
 
-let pendingRenderTimer = null;
-let pendingRenderRaf = null;
-let renderRequestToken = 0;
-let pendingRenderPerfContext = null;
-let activeRenderPerfContext = null;
-let pendingBarMismatchAnalysisRaf = null;
+renderPipelineController = createRenderPipelineController({
+  windowRef: window,
+  outputElement: $out,
+  getRawMode: () => rawMode,
+  isChordProFullView: () => chordProFeature.isFullView(),
+  isChordProEnabled: () => chordProFeature.isEnabled(),
+  chordProHasBlocks: () => chordProFeature.hasBlocks(),
+  getEditorText: getEditorValue,
+  getEditorView: () => editorView,
+  getRenderPayload,
+  normalizeHeaderText: normalizeHeaderNoneSpacing,
+  stripSepForRender,
+  assertCleanAbcText,
+  ensureAbc2svgLoader,
+  ensureAbc2svgModules,
+  getAbcCtor,
+  clearNoteSelection,
+  invalidateNoteHighlightIndexCache,
+  clearErrors,
+  setRenderBusy,
+  setStatus,
+  logError: logErr,
+  addError,
+  setBarMismatchMarkers,
+  setErrorLineOffset: (lineOffset) => errorsFeature.setLineOffset(lineOffset),
+  setErrorLineOffsetFromHeader,
+  updateLibraryErrorIndexFromCurrentErrors,
+  reconcileActiveErrorHighlightAfterRender,
+  detectMeterMismatchInBarlines,
+  detectRepeatMarkerAfterShortBar,
+  applyMeasureHighlights,
+  highlightNoteAtIndex,
+  getActiveErrorHighlightRange: () => errorsFeature.getActiveHighlightRange(),
+  highlightSvgAtEditorOffset,
+  isPlaybackBusy,
+  isTransportJumpHighlightActive: () => transportJumpHighlightActive,
+  highlightSvgPracticeBarAtEditorOffset,
+  isDebugMessagesEnabled,
+  setTransientBufferStatus,
+  isRenderPerfEnabled,
+  perfNowMs,
+  logRenderPerf,
+  refreshBarMismatchMarkersForTune: (text, options) => errorsFeature.refreshBarMismatchMarkersForTune(text, options),
+  addBarMismatchErrorsFromMarkers: () => errorsFeature.addBarMismatchErrorsFromMarkers(),
+  updateErrorsIndicatorAndPopover: () => errorsFeature.updateIndicatorAndPopover(),
+  getErrorCount: () => errorsFeature.getErrors ? errorsFeature.getErrors().length : undefined,
+});
 
 function setRenderBusy(next) {
   if (playbackUiController) playbackUiController.setRenderBusy(next);
 }
 
 function clearRenderOutput(statusText = "Ready") {
-  cancelPendingBarMismatchAnalysis();
-  setBarMismatchMarkers([]);
-  setStatus(statusText || "Ready");
-  if ($out) $out.innerHTML = "";
-  invalidateNoteHighlightIndexCache();
-  setRenderBusy(false);
-  updateLibraryErrorIndexFromCurrentErrors();
-  reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
+  if (renderPipelineController) renderPipelineController.clearOutput(statusText);
 }
 
-function cancelPendingBarMismatchAnalysis() {
-  if (!pendingBarMismatchAnalysisRaf) return;
-  try {
-    if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(pendingBarMismatchAnalysisRaf);
-  } catch {}
-  pendingBarMismatchAnalysisRaf = null;
-}
-
-function scheduleBarMismatchAnalysisAfterRender(tuneText, token) {
-  cancelPendingBarMismatchAnalysis();
-  if (!errorsFeature || !tuneText) return;
-  try {
-    if (typeof requestAnimationFrame !== "function") return;
-    const text = String(tuneText || "");
-    pendingBarMismatchAnalysisRaf = requestAnimationFrame(() => {
-      pendingBarMismatchAnalysisRaf = null;
-      if (Number(token) !== Number(renderRequestToken)) return;
-      const perfOn = isRenderPerfEnabled();
-      const t0 = perfOn ? perfNowMs() : 0;
-      errorsFeature.refreshBarMismatchMarkersForTune(text, { deferEditorRefresh: true });
-      errorsFeature.addBarMismatchErrorsFromMarkers();
-      updateLibraryErrorIndexFromCurrentErrors();
-      errorsFeature.updateIndicatorAndPopover();
-      if (perfOn) {
-        logRenderPerf("bar mismatch: after render", {
-          token,
-          ms: Math.round(perfNowMs() - t0),
-        });
-      }
-    });
-  } catch {}
-}
-
-function scheduleRenderNow({ delayMs = 0, clearOutput = false, source = "" } = {}) {
-  if (rawMode || chordProFeature.isFullView()) return;
-  renderRequestToken += 1;
-  const token = renderRequestToken;
-  if (pendingRenderTimer) {
-    clearTimeout(pendingRenderTimer);
-    pendingRenderTimer = null;
-  }
-  if (pendingRenderRaf) {
-    cancelAnimationFrame(pendingRenderRaf);
-    pendingRenderRaf = null;
-  }
-
-  if (clearOutput) {
-    try {
-      setStatus("Rendering…");
-      setRenderBusy(true);
-    } catch {}
-  }
-
-  if (isRenderPerfEnabled()) {
-    pendingRenderPerfContext = {
-      token,
-      requestedAtMs: perfNowMs(),
-      source: String(source || "scheduleRenderNow"),
-      clearOutput: Boolean(clearOutput),
-      delayMs: Number(delayMs) || 0,
-      editorChars: String(getEditorValue() || "").length,
-    };
-    logRenderPerf("schedule", {
-      token,
-      source: pendingRenderPerfContext.source,
-      clearOutput: pendingRenderPerfContext.clearOutput,
-      delayMs: pendingRenderPerfContext.delayMs,
-      editorChars: pendingRenderPerfContext.editorChars,
-    });
-  } else {
-    pendingRenderPerfContext = null;
-  }
-
-  const run = () => {
-    if (token !== renderRequestToken) return;
-    activeRenderPerfContext = pendingRenderPerfContext && pendingRenderPerfContext.token === token
-      ? pendingRenderPerfContext
-      : null;
-    if (activeRenderPerfContext) {
-      logRenderPerf("raf -> renderNow", {
-        token,
-        source: activeRenderPerfContext.source,
-        waitMs: Math.round(perfNowMs() - activeRenderPerfContext.requestedAtMs),
-      });
-    }
-    try {
-      renderNow();
-    } finally {
-      activeRenderPerfContext = null;
-    }
-  };
-
-  if (delayMs > 0) {
-    pendingRenderTimer = setTimeout(() => {
-      pendingRenderTimer = null;
-      pendingRenderRaf = requestAnimationFrame(() => {
-        pendingRenderRaf = null;
-        run();
-      });
-    }, delayMs);
-    return;
-  }
-
-  pendingRenderRaf = requestAnimationFrame(() => {
-    pendingRenderRaf = null;
-    run();
-  });
+function scheduleRenderNow(options = {}) {
+  if (renderPipelineController) renderPipelineController.scheduleRenderNow(options);
 }
 
 function renderNow() {
-  const perfOn = isRenderPerfEnabled();
-  const tRender0 = perfOn ? perfNowMs() : 0;
-  const perfContext = activeRenderPerfContext;
-  const renderToken = perfContext && Number.isFinite(Number(perfContext.token))
-    ? Number(perfContext.token)
-    : Number(renderRequestToken);
-  cancelPendingBarMismatchAnalysis();
-  clearNoteSelection();
-  invalidateNoteHighlightIndexCache();
-  clearErrors();
-  setRenderBusy(true);
-  const currentText = getEditorValue();
-  if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
-    clearRenderOutput("ChordPro full view.");
-    return;
-  }
-  if (chordProFeature.isEnabled() && !chordProFeature.hasBlocks()) {
-    clearRenderOutput("No ABC blocks.");
-    return;
-  }
-  if (!currentText.trim()) {
-    setBarMismatchMarkers([]);
-    setStatus("Ready");
-    setRenderBusy(false);
-    updateLibraryErrorIndexFromCurrentErrors();
-    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
-    if (perfOn) {
-      logRenderPerf("renderNow: empty", {
-        token: perfContext ? perfContext.token : null,
-        totalMs: Math.round(perfNowMs() - tRender0),
-      });
-    }
-    return;
-  }
-  const tPrepare0 = perfOn ? perfNowMs() : 0;
-  let tPrepareStep = tPrepare0;
-  const logPrepareStep = (label, data = {}) => {
-    if (!perfOn) return;
-    const now = perfNowMs();
-    logRenderPerf(`renderNow: prepare ${label}`, {
-      token: perfContext ? perfContext.token : null,
-      ms: Math.round(now - tPrepareStep),
-      totalMs: Math.round(now - tPrepare0),
-      ...data,
-    });
-    tPrepareStep = now;
-  };
-  const renderPayload = getRenderPayload();
-  logPrepareStep("payload", {
-    payloadChars: renderPayload && renderPayload.text ? String(renderPayload.text).length : 0,
-    offset: renderPayload ? (renderPayload.offset || 0) : 0,
-  });
-  if (!assertCleanAbcText(renderPayload.text, "renderNow")) {
-    logErr("ABC text corruption detected (render).");
-    setStatus("Error");
-    setRenderBusy(false);
-    updateLibraryErrorIndexFromCurrentErrors();
-    return;
-  }
-  const renderTextBase = normalizeHeaderNoneSpacing(renderPayload.text);
-  const sepStripInitial = stripSepForRender(renderTextBase);
-  let renderText = sepStripInitial.replaced ? sepStripInitial.text : renderTextBase;
-  let sepFallbackUsed = sepStripInitial.replaced;
-  logPrepareStep("normalize", {
-    renderChars: String(renderText || "").length,
-    sepFallbackUsed,
-  });
-  lastRenderPayload = {
-    text: renderText,
-    offset: renderPayload.offset || 0,
-    lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-    compatMap: null,
-  };
-  if (Number.isFinite(renderPayload.lineOffset)) {
-    errorsFeature.setLineOffset(renderPayload.lineOffset);
-  } else {
-    setErrorLineOffsetFromHeader(renderPayload.text.slice(0, renderPayload.offset || 0));
-  }
-  setStatus("Rendering…");
-  if (perfOn) {
-    logRenderPerf("renderNow: prepared", {
-      token: perfContext ? perfContext.token : null,
-      source: perfContext ? perfContext.source : "direct",
-      ms: Math.round(perfNowMs() - tPrepare0),
-      editorChars: currentText.length,
-      payloadChars: String(renderText || "").length,
-      offset: renderPayload.offset || 0,
-    });
-  }
-
-  try {
-    ensureAbc2svgLoader();
-    if (!ensureAbc2svgModules(renderText)) {
-      setStatus("Loading modules…");
-      setRenderBusy(true);
-      return;
-    }
-
-    let attempts = 0;
-    while (attempts < 2) {
-      attempts += 1;
-      try {
-        const svgParts = [];
-        let abcInstance = null;
-
-        const user = {
-          img_out: (s) => svgParts.push(s),
-          err: (msg) => logErr(msg),
-          errmsg: (msg, line, col) => {
-            const loc = Number.isFinite(line) && Number.isFinite(col)
-              ? { line: line + 1, col: col + 1 }
-              : null;
-            logErr(msg, loc);
-          },
-          anno_stop: (type, start, stop, x, y, w, h) => {
-            if (!abcInstance) return;
-            if (type === "beam" || type === "slur" || type === "tuplet") return;
-            const cls = type === "bar" ? "bar-hl" : "note-hl";
-            abcInstance.out_svg(
-              '<rect class="' + cls + ' _' + start + '_" data-start="' + start + '" data-end="' + stop + '" x="'
-            );
-            abcInstance.out_sxsy(x, '" y="', y);
-            abcInstance.out_svg(
-              '" width="' + w.toFixed(2) + '" height="' + abcInstance.sh(h).toFixed(2) + '"/>\n'
-            );
-          },
-        };
-
-        const AbcCtor = getAbcCtor();
-        if (!AbcCtor) throw new Error("abc2svg constructor not found. Check third_party/abc2svg scripts.");
-
-        const abc = new AbcCtor(user);
-        abcInstance = abc;
-        const tSvg0 = perfOn ? perfNowMs() : 0;
-        abc.tosvg("out", renderText);
-        if (perfOn) {
-          logRenderPerf("renderNow: abc2svg", {
-            token: perfContext ? perfContext.token : null,
-            attempt: attempts,
-            ms: Math.round(perfNowMs() - tSvg0),
-            svgParts: svgParts.length,
-          });
-        }
-        const meterWarn = detectMeterMismatchInBarlines(renderText);
-        if (meterWarn && meterWarn.detail) {
-          addError(`Warning: Meter mismatch: ${meterWarn.detail}`, meterWarn.loc || null, { skipMeasureRange: true });
-        }
-        const repeatWarn = detectRepeatMarkerAfterShortBar(renderText);
-        if (repeatWarn && repeatWarn.detail) {
-          addError(`Warning: ${repeatWarn.detail}`, repeatWarn.loc || null, { skipMeasureRange: true });
-        }
-
-        const svg = svgParts.join("");
-        if (!svg.trim()) throw new Error("No SVG output produced (see errors).");
-        const tDom0 = perfOn ? perfNowMs() : 0;
-        $out.innerHTML = svg;
-        invalidateNoteHighlightIndexCache();
-        applyMeasureHighlights(renderPayload.offset || 0);
-        // Keep notation synced to the editor selection (especially after edits re-render the SVG).
-        if (editorView) {
-          const anchor = editorView.state.selection.main.anchor;
-          highlightNoteAtIndex(anchor);
-          const activeErrorRange = errorsFeature.getActiveHighlightRange();
-          if (activeErrorRange && Number.isFinite(activeErrorRange.from)) {
-            highlightSvgAtEditorOffset(activeErrorRange.from);
-          }
-        if (!isPlaybackBusy() && transportJumpHighlightActive && Number.isFinite(anchor)) {
-          try {
-            highlightSvgPracticeBarAtEditorOffset(anchor);
-          } catch {}
-        }
-      }
-        if (sepFallbackUsed && isDebugMessagesEnabled()) {
-          setTransientBufferStatus("Note: %%sep ignored for rendering.");
-        }
-        setStatus("OK");
-        setRenderBusy(false);
-        updateLibraryErrorIndexFromCurrentErrors();
-        reconcileActiveErrorHighlightAfterRender({ renderSucceeded: true });
-        scheduleBarMismatchAnalysisAfterRender(currentText, renderToken);
-        if (perfOn) {
-          logRenderPerf("renderNow: done", {
-            token: perfContext ? perfContext.token : null,
-            domMs: Math.round(perfNowMs() - tDom0),
-            totalMs: Math.round(perfNowMs() - tRender0),
-            svgChars: svg.length,
-            errors: errorsFeature.getErrors ? errorsFeature.getErrors().length : undefined,
-          });
-        }
-        break;
-      } catch (e) {
-        if (!sepFallbackUsed) {
-          const sepStrip = stripSepForRender(renderText);
-          if (sepStrip.replaced) {
-            sepFallbackUsed = true;
-            renderText = sepStrip.text;
-            lastRenderPayload = {
-              text: renderText,
-              offset: renderPayload.offset || 0,
-              lineOffset: Number.isFinite(renderPayload.lineOffset) ? renderPayload.lineOffset : null,
-              compatMap: null,
-            };
-            continue;
-          }
-        }
-        throw e;
-      }
-    }
-  } catch (e) {
-    logErr((e && e.stack) ? e.stack : String(e));
-    setStatus("Error");
-    setRenderBusy(false);
-    updateLibraryErrorIndexFromCurrentErrors();
-    reconcileActiveErrorHighlightAfterRender({ renderSucceeded: false });
-  }
+  if (renderPipelineController) renderPipelineController.renderNow();
 }
 
 initEditor();
@@ -7742,8 +7462,8 @@ function centerRenderPaneOnCurrentAnchor() {
   const editorOffset = (activeErrorHighlight && Number.isFinite(activeErrorHighlight.from))
     ? activeErrorHighlight.from
     : editorView.state.selection.main.anchor;
-  const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-    ? lastRenderPayload.offset
+  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+    ? getLastRenderPayload().offset
     : 0;
   const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
   if (!Number.isFinite(renderIdx)) return;
@@ -7859,8 +7579,8 @@ if ($out) {
     const start = Number(target.dataset && target.dataset.start);
     const end = Number(target.dataset && target.dataset.end);
     if (Number.isFinite(start)) {
-      const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-        ? lastRenderPayload.offset
+      const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+        ? getLastRenderPayload().offset
         : 0;
       const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
       const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
@@ -9135,8 +8855,8 @@ function schedulePlaybackUiUpdate(istart) {
     const fromInjected = editorLen && editorIdx >= editorLen;
     if (fromInjected) return;
 
-    const renderOffset = (lastRenderPayload && Number.isFinite(lastRenderPayload.offset))
-      ? lastRenderPayload.offset
+    const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
+      ? getLastRenderPayload().offset
       : 0;
     const renderIdx = mapEditorOffsetToRenderIdx(editorIdx);
 
@@ -9745,7 +9465,7 @@ function buildFocusBarIndexMap(measureIndex, editorDocLength) {
 
 function buildFocusBarIndexMapFromSvg(editorDocLength) {
   if (!$out) return [];
-  const payload = lastRenderPayload || { offset: 0, compatMap: null };
+  const payload = getLastRenderPayload() || { offset: 0, compatMap: null };
   const renderOffset = Number.isFinite(payload && payload.offset) ? Number(payload.offset) : 0;
   const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
   const barEls = Array.from($out.querySelectorAll(".bar-hl"));

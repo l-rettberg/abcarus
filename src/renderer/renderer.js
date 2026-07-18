@@ -8883,8 +8883,7 @@ function ensurePlayer() {
     },
     onnote: (i, on) => {
       playbackTransport.lastPlaybackIdx = i;
-      if (on && playbackTransport.waitingForFirstNote) {
-        playbackTransport.waitingForFirstNote = false;
+      if (playbackTransport.consumeFirstNoteStart(on)) {
         setStatus("Playing…");
         setSoundfontCaption();
       }
@@ -10800,11 +10799,8 @@ async function startPlaybackAtIndex(startIdx) {
 
 function pausePlayback() {
   if (!playbackTransport.player || !playbackTransport.isPlaying) return;
-  playbackTransport.resumeStartIdx = Number.isFinite(playbackTransport.lastPlaybackIdx) ? playbackTransport.lastPlaybackIdx : playbackTransport.lastStartPlaybackIdx;
   stopPlaybackForRestart();
-  playbackTransport.isPlaying = false;
-  playbackTransport.isPaused = true;
-  playbackTransport.waitingForFirstNote = false;
+  playbackTransport.pause({ selectionSignature: getEditorSelectionSignature() });
   setStatus("Paused");
   updatePlayButton();
   setSoundfontCaption();
@@ -10821,7 +10817,6 @@ function pausePlayback() {
     const idx = Math.max(0, Math.min(playbackTransport.lastRenderIdx, max));
     editorView.dispatch({ selection: { anchor: idx, head: idx } });
   }
-  playbackTransport.pausedSelectionSignature = getEditorSelectionSignature();
 }
 
 async function startPlaybackAtMeasureOffset(delta) {
@@ -10873,12 +10868,10 @@ async function playDrumPreview(pitch, velocity) {
   try {
     if (playbackTransport.isPlaying || playbackTransport.isPaused) {
       stopPlaybackForRestart();
-      playbackTransport.isPlaying = false;
-      playbackTransport.isPaused = false;
-      playbackTransport.waitingForFirstNote = false;
+      playbackTransport.stopForPreview();
       updatePlayButton();
     }
-    playbackTransport.isPreviewing = true;
+    playbackTransport.beginPreview();
     await ensureSoundfontLoaded();
     const p = ensurePlayer();
     if (typeof p.set_sfu === "function") p.set_sfu(soundfontController.getSource() || "abc2svg.sf2");
@@ -10910,7 +10903,7 @@ async function playDrumPreview(pitch, velocity) {
     p.play(tunes[0][0], null, 0);
   } catch (e) {
     logErr((e && e.stack) ? e.stack : String(e));
-    playbackTransport.isPreviewing = false;
+    playbackTransport.endPreview();
   }
 }
 

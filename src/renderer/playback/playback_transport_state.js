@@ -265,6 +265,32 @@ function createPlaybackTransportState() {
     state.suppressOnEnd = false;
   };
 
+  state.pause = ({ selectionSignature = "" } = {}) => {
+    state.resumeStartIdx = Number.isFinite(state.lastPlaybackIdx) ? state.lastPlaybackIdx : state.lastStartPlaybackIdx;
+    state.isPlaying = false;
+    state.isPaused = true;
+    state.waitingForFirstNote = false;
+    state.pausedSelectionSignature = String(selectionSignature || "");
+  };
+
+  state.stopForPreview = () => {
+    state.markIdle();
+  };
+
+  state.beginPreview = () => {
+    state.isPreviewing = true;
+  };
+
+  state.endPreview = () => {
+    state.isPreviewing = false;
+  };
+
+  state.consumeFirstNoteStart = (on) => {
+    if (!on || !state.waitingForFirstNote) return false;
+    state.waitingForFirstNote = false;
+    return true;
+  };
+
   return state;
 }
 

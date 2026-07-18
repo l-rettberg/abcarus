@@ -524,10 +524,7 @@ function setAccumulatedTransposePreview(baseText, headerText, delta) {
 }
 let editorView = null;
 let isNewTuneDraft = false;
-let rawMode = false;
-let rawModeFilePath = null;
-let rawModeHeaderEndOffset = 0;
-let rawModeOriginalTuneId = null;
+let rawModeFeature = null;
 let payloadModeDecorations = null;
 let fileContextController = null;
 let editStateController = null;
@@ -546,6 +543,26 @@ let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
 let newFileAction = null;
+
+function isRawModeActive() {
+  return rawModeFeature ? rawModeFeature.isEnabled() : false;
+}
+
+function getRawModeFilePath() {
+  return rawModeFeature ? rawModeFeature.getFilePath() : null;
+}
+
+function resetRawModeState() {
+  if (rawModeFeature) rawModeFeature.resetState();
+}
+
+function setRawModeFilePath(filePath) {
+  if (rawModeFeature) rawModeFeature.setFilePath(filePath);
+}
+
+function setRawModeHeaderEndOffset(value) {
+  if (rawModeFeature) rawModeFeature.setHeaderEndOffset(value);
+}
 
 const currentDocumentController = createCurrentDocumentController({
   state: {
@@ -681,7 +698,7 @@ const payloadModeFeature = createPayloadModeFeature({
   setEditorCursor: payloadModeEditorAdapter.setEditorCursor,
   restoreEditorSelection: payloadModeEditorAdapter.restoreEditorSelection,
   getActiveTuneUid: () => activeTuneUid,
-  isRawMode: () => rawMode,
+  isRawMode: () => isRawModeActive(),
   isFocusModeEnabled: () => focusModeEnabled,
   getHeaderText: () => {
     const entry = getActiveFileEntry();
@@ -769,11 +786,7 @@ const chordProFeature = createChordProFeature({
   stripFileExtension,
   safeBasename,
   setRawModeUI,
-  resetRawModeState: () => {
-    rawModeFilePath = null;
-    rawModeHeaderEndOffset = 0;
-    rawModeOriginalTuneId = null;
-  },
+  resetRawModeState,
   resetPlaybackState,
   clearErrors,
   clearActiveTuneState: (filePath) => {
@@ -828,7 +841,7 @@ fileContextController = createFileContextController({
     getIsNewTuneDraft: () => isNewTuneDraft,
     setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
     getLibraryIndex: () => libraryIndex,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     isPayloadMode,
     isTuneErrorFilterActive,
     isTuneErrorScanInFlight,
@@ -984,7 +997,7 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   }),
   getEditorView: () => editorView,
   getEditorText: getEditorValue,
-  isRawMode: () => rawMode,
+  isRawMode: () => isRawModeActive(),
   isPayloadMode,
   isPlaying: () => playbackTransport.isPlaying,
   getActivePlaybackRange: () => playbackTransport.activePlaybackRange,
@@ -1020,7 +1033,7 @@ const errorsFeature = createErrorsFeature({
   showToast,
   logError: (...args) => console.error(...args),
   isMeasureCheckEnabled,
-  isRawMode: () => rawMode,
+  isRawMode: () => isRawModeActive(),
   isPayloadMode,
   getActiveTuneMeta: () => activeTuneMeta,
   getEditorText: () => editorView ? editorView.state.doc.toString() : "",
@@ -1781,7 +1794,7 @@ function scheduleSaveLayoutPrefs(patch) {
 }
 
 function isNormalModeForSplitToggle() {
-  return !rawMode && !focusModeEnabled;
+  return !isRawModeActive() && !focusModeEnabled;
 }
 
 function applyRightSplitOrientation(next) {
@@ -1789,7 +1802,7 @@ function applyRightSplitOrientation(next) {
 }
 
 function applyRightSplitSizesFromRatio() {
-  if (rawMode) {
+  if (isRawModeActive()) {
     if ($rightSplit) {
       $rightSplit.style.gridTemplateColumns = "1fr";
       $rightSplit.style.gridTemplateRows = "1fr";
@@ -1800,11 +1813,11 @@ function applyRightSplitSizesFromRatio() {
 }
 
 function setRightPaneSizes(leftWidth) {
-  layoutController.setRightPaneSizes(leftWidth, { rawMode });
+  layoutController.setRightPaneSizes(leftWidth, { rawMode: isRawModeActive() });
 }
 
 function initRightPaneResizer() {
-  layoutController.initRightPaneResizer({ isRawMode: () => rawMode });
+  layoutController.initRightPaneResizer({ isRawMode: () => isRawModeActive() });
 }
 
 function resetRightPaneSplit() {
@@ -2078,9 +2091,9 @@ async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = n
 
   const updatedFile = await refreshLibraryFile(p, { force: true });
   if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
-    rawModeHeaderEndOffset = Number(updatedFile.headerEndOffset) || 0;
+    setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
   }
-  if (rawMode) {
+  if (isRawModeActive()) {
     const parts = splitFileIntoHeaderAndBody((snapReloaded && snapReloaded.text) ? snapReloaded.text : "");
     fileHeaderController.setEditorValueClean(parts.headerText);
     suppressDirty = true;
@@ -2130,13 +2143,13 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null
     setFileNameMeta(stripFileExtension(updatedFile.basename || ""));
   }
   if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
-    rawModeHeaderEndOffset = Number(updatedFile.headerEndOffset) || 0;
+    setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
   }
   activeFilePath = targetPath;
   recordNavFilePath(targetPath);
 
-  if (rawMode) {
-    rawModeFilePath = targetPath;
+  if (isRawModeActive()) {
+    setRawModeFilePath(targetPath);
     const parts = splitFileIntoHeaderAndBody((snap && snap.text) ? snap.text : "");
     fileHeaderController.setEditorValueClean(parts.headerText);
     suppressDirty = true;
@@ -2270,7 +2283,7 @@ workingCopySyncController = createWorkingCopySyncController({
     getActiveTuneUid: () => activeTuneUid,
     getChordProFullText: () => chordProFeature.getFullText(),
     getCurrentDocumentPath,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot: () => workingCopySnapshot,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -2393,7 +2406,7 @@ saveFlowController = createSaveFlowController({
     getHeaderEditorValue,
     getIsNewTuneDraft: () => isNewTuneDraft,
     getLibraryIndex: () => libraryIndex,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot: () => workingCopySnapshot,
     getChordProFullText: () => chordProFeature.getFullText(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
@@ -2611,7 +2624,7 @@ const libraryTreeView = createLibraryTreeView({
   getActiveTuneId: () => activeTuneId,
   getActiveTuneUid: () => activeTuneUid,
   isPayloadMode,
-  isRawMode: () => rawMode,
+  isRawMode: () => isRawModeActive(),
   pathsEqual,
   commitRenameFile,
   requestLoadLibraryFile,
@@ -2660,7 +2673,7 @@ const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
   getActiveTuneMeta: () => activeTuneMeta,
   getCurrentDocDirty: isCurrentDocumentDirty,
   getHeaderDirty,
-  getRawMode: () => rawMode,
+  getRawMode: () => isRawModeActive(),
   findTuneById,
   getTuneText,
   pathsEqual,
@@ -2694,7 +2707,7 @@ const libraryContextMenu = createLibraryContextMenu({
   getCurrentDocDirty: isCurrentDocumentDirty,
   getHeaderDirty,
   getIsNewTuneDraft: () => isNewTuneDraft,
-  getRawMode: () => rawMode,
+  getRawMode: () => isRawModeActive(),
   getClipboardTune,
   getEditorView: () => editorView,
   getWindowApi: () => window.api,
@@ -2870,8 +2883,8 @@ const statusController = createStatusController({
   untitledLabel: UNTITLED_UNSAVED_LABEL,
   formatPathTail,
   getCurrentDoc: getCurrentDocument,
-  getRawMode: () => rawMode,
-  getRawModeFilePath: () => rawModeFilePath,
+  getRawMode: () => isRawModeActive(),
+  getRawModeFilePath,
   getActiveFilePath: () => activeFilePath,
   getActiveTuneMeta: () => activeTuneMeta,
   getIsNewTuneDraft: () => isNewTuneDraft,
@@ -2892,7 +2905,7 @@ editStateController = createEditStateController({
     getCurrentDoc: getCurrentDocument,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot: () => workingCopySnapshot,
   },
   actions: {
@@ -2979,17 +2992,13 @@ documentLifecycleController = createDocumentLifecycleController({
     output: $out,
   },
   state: {
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
   },
   actions: {
     setRawModeUi: setRawModeUI,
     setChordProMode: (enabled) => chordProFeature.setMode(Boolean(enabled)),
     resetChordProState: () => chordProFeature.resetState(),
-    resetRawModeState: () => {
-      rawModeFilePath = null;
-      rawModeHeaderEndOffset = 0;
-      rawModeOriginalTuneId = null;
-    },
+    resetRawModeState,
     setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
     setEditorText: setEditorValue,
     scheduleRender: scheduleRenderNow,
@@ -3105,7 +3114,7 @@ deleteTuneAction = createDeleteTuneAction({
     getLibraryIndex: () => libraryIndex,
     getActiveFilePath: () => activeFilePath,
     getActiveTuneId: () => activeTuneId,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
     isCurrentDocumentDirty,
@@ -3227,7 +3236,7 @@ renumberXAction = createRenumberXAction({
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
     getLibraryIndex: () => libraryIndex,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     isCurrentDocumentDirty,
     isWorkingCopyOpenForFile,
   },
@@ -3267,7 +3276,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     getLibraryIndex: () => libraryIndex,
     setLibraryIndex: (next) => { libraryIndex = next; },
     getWorkingCopySnapshot: () => workingCopySnapshot,
-    getRawMode: () => rawMode,
+    getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: () => focusModeEnabled,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
@@ -3386,8 +3395,8 @@ documentSessionController = createDocumentSessionController({
     isChordProText,
     isNewTuneDraft: () => isNewTuneDraft,
     isPayloadMode,
-    isRawMode: () => rawMode,
-    getRawModeFilePath: () => rawModeFilePath,
+    isRawMode: () => isRawModeActive(),
+    getRawModeFilePath,
   },
   actions: {
     clearCurrentDocument,
@@ -3454,7 +3463,7 @@ const sourceLinkFeature = createSourceLinkFeature({
   showToast,
   getEditorText: getEditorValue,
   hasEditor: () => Boolean(editorView),
-  isDisabled: () => Boolean(rawMode || chordProFeature.isEnabled()),
+  isDisabled: () => Boolean(isRawModeActive() || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
 });
 const printCurrentFeature = createPrintCurrentFeature({
@@ -3608,7 +3617,7 @@ installDevUiSmokeHook({
   getHasSvg: () => Boolean($out && $out.querySelector("svg")),
   getPlaybackDebug: () => window.__abcarusPlaybackDebug || null,
 });
-const rawModeFeature = createRawModeFeature({
+rawModeFeature = createRawModeFeature({
   api: window.api,
   documentRef: document,
   elements: {
@@ -3620,18 +3629,6 @@ const rawModeFeature = createRawModeFeature({
     errorsButton: $btnToggleErrors,
     scanErrorsButton: $scanErrorTunes,
     errorsIndicator: $errorsIndicator,
-  },
-  getState: () => ({
-    rawMode,
-    rawModeFilePath,
-    rawModeHeaderEndOffset,
-    rawModeOriginalTuneId,
-  }),
-  patchState: (patch = {}) => {
-    if (Object.prototype.hasOwnProperty.call(patch, "rawMode")) rawMode = Boolean(patch.rawMode);
-    if (Object.prototype.hasOwnProperty.call(patch, "rawModeFilePath")) rawModeFilePath = patch.rawModeFilePath || null;
-    if (Object.prototype.hasOwnProperty.call(patch, "rawModeHeaderEndOffset")) rawModeHeaderEndOffset = Number(patch.rawModeHeaderEndOffset) || 0;
-    if (Object.prototype.hasOwnProperty.call(patch, "rawModeOriginalTuneId")) rawModeOriginalTuneId = patch.rawModeOriginalTuneId || null;
   },
   getCurrentDoc: getCurrentDocument,
   patchCurrentDoc: (patch = {}) => {
@@ -3862,7 +3859,7 @@ function clearSvgIntonationNoteHighlight() {
 }
 
 function getIntonationSelectionScope() {
-  if (!editorView || rawMode || isPayloadMode()) return null;
+  if (!editorView || isRawModeActive() || isPayloadMode()) return null;
   try {
     const sel = editorView.state && editorView.state.selection ? editorView.state.selection.main : null;
     if (!sel || sel.empty) return null;
@@ -3998,7 +3995,7 @@ intonationExplorerFeature = createIntonationExplorerFeature({
     highlightBarsAtOffsets: highlightSvgIntonationBarsAtEditorOffsets,
     highlightNotesAtOffsets: highlightSvgIntonationNotesAtEditorOffsets,
     isPerfEnabled: isIntonationPerfEnabled,
-    isRawMode: () => rawMode,
+    isRawMode: () => isRawModeActive(),
     logError: (e) => logErr(e && e.message ? e.message : String(e)),
     logPerf: logIntonationPerf,
     nowMs: perfNowMs,
@@ -4484,7 +4481,7 @@ const midiInputFeature = createMidiInputFeature({
   deleteCharBeforeCursor: deleteEditorCharBeforeCursorForMidi,
   getDefaultLen,
   gcdInt,
-  isTypingPreviewBlocked: () => Boolean(rawMode || isPayloadMode() || chordProFeature.isEnabled()),
+  isTypingPreviewBlocked: () => Boolean(isRawModeActive() || isPayloadMode() || chordProFeature.isEnabled()),
   isMainEditorUpdate: (update) => Boolean(editorView && update && update.view === editorView),
   refreshCursorStatus,
   hasCursorStatus: () => Boolean(lastCursorStatus),
@@ -4594,8 +4591,8 @@ function initEditor() {
 		      run: (view) => (completionTooltipOpen(view) ? false : indentSelectionLess(view)),
 		    },
 		    { key: "Mod-/", run: toggleLineComments },
-		    { key: "F5", run: () => { if (rawMode) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } togglePlayPauseEffective().catch(() => {}); return true; } },
-		    { key: "F4", run: () => { if (rawMode) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } startPlaybackAtIndex(0); return true; } },
+		    { key: "F5", run: () => { if (isRawModeActive()) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } togglePlayPauseEffective().catch(() => {}); return true; } },
+		    { key: "F4", run: () => { if (isRawModeActive()) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } startPlaybackAtIndex(0); return true; } },
 		    { key: "F8", run: () => { resetLayout(); return true; } },
 	    { key: "F9", run: () => { refreshErrorsNow(); return true; } },
 	  ]);
@@ -4617,13 +4614,13 @@ function initEditor() {
           scheduleWorkingCopyFullSync();
         } else if (activeTuneUid) scheduleWorkingCopyTuneSync();
       }
-      if (!suppressDirty && !rawMode && !chordProFeature.isFullView()) {
+      if (!suppressDirty && !isRawModeActive() && !chordProFeature.isFullView()) {
         if (t) clearTimeout(t);
         t = setTimeout(() => scheduleRenderNow(), 400);
         sourceLinkFeature.scheduleUpdate();
       }
     }
-	    if (!rawMode && update.selectionSet && !playbackTransport.isPlaying) {
+	    if (!isRawModeActive() && update.selectionSet && !playbackTransport.isPlaying) {
 	      const idx = update.state.selection.main.anchor;
         chordProFeature.handleSelectionOffset(idx);
 	      if (followPlayback) {
@@ -4959,7 +4956,7 @@ if ($btnFileNew) {
   $btnFileNew.addEventListener("click", async () => {
     try {
       if (isPayloadMode()) { showToast("Exit Payload Mode to create a new file.", 2400); return; }
-      if (rawMode) {
+      if (isRawModeActive()) {
         const ok = await leaveRawModeForAction("creating a new file");
         if (!ok) return;
       }
@@ -4971,7 +4968,7 @@ if ($btnNewTune) {
   $btnNewTune.addEventListener("click", async () => {
     try {
       if (isPayloadMode()) { showToast("Exit Payload Mode to create/append tunes.", 2400); return; }
-      if (rawMode) {
+      if (isRawModeActive()) {
         const ok = await leaveRawModeForAction("creating a new tune");
         if (!ok) return;
       }
@@ -4983,7 +4980,7 @@ if ($btnTemplates) {
   $btnTemplates.addEventListener("click", async () => {
     try {
       if (isPayloadMode()) { showToast("Exit Payload Mode to use templates.", 2400); return; }
-      if (rawMode) {
+      if (isRawModeActive()) {
         const ok = await leaveRawModeForAction("opening templates");
         if (!ok) return;
       }
@@ -5000,7 +4997,7 @@ if ($btnFileOpen) {
   $btnFileOpen.addEventListener("click", async () => {
     try {
       if (isPayloadMode()) { showToast("Exit Payload Mode to open files.", 2400); return; }
-      if (rawMode) {
+      if (isRawModeActive()) {
         const ok = await leaveRawModeForAction("opening a file");
         if (!ok) return;
       }
@@ -5032,7 +5029,7 @@ if ($btnToggleRaw) {
         chordProFeature.setFullView(!chordProFeature.isFullView());
         return;
       }
-      if (rawMode) await exitRawMode();
+      if (isRawModeActive()) await exitRawMode();
       else await enterRawMode();
     } catch (e) {
       logErr((e && e.stack) ? e.stack : String(e));
@@ -5774,7 +5771,7 @@ async function promptGoToMeasureNumber() {
 
 async function goToMeasureFromMenu() {
   if (!editorView) return;
-  if (rawMode) {
+  if (isRawModeActive()) {
     setStatus("Go to Measure is unavailable in Raw mode.");
     return;
   }
@@ -5916,7 +5913,7 @@ function scheduleCursorNoteHighlight(idx) {
     const next = pendingCursorNoteHighlightIdx;
     pendingCursorNoteHighlightIdx = null;
     if (!followPlayback) return;
-    if (rawMode || playbackTransport.isPlaying) return;
+    if (isRawModeActive() || playbackTransport.isPlaying) return;
     highlightNoteAtIndex(next);
   });
 }
@@ -6154,7 +6151,7 @@ function assertCleanAbcText(text, originLabel) {
 renderPipelineController = createRenderPipelineController({
   windowRef: window,
   outputElement: $out,
-  getRawMode: () => rawMode,
+  getRawMode: () => isRawModeActive(),
   isChordProFullView: () => chordProFeature.isFullView(),
   isChordProEnabled: () => chordProFeature.isEnabled(),
   chordProHasBlocks: () => chordProFeature.hasBlocks(),
@@ -6860,7 +6857,7 @@ function wireMenuActions() {
           return;
         }
       }
-      if (rawMode) {
+      if (isRawModeActive()) {
         const blocked = new Set([
           "playStart",
           "playPrev",
@@ -6953,7 +6950,7 @@ function wireMenuActions() {
         }
         const confirm = await confirmReloadFromDisk(filePath);
         if (!confirm) return;
-        const restoreTuneId = rawMode ? null : (activeTuneId || null);
+        const restoreTuneId = isRawModeActive() ? null : (activeTuneId || null);
         const res = await discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId });
         if (!res || !res.ok) {
           await showSaveError(res && res.error ? res.error : "Unable to revert to disk.");
@@ -7563,7 +7560,7 @@ function updateFocusModeUi() {
 function setFocusModeEnabled(nextEnabled) {
   const next = Boolean(nextEnabled);
   if (focusModeEnabled === next) return;
-  if (rawMode && next) {
+  if (isRawModeActive() && next) {
     showToast("Exit Raw mode to use Focus.", 2200);
     return;
   }
@@ -8303,7 +8300,7 @@ function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, min
 }
 
 function computeFocusLoopPlaybackRange() {
-  if (!focusModeEnabled || !editorView || rawMode) return null;
+  if (!focusModeEnabled || !editorView || isRawModeActive()) return null;
   const focusResult = computeFocusPlaybackPlanFromCurrentState();
   if (!focusResult || !focusResult.ok || !focusResult.plan) return null;
   return {
@@ -8668,7 +8665,7 @@ async function playDrumPreview(pitch, velocity) {
 if ($btnPlayPause) {
   $btnPlayPause.addEventListener("click", async () => {
     try {
-      if (rawMode) {
+      if (isRawModeActive()) {
         showToast("Raw mode: switch to tune mode to play.", 2200);
         return;
       }
@@ -8828,7 +8825,7 @@ if ($btnToggleSplit) {
 if ($btnPlay) {
   $btnPlay.addEventListener("click", async () => {
     try {
-      if (rawMode) {
+      if (isRawModeActive()) {
         showToast("Raw mode: switch to tune mode to play.", 2200);
         return;
       }
@@ -8843,7 +8840,7 @@ if ($btnPlay) {
 if ($btnPause) {
   $btnPause.addEventListener("click", async () => {
     try {
-      if (rawMode) {
+      if (isRawModeActive()) {
         showToast("Raw mode: switch to tune mode to play.", 2200);
         return;
       }

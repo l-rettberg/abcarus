@@ -11,8 +11,6 @@ function createRawModeFeature({
   api,
   documentRef = typeof document !== "undefined" ? document : null,
   elements = {},
-  getState = () => ({}),
-  patchState = () => {},
   getCurrentDoc = () => null,
   patchCurrentDoc = () => {},
   getActiveFilePath = () => "",
@@ -64,8 +62,44 @@ function createRawModeFeature({
   markActiveTuneButton = () => {},
   scrollToPosInEditor = () => {},
 } = {}) {
+  const state = {
+    rawMode: false,
+    rawModeFilePath: null,
+    rawModeHeaderEndOffset: 0,
+    rawModeOriginalTuneId: null,
+  };
+
+  function patchState(patch = {}) {
+    if (Object.prototype.hasOwnProperty.call(patch, "rawMode")) state.rawMode = Boolean(patch.rawMode);
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeFilePath")) state.rawModeFilePath = patch.rawModeFilePath || null;
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeHeaderEndOffset")) state.rawModeHeaderEndOffset = Number(patch.rawModeHeaderEndOffset) || 0;
+    if (Object.prototype.hasOwnProperty.call(patch, "rawModeOriginalTuneId")) state.rawModeOriginalTuneId = patch.rawModeOriginalTuneId || null;
+  }
+
   function isEnabled() {
-    return Boolean(getState().rawMode);
+    return Boolean(state.rawMode);
+  }
+
+  function getFilePath() {
+    return state.rawModeFilePath || null;
+  }
+
+  function setFilePath(filePath) {
+    state.rawModeFilePath = filePath || null;
+  }
+
+  function getHeaderEndOffset() {
+    return Number(state.rawModeHeaderEndOffset) || 0;
+  }
+
+  function setHeaderEndOffset(value) {
+    state.rawModeHeaderEndOffset = Number(value) || 0;
+  }
+
+  function resetState() {
+    state.rawModeFilePath = null;
+    state.rawModeHeaderEndOffset = 0;
+    state.rawModeOriginalTuneId = null;
   }
 
   function setUi(enabled) {
@@ -86,7 +120,6 @@ function createRawModeFeature({
   }
 
   async function save() {
-    const state = getState();
     const currentDoc = getCurrentDoc();
     const activeFilePath = getActiveFilePath();
     const filePath = state.rawModeFilePath || (currentDoc && currentDoc.path) || activeFilePath;
@@ -223,7 +256,7 @@ function createRawModeFeature({
   function scrollToTune(tuneId) {
     const res = findTuneById(tuneId);
     if (!res) return;
-    const bodyStart = Number(getState().rawModeHeaderEndOffset) || 0;
+    const bodyStart = getHeaderEndOffset();
     const pos = Math.max(0, Number(res.tune.startOffset) - bodyStart);
     scrollToPosInEditor(pos, { y: "start" });
     const win = documentRef && documentRef.defaultView;
@@ -292,7 +325,7 @@ function createRawModeFeature({
     setUi(true);
     updateFileHeaderPanel();
     setDirtyIndicator(false);
-    const restore = getState().rawModeOriginalTuneId;
+    const restore = state.rawModeOriginalTuneId;
     if (restore) {
       setActiveTune(restore);
       scrollToTune(restore);
@@ -310,7 +343,7 @@ function createRawModeFeature({
       if (!ok) return;
     }
     setUi(false);
-    const tuneToRestore = getActiveTuneId() || getState().rawModeOriginalTuneId;
+    const tuneToRestore = getActiveTuneId() || state.rawModeOriginalTuneId;
     patchState({ rawModeFilePath: null, rawModeHeaderEndOffset: 0, rawModeOriginalTuneId: null });
     const selected = await restoreTuneOrFirst(tuneToRestore);
     if (!selected) await restoreTuneOrFirst("");
@@ -355,12 +388,17 @@ function createRawModeFeature({
     discardUnsavedRawState,
     enter,
     exit,
+    getFilePath,
+    getHeaderEndOffset,
     isEnabled,
     leaveForAction,
+    resetState,
     save,
     scrollToTune,
     selectTuneInRaw,
     setActiveTune,
+    setFilePath,
+    setHeaderEndOffset,
     setUi,
   };
 }

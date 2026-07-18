@@ -50,7 +50,6 @@ import {
   buildAbDecorations,
   buildIntonationHighlightDecorations,
   buildPayloadLayerDecorations,
-  buildPracticeBarDecorations,
 } from "./editor/range_decorations.js";
 import { initSettings } from "./settings.js";
 import {
@@ -203,6 +202,7 @@ import {
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
 import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
 import { createScoreHighlightController } from "./render/score_highlight_controller.js";
+import { createPracticeBarHighlightController } from "./render/practice_bar_highlight_controller.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -1311,6 +1311,14 @@ const scoreHighlightController = createScoreHighlightController({
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
 });
+const practiceBarHighlightController = createPracticeBarHighlightController({
+  getOutElement: () => $out,
+  getRenderPane: () => $renderPane,
+  getEditorView: () => editorView,
+  findMeasureRangeAt,
+  mapEditorOffsetToRenderIdx,
+});
+const practiceBarHighlightPlugin = practiceBarHighlightController.plugin;
 const playbackAutoScrollController = createPlaybackAutoScrollController({
   windowRef: window,
   consoleRef: console,
@@ -1394,9 +1402,6 @@ var pendingPlaybackRangeOrigin = null;
 let suppressPlaybackRangeSelectionSync = false;
 const FOCUS_LOOP_DEFAULT_FROM = 0;
 const FOCUS_LOOP_DEFAULT_TO = 0;
-let practiceBarHighlightRange = null; // {from,to} editor offsets
-let practiceBarHighlightVersion = 0;
-let lastSvgPracticeBarEls = [];
 
 function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
@@ -1432,45 +1437,12 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
 
 const errorActivationHighlightPlugin = errorsFeature.plugins.activationHighlight;
 
-const practiceBarHighlightPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = practiceBarHighlightVersion;
-    this.decorations = buildPracticeBarDecorations(view.state, practiceBarHighlightRange);
-  }
-  update(update) {
-    if (update.docChanged) {
-      try {
-        this.decorations = this.decorations.map(update.changes);
-      } catch {}
-      if (practiceBarHighlightRange) {
-        try {
-          const max = update.state.doc.length;
-          const mappedFrom = update.changes.mapPos(Number(practiceBarHighlightRange.from), 1);
-          const mappedTo = update.changes.mapPos(Number(practiceBarHighlightRange.to), -1);
-          const from = Math.max(0, Math.min(mappedFrom, max));
-          const to = Math.max(from, Math.min(mappedTo, max));
-          practiceBarHighlightRange = (to > from) ? { from, to } : null;
-        } catch {}
-      }
-    }
-    if (update.docChanged || update.selectionSet || this.version !== practiceBarHighlightVersion) {
-      this.version = practiceBarHighlightVersion;
-      this.decorations = buildPracticeBarDecorations(update.state, practiceBarHighlightRange);
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
-
 function clearSvgErrorActivationHighlight() {
   errorsFeature.clearSvgHighlight();
 }
 
 function clearSvgPracticeBarHighlight() {
-  for (const el of lastSvgPracticeBarEls) {
-    try { el.classList.remove("svg-practice-bar"); } catch {}
-  }
-  lastSvgPracticeBarEls = [];
+  return practiceBarHighlightController.clearSvgPracticeBarHighlight();
 }
 
 function clearSvgFollowBarHighlight() {
@@ -4117,56 +4089,11 @@ function updateLibraryStatus() {
 }
 
 function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
-  if (!$out || !$renderPane) return false;
-  if (!Number.isFinite(editorOffset)) return false;
-  if (!editorView) return false;
-  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-    ? getLastRenderPayload().offset
-    : 0;
-  const editorText = editorView.state.doc.toString();
-  const measure = findMeasureRangeAt(editorText, editorOffset);
-  const barEls = measure ? Array.from($out.querySelectorAll(".bar-hl")) : [];
-  if (measure && barEls.length) {
-    const start = mapEditorOffsetToRenderIdx(measure.start);
-    const end = mapEditorOffsetToRenderIdx(measure.end);
-    const hits = barEls.filter((el) => {
-      const s = Number(el.dataset && el.dataset.start);
-      const e = Number(el.dataset && el.dataset.end);
-      if (!Number.isFinite(s)) return false;
-      const stop = Number.isFinite(e) ? e : s + 1;
-      return s < end && stop > start;
-    });
-    if (hits.length) {
-      clearSvgPracticeBarHighlight();
-      lastSvgPracticeBarEls = hits;
-      for (const el of lastSvgPracticeBarEls) {
-        try { el.classList.add("svg-practice-bar"); } catch {}
-      }
-      return true;
-    }
-  }
-  clearSvgPracticeBarHighlight();
-  return false;
+  return practiceBarHighlightController.highlightSvgPracticeBarAtEditorOffset(editorOffset);
 }
 
 function setPracticeBarHighlight(range) {
-  const next = range && Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from
-    ? { from: range.from, to: range.to }
-    : null;
-  if (
-    practiceBarHighlightRange
-    && next
-    && practiceBarHighlightRange.from === next.from
-    && practiceBarHighlightRange.to === next.to
-  ) return;
-  if (!practiceBarHighlightRange && !next) return;
-  practiceBarHighlightRange = next;
-  practiceBarHighlightVersion += 1;
-  if (!editorView) return;
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
+  return practiceBarHighlightController.setPracticeBarHighlight(range);
 }
 
 function applyLibraryTextFilter(files, query) {
@@ -5840,7 +5767,8 @@ async function goToMeasureFromMenu() {
     if (range && Number.isFinite(range.start) && Number.isFinite(range.end) && range.end > range.start) {
       setPracticeBarHighlight({ from: range.start, to: range.end });
       highlightSvgPracticeBarAtEditorOffset(pos);
-      const chosen = lastSvgPracticeBarEls.length ? pickClosestNoteElement(lastSvgPracticeBarEls) : null;
+      const practiceBarEls = practiceBarHighlightController.getSvgPracticeBarElements();
+      const chosen = practiceBarEls.length ? pickClosestNoteElement(practiceBarEls) : null;
       if (chosen) maybeScrollRenderToNote(chosen);
       playbackTransport.transportJumpHighlightActive = true;
       playbackTransport.suppressTransportJumpClearOnce = true;

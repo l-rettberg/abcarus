@@ -14,6 +14,8 @@ function createPlaybackTransportController({
   playSelectionOnce,
   setPracticeBarHighlight,
   clearSvgPracticeBarHighlight,
+  playbackGuardError,
+  stopPlaybackFromGuard,
   setStatus,
   updatePlayButton,
   clearNoteSelection,
@@ -80,6 +82,34 @@ function createPlaybackTransportController({
 
   function syncPendingPlaybackPlan() {
     transport.pendingPlaybackPlan = buildTransportPlaybackPlan();
+  }
+
+  function clonePlaybackRange(range) {
+    return transport.cloneRange(range);
+  }
+
+  function setPlaybackRange(next) {
+    const nextRange = clonePlaybackRange(next);
+
+    if (transport.isPlaying) {
+      if (transport.activePlaybackRange && transport.activePlaybackRange.loop && nextRange.startOffset !== transport.activePlaybackRange.startOffset) {
+        stopPlaybackFromGuard("Looping PlaybackRange.startOffset mutated during playback.");
+        return;
+      }
+      playbackGuardError("PlaybackRange updated while playing; change deferred until stop.");
+      return;
+    }
+
+    transport.setRange(nextRange);
+  }
+
+  function stopPlaybackForRestart() {
+    if (transport.player && typeof transport.player.stop === "function") {
+      transport.suppressOnEnd = true;
+      try { transport.player.stop(); } catch {}
+    }
+    clearNoteSelection();
+    resetPlaybackUiState();
   }
 
   function applyPlaybackPlanSpeed(plan) {
@@ -320,7 +350,10 @@ function createPlaybackTransportController({
   return {
     applyPlaybackPlanSpeed,
     buildTransportPlaybackPlan,
+    clonePlaybackRange,
     resetPlaybackState,
+    setPlaybackRange,
+    stopPlaybackForRestart,
     stopPlaybackTransport,
     syncPendingPlaybackPlan,
     togglePlayPauseEffective,

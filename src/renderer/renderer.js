@@ -1275,6 +1275,8 @@ const playbackTransportController = createPlaybackTransportController({
   playSelectionOnce,
   setPracticeBarHighlight,
   clearSvgPracticeBarHighlight,
+  playbackGuardError,
+  stopPlaybackFromGuard,
   setStatus,
   updatePlayButton,
   clearNoteSelection,
@@ -8353,22 +8355,11 @@ function stopPlaybackFromGuard(message) {
 }
 
 function clonePlaybackRange(r) {
-  return playbackTransport.cloneRange(r);
+  return playbackTransportController.clonePlaybackRange(r);
 }
 
 function setPlaybackRange(next) {
-  const nextRange = clonePlaybackRange(next);
-
-  if (playbackTransport.isPlaying) {
-    if (playbackTransport.activePlaybackRange && playbackTransport.activePlaybackRange.loop && nextRange.startOffset !== playbackTransport.activePlaybackRange.startOffset) {
-      stopPlaybackFromGuard("Looping PlaybackRange.startOffset mutated during playback.");
-      return;
-    }
-    playbackGuardError("PlaybackRange updated while playing; change deferred until stop.");
-    return;
-  }
-
-  playbackTransport.setRange(nextRange);
+  return playbackTransportController.setPlaybackRange(next);
 }
 
 function updatePlaybackRangeFromSelection(selection, origin) {
@@ -8570,12 +8561,7 @@ function findMeasureIndex(idx) {
 }
 
 function stopPlaybackForRestart() {
-  if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
-    playbackTransport.suppressOnEnd = true;
-    try { playbackTransport.player.stop(); } catch {}
-  }
-  clearNoteSelection();
-  resetPlaybackUiState();
+  return playbackTransportController.stopPlaybackForRestart();
 }
 
 function stopPlaybackTransport() {

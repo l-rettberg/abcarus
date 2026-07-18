@@ -17,8 +17,6 @@ function createAbcTransformFeature({
   getEditorText = () => "",
   getHeaderText = () => "",
   getSettings = () => null,
-  getTransposePreview = () => ({ baseText: "", headerText: "", delta: 0 }),
-  setTransposePreview = () => {},
   setEditorTextForSmoke = () => {},
   applyTransformedText = () => {},
   showTransformError = async () => {},
@@ -26,6 +24,37 @@ function createAbcTransformFeature({
   logError = () => {},
   alignBarsInText = (text) => text,
 } = {}) {
+  let transposePreviewBaseText = null;
+  let transposePreviewHeaderText = null;
+  let transposePreviewDelta = 0;
+
+  function resetTransposePreview() {
+    transposePreviewBaseText = null;
+    transposePreviewHeaderText = null;
+    transposePreviewDelta = 0;
+  }
+
+  function getTransposePreview(options = {}) {
+    const currentText = String(options.currentText != null ? options.currentText : getEditorText());
+    const currentHeaderText = String(options.currentHeaderText != null ? options.currentHeaderText : getHeaderText());
+    if (transposePreviewBaseText == null) {
+      transposePreviewBaseText = currentText;
+      transposePreviewHeaderText = currentHeaderText;
+      transposePreviewDelta = 0;
+    }
+    return {
+      baseText: String(transposePreviewBaseText || ""),
+      headerText: String(transposePreviewHeaderText || ""),
+      delta: Number(transposePreviewDelta) || 0,
+    };
+  }
+
+  function setTransposePreview(baseText, headerText, delta) {
+    transposePreviewBaseText = String(baseText || "");
+    transposePreviewHeaderText = String(headerText || "");
+    transposePreviewDelta = Number(delta) || 0;
+  }
+
   async function apply(options = {}) {
     const abcText = getEditorText();
     if (!abcText.trim()) {
@@ -162,6 +191,7 @@ function createAbcTransformFeature({
     alignBars,
     apply,
     installDevSmoke,
+    resetTransposePreview,
   };
 }
 

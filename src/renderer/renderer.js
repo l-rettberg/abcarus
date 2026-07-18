@@ -492,36 +492,6 @@ ee2e2d c2dcBA             | "E"  B2cBAG   "A"   ABGA3  :|
 %--------------------------------------------------------
 `;
 let suppressDirty = false;
-let transposePreviewBaseText = null;
-let transposePreviewHeaderText = null;
-let transposePreviewDelta = 0;
-
-function resetTransposePreviewState() {
-  transposePreviewBaseText = null;
-  transposePreviewHeaderText = null;
-  transposePreviewDelta = 0;
-}
-
-function getAccumulatedTransposePreview(options = {}) {
-  const currentText = String(options.currentText != null ? options.currentText : getEditorValue());
-  const currentHeaderText = String(options.currentHeaderText != null ? options.currentHeaderText : getHeaderEditorValue());
-  if (transposePreviewBaseText == null) {
-    transposePreviewBaseText = currentText;
-    transposePreviewHeaderText = currentHeaderText;
-    transposePreviewDelta = 0;
-  }
-  return {
-    baseText: String(transposePreviewBaseText || ""),
-    headerText: String(transposePreviewHeaderText || ""),
-    delta: Number(transposePreviewDelta) || 0,
-  };
-}
-
-function setAccumulatedTransposePreview(baseText, headerText, delta) {
-  transposePreviewBaseText = String(baseText || "");
-  transposePreviewHeaderText = String(headerText || "");
-  transposePreviewDelta = Number(delta) || 0;
-}
 let editorView = null;
 let isNewTuneDraft = false;
 let rawModeFeature = null;
@@ -543,6 +513,7 @@ let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
 let newFileAction = null;
+let abcTransformFeature = null;
 
 function isRawModeActive() {
   return rawModeFeature ? rawModeFeature.isEnabled() : false;
@@ -562,6 +533,12 @@ function setRawModeFilePath(filePath) {
 
 function setRawModeHeaderEndOffset(value) {
   if (rawModeFeature) rawModeFeature.setHeaderEndOffset(value);
+}
+
+function resetTransposePreviewState() {
+  if (abcTransformFeature && typeof abcTransformFeature.resetTransposePreview === "function") {
+    abcTransformFeature.resetTransposePreview();
+  }
 }
 
 const currentDocumentController = createCurrentDocumentController({
@@ -3535,14 +3512,12 @@ const importExportFeature = createImportExportFeature({
   ensureMidiGenLoaded,
 });
 importExportFeature.installMidiProgressHandler();
-const abcTransformFeature = createAbcTransformFeature({
+abcTransformFeature = createAbcTransformFeature({
   windowRef: window,
   devConfig,
   getEditorText: getEditorValue,
   getHeaderText: getHeaderEditorValue,
   getSettings: () => latestSettingsSnapshot,
-  getTransposePreview: getAccumulatedTransposePreview,
-  setTransposePreview: setAccumulatedTransposePreview,
   setEditorTextForSmoke: (text) => {
     suppressDirty = true;
     setEditorValue(String(text || ""));

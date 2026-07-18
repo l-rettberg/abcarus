@@ -156,6 +156,7 @@ import { createPlaybackTransportState } from "./playback/playback_transport_stat
 import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
 import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
 import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
+import { createPlaybackStartController } from "./playback/playback_start_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1221,6 +1222,39 @@ const playbackPrepareController = createPlaybackPrepareController({
   shouldRelocateMidiDrumsForPlayback,
   normalizeAccThreeQuarterToneForAbc2svg,
   isChordProFullView: () => chordProFeature.isFullView(),
+});
+const playbackStartController = createPlaybackStartController({
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  getEditorView: () => editorView,
+  getPlaybackRange: () => playbackTransport.playbackRange,
+  setPlaybackRange,
+  clonePlaybackRange,
+  getPlaybackSourceKey,
+  preparePlayback,
+  ensureSoundfontReady,
+  stopPlaybackForRestart,
+  stopPlaybackFromGuard,
+  recordDebugLog,
+  scheduleAutoDump,
+  setStatus,
+  updatePlayButton,
+  clearNoteSelection,
+  resetPlaybackUiState,
+  setSoundfontCaption,
+  showToast,
+  updatePracticeUi,
+  getScopedPlaybackSettingsForOrigin,
+  withScopedPlaybackOrigin,
+  getStripChordSymbols: () => window.__abcarusPlaybackStripChordSymbols === true,
+  toDerivedOffset,
+  toEditorOffset,
+  findSymbolAtOrAfter,
+  findSymbolAtOrBefore,
+  findMeasureIndex,
+  getEditorSelectionSignature,
+  isFollowPlaybackEnabled: () => followPlayback,
+  getDebugParts: () => window.__abcarusDebugParts === true,
 });
 const drumPreviewController = createDrumPreviewController({
   transport: playbackTransport,
@@ -9837,406 +9871,27 @@ async function preparePlayback() {
 }
 
 function startPlaybackFromPrepared(startIdx) {
-  if (!playbackTransport.playbackStartArmed) {
-    stopPlaybackFromGuard("Playback start invoked outside startPlaybackFromRange().");
-    return;
-  }
-  const startSymbol = findSymbolAtOrAfter(startIdx);
-  if (!startSymbol) throw new Error("Playback start not found.");
-
-  let start = startSymbol;
-  if (playbackTransport.playbackState && playbackTransport.playbackState.symbols.length) {
-    const isPlayable = (symbol) => !!(symbol && Number.isFinite(symbol.dur) && symbol.dur > 0);
-    if (!isPlayable(start)) {
-      const fallback = playbackTransport.playbackState.symbols.find((item) =>
-        item.symbol && Number.isFinite(item.symbol.istart) && item.symbol.istart >= start.istart && isPlayable(item.symbol)
-      );
-      if (fallback) start = fallback.symbol;
-    }
-  }
-
-  // Guard: an end boundary that points at/before the first playable symbol can cause immediate termination (no sound).
-  let endSym = playbackTransport.activePlaybackEndSymbol || null;
-  if (endSym && Number.isFinite(endSym.istart) && Number.isFinite(start.istart) && endSym.istart <= start.istart) {
-    endSym = null;
-  }
-
-  playbackTransport.markPreparedStart(start);
-
-  if (window.__abcarusDebugParts === true) {
-    try {
-      const getPartLetterAtSymbol = (sym) => {
-        let s = sym;
-        let guard = 0;
-        while (s && guard < 200000) {
-          if (s.part && s.part.text) return String(s.part.text || "")[0] || "?";
-          s = s.ts_prev;
-          guard += 1;
-        }
-        return "?";
-      };
-      const computePartIndexLikeSnd = (sym) => {
-        let s = sym;
-        let guard = 0;
-        while (s && guard < 200000) {
-          if (s.parts) return { i_p: -1, hit: "parts", at: Number.isFinite(s.istart) ? s.istart : null };
-          const s_p = s.part1;
-          const p_s = s_p && Array.isArray(s_p.p_s) ? s_p.p_s : null;
-          if (p_s) {
-            for (let i = 0; i < p_s.length; i += 1) {
-              if (p_s[i] === s) return { i_p: i, hit: "p_s", at: Number.isFinite(s.istart) ? s.istart : null };
-            }
-          }
-          s = s.ts_prev;
-          guard += 1;
-        }
-        return { i_p: undefined, hit: null, at: null };
-      };
-      const idxInfo = computePartIndexLikeSnd(start);
-      let partsSeq = null;
-      try {
-        let s = start;
-        let guard = 0;
-        while (s && guard < 200000) {
-          if (typeof s.parts === "string" && s.parts) { partsSeq = s.parts; break; }
-          s = s.ts_prev;
-          guard += 1;
-        }
-      } catch {}
-      console.log("[abcarus] playback start (parts)", {
-        startIstart: start.istart,
-        startEditorOffset: Number.isFinite(start.istart) ? (start.istart - (playbackTransport.playbackIndexOffset || 0)) : null,
-        partAtStart: getPartLetterAtSymbol(start),
-        i_p: idxInfo.i_p,
-        i_p_hit: idxInfo.hit,
-        i_p_at: idxInfo.at,
-        partsSeq,
-      });
-    } catch {}
-  }
-
-  let engineStart = start;
-  const rangeForStart = playbackTransport.activePlaybackRange || playbackTransport.playbackRange;
-  const startsAtTuneHead = playbackTransport.playbackState
-    && playbackTransport.playbackState.startSymbol
-    && start === playbackTransport.playbackState.startSymbol;
-  const isFullFocusStart = startsAtTuneHead
-    && rangeForStart
-    && rangeForStart.origin === "focus"
-    && rangeForStart.endOffset == null
-    && !rangeForStart.loop;
-  const isFullPartOrderStart = rangeForStart
-    && (
-      Number(rangeForStart.startOffset) === 0
-      || (
-        startsAtTuneHead
-        && (rangeForStart.origin === "cursor" || rangeForStart.origin === "transport")
-      )
-      || isFullFocusStart
-    );
-  if (
-    isFullPartOrderStart
-    && playbackTransport.playbackState
-    && playbackTransport.playbackState.rootSymbol
-  ) {
-    let hasPartsOrder = false;
-    for (let probe = start, guard = 0; probe && guard < 200000; probe = probe.ts_prev, guard += 1) {
-      if (probe.parts || (probe.part1 && Array.isArray(probe.part1.p_s))) {
-        hasPartsOrder = true;
-        break;
-      }
-    }
-    if (hasPartsOrder) engineStart = playbackTransport.playbackState.rootSymbol;
-  }
-
-  playbackTransport.player.play(engineStart, endSym, 0);
-  playbackTransport.markPlayingStarted();
-  if (!playbackTransport.waitingForFirstNote) setStatus("Playing…");
-  updatePlayButton();
-  setTimeout(() => {
-    playbackTransport.allowPlaybackEnd();
-  }, 0);
+  return playbackStartController.startPlaybackFromPrepared(startIdx);
 }
 
 function resolvePlaybackEndSymbol(range, startSymbol) {
-  if (!range || range.endOffset == null) return null;
-  if (!startSymbol || !Number.isFinite(startSymbol.istart)) return null;
-  const endOffset = Number(range.endOffset);
-  if (!Number.isFinite(endOffset)) return null;
-  const endAbcOffset = endOffset + playbackTransport.playbackIndexOffset;
-  if (!Number.isFinite(endAbcOffset) || endAbcOffset <= startSymbol.istart) return null;
-
-  // Keep end boundary exclusive:
-  // - include every symbol whose istart is strictly before endAbcOffset
-  // - stop at the first symbol after that in time linkage (`lastInRange.ts_next`)
-  // This is robust for repeats/voltas because abc2svg evaluates repeat bars only when they are visited.
-  const lastInRange = findSymbolAtOrBefore(endAbcOffset - 1);
-  if (!lastInRange || !Number.isFinite(lastInRange.istart)) return null;
-  if (lastInRange.istart <= startSymbol.istart) return null;
-  return lastInRange.ts_next || null;
+  return playbackStartController.resolvePlaybackEndSymbol(range, startSymbol);
 }
 
 async function startPlaybackFromRange(rangeOverride) {
-  if (!editorView) return;
-  const startToken = playbackTransport.beginStartAttempt();
-  const abortStart = (message) => {
-    if (!playbackTransport.abortStartAttempt(startToken, message)) return;
-    try { recordDebugLog("warn", [`Playback abort: ${playbackTransport.lastPlaybackAbortMessage}`]); } catch {}
-    try { scheduleAutoDump("playback-abort", playbackTransport.lastPlaybackAbortMessage); } catch {}
-    setStatus("OK");
-    updatePlayButton();
-    clearNoteSelection();
-    resetPlaybackUiState();
-    setSoundfontCaption();
-    if (message) showToast(message, 2600);
-  };
-  let range = clonePlaybackRange(rangeOverride || playbackTransport.playbackRange);
-  const max = editorView.state.doc.length;
-  if (!Number.isFinite(range.startOffset) || range.startOffset < 0 || range.startOffset > max) {
-    abortStart("Playback range start is invalid.");
-    return;
-  }
-
-  // Guard: only one active PlaybackRange at a time.
-  if (playbackTransport.activePlaybackRange && playbackTransport.isPlaying) {
-    stopPlaybackFromGuard("Second PlaybackRange attempted to become active while playing.");
-    return;
-  }
-
-  clearNoteSelection();
-  const rangeOrigin = String((range && range.origin) || "cursor");
-  const selectionMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab");
-  const scopedMode = range && (rangeOrigin === "selection" || rangeOrigin === "ab" || rangeOrigin === "focus");
-  if (rangeOrigin === "focus" || rangeOrigin === "selection") {
-    selectionPlaybackRuntime.setScopedOptions(withScopedPlaybackOrigin(getScopedPlaybackSettingsForOrigin(rangeOrigin), rangeOrigin));
-  } else if (rangeOrigin === "ab") {
-    const abMuted = selectionPlaybackRuntime.getAbMutedVoiceIds();
-    selectionPlaybackRuntime.setScopedOptions({
-      origin: "ab",
-      allowMidiDrums: true,
-      muteGchords: window.__abcarusPlaybackStripChordSymbols === true,
-      suppressRepeats: true,
-      mutedVoices: abMuted,
-    });
-  } else {
-    selectionPlaybackRuntime.clearScopedOptions();
-  }
-  if (range && typeof range === "object") {
-    const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
-    if (scopedOptions && typeof scopedOptions.suppressRepeats === "boolean") {
-      range.suppressRepeats = Boolean(scopedOptions.suppressRepeats);
-    } else if (typeof range.suppressRepeats !== "boolean") {
-      range.suppressRepeats = null;
-    }
-  }
-  const sourceKey = selectionMode ? null : getPlaybackSourceKey();
-  const canReuse = (
-    !scopedMode
-    && !playbackTransport.playbackNeedsReprepare
-    && !playbackTransport.lastPlaybackHasParts
-    && playbackTransport.playbackState
-    && playbackTransport.lastPreparedPlaybackKey
-    && sourceKey
-    && playbackTransport.lastPreparedPlaybackKey === sourceKey
-    && playbackTransport.player
-  );
-  playbackTransport.setWaitingForFirstNote(true);
-		  try {
-		    if (!canReuse) {
-		      stopPlaybackForRestart();
-	      setSoundfontCaption("Loading...");
-		      selectionPlaybackRuntime.setSelectionMode(selectionMode);
-		      await preparePlayback();
-		    } else {
-		      await ensureSoundfontReady();
-		      stopPlaybackForRestart();
-		    }
-		  } catch (e) {
-		    playbackTransport.lastPlaybackException = {
-		      phase: "preparePlayback",
-		      message: (e && e.message) ? String(e.message) : String(e),
-		      stack: (e && e.stack) ? String(e.stack) : null,
-		    };
-		    try { scheduleAutoDump("playback-start-failed", (e && e.message) ? e.message : String(e)); } catch {}
-		    stopPlaybackFromGuard(`Playback start failed: ${(e && e.message) ? e.message : String(e)}`);
-		    if (selectionMode) {
-		      showToast("Selected range cannot be played safely.", 3200);
-		    } else {
-		      showToast("Playback failed to start. Try again.", 3200);
-		    }
-		    return;
-		  } finally {
-		    selectionPlaybackRuntime.setSelectionMode(false);
-        selectionPlaybackRuntime.clearScopedOptions();
-		  }
-  if (startToken !== playbackTransport.playbackStartToken) return;
-
-  updatePracticeUi();
-
-  const startAbcOffset = toDerivedOffset(range.startOffset);
-  if (!Number.isFinite(startAbcOffset)) {
-    abortStart("Playback range start is invalid.");
-    return;
-  }
-  let startSym = findSymbolAtOrAfter(startAbcOffset);
-  // Cursor can land on inter-note whitespace (or be shifted there by UI timing).
-  // In normal transport mode, prefer the previous playable symbol when it is in the same bar segment.
-  // This avoids "start from second note" when the user places the cursor visually before a bar start note.
-  if (!scopedMode && Number.isFinite(startAbcOffset) && startAbcOffset > 0 && editorView) {
-    let ch = "";
-    try { ch = editorView.state.doc.sliceString(range.startOffset, range.startOffset + 1); } catch {}
-    if (/\s/.test(String(ch || ""))) {
-      const prevSym = findSymbolAtOrBefore(startAbcOffset - 1);
-      if (prevSym && Number.isFinite(prevSym.istart) && Number.isFinite(prevSym.dur) && prevSym.dur > 0 && !prevSym.noplay) {
-        const prevEditorOffset = toEditorOffset(prevSym.istart);
-        if (Number.isFinite(prevEditorOffset)) {
-          let between = "";
-          try {
-            const a = Math.max(0, Math.min(range.startOffset, prevEditorOffset));
-            const b = Math.max(a, Math.max(range.startOffset, prevEditorOffset));
-            between = editorView.state.doc.sliceString(a, b);
-          } catch {}
-          // Keep mid-score starts deterministic, but do not cross bar/line boundaries.
-          if (!/[\n|]/.test(String(between || ""))) {
-            if (!startSym || !Number.isFinite(startSym.istart) || prevSym.istart < startSym.istart) {
-              startSym = prevSym;
-              range.startOffset = Math.max(0, prevEditorOffset);
-            }
-          }
-        }
-      }
-    }
-  }
-  if (!startSym || !Number.isFinite(startSym.istart)) {
-    if (!scopedMode && startAbcOffset > 0) {
-      const fallbackSym = findSymbolAtOrAfter(0);
-      if (fallbackSym && Number.isFinite(fallbackSym.istart)) {
-        range.startOffset = 0;
-        startSym = fallbackSym;
-      }
-    }
-  }
-  if (
-    startSym
-    && Number.isFinite(startSym.istart)
-    && !scopedMode
-    && startAbcOffset > 0
-    && startSym.istart < startAbcOffset
-  ) {
-    const fallbackSym = findSymbolAtOrAfter(0);
-    if (fallbackSym && Number.isFinite(fallbackSym.istart)) {
-      range.startOffset = 0;
-      startSym = fallbackSym;
-    }
-  }
-  if (!startSym || !Number.isFinite(startSym.istart)) {
-    abortStart("Playback start is not mappable.");
-    return;
-  }
-
-  // Guard: ensure we map startOffset deterministically (no fallback mapping).
-  if (startSym.istart < startAbcOffset && range.startOffset !== 0) {
-    stopPlaybackFromGuard("PlaybackRange.startOffset mapped to a symbol before startOffset.");
-    return;
-  }
-
-  // Switch semantics guard (Option B): playbackTransport.playbackRange changes while playing are deferred; we also freeze loop start.
-  playbackTransport.activateRangeForStart({
-    range,
-    endSymbol: resolvePlaybackEndSymbol(range, startSym),
-    startSymbol: startSym,
-  });
-  try {
-    startPlaybackFromPrepared(startSym.istart);
-  } catch (e) {
-    playbackTransport.lastPlaybackException = {
-      phase: "startPlaybackFromPrepared",
-      message: (e && e.message) ? String(e.message) : String(e),
-      stack: (e && e.stack) ? String(e.stack) : null,
-    };
-    stopPlaybackFromGuard(`Playback start failed: ${(e && e.message) ? e.message : String(e)}`);
-    showToast("Playback failed to start. Try again.", 3200);
-    return;
-  }
-  playbackTransport.finishStartAttempt();
+  return playbackStartController.startPlaybackFromRange(rangeOverride);
 }
 
 async function startPlaybackAtIndex(startIdx) {
-  if (!editorView) return;
-  const max = editorView.state.doc.length;
-  const next = Number.isFinite(startIdx) ? Math.max(0, Math.min(startIdx, max)) : 0;
-  setPlaybackRange({
-    startOffset: next,
-    endOffset: null,
-    origin: "cursor",
-    loop: playbackTransport.playbackRange.loop,
-  });
-  await startPlaybackFromRange();
+  return playbackStartController.startPlaybackAtIndex(startIdx);
 }
 
 function pausePlayback() {
-  if (!playbackTransport.player || !playbackTransport.isPlaying) return;
-  stopPlaybackForRestart();
-  playbackTransport.pause({ selectionSignature: getEditorSelectionSignature() });
-  setStatus("Paused");
-  updatePlayButton();
-  setSoundfontCaption();
-  if (Number.isFinite(playbackTransport.lastRenderIdx)) {
-    setPlaybackRange({
-      startOffset: playbackTransport.lastRenderIdx,
-      endOffset: null,
-      origin: "cursor",
-      loop: playbackTransport.playbackRange.loop,
-    });
-  }
-  if (followPlayback && playbackTransport.lastRenderIdx != null && editorView) {
-    const max = editorView.state.doc.length;
-    const idx = Math.max(0, Math.min(playbackTransport.lastRenderIdx, max));
-    editorView.dispatch({ selection: { anchor: idx, head: idx } });
-  }
+  return playbackStartController.pausePlayback();
 }
 
 async function startPlaybackAtMeasureOffset(delta) {
-  clearNoteSelection();
-  const sourceKey = getPlaybackSourceKey();
-  const canReuse = (
-    !playbackTransport.playbackNeedsReprepare
-    && !playbackTransport.lastPlaybackHasParts
-    && playbackTransport.playbackState
-    && playbackTransport.lastPreparedPlaybackKey
-    && playbackTransport.lastPreparedPlaybackKey === sourceKey
-    && playbackTransport.player
-  );
-  if (!canReuse) {
-    stopPlaybackForRestart();
-    await preparePlayback();
-  } else {
-    await ensureSoundfontReady();
-    stopPlaybackForRestart();
-  }
-  if (!playbackTransport.playbackState || !playbackTransport.playbackState.measures.length) {
-    setPlaybackRange({
-      startOffset: 0,
-      endOffset: null,
-      origin: "cursor",
-      loop: playbackTransport.playbackRange.loop,
-    });
-    await startPlaybackFromRange();
-    return;
-  }
-  const baseIdx = Number.isFinite(playbackTransport.lastPlaybackIdx) ? playbackTransport.lastPlaybackIdx : playbackTransport.lastStartPlaybackIdx;
-  const current = findMeasureIndex(baseIdx);
-  const targetIndex = Math.max(0, Math.min(playbackTransport.playbackState.measures.length - 1, current + delta));
-  const target = playbackTransport.playbackState.measures[targetIndex];
-  const targetIdx = target && Number.isFinite(target.istart) ? target.istart : 0;
-  const editorStart = Math.max(0, targetIdx - playbackTransport.playbackIndexOffset);
-  setPlaybackRange({
-    startOffset: editorStart,
-    endOffset: null,
-    origin: "cursor",
-    loop: playbackTransport.playbackRange.loop,
-  });
-  await startPlaybackFromRange();
+  return playbackStartController.startPlaybackAtMeasureOffset(delta);
 }
 
 async function playDrumPreview(pitch, velocity) {

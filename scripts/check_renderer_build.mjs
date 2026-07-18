@@ -12,6 +12,8 @@ async function assertSaveIntentGuards() {
   const focusPlaybackModel = await readFile(focusPlaybackModelPath, "utf8").catch(() => "");
   const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
   const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
+  const playbackStartControllerPath = "src/renderer/playback/playback_start_controller.js";
+  const playbackStartController = await readFile(playbackStartControllerPath, "utf8").catch(() => "");
   const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
   const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
@@ -84,10 +86,13 @@ async function assertSaveIntentGuards() {
   ) {
     throw new Error("Missing scoped playback options state.");
   }
-  if (!src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {
+  if (
+    !src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")
+    && !playbackStartController.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")
+  ) {
     throw new Error("Range-origin routing for scoped playback options is missing.");
   }
-  if (!src.includes("!scopedMode")) {
+  if (!src.includes("!scopedMode") && !playbackStartController.includes("!scopedMode")) {
     throw new Error("Playback reuse must be disabled for scoped (selection/ab/focus) modes.");
   }
   if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {

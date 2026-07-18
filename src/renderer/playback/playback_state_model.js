@@ -268,6 +268,36 @@ function upperBoundIstart(list, value) {
   return lo;
 }
 
+function findBoundaryAtOrAfter(sorted, target) {
+  if (!Array.isArray(sorted) || !sorted.length) return null;
+  const t = Number(target);
+  if (!Number.isFinite(t)) return null;
+  let lo = 0;
+  let hi = sorted.length - 1;
+  let best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const v = sorted[mid];
+    if (v >= t) {
+      best = v;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  return best;
+}
+
+function pickStartFromListAtOrAfter(list, minRenderIdx) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const min = Number(minRenderIdx);
+  if (!Number.isFinite(min)) return list[0];
+  for (const v of list) {
+    if (Number.isFinite(v) && v >= min) return v;
+  }
+  return list[list.length - 1];
+}
+
 function snapIstartToPlayable(playbackState, istart) {
   if (!Number.isFinite(istart)) return istart;
   if (!playbackState || !Array.isArray(playbackState.playableIstarts) || !playbackState.playableIstarts.length) {
@@ -330,10 +360,12 @@ function findPlaybackMeasureIndex(playbackState, idx) {
 
 export {
   buildPlaybackState,
+  findBoundaryAtOrAfter,
   findPlaybackMeasureIndex,
   findPlaybackSymbolAtOrAfter,
   findPlaybackSymbolAtOrBefore,
   lowerBoundIstart,
+  pickStartFromListAtOrAfter,
   snapIstartToPlayable,
   upperBoundIstart,
   upperBoundTime,

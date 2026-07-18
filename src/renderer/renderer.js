@@ -172,9 +172,11 @@ import {
 } from "./playback/playback_payload_model.js";
 import {
   buildPlaybackState as buildPlaybackStateModel,
+  findBoundaryAtOrAfter,
   findPlaybackMeasureIndex,
   findPlaybackSymbolAtOrAfter,
   findPlaybackSymbolAtOrBefore,
+  pickStartFromListAtOrAfter,
   snapIstartToPlayable as snapIstartToPlayableModel,
   upperBoundTime,
 } from "./playback/playback_state_model.js";
@@ -9443,36 +9445,6 @@ function computeFocusPlaybackPlanFromCurrentState() {
   });
 }
 
-function pickStartFromListAtOrAfter(list, minRenderIdx) {
-  if (!Array.isArray(list) || !list.length) return null;
-  const min = Number(minRenderIdx);
-  if (!Number.isFinite(min)) return list[0];
-  for (const v of list) {
-    if (Number.isFinite(v) && v >= min) return v;
-  }
-  return list[list.length - 1];
-}
-
-function findBoundaryAfter(sorted, target) {
-  if (!Array.isArray(sorted) || !sorted.length) return null;
-  const t = Number(target);
-  if (!Number.isFinite(t)) return null;
-  let lo = 0;
-  let hi = sorted.length - 1;
-  let best = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const v = sorted[mid];
-    if (v > t) {
-      best = v;
-      hi = mid - 1;
-    } else {
-      lo = mid + 1;
-    }
-  }
-  return best;
-}
-
 function resolveMeasureStartRenderIdx(measureIndex, n, { minBound, minStartRenderIdx } = {}) {
   if (!measureIndex) return null;
   const num = clampInt(n, 0, 100000, 0);
@@ -10002,66 +9974,6 @@ function resolvePlaybackEndSymbol(range, startSymbol) {
   if (!lastInRange || !Number.isFinite(lastInRange.istart)) return null;
   if (lastInRange.istart <= startSymbol.istart) return null;
   return lastInRange.ts_next || null;
-}
-
-function findBoundaryAtOrAfter(sorted, target) {
-  if (!Array.isArray(sorted) || !sorted.length) return null;
-  const t = Number(target);
-  if (!Number.isFinite(t)) return null;
-  let lo = 0;
-  let hi = sorted.length - 1;
-  let best = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const v = sorted[mid];
-    if (v >= t) {
-      best = v;
-      hi = mid - 1;
-    } else {
-      lo = mid + 1;
-    }
-  }
-  return best;
-}
-
-function findBoundaryAtOrBefore(sorted, target) {
-  if (!Array.isArray(sorted) || !sorted.length) return null;
-  const t = Number(target);
-  if (!Number.isFinite(t)) return null;
-  let lo = 0;
-  let hi = sorted.length - 1;
-  let best = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const v = sorted[mid];
-    if (v <= t) {
-      best = v;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return best;
-}
-
-function findBarStartContaining(sortedMeasureIstarts, target) {
-  if (!Array.isArray(sortedMeasureIstarts) || !sortedMeasureIstarts.length) return null;
-  const t = Number(target);
-  if (!Number.isFinite(t)) return null;
-  let lo = 0;
-  let hi = sortedMeasureIstarts.length - 1;
-  let best = sortedMeasureIstarts[0];
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const v = sortedMeasureIstarts[mid];
-    if (v <= t) {
-      best = v;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return best;
 }
 
 async function startPlaybackFromRange(rangeOverride) {

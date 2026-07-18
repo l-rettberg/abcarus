@@ -143,22 +143,18 @@ import { createPayloadModeDecorations } from "./tools/payload_mode/payload_mode_
 import { createPayloadModeEditorAdapter } from "./tools/payload_mode/payload_mode_editor_adapter.js";
 import { computePayloadTuneOffset } from "./tools/payload_mode/payload_mode_model.mjs";
 import {
-  applyMutedVoicesToTuneRoot,
   buildSelectionPlaybackToast,
-  getFirstPlayableVoiceIdFromTuneRoot,
   hasIntentionalSelectionPlaybackSpan,
   hasRepeatTokensInSlice,
   normalizeVoiceIdToken,
   parseMutedVoiceSetting,
-  resolveEffectiveMutedVoiceIds,
-  stripGchordDirectives,
-  stripRepeatsLengthSafe,
 } from "./playback/selection_playback_model.js";
 import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
 import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
 import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
+import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -167,15 +163,11 @@ import {
   detectKeyFieldNotLastBeforeBody,
   injectGchordOn,
   isInlineFieldOnlyLine,
-  normalizeBarsForPlayback,
   normalizeBlankLinesForPlayback,
   normalizeDollarLineBreaksForPlayback,
   normalizeLeadingInlineDirectivesForPlayback,
   normalizeReadableMidiDrumsForPlayback,
-  relocateMidiDrumDirectivesIntoBody,
   sanitizeAbcForPlayback,
-  stripChordSymbolsForPlayback,
-  stripLyricsForPlayback,
 } from "./playback/playback_payload_model.js";
 import {
   buildPlaybackState as buildPlaybackStateModel,
@@ -1198,6 +1190,34 @@ const playbackPayloadController = createPlaybackPayloadController({
   neutralizeMidiDrumDirectivesForPlayback,
   assertCleanAbcText,
   showToast,
+});
+const playbackPrepareController = createPlaybackPrepareController({
+  windowRef: window,
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  ensureSoundfontReady,
+  ensurePlayer,
+  getAbcCtor,
+  getPlaybackPayload,
+  getPlaybackSourceKey,
+  buildPlaybackState,
+  setFollowVoiceFromPlayback,
+  clearErrors,
+  setStatus,
+  showToast,
+  logErr,
+  addError,
+  setErrorLineOffsetFromHeader,
+  setErrorsLineOffset: (lineOffset) => errorsFeature.setLineOffset(lineOffset),
+  parseErrorLocation,
+  scheduleAutoDump,
+  assertCleanAbcText,
+  neutralizeMidiDrumDirectivesForPlayback,
+  isMidiDrumMustBeInVoicePlaybackError,
+  hasMidiDrumMustBeInVoicePlaybackError,
+  shouldRelocateMidiDrumsForPlayback,
+  normalizeAccThreeQuarterToneForAbc2svg,
+  isChordProFullView: () => chordProFeature.isFullView(),
 });
 var pendingPlaybackRangeOrigin = null;
 let suppressPlaybackRangeSelectionSync = false;
@@ -7690,7 +7710,6 @@ let lastPlaybackNoteOnEls = [];
 let lastPlaybackUiRenderIdx = null;
 let lastPlaybackUiEditorIdx = null;
 let lastPlaybackUiScrollAt = 0;
-let lastMidiDrumCompatToastKey = null;
 
 let focusModeEnabled = false;
 let focusPrevRenderZoom = null;
@@ -9829,403 +9848,7 @@ function getRenderPayload() {
 }
 
 async function preparePlayback() {
-  clearErrors();
-  if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
-    showToast("Exit Raw to play ChordPro ABC.", 2400);
-    return;
-  }
-  await ensureSoundfontReady();
-  const p = ensurePlayer();
-  if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
-    playbackTransport.suppressOnEnd = true;
-    playbackTransport.player.stop();
-  }
-  if (typeof p.clear === "function") p.clear();
-  playbackTransport.playbackNeedsReprepare = false;
-
-  try { sessionStorage.setItem("audio", "sf2"); } catch {}
-
-  const AbcCtor = getAbcCtor();
-  playbackTransport.playbackParseErrors = [];
-  playbackTransport.resetPayloadDiagnostics();
-  playbackTransport.lastPlaybackChordOnBarError = false;
-  playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen = false;
-  let playbackParseErrorToastShown = false;
-  playbackTransport.lastPlaybackTuneInfo = null;
-  const logPlaybackErr = (message, line, col) => {
-    let loc = null;
-    if (Number.isFinite(line) && Number.isFinite(col)) {
-      loc = { line: line + 1, col: col + 1 };
-    } else {
-      loc = parseErrorLocation(message);
-    }
-    const drumStart = (playbackTransport.lastPlaybackMeta && Number.isFinite(playbackTransport.lastPlaybackMeta.drumInsertAtLine))
-      ? playbackTransport.lastPlaybackMeta.drumInsertAtLine
-      : null;
-    const drumLines = (playbackTransport.lastPlaybackMeta && Number.isFinite(playbackTransport.lastPlaybackMeta.drumLineCount))
-      ? playbackTransport.lastPlaybackMeta.drumLineCount
-      : 0;
-    const inDrumBlock = loc
-      && drumStart
-      && drumLines > 0
-      && loc.line >= drumStart
-      && loc.line < (drumStart + drumLines);
-    const entry = {
-      message: String(message || ""),
-      loc,
-      inDrumBlock: Boolean(inDrumBlock),
-    };
-    if (isMidiDrumMustBeInVoicePlaybackError(entry.message)) {
-      playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen = true;
-      playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-before-voice", message: entry.message });
-      return;
-    }
-    playbackTransport.playbackParseErrors.push(entry);
-    if (playbackTransport.playbackParseErrors.length > 200) playbackTransport.playbackParseErrors = playbackTransport.playbackParseErrors.slice(-200);
-    if (!playbackParseErrorToastShown) {
-      playbackParseErrorToastShown = true;
-      scheduleAutoDump("playback-parse-error", entry && entry.message ? entry.message : String(message || ""));
-      if (window.__abcarusDebugPlayback || window.__abcarusDebugDrums) {
-        showToast("Playback parse error (see debug dump).", 3200);
-      }
-    }
-    if (/Not enough measure bars for lyric line/i.test(entry.message)) {
-      // We'll attempt a playback-only fallback that ignores lyrics, so don't spam errors.
-      return;
-    }
-    if (inDrumBlock) {
-      const cleaned = String(message || "").replace(/^\s*play:\d+:\d+\s*/i, "").trim();
-      logErr(cleaned || message, null, { skipMeasureRange: true });
-      return;
-    }
-    logErr(message, loc, { skipMeasureRange: true });
-  };
-  const user = {
-    img_out: () => {},
-    err: (m) => logPlaybackErr(m),
-    errmsg: (m, line, col) => logPlaybackErr(m, line, col),
-    abcplay: p,
-  };
-  const abc = new AbcCtor(user);
-  // Determinism first: always rebuild playback payload for each Play.
-  // This avoids stale Follow/playback mappings after tune switches or heavy edits.
-  playbackTransport.clearPayloadCache();
-  const playbackPayload = getPlaybackPayload();
-  if (!playbackPayload || playbackPayload.empty || !String(playbackPayload.text || "").trim()) {
-    setStatus("Ready");
-    showToast("No ABC block to play.", 2200);
-    return;
-  }
-  const playbackPayloadText = playbackPayload.text;
-  const playbackPayloadOffset = playbackPayload.offset || 0;
-  const selectionMode = selectionPlaybackRuntime.isSelectionMode();
-  playbackTransport.lastPlaybackHasParts = /\nP\s*:/.test(`\n${playbackPayloadText || ""}`) || /\[\s*P\s*:/i.test(playbackPayloadText || "");
-  if (Array.isArray(playbackTransport.playbackSanitizeWarnings) && playbackTransport.playbackSanitizeWarnings.length) {
-    showToast("Playback may vary (ABC sanitized for stability).", 3600);
-  }
-  if (!assertCleanAbcText(playbackPayloadText, "preparePlayback")) {
-    throw new Error("ABC text corruption detected (playback).");
-  }
-  if (window.__abcarusDebugDrums) {
-    const lines = String(playbackPayloadText || "").split(/\r\n|\n|\r/);
-    const drumLines = lines.filter((line) => /DRUM|drum|drummap|MIDI channel/i.test(line));
-    const tail = lines.slice(-60);
-    console.log("[abcarus] playback payload (drum lines):\n" + drumLines.join("\n"));
-    console.log("[abcarus] playback payload (tail):\n" + tail.join("\n"));
-  }
-  if (window.__abcarusDebugPlayback) {
-    const lines = String(playbackPayloadText || "").split(/\r\n|\n|\r/);
-    console.log("[abcarus] playback payload (head):\n" + lines.slice(0, 40).join("\n"));
-  }
-  playbackTransport.playbackIndexOffset = playbackPayloadOffset || 0;
-  if (Number.isFinite(playbackPayload.lineOffset)) {
-    errorsFeature.setLineOffset(playbackPayload.lineOffset);
-  } else {
-    setErrorLineOffsetFromHeader(playbackPayloadText.slice(0, playbackTransport.playbackIndexOffset));
-  }
-  if (playbackTransport.lastPlaybackMeterMismatchWarning && playbackTransport.lastPlaybackMeterMismatchWarning.detail) {
-    addError(
-      `Warning: Meter mismatch: ${playbackTransport.lastPlaybackMeterMismatchWarning.detail}`,
-      playbackTransport.lastPlaybackMeterMismatchWarning.loc || null,
-      { skipMeasureRange: true }
-    );
-  }
-  if (playbackTransport.lastPlaybackRepeatShortBarWarning && playbackTransport.lastPlaybackRepeatShortBarWarning.detail) {
-    addError(
-      `Warning: ${playbackTransport.lastPlaybackRepeatShortBarWarning.detail}`,
-      playbackTransport.lastPlaybackRepeatShortBarWarning.loc || null,
-      { skipMeasureRange: true }
-    );
-  }
-  let playbackText = normalizeHeaderNoneSpacing(playbackPayloadText);
-  const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
-  if (scopedOptions) {
-    if (!scopedOptions.allowMidiDrums) {
-      playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
-    }
-    if (scopedOptions.muteGchords) playbackText = stripChordSymbolsForPlayback(playbackText);
-    if (scopedOptions.suppressRepeats) playbackText = stripRepeatsLengthSafe(playbackText);
-    let effectiveMuted = null;
-    const mutedVoiceMap = selectionPlaybackRuntime.getAbMutedVoiceMap();
-    if (mutedVoiceMap && Object.values(mutedVoiceMap).some(Boolean)) {
-      effectiveMuted = mutedVoiceMap;
-    } else if (Array.isArray(scopedOptions.mutedVoices) && scopedOptions.mutedVoices.length) {
-      effectiveMuted = scopedOptions.mutedVoices.reduce((acc, id) => {
-        acc[String(id)] = true;
-        return acc;
-      }, {});
-    }
-    // Voice muting is applied after parse on tune symbols to keep istart mapping stable.
-    if (effectiveMuted && Object.values(effectiveMuted).some(Boolean) && /\[V\s*:/i.test(playbackText)) {
-      showToast("Voice muting for inline [V:] switches is best-effort.", 2800);
-    }
-  }
-  playbackText = normalizeReadableMidiDrumsForPlayback(playbackText);
-  if (/[\\^_]3\/4/.test(playbackText)) {
-    playbackTransport.addSanitizeWarning({ kind: "playback-acc-3_4-normalized" });
-    playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
-    showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
-  }
-  if (shouldRelocateMidiDrumsForPlayback(scopedOptions)) {
-    const relocated = relocateMidiDrumDirectivesIntoBody(playbackText);
-    if (relocated && relocated.moved > 0) {
-      playbackText = relocated.text;
-      if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
-        playbackTransport.playbackIndexOffset += relocated.insertedLength;
-      }
-      playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-moved-after-k", moved: relocated.moved });
-      if (window.__abcarusDebugPlayback) {
-        showToast("Playback: moved %%MIDI drum* after K:.", 3200);
-      }
-    }
-  }
-  abc.tosvg("play", playbackText);
-
-
-  // abc2svg requires %%MIDI drum/drumon/drumbars to be inside a voice; many real-world files place them in headers.
-  // Neutralize (comment out) these directives for tolerant playback while preserving istart mapping.
-  if (playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen || hasMidiDrumMustBeInVoicePlaybackError(playbackTransport.playbackParseErrors)) {
-    playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-neutralized" });
-    const abc2 = new AbcCtor(user);
-    playbackTransport.playbackParseErrors = [];
-    playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
-    abc2.tosvg("play", playbackText);
-    abc.tunes = abc2.tunes;
-    // Keep this low-noise: it's informational and can be common in real-world files.
-    // Record it for dumps; only show it in UI when debugging playback.
-    if (window.__abcarusDebugPlayback || window.__abcarusDebugDrums) {
-      addError(
-        "Warning: Playback ignored global %%MIDI drum* directives (must be inside a voice).",
-        null,
-        { skipMeasureRange: true }
-      );
-    }
-    const toastKey = getPlaybackSourceKey();
-    if (window.__abcarusDebugPlayback && toastKey && toastKey !== lastMidiDrumCompatToastKey) {
-      lastMidiDrumCompatToastKey = toastKey;
-      showToast("Playback: global %%MIDI drum* ignored (compat).", 2600);
-    }
-  }
-
-  // Tolerant playback mode: many real-world ABC files contain lyric/barline mismatches that stricter engines reject.
-  // We keep the file unchanged; this only affects playback.
-  if (!selectionMode && Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /lyric line/i.test(e.message || ""))) {
-    playbackTransport.addSanitizeWarning({ kind: "playback-lyrics-dropped" });
-    const abc2 = new AbcCtor(user);
-    const stripped = stripLyricsForPlayback(playbackText);
-    abc2.tosvg("play", stripped);
-    abc.tunes = abc2.tunes;
-    showToast("Playback: lyrics ignored (compat mode).", 3600);
-  }
-  if (Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /Different bars/i.test(e.message || ""))) {
-    playbackTransport.addSanitizeWarning({ kind: "playback-bars-normalized" });
-    const abc3 = new AbcCtor(user);
-    const normalized = normalizeBarsForPlayback(playbackText);
-    abc3.tosvg("play", normalized);
-    abc.tunes = abc3.tunes;
-    showToast("Playback: barlines normalized (compat mode).", 3600);
-  }
-
-  // abc2svg playback is stricter than many MIDI engines (e.g. abcmidi) and rejects chord symbols placed on barlines.
-  // We don't auto-strip by default (it changes accompaniment); instead we warn and provide an opt-in toggle.
-  if (Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /chord symbols on measure bars/i.test(e.message || ""))) {
-    playbackTransport.lastPlaybackChordOnBarError = true;
-    playbackTransport.addSanitizeWarning({ kind: "abc2svg-chord-on-measure-bar" });
-    if (window.__abcarusPlaybackStripChordSymbols === true) {
-      playbackTransport.playbackParseErrors = [];
-      playbackTransport.addSanitizeWarning({ kind: "playback-chords-stripped" });
-      const abc2 = new AbcCtor(user);
-      const stripped = stripChordSymbolsForPlayback(playbackText);
-      abc2.tosvg("play", stripped);
-      // Replace parsed result.
-      abc.tunes = abc2.tunes;
-      showToast("Playback: chord symbols ignored (compat mode).", 3600);
-    } else {
-      showToast("Playback may vary (chord symbols on barlines).", 3600);
-    }
-  }
-
-  let tunes = abc.tunes || [];
-  if (!tunes.length && (playbackTransport.playbackIgnoreRepeatsOnce || selectionPlaybackRuntime.getSkipDrumsOnce() || playbackTransport.playbackSkipGchordsOnce)) {
-    const attemptFallbackParse = (label, override) => {
-      const prevIgnore = playbackTransport.playbackIgnoreRepeatsOnce;
-      const prevSkipDrums = selectionPlaybackRuntime.getSkipDrumsOnce();
-      const prevSkipGchords = playbackTransport.playbackSkipGchordsOnce;
-      try {
-        if (override && Object.prototype.hasOwnProperty.call(override, "ignoreRepeats")) {
-          playbackTransport.playbackIgnoreRepeatsOnce = !!override.ignoreRepeats;
-        }
-        if (override && Object.prototype.hasOwnProperty.call(override, "skipDrums")) {
-          selectionPlaybackRuntime.setSkipDrumsOnce(override.skipDrums);
-        }
-        if (override && Object.prototype.hasOwnProperty.call(override, "skipGchords")) {
-          playbackTransport.playbackSkipGchordsOnce = !!override.skipGchords;
-        }
-        const retryPayload = getPlaybackPayload();
-        playbackTransport.playbackIndexOffset = retryPayload.offset || 0;
-        if (Number.isFinite(retryPayload.lineOffset)) {
-          errorsFeature.setLineOffset(retryPayload.lineOffset);
-        } else {
-          setErrorLineOffsetFromHeader(retryPayload.text.slice(0, playbackTransport.playbackIndexOffset));
-        }
-        let retryText = normalizeHeaderNoneSpacing(retryPayload.text);
-        if (/[\\^_]3\/4/.test(retryText)) {
-          playbackTransport.addSanitizeWarning({ kind: "playback-acc-3_4-normalized" });
-          retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
-        }
-        if (shouldRelocateMidiDrumsForPlayback(selectionPlaybackRuntime.getScopedOptions())) {
-          const relocated = relocateMidiDrumDirectivesIntoBody(retryText);
-          if (relocated && relocated.moved > 0) {
-            retryText = relocated.text;
-            if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
-              playbackTransport.playbackIndexOffset += relocated.insertedLength;
-            }
-          }
-        }
-        const abcRetry = new AbcCtor(user);
-        playbackTransport.playbackParseErrors = [];
-        abcRetry.tosvg("play", retryText);
-        if (abcRetry.tunes && abcRetry.tunes.length) {
-          abc.tunes = abcRetry.tunes;
-          tunes = abcRetry.tunes;
-          playbackTransport.addSanitizeWarning({ kind: "playback-selection-fallback", detail: label });
-          showToast(label, 2600);
-          return true;
-        }
-      } finally {
-        playbackTransport.playbackIgnoreRepeatsOnce = prevIgnore;
-        selectionPlaybackRuntime.setSkipDrumsOnce(prevSkipDrums);
-        playbackTransport.playbackSkipGchordsOnce = prevSkipGchords;
-      }
-      return false;
-    };
-
-    // First: allow repeats if the ignore-repeats pass produced no tunes.
-    if (playbackTransport.playbackIgnoreRepeatsOnce) {
-      if (attemptFallbackParse("Selection playback: repeats enabled (fallback).", { ignoreRepeats: false })) {
-        // ok
-      }
-    }
-    // Second: allow drums/gchords if still no tunes.
-    if (!tunes.length && (selectionPlaybackRuntime.getSkipDrumsOnce() || playbackTransport.playbackSkipGchordsOnce)) {
-      attemptFallbackParse("Selection playback: drums/gchords enabled (fallback).", { skipDrums: false, skipGchords: false });
-    }
-  }
-
-  tunes = abc.tunes || [];
-  if (!tunes.length) throw new Error("No tunes parsed; cannot play.");
-
-  // Apply muted voices on parsed symbols (offset-stable, parse-safe).
-  if (scopedOptions && Array.isArray(scopedOptions.mutedVoices) && scopedOptions.mutedVoices.length) {
-    const root = tunes[0] && tunes[0][0] ? tunes[0][0] : null;
-    const firstVoiceId = getFirstPlayableVoiceIdFromTuneRoot(root);
-    const effectiveMutedIds = resolveEffectiveMutedVoiceIds(scopedOptions.mutedVoices, firstVoiceId);
-    if (effectiveMutedIds.length) {
-      let anyMuted = false;
-      for (const t of tunes) {
-        const first = t && t[0] ? t[0] : null;
-        if (applyMutedVoicesToTuneRoot(first, effectiveMutedIds)) anyMuted = true;
-      }
-      if (!anyMuted) {
-        playbackTransport.addSanitizeWarning({ kind: "playback-muted-voices-no-match", voices: effectiveMutedIds.slice(0, 12) });
-      }
-    }
-  }
-
-  try {
-    playbackTransport.lastPlaybackTuneInfo = {
-      count: tunes.length,
-      titles: tunes.map((t) => {
-        const info = t && t[0] ? t[0].info : null;
-        const title = info && info.T ? info.T : null;
-        const x = info && info.X ? info.X : null;
-        return { x, title };
-      }).slice(0, 20),
-    };
-  } catch {
-    playbackTransport.lastPlaybackTuneInfo = { count: tunes.length };
-  }
-
-  for (const t of tunes) {
-    p.add(t[0], t[1], t[3]);
-  }
-
-  playbackTransport.playbackState = buildPlaybackState(tunes[0][0]);
-  playbackTransport.clearTrace();
-  window.__abcarusPlaybackDebug = {
-    getState: () => ({
-      preparedKey: playbackTransport.lastPreparedPlaybackKey,
-      playbackIndexOffset: playbackTransport.playbackIndexOffset,
-      startIstart: playbackTransport.playbackState && playbackTransport.playbackState.startSymbol ? playbackTransport.playbackState.startSymbol.istart : null,
-      measures: playbackTransport.playbackState ? playbackTransport.playbackState.measures.length : 0,
-      symbols: playbackTransport.playbackState ? playbackTransport.playbackState.symbols.length : 0,
-      bars: playbackTransport.playbackState && playbackTransport.playbackState.barIstarts ? playbackTransport.playbackState.barIstarts.length : 0,
-      preferredVoiceId: playbackTransport.playbackState ? (playbackTransport.playbackState.preferredVoiceId || null) : null,
-      preferredVoiceIndex: playbackTransport.playbackState && Number.isFinite(playbackTransport.playbackState.preferredVoiceIndex) ? playbackTransport.playbackState.preferredVoiceIndex : null,
-      voiceStats: playbackTransport.playbackState && Array.isArray(playbackTransport.playbackState.voiceStats) ? playbackTransport.playbackState.voiceStats.slice() : [],
-      tunes: playbackTransport.lastPlaybackTuneInfo,
-      symbolsHead: playbackTransport.playbackState
-        ? playbackTransport.playbackState.symbols.slice(0, 30).map((item) => {
-          const sym = item && item.symbol ? item.symbol : null;
-          const pv = sym && sym.p_v ? sym.p_v : null;
-          return {
-            istart: sym && Number.isFinite(sym.istart) ? sym.istart : null,
-            time: sym && Number.isFinite(sym.time) ? sym.time : null,
-            dur: sym && Number.isFinite(sym.dur) ? sym.dur : null,
-            type: sym && Number.isFinite(sym.type) ? sym.type : null,
-            voiceId: pv && pv.id != null ? String(pv.id) : null,
-            voiceIndex: pv && Number.isFinite(pv.v) ? pv.v : null,
-          };
-        })
-        : [],
-    }),
-    getDiagnostics: () => ({
-      parseErrors: Array.isArray(playbackTransport.playbackParseErrors) ? playbackTransport.playbackParseErrors.slice() : [],
-      sanitizeWarnings: Array.isArray(playbackTransport.playbackSanitizeWarnings) ? playbackTransport.playbackSanitizeWarnings.slice() : [],
-      chordOnBarError: Boolean(playbackTransport.lastPlaybackChordOnBarError),
-    }),
-    getPlaybackRange: () => clonePlaybackRange(playbackTransport.playbackRange),
-    getTimeline: () => (playbackTransport.playbackState ? playbackTransport.playbackState.timeline : []),
-    getTrace: () => playbackTransport.getTrace(),
-    clearTrace: () => { playbackTransport.clearTrace(); },
-  };
-  if (window.__abcarusDebugPlayback) {
-    const symPreview = playbackTransport.playbackState.symbols.slice(0, 10).map((item) => {
-      const sym = item.symbol || {};
-      return {
-        istart: sym.istart,
-        time: sym.time,
-        bar_type: sym.bar_type,
-        type: sym.type || sym.sym || sym.name,
-      };
-    });
-    const measPreview = playbackTransport.playbackState.measures.slice(0, 6).map((item) => item.istart);
-    console.log("[abcarus] playback symbols head:", symPreview);
-    console.log("[abcarus] playback measures head:", measPreview);
-    console.log("[abcarus] playback start:", playbackTransport.playbackState.startSymbol && playbackTransport.playbackState.startSymbol.istart);
-  }
-  setFollowVoiceFromPlayback();
-  return p;
+  return playbackPrepareController.preparePlayback();
 }
 
 function startPlaybackFromPrepared(startIdx) {

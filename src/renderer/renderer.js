@@ -159,6 +159,7 @@ import { createDrumPreviewController } from "./playback/drum_preview_controller.
 import { createPlaybackStartController } from "./playback/playback_start_controller.js";
 import { createPlaybackTransportController } from "./playback/playback_transport_controller.js";
 import { createPlaybackPlayerController } from "./playback/playback_player_controller.js";
+import { createPlaybackFollowController } from "./playback/playback_follow_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1281,6 +1282,34 @@ const playbackTransportController = createPlaybackTransportController({
   setSoundfontCaption,
   showToast,
 });
+const playbackFollowController = createPlaybackFollowController({
+  windowRef: window,
+  transport: playbackTransport,
+  getEditorView: () => editorView,
+  getOutElement: () => $out,
+  getRenderPane: () => $renderPane,
+  getFollowPlaybackEnabled: () => followPlayback,
+  getFocusModeEnabled: () => focusModeEnabled,
+  getSuppressFollowScrollUntilMs: () => suppressFollowScrollUntilMs,
+  clearSvgPlayhead,
+  clearSvgFollowBarHighlight,
+  clearSvgFollowMeasureHighlight,
+  clearSvgPracticeBarHighlight,
+  setPracticeBarHighlight,
+  findSymbolAtOrBefore,
+  upperBoundTime,
+  snapIstartToPlayable,
+  mapEditorOffsetToRenderIdx,
+  mapRenderIdxToEditorOffset,
+  findNearestNoteHighlightElements,
+  pickClosestNoteElement,
+  extractRenderIdxFromElementClass,
+  findNearestBarElForNote,
+  setSvgPlayheadFromElements,
+  highlightSvgFollowMeasureForNote,
+  maybeAutoScrollRenderToCursor,
+  cancelPlaybackAutoScroll,
+});
 const playbackPlayerController = createPlaybackPlayerController({
   windowRef: window,
   transport: playbackTransport,
@@ -1809,8 +1838,8 @@ const debugDumpFeature = createDebugDumpFeature({
   getIsPaused: () => playbackTransport.isPaused,
   getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
   getFollowPlayback: () => followPlayback,
-  getFollowVoiceId: () => followVoiceId,
-  getFollowVoiceIndex: () => followVoiceIndex,
+  getFollowVoiceId: () => playbackFollowController.getFollowVoiceId(),
+  getFollowVoiceIndex: () => playbackFollowController.getFollowVoiceIndex(),
   getPlaybackState: () => playbackTransport.playbackState,
   getPracticeTempoMultiplier: () => playbackTransport.practiceTempoMultiplier,
   getPlaybackLoopEnabled: () => playbackTransport.playbackLoopEnabled,
@@ -7803,15 +7832,7 @@ let playbackAutoScrollAnim = null; // {raf,startAt,duration,fromTop,fromLeft,toT
 let playbackAutoScrollProgrammatic = false;
 let playbackAutoScrollLastAt = 0;
 let playbackAutoScrollDebugLastAt = 0;
-let followVoiceId = null;
-let followVoiceIndex = null;
 let drumVelocityMap = buildDefaultDrumVelocityMap();
-let pendingPlaybackUiIstart = null;
-let pendingPlaybackUiRaf = null;
-let lastPlaybackNoteOnEls = [];
-let lastPlaybackUiRenderIdx = null;
-let lastPlaybackUiEditorIdx = null;
-let lastPlaybackUiScrollAt = 0;
 
 let focusModeEnabled = false;
 let focusPrevRenderZoom = null;
@@ -7936,28 +7957,12 @@ function toggleFocusMode() {
 }
 
 function clearPlaybackNoteOnEls() {
-  for (const el of lastPlaybackNoteOnEls) {
-    try { el.classList.remove("note-on"); } catch {}
-  }
-  lastPlaybackNoteOnEls = [];
+  return playbackFollowController.clearPlaybackNoteOnEls();
 }
 
 function resetPlaybackUiState() {
-  clearPlaybackNoteOnEls();
-  clearSvgPlayhead();
-  clearSvgFollowBarHighlight();
-  clearSvgFollowMeasureHighlight();
-  clearSvgPracticeBarHighlight();
-  setPracticeBarHighlight(null);
-  lastPlaybackUiRenderIdx = null;
-  lastPlaybackUiEditorIdx = null;
-  pendingPlaybackUiIstart = null;
-  if (pendingPlaybackUiRaf != null) {
-    try { cancelAnimationFrame(pendingPlaybackUiRaf); } catch {}
-    pendingPlaybackUiRaf = null;
-  }
   playbackAutoScrollManualUntil = 0;
-  cancelPlaybackAutoScroll();
+  return playbackFollowController.resetPlaybackUiState();
 }
 
 function normalizeAutoScrollMode(raw) {
@@ -8512,189 +8517,19 @@ function resetPlaybackState() {
 }
 
 function highlightSourceAt(idx, on) {
-  if (!playbackTransport.isPlaying) return;
-  if (!Number.isFinite(idx)) return;
-  if (!editorView) return;
-  const max = editorView.state.doc.length;
-  const safeIdx = Math.max(0, Math.min(idx, max));
-  const end = Math.min(safeIdx + 1, max);
-
-  if (on) {
-    playbackTransport.lastRenderIdx = safeIdx;
-    editorView.dispatch({ selection: { anchor: safeIdx, head: end } });
-    const lineBlock = editorView.lineBlockAt(safeIdx);
-    const lineTop = lineBlock.top;
-    const viewTop = editorView.scrollDOM.scrollTop;
-    const viewBottom = viewTop + editorView.scrollDOM.clientHeight;
-    const margin = Math.max(lineBlock.height * 4, 64);
-    if (lineTop < viewTop + margin) {
-      editorView.scrollDOM.scrollTop = Math.max(0, lineTop - margin);
-    } else if (lineTop > viewBottom - margin) {
-      editorView.scrollDOM.scrollTop = Math.max(
-        0,
-        lineTop - editorView.scrollDOM.clientHeight + margin
-      );
-    }
-  } else if (playbackTransport.lastRenderIdx === idx) {
-    const safeOff = Math.max(0, Math.min(idx, max));
-    editorView.dispatch({ selection: { anchor: safeOff, head: safeOff } });
-  }
+  return playbackFollowController.highlightSourceAt(idx, on);
 }
 
 function maybeScrollEditorToOffset(editorOffset) {
-  if (!editorView) return;
-  const max = editorView.state.doc.length;
-  const idx = Math.max(0, Math.min(Number(editorOffset) || 0, max));
-  const lineBlock = editorView.lineBlockAt(idx);
-  const lineTop = lineBlock.top;
-  const viewTop = editorView.scrollDOM.scrollTop;
-  const viewBottom = viewTop + editorView.scrollDOM.clientHeight;
-  const margin = Math.max(lineBlock.height * 4, 64);
-  if (lineTop < viewTop + margin) {
-    editorView.scrollDOM.scrollTop = Math.max(0, lineTop - margin);
-  } else if (lineTop > viewBottom - margin) {
-    editorView.scrollDOM.scrollTop = Math.max(
-      0,
-      lineTop - editorView.scrollDOM.clientHeight + margin
-    );
-  }
+  return playbackFollowController.maybeScrollEditorToOffset(editorOffset);
 }
 
 function schedulePlaybackUiUpdate(istart) {
-  if (!Number.isFinite(istart)) return;
-  pendingPlaybackUiIstart = istart;
-  if (pendingPlaybackUiRaf != null) return;
-  pendingPlaybackUiRaf = requestAnimationFrame(() => {
-    pendingPlaybackUiRaf = null;
-	    const i = pendingPlaybackUiIstart;
-	    pendingPlaybackUiIstart = null;
-	    if (!playbackTransport.isPlaying || playbackTransport.isPreviewing) return;
-	    const effectiveFollow = Boolean(followPlayback || focusModeEnabled);
-	    if (!effectiveFollow) return;
-	    if (!$out) return;
-	    if (!Number.isFinite(i)) return;
-
-    let targetIstart = i;
-    // When playback events come from a different voice (common in multi-voice scores),
-    // Follow should still track the configured "primary" voice rather than freezing.
-    if ((followVoiceId != null || followVoiceIndex != null) && playbackTransport.playbackState && playbackTransport.playbackState.voiceTimeline) {
-      const wantId = followVoiceId != null ? String(followVoiceId) : null;
-      const wantIndex = followVoiceIndex != null ? String(followVoiceIndex) : null;
-      const byId = playbackTransport.playbackState.voiceTimeline && playbackTransport.playbackState.voiceTimeline.byId ? playbackTransport.playbackState.voiceTimeline.byId : null;
-      const byIndex = playbackTransport.playbackState.voiceTimeline && playbackTransport.playbackState.voiceTimeline.byIndex ? playbackTransport.playbackState.voiceTimeline.byIndex : null;
-      const tl = (wantId && byId && byId[wantId]) ? byId[wantId]
-        : (wantIndex && byIndex && byIndex[wantIndex]) ? byIndex[wantIndex]
-        : null;
-
-      const sym = findSymbolAtOrBefore(i);
-      const currentTime = sym && Number.isFinite(sym.time) ? sym.time : null;
-      if (tl && currentTime != null) {
-        const times = Array.isArray(tl.times) ? tl.times : null;
-        const istarts = Array.isArray(tl.istarts) ? tl.istarts : null;
-        if (times && istarts && times.length && times.length === istarts.length) {
-          const beforePos = upperBoundTime(times, currentTime) - 1;
-          const beforeIdx = Math.max(0, Math.min(istarts.length - 1, beforePos));
-          const afterIdx = Math.max(0, Math.min(istarts.length - 1, beforeIdx + 1));
-          const beforeTime = Number.isFinite(times[beforeIdx]) ? times[beforeIdx] : null;
-          const afterTime = Number.isFinite(times[afterIdx]) ? times[afterIdx] : null;
-          let pick = beforeIdx;
-          if (beforeTime == null && afterTime != null) {
-            pick = afterIdx;
-          } else if (beforeTime != null && afterTime != null && afterIdx !== beforeIdx) {
-            const dBefore = Math.abs(currentTime - beforeTime);
-            const dAfter = Math.abs(afterTime - currentTime);
-            // Tie -> prefer forward note so visual follow does not stay one note behind.
-            if (dAfter <= dBefore) pick = afterIdx;
-          }
-          const mapped = istarts[pick];
-          if (Number.isFinite(mapped)) targetIstart = mapped;
-        }
-      }
-    }
-    targetIstart = snapIstartToPlayable(targetIstart);
-
-    const editorIdx = Math.max(0, targetIstart - playbackTransport.playbackIndexOffset);
-    const editorLen = editorView ? editorView.state.doc.length : 0;
-    const fromInjected = editorLen && editorIdx >= editorLen;
-    if (fromInjected) return;
-
-    const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-      ? getLastRenderPayload().offset
-      : 0;
-    const renderIdx = mapEditorOffsetToRenderIdx(editorIdx);
-
-	    if (lastPlaybackUiEditorIdx === editorIdx && lastPlaybackUiRenderIdx === renderIdx) return;
-	    lastPlaybackUiEditorIdx = editorIdx;
-	    lastPlaybackUiRenderIdx = renderIdx;
-
-	    // Follow mode: emphasize bar + playhead line over per-note blinking.
-	    clearPlaybackNoteOnEls();
-
-    // New approach: highlight the current *visual* staff segment (5 lines) instead of bar separators.
-    // This avoids ambiguity when the left barline of the current measure is on the previous system line.
-    clearSvgFollowBarHighlight();
-
-    const noteEls = findNearestNoteHighlightElements(renderIdx, 240);
-    const chosen = noteEls.length ? pickClosestNoteElement(noteEls) : null;
-    if (chosen) {
-      const chosenRenderIdx = extractRenderIdxFromElementClass(chosen);
-      const chosenEditorIdx = Number.isFinite(chosenRenderIdx)
-        ? Math.max(0, mapRenderIdxToEditorOffset(chosenRenderIdx))
-        : editorIdx;
-      const nearestBar = findNearestBarElForNote(chosen);
-      setSvgPlayheadFromElements(chosen, nearestBar);
-      highlightSvgFollowMeasureForNote(chosen, nearestBar);
-      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-	      if (now - lastPlaybackUiScrollAt > 90) {
-          if (!suppressFollowScrollUntilMs || now >= suppressFollowScrollUntilMs) {
-	          maybeScrollRenderToNote(chosen);
-	          lastPlaybackUiScrollAt = now;
-          }
-	      }
-	      highlightSourceAt(chosenEditorIdx, true);
-	      return;
-	    }
-
-    clearSvgPlayhead();
-    clearSvgFollowMeasureHighlight();
-    highlightSourceAt(editorIdx, true);
-  });
+  return playbackFollowController.schedulePlaybackUiUpdate(istart);
 }
 
 function maybeScrollRenderToNote(el) {
-  if (!$renderPane || !el) return;
-  if (isPlaybackBusy()) {
-    maybeAutoScrollRenderToCursor(el);
-    return;
-  }
-  const containerRect = $renderPane.getBoundingClientRect();
-  const targetRect = el.getBoundingClientRect();
-  const viewTop = $renderPane.scrollTop;
-  const viewBottom = viewTop + $renderPane.clientHeight;
-  const viewLeft = $renderPane.scrollLeft;
-  const viewRight = viewLeft + $renderPane.clientWidth;
-  const relTop = targetRect.top - containerRect.top;
-  const relBottom = relTop + targetRect.height;
-  const relLeft = targetRect.left - containerRect.left;
-  const relRight = relLeft + targetRect.width;
-  const linePad = Math.max(80, targetRect.height * 8);
-  const colPad = Math.max(80, targetRect.width * 8);
-  let nextTop = viewTop;
-  let nextLeft = viewLeft;
-  if (relTop < linePad) {
-    nextTop = viewTop + (relTop - linePad);
-  } else if (relBottom > $renderPane.clientHeight - linePad) {
-    nextTop = viewTop + (relBottom - ($renderPane.clientHeight - linePad));
-  }
-  if (relLeft < colPad) {
-    nextLeft = viewLeft + (relLeft - colPad);
-  } else if (relRight > $renderPane.clientWidth - colPad) {
-    nextLeft = viewLeft + (relRight - ($renderPane.clientWidth - colPad));
-  }
-  const maxTop = Math.max(0, $renderPane.scrollHeight - $renderPane.clientHeight);
-  const maxLeft = Math.max(0, $renderPane.scrollWidth - $renderPane.clientWidth);
-  $renderPane.scrollTop = Math.max(0, Math.min(maxTop, nextTop));
-  $renderPane.scrollLeft = Math.max(0, Math.min(maxLeft, nextLeft));
+  return playbackFollowController.maybeScrollRenderToNote(el);
 }
 
 async function ensureSoundfontLoaded() {
@@ -8710,18 +8545,7 @@ function ensurePlayer() {
 }
 
 function setFollowVoiceFromPlayback() {
-  followVoiceId = null;
-  followVoiceIndex = null;
-  if (!playbackTransport.playbackState) return;
-  // Prefer a stable "primary" voice (first staff) to avoid highlight jumping on multi-staff scores.
-  if (playbackTransport.playbackState.preferredVoiceId) followVoiceId = playbackTransport.playbackState.preferredVoiceId;
-  if (Number.isFinite(playbackTransport.playbackState.preferredVoiceIndex)) followVoiceIndex = playbackTransport.playbackState.preferredVoiceIndex;
-  if (followVoiceId || followVoiceIndex != null) return;
-  if (!playbackTransport.playbackState.startSymbol) return;
-  const voice = playbackTransport.playbackState.startSymbol.p_v;
-  if (!voice) return;
-  if (voice.id) followVoiceId = voice.id;
-  if (Number.isFinite(voice.v)) followVoiceIndex = voice.v;
+  return playbackFollowController.setFollowVoiceFromPlayback();
 }
 
 function buildPlaybackState(firstSymbol) {

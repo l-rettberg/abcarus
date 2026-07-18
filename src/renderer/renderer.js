@@ -158,6 +158,7 @@ import { createPlaybackPrepareController } from "./playback/playback_prepare_con
 import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
 import { createPlaybackStartController } from "./playback/playback_start_controller.js";
 import { createPlaybackTransportController } from "./playback/playback_transport_controller.js";
+import { createPlaybackPlayerController } from "./playback/playback_player_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1279,6 +1280,34 @@ const playbackTransportController = createPlaybackTransportController({
   resetPlaybackUiState,
   setSoundfontCaption,
   showToast,
+});
+const playbackPlayerController = createPlaybackPlayerController({
+  windowRef: window,
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  getEditorView: () => editorView,
+  getFocusModeEnabled: () => focusModeEnabled,
+  getFollowPlaybackEnabled: () => followPlayback,
+  getSoundfontSource: () => soundfontController.getSource(),
+  setSuppressPlaybackRangeSelectionSync: (next) => { suppressPlaybackRangeSelectionSync = Boolean(next); },
+  applyPlaybackPlanSpeed,
+  startPlaybackFromRange,
+  updatePracticeUi,
+  setStatus,
+  updatePlayButton,
+  clearNoteSelection,
+  clearPlaybackNoteOnEls,
+  clearSvgPlayhead,
+  clearSvgFollowBarHighlight,
+  clearSvgFollowMeasureHighlight,
+  resetPlaybackUiState,
+  setSoundfontCaption,
+  findSymbolAtOrBefore,
+  toEditorOffset,
+  appendPlaybackTrace,
+  stopPlaybackFromGuard,
+  schedulePlaybackUiUpdate,
+  logErr,
 });
 const drumPreviewController = createDrumPreviewController({
   transport: playbackTransport,
@@ -8677,175 +8706,7 @@ async function ensureSoundfontReady() {
 }
 
 function ensurePlayer() {
-  if (playbackTransport.player) return playbackTransport.player;
-
-  if (typeof window.AbcPlay !== "function") {
-    throw new Error("AbcPlay not found (snd-1.js not loaded?)");
-  }
-
-  const conf = {
-    onend: () => {
-      const endState = playbackTransport.consumePlaybackEnd();
-      if (endState.ignored) return;
-      setStatus("OK");
-      updatePlayButton();
-      clearNoteSelection();
-      clearPlaybackNoteOnEls();
-      clearSvgPlayhead();
-      clearSvgFollowBarHighlight();
-      clearSvgFollowMeasureHighlight();
-      if (!endState.shouldLoop) resetPlaybackUiState();
-      if (endState.shouldLoop && followPlayback && playbackTransport.lastRenderIdx != null && editorView) {
-        // When looping, keep the visual follow-cursor without mutating PlaybackRange (loop invariance).
-        suppressPlaybackRangeSelectionSync = true;
-        try {
-          editorView.dispatch({ selection: { anchor: playbackTransport.lastRenderIdx, head: playbackTransport.lastRenderIdx } });
-        } finally {
-          suppressPlaybackRangeSelectionSync = false;
-        }
-      }
-      if (endState.shouldLoop) {
-        queueMicrotask(() => {
-          if (!endState.loopRange || !playbackTransport.activePlaybackRange || !playbackTransport.activePlaybackRange.loop) return;
-          if (playbackTransport.pendingPlaybackPlan) {
-            const plan = playbackTransport.pendingPlaybackPlan;
-	            playbackTransport.pendingPlaybackPlan = null;
-	            playbackTransport.currentPlaybackPlan = plan;
-	            applyPlaybackPlanSpeed(plan);
-	            startPlaybackFromRange({
-	              startOffset: plan.rangeStart,
-	              endOffset: plan.rangeEnd,
-	              origin: focusModeEnabled ? "focus" : "transport",
-	              loop: plan.loopEnabled,
-	            }).catch(() => {});
-	            updatePracticeUi();
-	            return;
-          }
-          startPlaybackFromRange(endState.loopRange).catch(() => {});
-        });
-      }
-      if (!endState.shouldLoop && endState.wasSelectionOrigin) {
-        selectionPlaybackRuntime.restoreSelection(editorView);
-        selectionPlaybackRuntime.clearSelectionCapture();
-      }
-    },
-    onnote: (i, on) => {
-      playbackTransport.lastPlaybackIdx = i;
-      if (playbackTransport.consumeFirstNoteStart(on)) {
-        setStatus("Playing…");
-        setSoundfontCaption();
-      }
-      if (playbackTransport.isPreviewing) return;
-      if (on) {
-        if (Number.isFinite(playbackTransport.lastPlaybackOnIstart) && Number.isFinite(i) && i < playbackTransport.lastPlaybackOnIstart && window.__abcarusDebugPlayback) {
-          console.log("[abcarus] playback jump (repeat?)", { from: playbackTransport.lastPlaybackOnIstart, to: i });
-        }
-        if (window.__abcarusDebugParts === true && Number.isFinite(i)) {
-          try {
-            const sym = findSymbolAtOrBefore(i);
-            const letter = (sym && sym.part && sym.part.text) ? (String(sym.part.text || "")[0] || "?") : null;
-            if (letter) console.log("[abcarus] part start", { part: letter, istart: i });
-            if (Number.isFinite(playbackTransport.lastPlaybackOnIstart) && i < playbackTransport.lastPlaybackOnIstart) {
-              let s = sym;
-              let guard = 0;
-              let inferred = null;
-              while (s && guard < 200000) {
-                if (s.part && s.part.text) { inferred = String(s.part.text || "")[0] || "?"; break; }
-                s = s.ts_prev;
-                guard += 1;
-              }
-              console.log("[abcarus] part jump", { from: playbackTransport.lastPlaybackOnIstart, to: i, inferredPart: inferred });
-            }
-          } catch {}
-        }
-        playbackTransport.lastPlaybackOnIstart = i;
-      }
-	      // End-of-range handling is done by abc2svg's snd engine via `s_end` (see `playbackTransport.activePlaybackEndSymbol`).
-      const editorIdx = Math.max(0, i - playbackTransport.playbackIndexOffset);
-      const editorLen = editorView ? editorView.state.doc.length : 0;
-      const fromInjected = editorLen && editorIdx >= editorLen;
-      if (on && !fromInjected) {
-        // Playback per-note trace/diagnostics is opt-in to keep hot paths lean.
-        // Enable via DevTools: `window.__abcarusPlaybackTrace = true` (no reload required).
-        const traceEnabled = window.__abcarusPlaybackTrace === true;
-        // Loop invariance guard: only enforce when PlaybackRange is expected to match the active loop.
-        // In Focus, playback can resume mid-loop, so origins may differ and the guard should not fire.
-        if (
-          playbackTransport.activePlaybackRange
-          && playbackTransport.activePlaybackRange.loop
-          && playbackTransport.activePlaybackRange.origin === playbackTransport.playbackRange.origin
-          && playbackTransport.playbackRange.startOffset !== playbackTransport.activePlaybackRange.startOffset
-        ) {
-          // Possibly correctness-critical: this guards against state races that can break subsequent playback.
-          stopPlaybackFromGuard("Loop invariance violated: PlaybackRange.startOffset mutated.");
-          return;
-        }
-	        // No extra end-of-range guard here: we rely on `s_end` to stop deterministically (and to allow looping).
-        if (traceEnabled) {
-          const timestamp = typeof performance !== "undefined" ? performance.now() : Date.now();
-          const seq = (playbackTransport.playbackTraceSeq += 1);
-
-          // Trace-only diagnostics: keep opt-in unless proven correctness-critical.
-          if (playbackTransport.lastTraceRunId !== playbackTransport.playbackRunId) {
-            stopPlaybackFromGuard("Trace run id mismatch.");
-            return;
-          }
-          if (playbackTransport.lastTracePlaybackIdx != null && seq < playbackTransport.lastTracePlaybackIdx) {
-            stopPlaybackFromGuard("Trace playbackIdx is not monotonic.");
-            return;
-          }
-          if (playbackTransport.lastTraceTimestamp != null && timestamp < playbackTransport.lastTraceTimestamp) {
-            stopPlaybackFromGuard("Trace timestamp is decreasing.");
-            return;
-          }
-
-          playbackTransport.lastTracePlaybackIdx = seq;
-          playbackTransport.lastTraceTimestamp = timestamp;
-          const currentEditorOffset = toEditorOffset(i);
-          const rangeStartEditorOffset = playbackTransport.activePlaybackRange ? playbackTransport.activePlaybackRange.startOffset : playbackTransport.playbackRange.startOffset;
-          appendPlaybackTrace({
-            rangeStartOffset: rangeStartEditorOffset,
-            currentAbcOffset: Number.isFinite(currentEditorOffset) ? currentEditorOffset : editorIdx,
-            rangeStartEditorOffset,
-            currentEditorOffset: Number.isFinite(currentEditorOffset) ? currentEditorOffset : editorIdx,
-            currentIstart: i,
-            origin: playbackTransport.activePlaybackRange ? playbackTransport.activePlaybackRange.origin : playbackTransport.playbackRange.origin,
-            playbackIdx: seq,
-            editorIdx: Number.isFinite(currentEditorOffset) ? currentEditorOffset : editorIdx,
-            timestamp,
-            atMs: timestamp,
-          });
-        }
-      }
-      // Important: never let injected voices (e.g. DRUM appended to payload) steal the pending UI update,
-      // otherwise follow-highlight becomes "blinking"/pale because the RAF processes only the injected istart and returns.
-      if (on && !fromInjected) schedulePlaybackUiUpdate(i);
-    },
-    errmsg: (m, line, col) => {
-      const loc = Number.isFinite(line) && Number.isFinite(col)
-        ? { line: line + 1, col: col + 1 }
-        : null;
-      logErr(m, loc);
-    },
-    err: (m) => logErr(m),
-  };
-  playbackTransport.playerConfig = conf;
-  playbackTransport.player = AbcPlay(conf);
-
-  // Expose for debugging in the console:
-  window.p = playbackTransport.player;
-
-	  // Guard against NaN speed from localStorage (and allow Focus to override speed deterministically):
-  if (typeof playbackTransport.player.set_speed === "function") {
-    const next = Number(playbackTransport.desiredPlayerSpeed);
-    playbackTransport.player.set_speed(Number.isFinite(next) && next > 0 ? next : 1);
-  }
-
-  // Key: tell snd-1.js to use SF2 from window.abc2svg.sf2
-  if (typeof playbackTransport.player.set_sfu === "function") playbackTransport.player.set_sfu(soundfontController.getSource() || "abc2svg.sf2");
-  try { sessionStorage.setItem("audio", "sf2"); } catch {}
-
-  return playbackTransport.player;
+  return playbackPlayerController.ensurePlayer();
 }
 
 function setFollowVoiceFromPlayback() {

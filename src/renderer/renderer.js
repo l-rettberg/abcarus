@@ -157,6 +157,7 @@ import { createPlaybackPayloadController } from "./playback/playback_payload_con
 import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
 import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
 import { createPlaybackStartController } from "./playback/playback_start_controller.js";
+import { createPlaybackTransportController } from "./playback/playback_transport_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1255,6 +1256,29 @@ const playbackStartController = createPlaybackStartController({
   getEditorSelectionSignature,
   isFollowPlaybackEnabled: () => followPlayback,
   getDebugParts: () => window.__abcarusDebugParts === true,
+});
+const playbackTransportController = createPlaybackTransportController({
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  getEditorView: () => editorView,
+  getFocusModeEnabled: () => focusModeEnabled,
+  normalizeFocusLoopBoundsForPlayback,
+  computeFocusPlaybackPlanFromCurrentState,
+  getEditorMeasureStartOffset,
+  getEditorPlayStartOffset,
+  getEditorSelectionSignature,
+  startPlaybackFromRange,
+  startPlaybackAtIndex,
+  pausePlayback,
+  playSelectionOnce,
+  setPracticeBarHighlight,
+  clearSvgPracticeBarHighlight,
+  setStatus,
+  updatePlayButton,
+  clearNoteSelection,
+  resetPlaybackUiState,
+  setSoundfontCaption,
+  showToast,
 });
 const drumPreviewController = createDrumPreviewController({
   transport: playbackTransport,
@@ -5990,7 +6014,7 @@ async function goToMeasureFromMenu() {
 
   // Transport playhead: next Play starts from this measure (until Stop).
   playbackTransport.transportPlayheadOffset = pos;
-  playbackTransport.pendingPlaybackPlan = buildTransportPlaybackPlan();
+  syncPendingPlaybackPlan();
 
   // Visual feedback: highlight the target measure in both editor and score.
   try {
@@ -8359,44 +8383,7 @@ function updatePlaybackInteractionLock() {
 }
 
 function buildTransportPlaybackPlan() {
-  const tempoMultiplier = focusModeEnabled
-    ? (Number.isFinite(Number(playbackTransport.practiceTempoMultiplier)) ? Number(playbackTransport.practiceTempoMultiplier) : 1)
-    : 1;
-  if (focusModeEnabled) {
-    const focusResult = computeFocusPlaybackPlanFromCurrentState();
-    if (!focusResult || !focusResult.ok || !focusResult.plan) {
-      return {
-        mode: "focus",
-        invalid: true,
-        invalidReason: focusResult && focusResult.reason ? String(focusResult.reason) : "Cannot resolve Focus playback scope.",
-        rangeStart: Math.max(0, Number(playbackTransport.transportPlayheadOffset) || 0),
-        rangeEnd: null,
-        loopEnabled: false,
-        tempoMultiplier,
-        focusPlan: null,
-      };
-    }
-    return {
-      mode: "focus",
-      invalid: false,
-      invalidReason: "",
-      rangeStart: focusResult.plan.startOffset,
-      rangeEnd: focusResult.plan.endOffset,
-      loopEnabled: Boolean(focusResult.plan.loop),
-      tempoMultiplier,
-      focusPlan: focusResult.plan,
-    };
-  }
-  return {
-    mode: "transport",
-    invalid: false,
-    invalidReason: "",
-    // Normal mode: start from the beginning of the bar under cursor.
-    rangeStart: getEditorMeasureStartOffset(),
-    rangeEnd: null,
-    loopEnabled: false,
-    tempoMultiplier,
-  };
+  return playbackTransportController.buildTransportPlaybackPlan();
 }
 
 function getEditorPlayStartOffset() {
@@ -8463,231 +8450,36 @@ function getEditorSelectionSignature() {
   return `${anchor}:${head}`;
 }
 
-function shouldResumeFromPause() {
-  if (!playbackTransport.isPaused) return false;
-  if (focusModeEnabled) return true;
-  if (!playbackTransport.pausedSelectionSignature) return true;
-  return getEditorSelectionSignature() === playbackTransport.pausedSelectionSignature;
-}
-
-function resolveFocusResumeStartOffset(plan, fallbackStartOffset, candidateResumeOffset) {
-  const start = Math.max(0, Number(fallbackStartOffset) || 0);
-  const end = Number(plan && plan.rangeEnd);
-  const resume = Number(candidateResumeOffset);
-  if (!Number.isFinite(resume) || resume < start) return start;
-  if (Number.isFinite(end) && resume >= end) return start;
-  return resume;
-}
-
 function syncPendingPlaybackPlan() {
-  playbackTransport.pendingPlaybackPlan = buildTransportPlaybackPlan();
+  return playbackTransportController.syncPendingPlaybackPlan();
 }
 
 function applyPlaybackPlanSpeed(plan) {
-  const next = Number(plan && plan.tempoMultiplier);
-  playbackTransport.desiredPlayerSpeed = (Number.isFinite(next) && next > 0) ? next : 1;
-  if (playbackTransport.player && typeof playbackTransport.player.set_speed === "function") {
-    try { playbackTransport.player.set_speed(playbackTransport.desiredPlayerSpeed); } catch {}
-  }
+  return playbackTransportController.applyPlaybackPlanSpeed(plan);
 }
 
 async function togglePlayPauseEffective() {
-  // In Focus mode, route through transport controls so Play and Start Over
-  // use one deterministic playback pipeline.
-  if (focusModeEnabled) {
-    if (playbackTransport.isPlaying) {
-      pausePlayback();
-      return;
-    }
-    await transportPlay();
-    return;
-  }
-
-  if (playbackTransport.isPlaying) {
-    pausePlayback();
-    return;
-  }
-
-  if (playbackTransport.isPaused) {
-    normalizeFocusLoopBoundsForPlayback();
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    applyPlaybackPlanSpeed(plan);
-    const resumeOffset = playbackTransport.playbackRange ? Math.max(0, Number(playbackTransport.playbackRange.startOffset) || 0) : 0;
-    let startOffset = focusModeEnabled
-      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
-      : getEditorMeasureStartOffset();
-    if (focusModeEnabled) {
-      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
-    }
-    await startPlaybackFromRange({
-      startOffset,
-      endOffset: plan.rangeEnd,
-      origin: focusModeEnabled ? "focus" : "transport",
-      loop: plan.loopEnabled,
-    });
-    return;
-  }
-
-  if (await playSelectionOnce()) return;
-
-  const plan = playbackTransport.pendingPlaybackPlan || buildTransportPlaybackPlan();
-  if (plan && plan.invalid) {
-    playbackTransport.pendingPlaybackPlan = null;
-    showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-    return;
-  }
-  playbackTransport.pendingPlaybackPlan = null;
-  playbackTransport.currentPlaybackPlan = plan;
-  applyPlaybackPlanSpeed(plan);
-  await startPlaybackFromRange({
-    startOffset: plan.rangeStart,
-    endOffset: plan.rangeEnd,
-    origin: focusModeEnabled ? "focus" : "transport",
-    loop: plan.loopEnabled,
-  });
+  return playbackTransportController.togglePlayPauseEffective();
 }
 
 async function transportStartOver() {
-  // "Start Over" restarts the current playback scope from its beginning.
-  if (playbackTransport.isPlaying || playbackTransport.isPaused || playbackTransport.waitingForFirstNote || playbackTransport.playbackStartArmed) {
-    stopPlaybackTransport();
-  }
-  if (focusModeEnabled) {
-    normalizeFocusLoopBoundsForPlayback();
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    applyPlaybackPlanSpeed(plan);
-    await startPlaybackFromRange({
-      startOffset: plan.rangeStart,
-      endOffset: plan.rangeEnd,
-      origin: "focus",
-      loop: plan.loopEnabled,
-    });
-    return;
-  }
-  if (editorView) {
-    editorView.dispatch({ selection: { anchor: 0, head: 0 }, scrollIntoView: true });
-  }
-  await startPlaybackAtIndex(0);
+  return playbackTransportController.transportStartOver();
 }
 
 async function transportTogglePlayPause() {
-  if (playbackTransport.isPlaying) {
-    pausePlayback();
-    return;
-  }
-  if (playbackTransport.isPaused) {
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    const resumeOffset = playbackTransport.playbackRange ? Math.max(0, Number(playbackTransport.playbackRange.startOffset) || 0) : 0;
-    let startOffset = focusModeEnabled
-      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
-      : getEditorMeasureStartOffset();
-    if (focusModeEnabled) {
-      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
-    }
-    await startPlaybackFromRange({
-      startOffset,
-      endOffset: plan.rangeEnd,
-      origin: focusModeEnabled ? "focus" : "transport",
-      loop: plan.loopEnabled,
-    });
-    return;
-  }
-  const startOffset = getEditorMeasureStartOffset();
-  await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
+  return playbackTransportController.transportTogglePlayPause();
 }
 
 async function transportPlay() {
-  if (playbackTransport.isPlaying) return;
-  if (focusModeEnabled) normalizeFocusLoopBoundsForPlayback();
-  if (playbackTransport.isPaused) {
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    const resumeOffset = playbackTransport.playbackRange ? Math.max(0, Number(playbackTransport.playbackRange.startOffset) || 0) : 0;
-    let startOffset = focusModeEnabled
-      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
-      : getEditorMeasureStartOffset();
-    if (focusModeEnabled) {
-      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
-    }
-    await startPlaybackFromRange({
-      startOffset,
-      endOffset: plan.rangeEnd,
-      origin: focusModeEnabled ? "focus" : "transport",
-      loop: plan.loopEnabled,
-    });
-    return;
-  }
-  if (focusModeEnabled) {
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    applyPlaybackPlanSpeed(plan);
-    await startPlaybackFromRange({
-      startOffset: plan.rangeStart,
-      endOffset: plan.rangeEnd,
-      origin: "focus",
-      loop: plan.loopEnabled,
-    });
-    return;
-  }
-  if (await playSelectionOnce()) return;
-  const startOffset = getEditorMeasureStartOffset();
-  await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
+  return playbackTransportController.transportPlay();
 }
 
 async function transportPause() {
-  if (playbackTransport.isPlaying) {
-    pausePlayback();
-    return;
-  }
-  if (playbackTransport.isPaused) {
-    normalizeFocusLoopBoundsForPlayback();
-    const plan = buildTransportPlaybackPlan();
-    if (plan && plan.invalid) {
-      showToast(plan.invalidReason || "Cannot start Focus playback.", 3200);
-      return;
-    }
-    const resumeOffset = playbackTransport.playbackRange ? Math.max(0, Number(playbackTransport.playbackRange.startOffset) || 0) : 0;
-    let startOffset = focusModeEnabled
-      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
-      : getEditorMeasureStartOffset();
-    if (focusModeEnabled) {
-      startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
-    }
-    await startPlaybackFromRange({
-      startOffset,
-      endOffset: plan.rangeEnd,
-      origin: focusModeEnabled ? "focus" : "transport",
-      loop: plan.loopEnabled,
-    });
-  }
+  return playbackTransportController.transportPause();
 }
 
 function resetPlaybackState() {
-  playbackTransport.resetForDocumentPlaybackChange();
-  clearNoteSelection();
-  resetPlaybackUiState();
-  if (selectionPlaybackRuntime.shouldRestoreSelection()) selectionPlaybackRuntime.restoreSelection(editorView);
-  selectionPlaybackRuntime.clearSelectionCapture();
-  updatePlayButton();
-  setSoundfontCaption();
+  return playbackTransportController.resetPlaybackState();
 }
 
 function highlightSourceAt(idx, on) {
@@ -9102,48 +8894,7 @@ function stopPlaybackForRestart() {
 }
 
 function stopPlaybackTransport() {
-  // If already idle and a selection is active, treat Stop as "clear selection / ready from start".
-  if (!playbackTransport.isPlaying && !playbackTransport.isPaused && !playbackTransport.waitingForFirstNote && editorView) {
-    const sel = editorView.state.selection.main;
-    if (sel && sel.anchor !== sel.head) {
-      const len = editorView.state.doc.length;
-      const pos = Math.max(0, Math.min(len, Math.min(sel.anchor, sel.head)));
-      editorView.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: false });
-      clearNoteSelection();
-    }
-  }
-
-  let nextTransportStart = 0;
-  if (focusModeEnabled) {
-    const focusResult = computeFocusPlaybackPlanFromCurrentState();
-    if (focusResult && focusResult.ok && focusResult.plan && focusResult.plan.mode === "segment") {
-      nextTransportStart = Math.max(0, Number(focusResult.plan.startOffset) || 0);
-    }
-  }
-  const result = playbackTransport.resetAfterExplicitStop({ transportPlayheadOffset: nextTransportStart });
-  setPracticeBarHighlight(null);
-  clearSvgPracticeBarHighlight();
-  setStatus("OK");
-  updatePlayButton();
-  clearNoteSelection();
-  resetPlaybackUiState();
-  setSoundfontCaption();
-
-  // Transport: explicit Stop resets internal playhead to 0.
-  if (result.wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
-  selectionPlaybackRuntime.clearSelectionCapture();
-
-  // When stopping normal playback, collapse any transient 1-char selection created by Follow.
-  // Otherwise the next "Play" can be misinterpreted as "play selection once".
-  if (!result.wasSelectionOrigin && editorView) {
-    const sel = editorView.state.selection.main;
-    if (sel && sel.anchor !== sel.head) {
-      const len = editorView.state.doc.length;
-      const pos = Math.max(0, Math.min(len, Math.min(sel.anchor, sel.head)));
-      editorView.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: false });
-    }
-  }
-
+  return playbackTransportController.stopPlaybackTransport();
 }
 
 function toDerivedOffset(editorOffset) {

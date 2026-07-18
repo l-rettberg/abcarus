@@ -173,6 +173,27 @@ function createPlaybackTransportState() {
     return { wasSelectionOrigin };
   };
 
+  state.consumePlaybackEnd = () => {
+    if (state.suppressOnEnd) return { ignored: true, reason: "suppressed" };
+    if (state.isPreviewing) {
+      state.isPreviewing = false;
+      return { ignored: true, reason: "preview" };
+    }
+    const wasSelectionOrigin = state.activePlaybackRange && state.activePlaybackRange.origin === "selection";
+    const shouldLoop = Boolean(state.activePlaybackRange && state.activePlaybackRange.loop);
+    const loopRange = shouldLoop ? (state.activeLoopRange || state.activePlaybackRange) : null;
+    state.markIdle();
+    if (!shouldLoop) {
+      state.clearActiveScope();
+    }
+    return {
+      ignored: false,
+      wasSelectionOrigin,
+      shouldLoop,
+      loopRange,
+    };
+  };
+
   return state;
 }
 

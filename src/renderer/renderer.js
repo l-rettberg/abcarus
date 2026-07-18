@@ -8837,17 +8837,8 @@ function ensurePlayer() {
 
   const conf = {
     onend: () => {
-      if (playbackTransport.suppressOnEnd) return;
-      if (playbackTransport.isPreviewing) {
-        playbackTransport.isPreviewing = false;
-        return;
-      }
-      const wasSelectionOrigin = playbackTransport.activePlaybackRange && playbackTransport.activePlaybackRange.origin === "selection";
-      const shouldLoop = Boolean(playbackTransport.activePlaybackRange && playbackTransport.activePlaybackRange.loop);
-      const loopRange = shouldLoop ? (playbackTransport.activeLoopRange || playbackTransport.activePlaybackRange) : null;
-      playbackTransport.isPlaying = false;
-      playbackTransport.isPaused = false;
-      playbackTransport.waitingForFirstNote = false;
+      const endState = playbackTransport.consumePlaybackEnd();
+      if (endState.ignored) return;
       setStatus("OK");
       updatePlayButton();
       clearNoteSelection();
@@ -8855,18 +8846,8 @@ function ensurePlayer() {
       clearSvgPlayhead();
       clearSvgFollowBarHighlight();
       clearSvgFollowMeasureHighlight();
-      if (!shouldLoop) {
-        playbackTransport.resumeStartIdx = null;
-        playbackTransport.activePlaybackRange = null;
-        playbackTransport.activePlaybackEndAbcOffset = null;
-        playbackTransport.activePlaybackEndSymbol = null;
-        playbackTransport.activeLoopRange = null;
-        playbackTransport.playbackStartArmed = false;
-        playbackTransport.currentPlaybackPlan = null;
-        // Transport: end-of-tune behaves like Stop (playhead=0).
-      }
-      if (!shouldLoop) resetPlaybackUiState();
-      if (shouldLoop && followPlayback && playbackTransport.lastRenderIdx != null && editorView) {
+      if (!endState.shouldLoop) resetPlaybackUiState();
+      if (endState.shouldLoop && followPlayback && playbackTransport.lastRenderIdx != null && editorView) {
         // When looping, keep the visual follow-cursor without mutating PlaybackRange (loop invariance).
         suppressPlaybackRangeSelectionSync = true;
         try {
@@ -8875,9 +8856,9 @@ function ensurePlayer() {
           suppressPlaybackRangeSelectionSync = false;
         }
       }
-      if (shouldLoop) {
+      if (endState.shouldLoop) {
         queueMicrotask(() => {
-          if (!loopRange || !playbackTransport.activePlaybackRange || !playbackTransport.activePlaybackRange.loop) return;
+          if (!endState.loopRange || !playbackTransport.activePlaybackRange || !playbackTransport.activePlaybackRange.loop) return;
           if (playbackTransport.pendingPlaybackPlan) {
             const plan = playbackTransport.pendingPlaybackPlan;
 	            playbackTransport.pendingPlaybackPlan = null;
@@ -8892,10 +8873,10 @@ function ensurePlayer() {
 	            updatePracticeUi();
 	            return;
           }
-          startPlaybackFromRange(loopRange).catch(() => {});
+          startPlaybackFromRange(endState.loopRange).catch(() => {});
         });
       }
-      if (!shouldLoop && wasSelectionOrigin) {
+      if (!endState.shouldLoop && endState.wasSelectionOrigin) {
         selectionPlaybackRuntime.restoreSelection(editorView);
         selectionPlaybackRuntime.clearSelectionCapture();
       }

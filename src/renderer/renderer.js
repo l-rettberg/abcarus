@@ -9831,16 +9831,15 @@ function getPlaybackPayload() {
     const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
     const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
     const sourceKey = `payload|||${String(tuneText || "")}|||${offset}|||${repeatsFlag}`;
-    if (playbackTransport.lastPlaybackPayloadCache && playbackTransport.lastPlaybackPayloadCache.key === sourceKey) {
-      playbackTransport.lastPlaybackMeta = playbackTransport.lastPlaybackPayloadCache.meta
-        || { drumInsertAtLine: null, drumLineCount: 0 };
+    const cached = playbackTransport.getCachedPayload(sourceKey);
+    if (cached) {
       return {
-        text: playbackTransport.lastPlaybackPayloadCache.text,
-        offset: playbackTransport.lastPlaybackPayloadCache.offset,
+        text: cached.text,
+        offset: cached.offset,
       };
     }
 
-    playbackTransport.playbackSanitizeWarnings = [];
+    playbackTransport.resetPayloadDiagnostics();
     let payload = { text: String(tuneText || ""), offset };
     payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
     payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
@@ -9848,20 +9847,13 @@ function getPlaybackPayload() {
     let workingText = payload.text;
     if (ignoreRepeats) workingText = stripRepeatsLengthSafe(workingText);
     const sanitized = sanitizeAbcForPlayback(workingText);
-    playbackTransport.playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
+    playbackTransport.setSanitizeWarnings(sanitized.warnings);
     payload = { text: sanitized.text, offset: payload.offset };
     if (expandRepeats) {
       payload = { text: expandRepeatsForPlayback(payload.text), offset: payload.offset };
     }
 
-    playbackTransport.lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
-    playbackTransport.lastPlaybackPayloadCache = {
-      key: sourceKey,
-      text: payload.text,
-      offset: payload.offset,
-      meta: playbackTransport.lastPlaybackMeta,
-    };
-    playbackTransport.lastPreparedPlaybackKey = sourceKey;
+    playbackTransport.storePayloadCache(sourceKey, payload);
     assertCleanAbcText(payload.text, "playback payload");
     return payload;
   }
@@ -9870,8 +9862,8 @@ function getPlaybackPayload() {
     const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
     const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
     const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
-    playbackTransport.lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
-    playbackTransport.lastPreparedPlaybackKey = null;
+    playbackTransport.setPayloadMeta();
+    playbackTransport.clearPreparedPlaybackKey();
     return { text, offset: (prefixPayload.offset || 0), lineOffset };
   }
   const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
@@ -9889,13 +9881,12 @@ function getPlaybackPayload() {
   const gchordFlag = skipGchords ? "gchords:off" : "gchords:on";
   const ignoreFlag = ignoreRepeats ? "ignore:on" : "ignore:off";
   const sourceKey = `${previewText}|||${prefixPayload.offset || 0}|||${repeatsFlag}|||${drumsFlag}|||${skipDrumsFlag}|||${gchordFlag}|||${ignoreFlag}`;
-  if (playbackTransport.lastPlaybackPayloadCache && playbackTransport.lastPlaybackPayloadCache.key === sourceKey) {
-    playbackTransport.lastPlaybackMeta = playbackTransport.lastPlaybackPayloadCache.meta
-      || { drumInsertAtLine: null, drumLineCount: 0 };
+  const cached = playbackTransport.getCachedPayload(sourceKey);
+  if (cached) {
     const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
     return {
-      text: playbackTransport.lastPlaybackPayloadCache.text,
-      offset: playbackTransport.lastPlaybackPayloadCache.offset,
+      text: cached.text,
+      offset: cached.offset,
       lineOffset,
     };
   }
@@ -9913,39 +9904,35 @@ function getPlaybackPayload() {
   payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
   payload = { text: normalizeReadableMidiDrumsForPlayback(payload.text), offset: payload.offset };
   const sanitized = sanitizeAbcForPlayback(payload.text);
-  playbackTransport.playbackSanitizeWarnings = Array.isArray(sanitized.warnings) ? sanitized.warnings.slice(0, 200) : [];
+  playbackTransport.setSanitizeWarnings(sanitized.warnings);
   payload = { text: sanitized.text, offset: payload.offset };
 
-  playbackTransport.lastPlaybackKeyOrderWarning = null;
   const keyOrderWarn = detectKeyFieldNotLastBeforeBody(payload.text);
-  if (keyOrderWarn) {
-    playbackTransport.lastPlaybackKeyOrderWarning = keyOrderWarn;
-    playbackTransport.playbackSanitizeWarnings.push(keyOrderWarn);
-  }
+  playbackTransport.recordKeyOrderWarning(keyOrderWarn);
 
-  playbackTransport.lastPlaybackMeterMismatchWarning = null;
-  playbackTransport.lastPlaybackRepeatShortBarWarning = null;
   const meterWarn = detectMeterMismatchInBarlines(payload.text);
   if (meterWarn) {
-    playbackTransport.lastPlaybackMeterMismatchWarning = meterWarn;
-    playbackTransport.playbackSanitizeWarnings.push(meterWarn);
+    playbackTransport.recordMeterMismatchWarning(meterWarn);
     if (lastMeterMismatchToastKey !== sourceKey) {
       showToast(`Meter mismatch: ${meterWarn.detail}`, 5200);
       lastMeterMismatchToastKey = sourceKey;
     }
+  } else {
+    playbackTransport.recordMeterMismatchWarning(null);
   }
   const repeatShortBarWarn = detectRepeatMarkerAfterShortBar(payload.text);
   if (repeatShortBarWarn) {
-    playbackTransport.lastPlaybackRepeatShortBarWarning = repeatShortBarWarn;
-    playbackTransport.playbackSanitizeWarnings.push(repeatShortBarWarn);
+    playbackTransport.recordRepeatShortBarWarning(repeatShortBarWarn);
     if (lastRepeatShortBarToastKey !== sourceKey) {
       showToast(`Repeat may be wrong: ${repeatShortBarWarn.detail}`, 5600);
       lastRepeatShortBarToastKey = sourceKey;
     }
+  } else {
+    playbackTransport.recordRepeatShortBarWarning(null);
   }
 
   if (skipGchords) payload = { text: stripGchordDirectives(payload.text), offset: payload.offset };
-  playbackTransport.lastPlaybackMeta = { drumInsertAtLine: null, drumLineCount: 0 };
+  playbackTransport.setPayloadMeta();
   if (skipDrums) {
     payload = { text: neutralizeMidiDrumDirectivesForPlayback(payload.text), offset: payload.offset };
   }
@@ -9958,13 +9945,7 @@ function getPlaybackPayload() {
       offset: payload.offset,
     };
   }
-  playbackTransport.lastPlaybackPayloadCache = {
-    key: sourceKey,
-    text: payload.text,
-    offset: payload.offset,
-    meta: playbackTransport.lastPlaybackMeta,
-  };
-  playbackTransport.lastPreparedPlaybackKey = sourceKey;
+  playbackTransport.storePayloadCache(sourceKey, payload);
   assertCleanAbcText(payload.text, "playback payload");
   const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
   return { ...payload, lineOffset };
@@ -10018,7 +9999,7 @@ async function preparePlayback() {
 
   const AbcCtor = getAbcCtor();
   playbackTransport.playbackParseErrors = [];
-  playbackTransport.playbackSanitizeWarnings = [];
+  playbackTransport.resetPayloadDiagnostics();
   playbackTransport.lastPlaybackChordOnBarError = false;
   playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen = false;
   let playbackParseErrorToastShown = false;
@@ -10048,7 +10029,7 @@ async function preparePlayback() {
     };
     if (isMidiDrumMustBeInVoicePlaybackError(entry.message)) {
       playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen = true;
-      playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-midi-drums-before-voice", message: entry.message });
+      playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-before-voice", message: entry.message });
       return;
     }
     playbackTransport.playbackParseErrors.push(entry);
@@ -10080,7 +10061,7 @@ async function preparePlayback() {
   const abc = new AbcCtor(user);
   // Determinism first: always rebuild playback payload for each Play.
   // This avoids stale Follow/playback mappings after tune switches or heavy edits.
-  playbackTransport.lastPlaybackPayloadCache = null;
+  playbackTransport.clearPayloadCache();
   const playbackPayload = getPlaybackPayload();
   if (!playbackPayload || playbackPayload.empty || !String(playbackPayload.text || "").trim()) {
     setStatus("Ready");
@@ -10153,7 +10134,7 @@ async function preparePlayback() {
   }
   playbackText = normalizeReadableMidiDrumsForPlayback(playbackText);
   if (/[\\^_]3\/4/.test(playbackText)) {
-    playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
+    playbackTransport.addSanitizeWarning({ kind: "playback-acc-3_4-normalized" });
     playbackText = normalizeAccThreeQuarterToneForAbc2svg(playbackText);
     showToast("Playback: 3/4-tone accidentals normalized (compat mode).", 3600);
   }
@@ -10164,7 +10145,7 @@ async function preparePlayback() {
       if (Number.isFinite(relocated.insertedLength) && relocated.insertedLength > 0) {
         playbackTransport.playbackIndexOffset += relocated.insertedLength;
       }
-      playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-midi-drums-moved-after-k", moved: relocated.moved });
+      playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-moved-after-k", moved: relocated.moved });
       if (window.__abcarusDebugPlayback) {
         showToast("Playback: moved %%MIDI drum* after K:.", 3200);
       }
@@ -10176,7 +10157,7 @@ async function preparePlayback() {
   // abc2svg requires %%MIDI drum/drumon/drumbars to be inside a voice; many real-world files place them in headers.
   // Neutralize (comment out) these directives for tolerant playback while preserving istart mapping.
   if (playbackTransport.lastPlaybackMidiDrumVoiceCompatSeen || hasMidiDrumMustBeInVoicePlaybackError(playbackTransport.playbackParseErrors)) {
-    playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-midi-drums-neutralized" });
+    playbackTransport.addSanitizeWarning({ kind: "playback-midi-drums-neutralized" });
     const abc2 = new AbcCtor(user);
     playbackTransport.playbackParseErrors = [];
     playbackText = neutralizeMidiDrumDirectivesForPlayback(playbackText);
@@ -10201,7 +10182,7 @@ async function preparePlayback() {
   // Tolerant playback mode: many real-world ABC files contain lyric/barline mismatches that stricter engines reject.
   // We keep the file unchanged; this only affects playback.
   if (!selectionMode && Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /lyric line/i.test(e.message || ""))) {
-    playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-lyrics-dropped" });
+    playbackTransport.addSanitizeWarning({ kind: "playback-lyrics-dropped" });
     const abc2 = new AbcCtor(user);
     const stripped = stripLyricsForPlayback(playbackText);
     abc2.tosvg("play", stripped);
@@ -10209,7 +10190,7 @@ async function preparePlayback() {
     showToast("Playback: lyrics ignored (compat mode).", 3600);
   }
   if (Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /Different bars/i.test(e.message || ""))) {
-    playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-bars-normalized" });
+    playbackTransport.addSanitizeWarning({ kind: "playback-bars-normalized" });
     const abc3 = new AbcCtor(user);
     const normalized = normalizeBarsForPlayback(playbackText);
     abc3.tosvg("play", normalized);
@@ -10221,10 +10202,10 @@ async function preparePlayback() {
   // We don't auto-strip by default (it changes accompaniment); instead we warn and provide an opt-in toggle.
   if (Array.isArray(playbackTransport.playbackParseErrors) && playbackTransport.playbackParseErrors.some((e) => /chord symbols on measure bars/i.test(e.message || ""))) {
     playbackTransport.lastPlaybackChordOnBarError = true;
-    playbackTransport.playbackSanitizeWarnings.push({ kind: "abc2svg-chord-on-measure-bar" });
+    playbackTransport.addSanitizeWarning({ kind: "abc2svg-chord-on-measure-bar" });
     if (window.__abcarusPlaybackStripChordSymbols === true) {
       playbackTransport.playbackParseErrors = [];
-      playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-chords-stripped" });
+      playbackTransport.addSanitizeWarning({ kind: "playback-chords-stripped" });
       const abc2 = new AbcCtor(user);
       const stripped = stripChordSymbolsForPlayback(playbackText);
       abc2.tosvg("play", stripped);
@@ -10261,7 +10242,7 @@ async function preparePlayback() {
         }
         let retryText = normalizeHeaderNoneSpacing(retryPayload.text);
         if (/[\\^_]3\/4/.test(retryText)) {
-          playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-acc-3_4-normalized" });
+          playbackTransport.addSanitizeWarning({ kind: "playback-acc-3_4-normalized" });
           retryText = normalizeAccThreeQuarterToneForAbc2svg(retryText);
         }
         if (shouldRelocateMidiDrumsForPlayback(selectionPlaybackRuntime.getScopedOptions())) {
@@ -10279,7 +10260,7 @@ async function preparePlayback() {
         if (abcRetry.tunes && abcRetry.tunes.length) {
           abc.tunes = abcRetry.tunes;
           tunes = abcRetry.tunes;
-          playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-selection-fallback", detail: label });
+          playbackTransport.addSanitizeWarning({ kind: "playback-selection-fallback", detail: label });
           showToast(label, 2600);
           return true;
         }
@@ -10318,7 +10299,7 @@ async function preparePlayback() {
         if (applyMutedVoicesToTuneRoot(first, effectiveMutedIds)) anyMuted = true;
       }
       if (!anyMuted) {
-        playbackTransport.playbackSanitizeWarnings.push({ kind: "playback-muted-voices-no-match", voices: effectiveMutedIds.slice(0, 12) });
+        playbackTransport.addSanitizeWarning({ kind: "playback-muted-voices-no-match", voices: effectiveMutedIds.slice(0, 12) });
       }
     }
   }

@@ -1,5 +1,9 @@
 const PLAYBACK_TRACE_LIMIT = 2000;
 
+function defaultPlaybackMeta() {
+  return { drumInsertAtLine: null, drumLineCount: 0 };
+}
+
 function clonePlaybackRange(r) {
   if (!r || typeof r !== "object") {
     return { startOffset: 0, endOffset: null, origin: "cursor", loop: false, suppressRepeats: null };
@@ -289,6 +293,70 @@ function createPlaybackTransportState() {
     if (!on || !state.waitingForFirstNote) return false;
     state.waitingForFirstNote = false;
     return true;
+  };
+
+  state.getCachedPayload = (key) => {
+    if (!state.lastPlaybackPayloadCache || state.lastPlaybackPayloadCache.key !== key) return null;
+    state.lastPlaybackMeta = state.lastPlaybackPayloadCache.meta || defaultPlaybackMeta();
+    return {
+      text: state.lastPlaybackPayloadCache.text,
+      offset: state.lastPlaybackPayloadCache.offset,
+      meta: state.lastPlaybackMeta,
+    };
+  };
+
+  state.storePayloadCache = (key, payload, meta = defaultPlaybackMeta()) => {
+    state.lastPlaybackMeta = meta || defaultPlaybackMeta();
+    state.lastPlaybackPayloadCache = {
+      key,
+      text: payload && payload.text,
+      offset: payload && payload.offset,
+      meta: state.lastPlaybackMeta,
+    };
+    state.lastPreparedPlaybackKey = key;
+  };
+
+  state.clearPayloadCache = () => {
+    state.lastPlaybackPayloadCache = null;
+  };
+
+  state.setPayloadMeta = (meta = defaultPlaybackMeta()) => {
+    state.lastPlaybackMeta = meta || defaultPlaybackMeta();
+  };
+
+  state.clearPreparedPlaybackKey = () => {
+    state.lastPreparedPlaybackKey = null;
+  };
+
+  state.resetPayloadDiagnostics = () => {
+    state.playbackSanitizeWarnings = [];
+    state.lastPlaybackKeyOrderWarning = null;
+    state.lastPlaybackMeterMismatchWarning = null;
+    state.lastPlaybackRepeatShortBarWarning = null;
+  };
+
+  state.setSanitizeWarnings = (warnings) => {
+    state.playbackSanitizeWarnings = Array.isArray(warnings) ? warnings.slice(0, 200) : [];
+  };
+
+  state.addSanitizeWarning = (warning) => {
+    if (!warning) return;
+    state.playbackSanitizeWarnings.push(warning);
+  };
+
+  state.recordKeyOrderWarning = (warning) => {
+    state.lastPlaybackKeyOrderWarning = warning || null;
+    if (warning) state.addSanitizeWarning(warning);
+  };
+
+  state.recordMeterMismatchWarning = (warning) => {
+    state.lastPlaybackMeterMismatchWarning = warning || null;
+    if (warning) state.addSanitizeWarning(warning);
+  };
+
+  state.recordRepeatShortBarWarning = (warning) => {
+    state.lastPlaybackRepeatShortBarWarning = warning || null;
+    if (warning) state.addSanitizeWarning(warning);
   };
 
   return state;

@@ -155,6 +155,7 @@ import { createSelectionPlaybackRuntime } from "./playback/selection_playback_ru
 import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
 import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
 import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
+import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1218,6 +1219,18 @@ const playbackPrepareController = createPlaybackPrepareController({
   shouldRelocateMidiDrumsForPlayback,
   normalizeAccThreeQuarterToneForAbc2svg,
   isChordProFullView: () => chordProFeature.isFullView(),
+});
+const drumPreviewController = createDrumPreviewController({
+  transport: playbackTransport,
+  velocityToDynamic,
+  ensureSoundfontLoaded,
+  ensurePlayer,
+  getAbcCtor,
+  getSoundfontSource: () => soundfontController.getSource(),
+  stopPlaybackForRestart,
+  updatePlayButton,
+  logErr,
+  windowRef: window,
 });
 var pendingPlaybackRangeOrigin = null;
 let suppressPlaybackRangeSelectionSync = false;
@@ -10315,48 +10328,7 @@ async function startPlaybackAtMeasureOffset(delta) {
 }
 
 async function playDrumPreview(pitch, velocity) {
-  const midiPitch = Number.isFinite(Number(pitch)) ? Number(pitch) : 35;
-  const dyn = velocityToDynamic(velocity);
-  try {
-    if (playbackTransport.isPlaying || playbackTransport.isPaused) {
-      stopPlaybackForRestart();
-      playbackTransport.stopForPreview();
-      updatePlayButton();
-    }
-    playbackTransport.beginPreview();
-    await ensureSoundfontLoaded();
-    const p = ensurePlayer();
-    if (typeof p.set_sfu === "function") p.set_sfu(soundfontController.getSource() || "abc2svg.sf2");
-    try { sessionStorage.setItem("audio", "sf2"); } catch {}
-    if (typeof p.clear === "function") p.clear();
-    const AbcCtor = getAbcCtor();
-    const user = {
-      img_out: () => {},
-      err: (m) => logErr(m),
-      errmsg: (m) => logErr(m),
-      abcplay: p,
-    };
-    const abc = new AbcCtor(user);
-    const abcText = [
-      "X:1",
-      "L:1/4",
-      "M:4/4",
-      "K:C",
-      "V:DRUM clef=perc name=\"Drums\"",
-      "%%MIDI channel 10",
-      `%%MIDI drummap C, ${midiPitch}`,
-      `!${dyn}!C,`,
-      "",
-    ].join("\n");
-    abc.tosvg("drum_preview", abcText);
-    const tunes = abc.tunes || [];
-    if (!tunes.length) return;
-    p.add(tunes[0][0], tunes[0][1], tunes[0][3]);
-    p.play(tunes[0][0], null, 0);
-  } catch (e) {
-    logErr((e && e.stack) ? e.stack : String(e));
-    playbackTransport.endPreview();
-  }
+  return drumPreviewController.playDrumPreview(pitch, velocity);
 }
 
 if ($btnPlayPause) {

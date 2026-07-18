@@ -8223,16 +8223,7 @@ function stopPlaybackFromGuard(message) {
 }
 
 function clonePlaybackRange(r) {
-  if (!r || typeof r !== "object") {
-    return { startOffset: 0, endOffset: null, origin: "cursor", loop: false, suppressRepeats: null };
-  }
-  return {
-    startOffset: Number(r.startOffset) || 0,
-    endOffset: (r.endOffset == null) ? null : Number(r.endOffset),
-    origin: r.origin || "cursor",
-    loop: Boolean(r.loop),
-    suppressRepeats: (typeof r.suppressRepeats === "boolean") ? Boolean(r.suppressRepeats) : null,
-  };
+  return playbackTransport.cloneRange(r);
 }
 
 function setPlaybackRange(next) {
@@ -8247,7 +8238,7 @@ function setPlaybackRange(next) {
     return;
   }
 
-  playbackTransport.playbackRange = nextRange;
+  playbackTransport.setRange(nextRange);
 }
 
 function updatePlaybackRangeFromSelection(selection, origin) {
@@ -8276,12 +8267,7 @@ function updatePlaybackRangeFromSelection(selection, origin) {
 }
 
 function appendPlaybackTrace(evt) {
-  if (!evt) return;
-  playbackTransport.playbackNoteTrace.push(evt);
-  const max = 2000;
-  if (playbackTransport.playbackNoteTrace.length > max) {
-    playbackTransport.playbackNoteTrace = playbackTransport.playbackNoteTrace.slice(playbackTransport.playbackNoteTrace.length - max);
-  }
+  playbackTransport.appendTrace(evt);
 }
 
 function getPlaybackSourceKey() {
@@ -10436,7 +10422,7 @@ async function preparePlayback() {
   }
 
   playbackTransport.playbackState = buildPlaybackState(tunes[0][0]);
-  playbackTransport.playbackNoteTrace = [];
+  playbackTransport.clearTrace();
   window.__abcarusPlaybackDebug = {
     getState: () => ({
       preparedKey: playbackTransport.lastPreparedPlaybackKey,
@@ -10471,8 +10457,8 @@ async function preparePlayback() {
     }),
     getPlaybackRange: () => clonePlaybackRange(playbackTransport.playbackRange),
     getTimeline: () => (playbackTransport.playbackState ? playbackTransport.playbackState.timeline : []),
-    getTrace: () => playbackTransport.playbackNoteTrace.slice(),
-    clearTrace: () => { playbackTransport.playbackNoteTrace = []; },
+    getTrace: () => playbackTransport.getTrace(),
+    clearTrace: () => { playbackTransport.clearTrace(); },
   };
   if (window.__abcarusDebugPlayback) {
     const symPreview = playbackTransport.playbackState.symbols.slice(0, 10).map((item) => {

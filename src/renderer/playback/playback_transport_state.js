@@ -1,5 +1,20 @@
-function createPlaybackTransportState() {
+const PLAYBACK_TRACE_LIMIT = 2000;
+
+function clonePlaybackRange(r) {
+  if (!r || typeof r !== "object") {
+    return { startOffset: 0, endOffset: null, origin: "cursor", loop: false, suppressRepeats: null };
+  }
   return {
+    startOffset: Number(r.startOffset) || 0,
+    endOffset: (r.endOffset == null) ? null : Number(r.endOffset),
+    origin: r.origin || "cursor",
+    loop: Boolean(r.loop),
+    suppressRepeats: (typeof r.suppressRepeats === "boolean") ? Boolean(r.suppressRepeats) : null,
+  };
+}
+
+function createPlaybackTransportState() {
+  const state = {
     playbackRange: {
       startOffset: 0,
       endOffset: null,
@@ -66,8 +81,32 @@ function createPlaybackTransportState() {
     lastPlaybackException: null,
     playbackNeedsReprepare: false,
   };
+
+  state.cloneRange = clonePlaybackRange;
+
+  state.setRange = (next) => {
+    state.playbackRange = clonePlaybackRange(next);
+    return state.playbackRange;
+  };
+
+  state.appendTrace = (evt) => {
+    if (!evt) return;
+    state.playbackNoteTrace.push(evt);
+    if (state.playbackNoteTrace.length > PLAYBACK_TRACE_LIMIT) {
+      state.playbackNoteTrace = state.playbackNoteTrace.slice(state.playbackNoteTrace.length - PLAYBACK_TRACE_LIMIT);
+    }
+  };
+
+  state.clearTrace = () => {
+    state.playbackNoteTrace = [];
+  };
+
+  state.getTrace = () => state.playbackNoteTrace.slice();
+
+  return state;
 }
 
 export {
+  clonePlaybackRange,
   createPlaybackTransportState,
 };

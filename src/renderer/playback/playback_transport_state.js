@@ -108,6 +108,21 @@ function createPlaybackTransportState() {
     return state.playbackStartToken;
   };
 
+  state.beginStartAttempt = () => {
+    return state.bumpStartToken();
+  };
+
+  state.abortStartAttempt = (token, message) => {
+    if (token !== state.playbackStartToken) return false;
+    state.lastPlaybackAbortMessage = String(message || "");
+    state.markIdle();
+    return true;
+  };
+
+  state.setWaitingForFirstNote = (next = true) => {
+    state.waitingForFirstNote = Boolean(next);
+  };
+
   state.stopPlayer = ({ onlyWhenActive = false } = {}) => {
     if (!state.player || typeof state.player.stop !== "function") return false;
     if (onlyWhenActive && !state.isPlaying && !state.isPaused && !state.waitingForFirstNote) return false;
@@ -192,6 +207,62 @@ function createPlaybackTransportState() {
       shouldLoop,
       loopRange,
     };
+  };
+
+  state.activateRangeForStart = ({ range, endSymbol, startSymbol } = {}) => {
+    state.activePlaybackRange = range;
+    state.activePlaybackEndSymbol = endSymbol || null;
+    state.activePlaybackEndAbcOffset = (state.activePlaybackEndSymbol && Number.isFinite(state.activePlaybackEndSymbol.istart))
+      ? Number(state.activePlaybackEndSymbol.istart)
+      : null;
+    if (
+      state.activePlaybackEndSymbol
+      && startSymbol
+      && Number.isFinite(state.activePlaybackEndSymbol.istart)
+      && Number.isFinite(startSymbol.istart)
+      && state.activePlaybackEndSymbol.istart <= startSymbol.istart
+    ) {
+      state.activePlaybackEndSymbol = null;
+      state.activePlaybackEndAbcOffset = null;
+    }
+    if (range && range.loop) {
+      state.activeLoopRange = {
+        startOffset: Number(range.startOffset) || 0,
+        endOffset: (range.endOffset == null) ? null : Number(range.endOffset),
+        origin: String(range.origin || "focus"),
+        loop: true,
+      };
+    } else {
+      state.activeLoopRange = null;
+    }
+    state.playbackRunId += 1;
+    state.lastTraceRunId = state.playbackRunId;
+    state.lastTracePlaybackIdx = null;
+    state.lastTraceTimestamp = null;
+    state.playbackTraceSeq = 0;
+    state.playbackStartArmed = true;
+  };
+
+  state.finishStartAttempt = () => {
+    state.playbackStartArmed = false;
+  };
+
+  state.markPreparedStart = (startSymbol) => {
+    state.lastStartPlaybackIdx = startSymbol && Number.isFinite(startSymbol.istart) ? startSymbol.istart : 0;
+    state.lastPlaybackIdx = null;
+    state.lastRenderIdx = null;
+    state.resumeStartIdx = null;
+    state.suppressOnEnd = true;
+  };
+
+  state.markPlayingStarted = () => {
+    state.isPlaying = true;
+    state.isPaused = false;
+    state.pausedSelectionSignature = null;
+  };
+
+  state.allowPlaybackEnd = () => {
+    state.suppressOnEnd = false;
   };
 
   return state;

@@ -10425,11 +10425,7 @@ function startPlaybackFromPrepared(startIdx) {
     endSym = null;
   }
 
-  playbackTransport.lastStartPlaybackIdx = Number.isFinite(start.istart) ? start.istart : 0;
-  playbackTransport.lastPlaybackIdx = null;
-  playbackTransport.lastRenderIdx = null;
-  playbackTransport.resumeStartIdx = null;
-  playbackTransport.suppressOnEnd = true;
+  playbackTransport.markPreparedStart(start);
 
   if (window.__abcarusDebugParts === true) {
     try {
@@ -10518,13 +10514,11 @@ function startPlaybackFromPrepared(startIdx) {
   }
 
   playbackTransport.player.play(engineStart, endSym, 0);
-  playbackTransport.isPlaying = true;
-  playbackTransport.isPaused = false;
-  playbackTransport.pausedSelectionSignature = null;
+  playbackTransport.markPlayingStarted();
   if (!playbackTransport.waitingForFirstNote) setStatus("Playing…");
   updatePlayButton();
   setTimeout(() => {
-    playbackTransport.suppressOnEnd = false;
+    playbackTransport.allowPlaybackEnd();
   }, 0);
 }
 
@@ -10608,15 +10602,11 @@ function findBarStartContaining(sortedMeasureIstarts, target) {
 
 async function startPlaybackFromRange(rangeOverride) {
   if (!editorView) return;
-  const startToken = (playbackTransport.playbackStartToken += 1);
+  const startToken = playbackTransport.beginStartAttempt();
   const abortStart = (message) => {
-    if (startToken !== playbackTransport.playbackStartToken) return;
-    playbackTransport.lastPlaybackAbortMessage = String(message || "");
+    if (!playbackTransport.abortStartAttempt(startToken, message)) return;
     try { recordDebugLog("warn", [`Playback abort: ${playbackTransport.lastPlaybackAbortMessage}`]); } catch {}
     try { scheduleAutoDump("playback-abort", playbackTransport.lastPlaybackAbortMessage); } catch {}
-    playbackTransport.waitingForFirstNote = false;
-    playbackTransport.isPlaying = false;
-    playbackTransport.isPaused = false;
     setStatus("OK");
     updatePlayButton();
     clearNoteSelection();
@@ -10674,7 +10664,7 @@ async function startPlaybackFromRange(rangeOverride) {
     && playbackTransport.lastPreparedPlaybackKey === sourceKey
     && playbackTransport.player
   );
-  playbackTransport.waitingForFirstNote = true;
+  playbackTransport.setWaitingForFirstNote(true);
 		  try {
 		    if (!canReuse) {
 		      stopPlaybackForRestart();
@@ -10774,34 +10764,12 @@ async function startPlaybackFromRange(rangeOverride) {
     return;
   }
 
-		  // Switch semantics guard (Option B): playbackTransport.playbackRange changes while playing are deferred; we also freeze loop start.
-		  playbackTransport.activePlaybackRange = range;
-		  playbackTransport.activePlaybackEndSymbol = resolvePlaybackEndSymbol(range, startSym);
-		  playbackTransport.activePlaybackEndAbcOffset = (playbackTransport.activePlaybackEndSymbol && Number.isFinite(playbackTransport.activePlaybackEndSymbol.istart))
-		    ? Number(playbackTransport.activePlaybackEndSymbol.istart)
-		    : null;
-		  if (playbackTransport.activePlaybackEndSymbol && Number.isFinite(playbackTransport.activePlaybackEndSymbol.istart) && playbackTransport.activePlaybackEndSymbol.istart <= startSym.istart) {
-		    playbackTransport.activePlaybackEndSymbol = null;
-		    playbackTransport.activePlaybackEndAbcOffset = null;
-		  }
-	  if (range && range.loop) {
-	    playbackTransport.activeLoopRange = {
-	      startOffset: Number(range.startOffset) || 0,
-	      endOffset: (range.endOffset == null) ? null : Number(range.endOffset),
-	      origin: String(range.origin || "focus"),
-	      loop: true,
-	    };
-	  } else {
-	    playbackTransport.activeLoopRange = null;
-	  }
-
-  playbackTransport.playbackRunId += 1;
-  playbackTransport.lastTraceRunId = playbackTransport.playbackRunId;
-  playbackTransport.lastTracePlaybackIdx = null;
-  playbackTransport.lastTraceTimestamp = null;
-  playbackTransport.playbackTraceSeq = 0;
-
-  playbackTransport.playbackStartArmed = true;
+  // Switch semantics guard (Option B): playbackTransport.playbackRange changes while playing are deferred; we also freeze loop start.
+  playbackTransport.activateRangeForStart({
+    range,
+    endSymbol: resolvePlaybackEndSymbol(range, startSym),
+    startSymbol: startSym,
+  });
   try {
     startPlaybackFromPrepared(startSym.istart);
   } catch (e) {
@@ -10814,7 +10782,7 @@ async function startPlaybackFromRange(rangeOverride) {
     showToast("Playback failed to start. Try again.", 3200);
     return;
   }
-  playbackTransport.playbackStartArmed = false;
+  playbackTransport.finishStartAttempt();
 }
 
 async function startPlaybackAtIndex(startIdx) {

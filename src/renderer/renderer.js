@@ -158,6 +158,7 @@ import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
 import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
+import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1176,6 +1177,28 @@ async function playSelectionOnce() {
 
 // Playback transport state must be initialized before initEditor() runs (selection listeners fire early).
 const playbackTransport = createPlaybackTransportState();
+const playbackPayloadController = createPlaybackPayloadController({
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  getEditorText: getEditorValue,
+  getActiveEntryHeader: () => {
+    const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
+    return entry ? getHeaderEditorValue() : "";
+  },
+  buildHeaderPrefix,
+  countLinesForPrefix,
+  isChordProEnabled: () => chordProFeature.isEnabled(),
+  isChordProFullView: () => chordProFeature.isFullView(),
+  chordProHasBlocks: () => chordProFeature.hasBlocks(),
+  isPayloadMode,
+  isPlaybackPayloadView: () => payloadModeFeature.isPlaybackView(),
+  getExpandRepeats: () => window.__abcarusPlaybackExpandRepeats === true,
+  detectMeterMismatchInBarlines,
+  detectRepeatMarkerAfterShortBar,
+  neutralizeMidiDrumDirectivesForPlayback,
+  assertCleanAbcText,
+  showToast,
+});
 var pendingPlaybackRangeOrigin = null;
 let suppressPlaybackRangeSelectionSync = false;
 const FOCUS_LOOP_DEFAULT_FROM = 0;
@@ -7667,8 +7690,6 @@ let lastPlaybackNoteOnEls = [];
 let lastPlaybackUiRenderIdx = null;
 let lastPlaybackUiEditorIdx = null;
 let lastPlaybackUiScrollAt = 0;
-let lastMeterMismatchToastKey = null;
-let lastRepeatShortBarToastKey = null;
 let lastMidiDrumCompatToastKey = null;
 
 let focusModeEnabled = false;
@@ -8254,40 +8275,7 @@ function appendPlaybackTrace(evt) {
 }
 
 function getPlaybackSourceKey() {
-  if (chordProFeature.isEnabled() && chordProFeature.isFullView()) return "chordpro-full";
-  if (chordProFeature.isEnabled() && !chordProFeature.hasBlocks()) return "chordpro-empty";
-  const tuneText = getEditorValue();
-  if (isPayloadMode()) {
-    if (payloadModeFeature.isPlaybackView()) {
-      const offset = 0;
-      const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
-      const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-      // Playback view shows the final text; don't re-sanitize or inject.
-      return `payloadFinal|||${String(tuneText || "")}|||${offset}|||${repeatsFlag}`;
-    }
-    const offset = 0;
-    const preparedText = normalizeBlankLinesForPlayback(
-      normalizeDollarLineBreaksForPlayback(String(tuneText || ""))
-    );
-    const sanitized = sanitizeAbcForPlayback(preparedText);
-    const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
-    const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-    // Key includes the sanitized payload text and offset. No header merge or injected directives in payload mode.
-    return `payload|||${sanitized.text}|||${offset}|||${repeatsFlag}`;
-  }
-  const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
-  const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-  const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  const injected = injectGchordOn(baseText, prefixPayload.offset || 0);
-  const gchordText = injected && injected.changed ? injected.text : baseText;
-  const preparedText = normalizeBlankLinesForPlayback(
-    normalizeDollarLineBreaksForPlayback(gchordText)
-  );
-  const sanitized = sanitizeAbcForPlayback(preparedText);
-  const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
-  const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-  // Key includes the post-gchord text and the effective expansion mode to avoid reusing a mismatched playbackTransport.playbackState.
-  return `${sanitized.text}|||${prefixPayload.offset || 0}|||${repeatsFlag}`;
+  return playbackPayloadController.getPlaybackSourceKey();
 }
 
 function updatePlayButton() {
@@ -9808,147 +9796,7 @@ function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText
 }
 
 function getPlaybackPayload() {
-  if (chordProFeature.isEnabled() && chordProFeature.isFullView()) {
-    return { text: "", offset: 0, lineOffset: 0, empty: true };
-  }
-  if (chordProFeature.isEnabled() && !chordProFeature.hasBlocks()) {
-    return { text: "", offset: 0, lineOffset: 0, empty: true };
-  }
-  const tuneText = getEditorValue();
-  const lineOffsetBase = chordProFeature.isEnabled() ? 0 : null;
-  const scopedOptions = selectionPlaybackRuntime.getScopedOptions();
-  const skipDrums = selectionPlaybackRuntime.getSkipDrumsOnce() || (scopedOptions ? !Boolean(scopedOptions.allowMidiDrums) : false);
-  const skipGchords = playbackTransport.playbackSkipGchordsOnce === true || (scopedOptions ? Boolean(scopedOptions.muteGchords) : false);
-  const ignoreRepeats = playbackTransport.playbackIgnoreRepeatsOnce === true;
-  if (isPayloadMode()) {
-    if (payloadModeFeature.isPlaybackView()) {
-      // In payload mode the editor already contains the full payload text,
-      // so playback indices should map 1:1 to editor offsets.
-      return { text: String(tuneText || ""), offset: 0 };
-    }
-    // Render view is also a full payload in the editor; keep offset at 0 for follow mapping.
-    const offset = 0;
-    const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
-    const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-    const sourceKey = `payload|||${String(tuneText || "")}|||${offset}|||${repeatsFlag}`;
-    const cached = playbackTransport.getCachedPayload(sourceKey);
-    if (cached) {
-      return {
-        text: cached.text,
-        offset: cached.offset,
-      };
-    }
-
-    playbackTransport.resetPayloadDiagnostics();
-    let payload = { text: String(tuneText || ""), offset };
-    payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
-    payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
-    payload = { text: normalizeReadableMidiDrumsForPlayback(payload.text), offset: payload.offset };
-    let workingText = payload.text;
-    if (ignoreRepeats) workingText = stripRepeatsLengthSafe(workingText);
-    const sanitized = sanitizeAbcForPlayback(workingText);
-    playbackTransport.setSanitizeWarnings(sanitized.warnings);
-    payload = { text: sanitized.text, offset: payload.offset };
-    if (expandRepeats) {
-      payload = { text: expandRepeatsForPlayback(payload.text), offset: payload.offset };
-    }
-
-    playbackTransport.storePayloadCache(sourceKey, payload);
-    assertCleanAbcText(payload.text, "playback payload");
-    return payload;
-  }
-  if (selectionPlaybackRuntime.isSelectionMode()) {
-    const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
-    const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-    const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-    const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
-    playbackTransport.setPayloadMeta();
-    playbackTransport.clearPreparedPlaybackKey();
-    return { text, offset: (prefixPayload.offset || 0), lineOffset };
-  }
-  const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
-  const prefixPayload = buildHeaderPrefix(entry ? getHeaderEditorValue() : "", false, tuneText);
-  const baseText = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-  const gchordPreview = skipGchords ? { changed: false, text: baseText } : injectGchordOn(baseText, prefixPayload.offset || 0);
-  const gchordPreviewText = (gchordPreview && gchordPreview.changed) ? gchordPreview.text : baseText;
-  const previewText = normalizeReadableMidiDrumsForPlayback(
-    normalizeBlankLinesForPlayback(normalizeDollarLineBreaksForPlayback(gchordPreviewText))
-  );
-  const expandRepeats = window.__abcarusPlaybackExpandRepeats === true;
-  const repeatsFlag = expandRepeats ? "exp:on" : "exp:off";
-  const drumsFlag = "drums:native";
-  const skipDrumsFlag = skipDrums ? "skipdrums:on" : "skipdrums:off";
-  const gchordFlag = skipGchords ? "gchords:off" : "gchords:on";
-  const ignoreFlag = ignoreRepeats ? "ignore:on" : "ignore:off";
-  const sourceKey = `${previewText}|||${prefixPayload.offset || 0}|||${repeatsFlag}|||${drumsFlag}|||${skipDrumsFlag}|||${gchordFlag}|||${ignoreFlag}`;
-  const cached = playbackTransport.getCachedPayload(sourceKey);
-  if (cached) {
-    const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
-    return {
-      text: cached.text,
-      offset: cached.offset,
-      lineOffset,
-    };
-  }
-  let payload = prefixPayload.text
-    ? { text: `${prefixPayload.text}${tuneText}`, offset: (prefixPayload.offset || 0) }
-    : { text: tuneText, offset: prefixPayload.offset || 0 };
-  const gchordInjected = injectGchordOn(payload.text, prefixPayload.offset || 0);
-  if (gchordInjected.changed) {
-    payload = {
-      text: gchordInjected.text,
-      offset: (payload.offset || 0) + (gchordInjected.offsetDelta || 0),
-    };
-  }
-  payload = { text: normalizeDollarLineBreaksForPlayback(payload.text), offset: payload.offset };
-  payload = { text: normalizeBlankLinesForPlayback(payload.text), offset: payload.offset };
-  payload = { text: normalizeReadableMidiDrumsForPlayback(payload.text), offset: payload.offset };
-  const sanitized = sanitizeAbcForPlayback(payload.text);
-  playbackTransport.setSanitizeWarnings(sanitized.warnings);
-  payload = { text: sanitized.text, offset: payload.offset };
-
-  const keyOrderWarn = detectKeyFieldNotLastBeforeBody(payload.text);
-  playbackTransport.recordKeyOrderWarning(keyOrderWarn);
-
-  const meterWarn = detectMeterMismatchInBarlines(payload.text);
-  if (meterWarn) {
-    playbackTransport.recordMeterMismatchWarning(meterWarn);
-    if (lastMeterMismatchToastKey !== sourceKey) {
-      showToast(`Meter mismatch: ${meterWarn.detail}`, 5200);
-      lastMeterMismatchToastKey = sourceKey;
-    }
-  } else {
-    playbackTransport.recordMeterMismatchWarning(null);
-  }
-  const repeatShortBarWarn = detectRepeatMarkerAfterShortBar(payload.text);
-  if (repeatShortBarWarn) {
-    playbackTransport.recordRepeatShortBarWarning(repeatShortBarWarn);
-    if (lastRepeatShortBarToastKey !== sourceKey) {
-      showToast(`Repeat may be wrong: ${repeatShortBarWarn.detail}`, 5600);
-      lastRepeatShortBarToastKey = sourceKey;
-    }
-  } else {
-    playbackTransport.recordRepeatShortBarWarning(null);
-  }
-
-  if (skipGchords) payload = { text: stripGchordDirectives(payload.text), offset: payload.offset };
-  playbackTransport.setPayloadMeta();
-  if (skipDrums) {
-    payload = { text: neutralizeMidiDrumDirectivesForPlayback(payload.text), offset: payload.offset };
-  }
-  if (ignoreRepeats) {
-    payload = { text: stripRepeatsLengthSafe(payload.text), offset: payload.offset };
-  }
-  if (expandRepeats) {
-    payload = {
-      text: expandRepeatsForPlayback(payload.text),
-      offset: payload.offset,
-    };
-  }
-  playbackTransport.storePayloadCache(sourceKey, payload);
-  assertCleanAbcText(payload.text, "playback payload");
-  const lineOffset = chordProFeature.isEnabled() ? countLinesForPrefix(prefixPayload.text) + (lineOffsetBase || 0) : null;
-  return { ...payload, lineOffset };
+  return playbackPayloadController.getPlaybackPayload();
 }
 
 function getRenderPayload() {

@@ -8193,32 +8193,15 @@ function playbackGuardError(message) {
 }
 
 function stopPlaybackFromGuard(message) {
-  playbackTransport.lastPlaybackGuardMessage = String(message || "");
+  const result = playbackTransport.resetAfterGuardStop(message);
   try { recordDebugLog("warn", [`Playback guard: ${playbackTransport.lastPlaybackGuardMessage}`]); } catch {}
   playbackGuardError(message);
   try { scheduleAutoDump("playback-guard", playbackTransport.lastPlaybackGuardMessage); } catch {}
-  playbackTransport.playbackStartToken += 1;
-  const wasSelectionOrigin = playbackTransport.activePlaybackRange && playbackTransport.activePlaybackRange.origin === "selection";
-  if (playbackTransport.player && (playbackTransport.isPlaying || playbackTransport.isPaused) && typeof playbackTransport.player.stop === "function") {
-    playbackTransport.suppressOnEnd = true;
-    try { playbackTransport.player.stop(); } catch {}
-  }
-  playbackTransport.isPlaying = false;
-  playbackTransport.isPaused = false;
-  playbackTransport.waitingForFirstNote = false;
-  playbackTransport.resumeStartIdx = null;
-  playbackTransport.activePlaybackRange = null;
-  playbackTransport.activePlaybackEndAbcOffset = null;
-  playbackTransport.activePlaybackEndSymbol = null;
-  playbackTransport.activeLoopRange = null;
-  playbackTransport.playbackStartArmed = false;
-  playbackTransport.currentPlaybackPlan = null;
-  playbackTransport.pendingPlaybackPlan = null;
   setStatus("OK");
   updatePlayButton();
   clearNoteSelection();
   resetPlaybackUiState();
-  if (wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
+  if (result.wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
   selectionPlaybackRuntime.clearSelectionCapture();
 }
 
@@ -8642,29 +8625,7 @@ async function transportPause() {
 }
 
 function resetPlaybackState() {
-  playbackTransport.playbackStartToken += 1;
-  stopPlaybackForRestart();
-  playbackTransport.suppressOnEnd = false;
-  playbackTransport.isPlaying = false;
-  playbackTransport.isPaused = false;
-  playbackTransport.waitingForFirstNote = false;
-  playbackTransport.isPreviewing = false;
-  playbackTransport.playbackNeedsReprepare = true;
-  playbackTransport.lastPlaybackIdx = null;
-  playbackTransport.lastRenderIdx = null;
-  playbackTransport.lastStartPlaybackIdx = 0;
-  playbackTransport.resumeStartIdx = null;
-  playbackTransport.pausedSelectionSignature = null;
-  playbackTransport.playbackState = null;
-  playbackTransport.playbackIndexOffset = 0;
-  playbackTransport.lastPlaybackException = null;
-  playbackTransport.activePlaybackRange = null;
-  playbackTransport.activePlaybackEndAbcOffset = null;
-  playbackTransport.activePlaybackEndSymbol = null;
-  playbackTransport.activeLoopRange = null;
-  playbackTransport.playbackStartArmed = false;
-  playbackTransport.currentPlaybackPlan = null;
-  playbackTransport.pendingPlaybackPlan = null;
+  playbackTransport.resetForDocumentPlaybackChange();
   clearNoteSelection();
   resetPlaybackUiState();
   if (selectionPlaybackRuntime.shouldRestoreSelection()) selectionPlaybackRuntime.restoreSelection(editorView);
@@ -9105,8 +9066,6 @@ function stopPlaybackForRestart() {
 }
 
 function stopPlaybackTransport() {
-  playbackTransport.playbackStartToken += 1;
-
   // If already idle and a selection is active, treat Stop as "clear selection / ready from start".
   if (!playbackTransport.isPlaying && !playbackTransport.isPaused && !playbackTransport.waitingForFirstNote && editorView) {
     const sel = editorView.state.selection.main;
@@ -9118,16 +9077,6 @@ function stopPlaybackTransport() {
     }
   }
 
-  const wasSelectionOrigin = playbackTransport.activePlaybackRange && playbackTransport.activePlaybackRange.origin === "selection";
-  if (playbackTransport.player && (playbackTransport.isPlaying || playbackTransport.isPaused || playbackTransport.waitingForFirstNote) && typeof playbackTransport.player.stop === "function") {
-    playbackTransport.suppressOnEnd = true;
-    try { playbackTransport.player.stop(); } catch {}
-  }
-  // abc2svg playback mutates internal tune/parts structures; force a clean re-prepare after Stop.
-  playbackTransport.playbackNeedsReprepare = true;
-  playbackTransport.isPlaying = false;
-  playbackTransport.isPaused = false;
-  playbackTransport.waitingForFirstNote = false;
   let nextTransportStart = 0;
   if (focusModeEnabled) {
     const focusResult = computeFocusPlaybackPlanFromCurrentState();
@@ -9135,18 +9084,9 @@ function stopPlaybackTransport() {
       nextTransportStart = Math.max(0, Number(focusResult.plan.startOffset) || 0);
     }
   }
-  playbackTransport.transportPlayheadOffset = nextTransportStart;
-  playbackTransport.transportJumpHighlightActive = false;
-  playbackTransport.suppressTransportJumpClearOnce = false;
+  const result = playbackTransport.resetAfterExplicitStop({ transportPlayheadOffset: nextTransportStart });
   setPracticeBarHighlight(null);
   clearSvgPracticeBarHighlight();
-  playbackTransport.resumeStartIdx = null;
-  playbackTransport.pausedSelectionSignature = null;
-  playbackTransport.activePlaybackRange = null;
-  playbackTransport.activePlaybackEndAbcOffset = null;
-  playbackTransport.activePlaybackEndSymbol = null;
-  playbackTransport.playbackStartArmed = false;
-  playbackTransport.currentPlaybackPlan = null;
   setStatus("OK");
   updatePlayButton();
   clearNoteSelection();
@@ -9154,12 +9094,12 @@ function stopPlaybackTransport() {
   setSoundfontCaption();
 
   // Transport: explicit Stop resets internal playhead to 0.
-  if (wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
+  if (result.wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
   selectionPlaybackRuntime.clearSelectionCapture();
 
   // When stopping normal playback, collapse any transient 1-char selection created by Follow.
   // Otherwise the next "Play" can be misinterpreted as "play selection once".
-  if (!wasSelectionOrigin && editorView) {
+  if (!result.wasSelectionOrigin && editorView) {
     const sel = editorView.state.selection.main;
     if (sel && sel.anchor !== sel.head) {
       const len = editorView.state.doc.length;

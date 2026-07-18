@@ -103,6 +103,76 @@ function createPlaybackTransportState() {
 
   state.getTrace = () => state.playbackNoteTrace.slice();
 
+  state.bumpStartToken = () => {
+    state.playbackStartToken += 1;
+    return state.playbackStartToken;
+  };
+
+  state.stopPlayer = ({ onlyWhenActive = false } = {}) => {
+    if (!state.player || typeof state.player.stop !== "function") return false;
+    if (onlyWhenActive && !state.isPlaying && !state.isPaused && !state.waitingForFirstNote) return false;
+    state.suppressOnEnd = true;
+    try { state.player.stop(); } catch {}
+    return true;
+  };
+
+  state.clearActiveScope = ({ clearLoop = true, clearPendingPlan = true, clearCurrentPlan = true } = {}) => {
+    state.resumeStartIdx = null;
+    state.activePlaybackRange = null;
+    state.activePlaybackEndAbcOffset = null;
+    state.activePlaybackEndSymbol = null;
+    if (clearLoop) state.activeLoopRange = null;
+    state.playbackStartArmed = false;
+    if (clearCurrentPlan) state.currentPlaybackPlan = null;
+    if (clearPendingPlan) state.pendingPlaybackPlan = null;
+  };
+
+  state.markIdle = ({ needsReprepare = false, clearPreview = false } = {}) => {
+    state.isPlaying = false;
+    state.isPaused = false;
+    state.waitingForFirstNote = false;
+    if (clearPreview) state.isPreviewing = false;
+    if (needsReprepare) state.playbackNeedsReprepare = true;
+  };
+
+  state.resetAfterGuardStop = (message) => {
+    state.lastPlaybackGuardMessage = String(message || "");
+    state.bumpStartToken();
+    const wasSelectionOrigin = state.activePlaybackRange && state.activePlaybackRange.origin === "selection";
+    state.stopPlayer({ onlyWhenActive: true });
+    state.markIdle();
+    state.clearActiveScope();
+    return { wasSelectionOrigin };
+  };
+
+  state.resetForDocumentPlaybackChange = () => {
+    state.bumpStartToken();
+    state.stopPlayer();
+    state.suppressOnEnd = false;
+    state.markIdle({ needsReprepare: true, clearPreview: true });
+    state.lastPlaybackIdx = null;
+    state.lastRenderIdx = null;
+    state.lastStartPlaybackIdx = 0;
+    state.pausedSelectionSignature = null;
+    state.playbackState = null;
+    state.playbackIndexOffset = 0;
+    state.lastPlaybackException = null;
+    state.clearActiveScope();
+  };
+
+  state.resetAfterExplicitStop = ({ transportPlayheadOffset = 0 } = {}) => {
+    state.bumpStartToken();
+    const wasSelectionOrigin = state.activePlaybackRange && state.activePlaybackRange.origin === "selection";
+    state.stopPlayer({ onlyWhenActive: true });
+    state.markIdle({ needsReprepare: true });
+    state.transportPlayheadOffset = Math.max(0, Number(transportPlayheadOffset) || 0);
+    state.transportJumpHighlightActive = false;
+    state.suppressTransportJumpClearOnce = false;
+    state.pausedSelectionSignature = null;
+    state.clearActiveScope({ clearLoop: false, clearPendingPlan: false });
+    return { wasSelectionOrigin };
+  };
+
   return state;
 }
 

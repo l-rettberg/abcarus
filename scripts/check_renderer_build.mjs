@@ -63,8 +63,11 @@ async function assertSaveIntentGuards() {
   ) {
     throw new Error("Selection playback must show active flags toast.");
   }
-  if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {
-    throw new Error("Missing sequential measure resolver for focus loop bounds.");
+  if (
+    !src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")
+    && !focusPlaybackModel.includes("function getFocusMeasureStartCandidates(byNumber, measureNumber)")
+  ) {
+    throw new Error("Missing measure resolver for focus loop bounds.");
   }
   if (!focusPlaybackModel.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
     throw new Error("Missing Focus bar-number resolver for segment mode.");

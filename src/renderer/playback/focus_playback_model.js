@@ -141,6 +141,131 @@ function getFocusBarMapRenderOffset(barMap) {
   return null;
 }
 
+function buildFocusBarIndexMap({
+  measureIndex,
+  editorDocLength,
+  getRenderCompatMap = () => null,
+  mapRenderIdxToEditorOffset = (value) => value,
+} = {}) {
+  if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
+  const payload = {
+    offset: Number(measureIndex.offset) || 0,
+    compatMap: getRenderCompatMap(),
+  };
+  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
+  const starts = measureIndex.istarts.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
+  if (!starts.length) return [];
+  const bars = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const startRenderOffset = starts[i];
+    const nextStart = (i + 1 < starts.length) ? starts[i + 1] : null;
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(startRenderOffset, payload))));
+    const endOffset = Number.isFinite(nextStart)
+      ? Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(nextStart, payload))))
+      : max;
+    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
+    bars.push({
+      barNumber: bars.length + 1,
+      startRenderOffset,
+      endRenderOffset: Number.isFinite(nextStart) ? nextStart : null,
+      startOffset,
+      endOffset,
+    });
+  }
+  return bars;
+}
+
+function readFocusBarRangesFromElements(barElements) {
+  const barEls = Array.from(barElements || []);
+  if (!barEls.length) return [];
+  const raw = [];
+  for (const el of barEls) {
+    const s = Number(el.dataset && el.dataset.start);
+    const e = Number(el.dataset && el.dataset.end);
+    if (!Number.isFinite(s)) continue;
+    raw.push({
+      element: el,
+      startRenderOffset: s,
+      endRenderOffset: (Number.isFinite(e) && e > s) ? e : null,
+    });
+  }
+  if (!raw.length) return [];
+  raw.sort((a, b) => {
+    if (a.startRenderOffset !== b.startRenderOffset) return a.startRenderOffset - b.startRenderOffset;
+    const ae = Number.isFinite(a.endRenderOffset) ? a.endRenderOffset : Number.POSITIVE_INFINITY;
+    const be = Number.isFinite(b.endRenderOffset) ? b.endRenderOffset : Number.POSITIVE_INFINITY;
+    return ae - be;
+  });
+  const deduped = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const key = `${item.startRenderOffset}:${Number.isFinite(item.endRenderOffset) ? item.endRenderOffset : "null"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function buildFocusBarIndexMapFromElements({
+  barElements,
+  editorDocLength,
+  payload = { offset: 0, compatMap: null },
+  mapEditorOffsetToRenderIdx = (value) => value,
+  mapRenderIdxToEditorOffset = (value) => value,
+} = {}) {
+  const ranges = readFocusBarRangesFromElements(barElements);
+  if (!ranges.length) return [];
+  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
+  const bars = [];
+  for (let i = 0; i < ranges.length; i += 1) {
+    const item = ranges[i];
+    const next = (i + 1 < ranges.length) ? ranges[i + 1] : null;
+    let endRenderOffset = Number.isFinite(item.endRenderOffset) ? Number(item.endRenderOffset) : null;
+    const nextStart = next && Number.isFinite(next.startRenderOffset) ? Number(next.startRenderOffset) : null;
+    if (Number.isFinite(nextStart) && (!Number.isFinite(endRenderOffset) || endRenderOffset > nextStart)) {
+      endRenderOffset = nextStart;
+    }
+    if (!Number.isFinite(endRenderOffset)) endRenderOffset = mapEditorOffsetToRenderIdx(max, payload);
+    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(item.startRenderOffset, payload))));
+    const endOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(endRenderOffset, payload))));
+    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
+    bars.push({
+      barNumber: bars.length + 1,
+      startRenderOffset: item.startRenderOffset,
+      endRenderOffset,
+      startOffset,
+      endOffset,
+    });
+  }
+  return bars;
+}
+
+function getVisibleFocusRenderRangeFromElements({ barElements, paneRect } = {}) {
+  const ranges = readFocusBarRangesFromElements(barElements);
+  if (!ranges.length) return null;
+  if (!(paneRect && paneRect.width > 1 && paneRect.height > 1)) return null;
+  let startRenderOffset = Number.POSITIVE_INFINITY;
+  let endRenderOffset = Number.NEGATIVE_INFINITY;
+  let hits = 0;
+  for (const item of ranges) {
+    const el = item.element;
+    const rect = el && typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+    if (!rect || rect.bottom <= paneRect.top || rect.top >= paneRect.bottom || rect.right <= paneRect.left || rect.left >= paneRect.right) {
+      continue;
+    }
+    const s = Number(item.startRenderOffset);
+    if (!Number.isFinite(s)) continue;
+    const e = Number(item.endRenderOffset);
+    const stop = (Number.isFinite(e) && e > s) ? e : (s + 1);
+    startRenderOffset = Math.min(startRenderOffset, s);
+    endRenderOffset = Math.max(endRenderOffset, stop);
+    hits += 1;
+  }
+  if (!hits || !Number.isFinite(startRenderOffset) || !Number.isFinite(endRenderOffset) || endRenderOffset <= startRenderOffset) return null;
+  return { startRenderOffset, endRenderOffset };
+}
+
 function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasureStartOffsetByNumber } = {}) {
   const bars = parsedTune && Array.isArray(parsedTune.barMap) ? parsedTune.barMap : [];
   const tuneText = String(parsedTune && parsedTune.text ? parsedTune.text : "");
@@ -358,11 +483,15 @@ function buildFocusPlaybackPlan({ parsedTune, focusState, visibleRange, getMeasu
 }
 
 export {
+  buildFocusBarIndexMap,
+  buildFocusBarIndexMapFromElements,
   buildFocusPlaybackPlan,
   findFocusBarIndexAtOrAfterStart,
   getFocusBarMapRenderOffset,
   getFocusMeasureStartCandidates,
+  getVisibleFocusRenderRangeFromElements,
   normalizeFocusBarStarts,
+  readFocusBarRangesFromElements,
   resolveFocusSegmentBarsByNumber,
   resolveVisibleFocusBarRange,
 };

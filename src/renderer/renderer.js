@@ -180,16 +180,16 @@ import {
 } from "./playback/playback_payload_model.js";
 import {
   buildPlaybackState as buildPlaybackStateModel,
-  findBoundaryAtOrAfter,
   findPlaybackMeasureIndex,
   findPlaybackSymbolAtOrAfter,
   findPlaybackSymbolAtOrBefore,
-  pickStartFromListAtOrAfter,
   snapIstartToPlayable as snapIstartToPlayableModel,
   upperBoundTime,
 } from "./playback/playback_state_model.js";
 import {
+  buildFocusBarIndexMap as buildFocusBarIndexMapModel,
   buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
+  getVisibleFocusRenderRangeFromElements,
 } from "./playback/focus_playback_model.js";
 import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
@@ -7459,114 +7459,20 @@ function clampInt(value, min, max, fallback) {
 }
 
 function buildFocusBarIndexMap(measureIndex, editorDocLength) {
-  if (!measureIndex || !Array.isArray(measureIndex.istarts) || !measureIndex.istarts.length) return [];
-  const payload = {
-    offset: Number(measureIndex.offset) || 0,
-    compatMap: getRenderCompatMap(),
-  };
-  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
-  const starts = measureIndex.istarts.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
-  if (!starts.length) return [];
-  const bars = [];
-  for (let i = 0; i < starts.length; i += 1) {
-    const startRenderOffset = starts[i];
-    const nextStart = (i + 1 < starts.length) ? starts[i + 1] : null;
-    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(startRenderOffset, payload))));
-    const endOffset = Number.isFinite(nextStart)
-      ? Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(nextStart, payload))))
-      : max;
-    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
-    bars.push({
-      barNumber: bars.length + 1,
-      startRenderOffset,
-      endRenderOffset: Number.isFinite(nextStart) ? nextStart : null,
-      startOffset,
-      endOffset,
-    });
-  }
-  return bars;
-}
-
-function buildFocusBarIndexMapFromSvg(editorDocLength) {
-  if (!$out) return [];
-  const payload = getLastRenderPayload() || { offset: 0, compatMap: null };
-  const renderOffset = Number.isFinite(payload && payload.offset) ? Number(payload.offset) : 0;
-  const max = Math.max(0, Number.isFinite(Number(editorDocLength)) ? Number(editorDocLength) : 0);
-  const barEls = Array.from($out.querySelectorAll(".bar-hl"));
-  if (!barEls.length) return [];
-  const raw = [];
-  for (const el of barEls) {
-    const s = Number(el.dataset && el.dataset.start);
-    const e = Number(el.dataset && el.dataset.end);
-    if (!Number.isFinite(s)) continue;
-    raw.push({
-      startRenderOffset: s,
-      endRenderOffset: (Number.isFinite(e) && e > s) ? e : null,
-    });
-  }
-  if (!raw.length) return [];
-  raw.sort((a, b) => {
-    if (a.startRenderOffset !== b.startRenderOffset) return a.startRenderOffset - b.startRenderOffset;
-    const ae = Number.isFinite(a.endRenderOffset) ? a.endRenderOffset : Number.POSITIVE_INFINITY;
-    const be = Number.isFinite(b.endRenderOffset) ? b.endRenderOffset : Number.POSITIVE_INFINITY;
-    return ae - be;
+  return buildFocusBarIndexMapModel({
+    measureIndex,
+    editorDocLength,
+    getRenderCompatMap,
+    mapRenderIdxToEditorOffset,
   });
-  const deduped = [];
-  const seen = new Set();
-  for (const item of raw) {
-    const key = `${item.startRenderOffset}:${Number.isFinite(item.endRenderOffset) ? item.endRenderOffset : "null"}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(item);
-  }
-  const bars = [];
-  for (let i = 0; i < deduped.length; i += 1) {
-    const item = deduped[i];
-    const next = (i + 1 < deduped.length) ? deduped[i + 1] : null;
-    let endRenderOffset = Number.isFinite(item.endRenderOffset) ? Number(item.endRenderOffset) : null;
-    const nextStart = next && Number.isFinite(next.startRenderOffset) ? Number(next.startRenderOffset) : null;
-    if (Number.isFinite(nextStart) && (!Number.isFinite(endRenderOffset) || endRenderOffset > nextStart)) {
-      endRenderOffset = nextStart;
-    }
-    if (!Number.isFinite(endRenderOffset)) endRenderOffset = mapEditorOffsetToRenderIdx(max, payload);
-    const startOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(item.startRenderOffset, payload))));
-    const endOffset = Math.max(0, Math.min(max, Math.floor(mapRenderIdxToEditorOffset(endRenderOffset, payload))));
-    if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) continue;
-    bars.push({
-      barNumber: bars.length + 1,
-      startRenderOffset: item.startRenderOffset,
-      endRenderOffset,
-      startOffset,
-      endOffset,
-    });
-  }
-  return bars;
 }
 
 function getVisibleFocusRenderRange() {
   if (!isFocusModeEnabled() || !$out || !$renderPane) return null;
-  const bars = Array.from($out.querySelectorAll(".bar-hl"));
-  if (!bars.length) return null;
-  const paneRect = $renderPane.getBoundingClientRect();
-  if (!(paneRect && paneRect.width > 1 && paneRect.height > 1)) return null;
-  let startRenderOffset = Number.POSITIVE_INFINITY;
-  let endRenderOffset = Number.NEGATIVE_INFINITY;
-  let hits = 0;
-  for (const el of bars) {
-    const rect = el.getBoundingClientRect();
-    if (!rect || rect.bottom <= paneRect.top || rect.top >= paneRect.bottom || rect.right <= paneRect.left || rect.left >= paneRect.right) {
-      continue;
-    }
-    const s = Number(el.dataset && el.dataset.start);
-    const e = Number(el.dataset && el.dataset.end);
-    if (!Number.isFinite(s)) continue;
-    const stop = (Number.isFinite(e) && e > s) ? e : (s + 1);
-    startRenderOffset = Math.min(startRenderOffset, s);
-    endRenderOffset = Math.max(endRenderOffset, stop);
-    hits += 1;
-  }
-  if (!hits || !Number.isFinite(startRenderOffset) || !Number.isFinite(endRenderOffset) || endRenderOffset <= startRenderOffset) return null;
-  return { startRenderOffset, endRenderOffset };
+  return getVisibleFocusRenderRangeFromElements({
+    barElements: $out.querySelectorAll(".bar-hl"),
+    paneRect: $renderPane.getBoundingClientRect(),
+  });
 }
 
 function getFocusPlaybackState() {
@@ -7600,56 +7506,6 @@ function computeFocusPlaybackPlanFromCurrentState() {
     visibleRange: getVisibleFocusRenderRange(),
     getMeasureStartOffsetByNumber: findMeasureStartOffsetByNumberInPrimaryVoice,
   });
-}
-
-function resolveMeasureStartRenderIdx(measureIndex, n, { minBound, minStartRenderIdx } = {}) {
-  if (!measureIndex) return null;
-  const num = clampInt(n, 0, 100000, 0);
-  if (num <= 0) return null;
-  const anchor = Number.isFinite(Number(measureIndex.anchor)) ? Number(measureIndex.anchor) : 0;
-  const istarts = Array.isArray(measureIndex.istarts) ? measureIndex.istarts : null;
-  const bound = Number.isFinite(Number(minBound)) ? Number(minBound) : null;
-
-  // Preferred: abc2svg bar_num mapping (can contain multiple occurrences due to repeats/voltas).
-  const list = (measureIndex.byNumber && typeof measureIndex.byNumber.get === "function")
-    ? measureIndex.byNumber.get(num)
-    : null;
-  if (Array.isArray(list) && list.length) {
-    const boundPick = (bound != null) ? pickStartFromListAtOrAfter(list, bound) : list[0];
-    const minPick = Number.isFinite(Number(minStartRenderIdx)) ? pickStartFromListAtOrAfter(list, Number(minStartRenderIdx)) : boundPick;
-    return Number.isFinite(Number(minPick)) ? Number(minPick) : Number(boundPick);
-  }
-
-  // Fallback: list-of-measures index (used by older/edge cases).
-  if (istarts && istarts.length) {
-    const slot = (num - 1) + anchor;
-    const v = istarts[Math.max(0, Math.min(istarts.length - 1, slot))];
-    if (Number.isFinite(v)) return v;
-  }
-  return null;
-}
-
-function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {}) {
-  if (!measureIndex) return null;
-  const num = clampInt(n, 0, 100000, 0);
-  if (num <= 0) return null;
-  const istarts = Array.isArray(measureIndex.istarts) ? measureIndex.istarts : null;
-  if (!istarts || !istarts.length) return null;
-  const anchor = Number.isFinite(Number(measureIndex.anchor)) ? Number(measureIndex.anchor) : 0;
-  const slot = (num - 1) + anchor;
-  let v = istarts[Math.max(0, Math.min(istarts.length - 1, slot))];
-  if (!Number.isFinite(v)) return null;
-  const bound = Number(minBound);
-  if (Number.isFinite(bound) && v < bound) {
-    const atOrAfterBound = findBoundaryAtOrAfter(istarts, bound);
-    if (Number.isFinite(atOrAfterBound)) v = atOrAfterBound;
-  }
-  const minStart = Number(minStartRenderIdx);
-  if (Number.isFinite(minStart) && v < minStart) {
-    const atOrAfterMin = findBoundaryAtOrAfter(istarts, minStart);
-    if (Number.isFinite(atOrAfterMin)) v = atOrAfterMin;
-  }
-  return v;
 }
 
 function computeFocusLoopPlaybackRange() {

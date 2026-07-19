@@ -103,10 +103,7 @@ import {
   parseTuneIdentityFields,
 } from "./abc/header_fields.js";
 import {
-  buildHeaderPrefixFromLayers,
-  buildHeaderPrefixWithLayerSpansFromLayers,
   collectHeaderKeys,
-  normalizeHeaderLayer,
   sanitizeFileHeaderForInteractiveRender,
   sanitizeFileHeaderForPerTuneRender,
 } from "./abc/header_prefix_model.js";
@@ -203,6 +200,7 @@ import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
 import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
 import { createScoreHighlightController } from "./render/score_highlight_controller.js";
 import { createPracticeBarHighlightController } from "./render/practice_bar_highlight_controller.js";
+import { createHeaderLayersController } from "./render/header_layers_controller.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
   ensureOnePerPageDirective,
@@ -1788,16 +1786,21 @@ let libraryTextFilter = "";
 let suppressRecentEntries = false;
 let renderPipelineController = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
-let globalHeaderText = "";
-let globalHeaderEnabled = true;
-let globalHeaderLocalText = "";
-let globalHeaderUserText = "";
-let globalHeaderGlobalText = "";
-let abc2svgNotationFontFile = "";
-let abc2svgTextFontFile = "";
-let fontDirs = { bundledDir: "", userDir: "" };
+let headerLayersController = null;
 const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
 const fileContentCache = new Map();
+
+headerLayersController = createHeaderLayersController({
+  api: window.api,
+  elements: {
+    toggleButton: $btnToggleGlobals,
+  },
+  readFile,
+  getActiveFilePath: () => activeFilePath,
+  isMeasureCheckEnabled,
+  scheduleRender: () => scheduleRenderNow(),
+  setButtonText,
+});
 
 function getRenderCompatMap() {
   return getRenderCompatMapFromPayload(getLastRenderPayload());
@@ -7104,7 +7107,7 @@ if (window.api && typeof window.api.getSettings === "function") {
 if (window.api && typeof window.api.getFontDirs === "function") {
   window.api.getFontDirs().then((res) => {
     if (res && res.ok) {
-      fontDirs = { bundledDir: String(res.bundledDir || ""), userDir: String(res.userDir || "") };
+      headerLayersController.setFontDirs(res);
     }
   }).catch(() => {});
 }
@@ -7112,7 +7115,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
   window.api.onSettingsChanged((settings) => {
     const prevSettings = latestSettingsSnapshot;
     latestSettingsSnapshot = settings || null;
-	    const prevHeader = `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`;
+	    const prevHeader = headerLayersController.getSettingsSignature();
 	    const prevSoundfont = soundfontController.getName();
       const prevChordproBinPath = prevSettings && prevSettings.chordproBinPath ? String(prevSettings.chordproBinPath) : "";
       const prevChordproRepoPath = prevSettings && prevSettings.chordproRepoPath ? String(prevSettings.chordproRepoPath) : "";
@@ -7143,7 +7146,7 @@ if (window.api && typeof window.api.onSettingsChanged === "function") {
 	      if (!microtonalEnabled && intonationExplorerFeature && intonationExplorerFeature.isVisible()) intonationExplorerFeature.close();
 	    } catch {}
 	    showDisclaimerIfNeeded(settings);
-    if (settings && prevHeader !== `${globalHeaderEnabled}|${globalHeaderText}|${abc2svgNotationFontFile}|${abc2svgTextFontFile}`) {
+    if (settings && prevHeader !== headerLayersController.getSettingsSignature()) {
       scheduleRenderNow();
     }
 	    if (settings && prevSoundfont !== soundfontController.getName()) {
@@ -7832,115 +7835,15 @@ function toEditorOffset(derivedOffset) {
 }
 
 function setGlobalHeaderFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  const next = String(settings.globalHeaderText || "");
-  globalHeaderText = next;
-  globalHeaderEnabled = settings.globalHeaderEnabled !== false;
-}
-
-function sanitizeFontAssetName(name) {
-  const raw = String(name || "").trim();
-  if (!raw) return "";
-  const m = raw.match(/^(bundled|user):(.*)$/);
-  if (m) {
-    const origin = m[1];
-    let fileName = String(m[2] || "").trim();
-    // Recover from previously persisted double-prefixed values, e.g. "bundled:bundled:Leland.otf".
-    const nested = fileName.match(/^(bundled|user):(.*)$/);
-    if (nested) fileName = String(nested[2] || "").trim();
-    if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) return "";
-    if (/[\x00-\x1f]/.test(fileName)) return "";
-    if (!/^[^/\\]+\.(otf|ttf|woff2?)$/i.test(fileName)) return "";
-    return `${origin}:${fileName}`;
-  }
-  // Backward-compat: accept plain filenames and treat them as bundled.
-  if (/^[^/\\]+\.(otf|ttf|woff2?)$/i.test(raw)) return `bundled:${raw}`;
-  return "";
+  headerLayersController.setFromSettings(settings);
 }
 
 function setAbc2svgFontsFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  abc2svgNotationFontFile = sanitizeFontAssetName(settings.abc2svgNotationFontFile);
-  abc2svgTextFontFile = sanitizeFontAssetName(settings.abc2svgTextFontFile);
-}
-
-function filePathToFileUrl(filePath) {
-  const raw = String(filePath || "");
-  if (!raw) return "";
-  const normalized = raw.replace(/\\/g, "/");
-  const prefix = normalized.startsWith("/") ? "file://" : "file:///";
-  // Best-effort: keep it simple; spaces are the common case.
-  return prefix + encodeURI(normalized);
-}
-
-function buildAbc2svgFontHeaderLayer() {
-  const lines = [];
-  const comment = "% ABCarus: font overrides (auto)";
-  const encodeBundledFileName = (name) => encodeURIComponent(String(name || "")).replace(/%2F/gi, "");
-
-  if (abc2svgNotationFontFile) {
-    const m = abc2svgNotationFontFile.match(/^(bundled|user):(.*)$/);
-    if (m) {
-      const origin = m[1];
-      const fileName = m[2];
-      const url = origin === "bundled"
-        ? `../../assets/fonts/notation/${encodeBundledFileName(fileName)}`
-        : (fontDirs && fontDirs.userDir
-          ? filePathToFileUrl(window.api && window.api.pathJoin ? window.api.pathJoin(fontDirs.userDir, fileName) : `${fontDirs.userDir}/${fileName}`)
-          : "");
-      // Use explicit size for broad abc2svg compatibility.
-      if (url) lines.push(`%%musicfont url("${url}") 24`);
-    }
-  }
-
-  if (abc2svgTextFontFile) {
-    const m = abc2svgTextFontFile.match(/^(bundled|user):(.*)$/);
-    let url = "";
-    if (m) {
-      const origin = m[1];
-      const fileName = m[2];
-      url = origin === "bundled"
-        ? `../../assets/fonts/notation/${encodeBundledFileName(fileName)}`
-        : (fontDirs && fontDirs.userDir
-          ? filePathToFileUrl(window.api && window.api.pathJoin ? window.api.pathJoin(fontDirs.userDir, fileName) : `${fontDirs.userDir}/${fileName}`)
-          : "");
-    }
-    if (url) {
-      const directives = [
-        "annotationfont",
-        "footerfont",
-        "headerfont",
-        "historyfont",
-        "infofont",
-        "titlefont",
-        "subtitlefont",
-        "composerfont",
-        "partsfont",
-        "textfont",
-        "gchordfont",
-        "tempofont",
-        "tupletfont",
-        "voicefont",
-        "vocalfont",
-        "wordsfont",
-        "measurefont",
-        "repeatfont",
-      ];
-      for (const d of directives) {
-        lines.push(`%%${d} url("${url}") *`);
-      }
-    }
-  }
-
-  if (!lines.length) return "";
-  return `${comment}\n${lines.join("\n")}`;
+  headerLayersController.setFromSettings(settings);
 }
 
 function updateGlobalHeaderToggle() {
-  if (!$btnToggleGlobals) return;
-  $btnToggleGlobals.classList.toggle("toggle-active", globalHeaderEnabled);
-  setButtonText($btnToggleGlobals, "Globals");
-  $btnToggleGlobals.setAttribute("aria-pressed", globalHeaderEnabled ? "true" : "false");
+  headerLayersController.updateToggle();
 }
 
 function updateFollowToggle() {
@@ -8411,93 +8314,16 @@ function resetSoundfontCache() {
   soundfontController.resetCache();
 }
 
-async function loadHeaderLayer(path) {
-  if (!path) return "";
-  try {
-    const res = await readFile(path);
-    if (!res || !res.ok) return "";
-    return normalizeHeaderLayer(res.data);
-  } catch {
-    return "";
-  }
-}
-
 async function refreshHeaderLayers() {
-  const prev = `${globalHeaderGlobalText}|${globalHeaderLocalText}|${globalHeaderUserText}`;
-  let globalPath = "";
-  let userPath = "";
-  if (window.api && typeof window.api.getSettingsPaths === "function") {
-    try {
-      const res = await window.api.getSettingsPaths();
-      globalPath = res && res.globalPath ? res.globalPath : "";
-      userPath = res && res.userPath ? res.userPath : "";
-    } catch {}
-  }
-  let localPath = "";
-  if (activeFilePath && window.api && typeof window.api.pathDirname === "function") {
-    const dir = window.api.pathDirname(activeFilePath);
-    if (window.api.pathJoin) {
-      localPath = window.api.pathJoin(dir, "local_settings.abc");
-    } else if (dir) {
-      localPath = dir.endsWith("/") || dir.endsWith("\\") ? `${dir}local_settings.abc` : `${dir}/local_settings.abc`;
-    }
-  }
-  const [globalText, localText, userText] = await Promise.all([
-    loadHeaderLayer(globalPath),
-    loadHeaderLayer(localPath),
-    loadHeaderLayer(userPath),
-  ]);
-  globalHeaderGlobalText = globalText;
-  globalHeaderLocalText = localText;
-  globalHeaderUserText = userText;
-  const next = `${globalHeaderGlobalText}|${globalHeaderLocalText}|${globalHeaderUserText}`;
-  if (next !== prev) scheduleRenderNow();
+  return headerLayersController.refreshHeaderLayers();
 }
 
 function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
-  const layers = [];
-  const fontLayerRaw = buildAbc2svgFontHeaderLayer();
-  if (globalHeaderEnabled) {
-    const globalHeaderRaw = normalizeHeaderLayer(globalHeaderGlobalText);
-    if (globalHeaderRaw) layers.push(globalHeaderRaw);
-    const localHeaderRaw = normalizeHeaderLayer(globalHeaderLocalText);
-    if (localHeaderRaw) layers.push(localHeaderRaw);
-    const userHeaderRaw = normalizeHeaderLayer(globalHeaderUserText);
-    if (userHeaderRaw) layers.push(userHeaderRaw);
-    const legacyHeaderRaw = normalizeHeaderLayer(globalHeaderText);
-    if (legacyHeaderRaw) layers.push(legacyHeaderRaw);
-  }
-  if (fontLayerRaw) layers.push(fontLayerRaw);
-  const fileHeaderRaw = String(entryHeader || "");
-  if (fileHeaderRaw.trim()) layers.push(fileHeaderRaw.replace(/[\r\n]+$/, ""));
-  return buildHeaderPrefixFromLayers({
-    layers,
-    includeCheckbars: Boolean(includeCheckbars && isMeasureCheckEnabled()),
-    tuneText,
-  });
+  return headerLayersController.buildHeaderPrefix(entryHeader, includeCheckbars, tuneText);
 }
 
 function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText) {
-  const layers = [];
-  const fontLayerRaw = buildAbc2svgFontHeaderLayer();
-  if (globalHeaderEnabled) {
-    const globalHeaderRaw = normalizeHeaderLayer(globalHeaderGlobalText);
-    if (globalHeaderRaw) layers.push({ kind: "abcarus", text: globalHeaderRaw });
-    const localHeaderRaw = normalizeHeaderLayer(globalHeaderLocalText);
-    if (localHeaderRaw) layers.push({ kind: "abcarus", text: localHeaderRaw });
-    const userHeaderRaw = normalizeHeaderLayer(globalHeaderUserText);
-    if (userHeaderRaw) layers.push({ kind: "abcarus", text: userHeaderRaw });
-    const legacyHeaderRaw = normalizeHeaderLayer(globalHeaderText);
-    if (legacyHeaderRaw) layers.push({ kind: "abcarus", text: legacyHeaderRaw });
-  }
-  if (fontLayerRaw) layers.push({ kind: "abcarus", text: fontLayerRaw });
-  const fileHeaderRaw = String(entryHeader || "");
-  if (fileHeaderRaw.trim()) layers.push({ kind: "fileHeader", text: fileHeaderRaw.replace(/[\r\n]+$/, "") });
-  return buildHeaderPrefixWithLayerSpansFromLayers({
-    layers,
-    includeCheckbars: Boolean(includeCheckbars && isMeasureCheckEnabled()),
-    tuneText,
-  });
+  return headerLayersController.buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText);
 }
 
 function getPlaybackPayload() {
@@ -8846,7 +8672,7 @@ if ($btnToggleErrors) {
 if ($btnToggleGlobals) {
   $btnToggleGlobals.addEventListener("click", async () => {
     if (!window.api || typeof window.api.updateSettings !== "function") return;
-    await window.api.updateSettings({ globalHeaderEnabled: !globalHeaderEnabled });
+    await window.api.updateSettings({ globalHeaderEnabled: !headerLayersController.isGlobalHeaderEnabled() });
   });
 }
 

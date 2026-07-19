@@ -245,6 +245,7 @@ import {
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
 import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
+import { createWorkingCopyRuntimeController } from "./app/document/working_copy_runtime_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import {
   SAVE_INTENT,
@@ -512,6 +513,7 @@ let documentLifecycleController = null;
 let documentSessionController = null;
 let saveFlowController = null;
 let focusModeController = null;
+let workingCopyRuntimeController = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
@@ -1581,7 +1583,7 @@ const debugDumpFeature = createDebugDumpFeature({
   getHeaderCollapsed,
   getEditorValue,
   getHeaderEditorValue,
-  getWorkingCopySnapshot: () => workingCopySnapshot,
+  getWorkingCopySnapshot,
   getPlaybackPayload,
   getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
   getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
@@ -1922,127 +1924,52 @@ function countLinesForPrefix(text) {
   return trimmed ? trimmed.split(/\r\n|\n|\r/).length : 0;
 }
 
-let workingCopySnapshot = null;
-let lazyWorkingCopyOpenSeq = 0;
-const diskConflictPaths = new Set();
+workingCopyRuntimeController = createWorkingCopyRuntimeController({
+  api: window.api,
+  state: {
+    getActiveTuneMeta: () => activeTuneMeta,
+    isCurrentDocumentDirty,
+    isFilePerfEnabled,
+  },
+  actions: {
+    attachTuneUidsToLibraryFile,
+    logErr,
+    logFilePerf,
+    perfNowMs,
+    recordRecentAction,
+    renderUnifiedStatus,
+    safeBasename,
+    scheduleRenderLibraryTree,
+    scheduleWorkingCopyTuneSync,
+  },
+  utils: {
+    normalizeLibraryPath,
+    pathsEqual,
+  },
+});
+
+function getWorkingCopySnapshot() {
+  return workingCopyRuntimeController ? workingCopyRuntimeController.getSnapshot() : null;
+}
 
 function markDiskConflictPath(filePath, hasConflict) {
-  const p = filePath ? normalizeLibraryPath(filePath) : "";
-  if (!p) return;
-  if (hasConflict) diskConflictPaths.add(p);
-  else diskConflictPaths.delete(p);
-  renderUnifiedStatus();
+  if (workingCopyRuntimeController) workingCopyRuntimeController.markDiskConflictPath(filePath, hasConflict);
 }
 
 function hasDiskConflictPath(filePath) {
-  const p = filePath ? normalizeLibraryPath(filePath) : "";
-  if (!p) return false;
-  return diskConflictPaths.has(p);
+  return workingCopyRuntimeController ? workingCopyRuntimeController.hasDiskConflictPath(filePath) : false;
 }
 
 async function refreshWorkingCopySnapshot() {
-  if (!window.api || typeof window.api.getWorkingCopySnapshot !== "function") return null;
-  try {
-    const res = await window.api.getWorkingCopySnapshot();
-    if (!res || !res.ok || !res.snapshot) {
-      workingCopySnapshot = null;
-      renderUnifiedStatus();
-      recordRecentAction("wc.snapshot.missing", {
-        ok: Boolean(res && res.ok),
-        error: (res && res.error) ? String(res.error) : null,
-      });
-      return null;
-    }
-    workingCopySnapshot = res.snapshot;
-    renderUnifiedStatus();
-    recordRecentAction("wc.snapshot", {
-      path: workingCopySnapshot && workingCopySnapshot.path ? String(workingCopySnapshot.path) : null,
-      version: workingCopySnapshot && Number.isFinite(Number(workingCopySnapshot.version)) ? Number(workingCopySnapshot.version) : null,
-      dirty: workingCopySnapshot ? Boolean(workingCopySnapshot.dirty) : null,
-    });
-    return workingCopySnapshot;
-  } catch (err) {
-    logErr(err);
-    workingCopySnapshot = null;
-    renderUnifiedStatus();
-    recordRecentAction("wc.snapshot.error", { error: err && err.message ? String(err.message) : String(err) });
-    return null;
-  }
+  return workingCopyRuntimeController ? workingCopyRuntimeController.refreshSnapshot() : null;
 }
 
 async function ensureWorkingCopyOpenForPath(filePath) {
-  const p = String(filePath || "");
-  if (!p) return false;
-  if (
-    !window.api
-    || typeof window.api.getWorkingCopyMeta !== "function"
-    || typeof window.api.openWorkingCopy !== "function"
-  ) return false;
-
-  try {
-    const metaRes = await window.api.getWorkingCopyMeta();
-    const metaPath = (metaRes && metaRes.ok && metaRes.meta && metaRes.meta.path) ? String(metaRes.meta.path) : "";
-    recordRecentAction("wc.meta", {
-      ok: Boolean(metaRes && metaRes.ok),
-      path: metaPath || null,
-      dirty: (metaRes && metaRes.ok && metaRes.meta) ? Boolean(metaRes.meta.dirty) : null,
-      version: (metaRes && metaRes.ok && metaRes.meta && Number.isFinite(Number(metaRes.meta.version))) ? Number(metaRes.meta.version) : null,
-    });
-    if (metaPath && pathsEqual(metaPath, p)) return true;
-  } catch {}
-
-  try {
-    recordRecentAction("wc.open", { path: p, reason: "ensureWorkingCopyOpenForPath" });
-    await window.api.openWorkingCopy(p);
-    const metaRes2 = await window.api.getWorkingCopyMeta();
-    const metaPath2 = (metaRes2 && metaRes2.ok && metaRes2.meta && metaRes2.meta.path) ? String(metaRes2.meta.path) : "";
-    if (metaPath2 && pathsEqual(metaPath2, p)) {
-      await refreshWorkingCopySnapshot();
-      return true;
-    }
-  } catch {}
-
-  return false;
+  return workingCopyRuntimeController ? workingCopyRuntimeController.ensureOpenForPath(filePath) : false;
 }
 
 function scheduleLazyWorkingCopyOpenForActiveFile(filePath, reason = "selectTune") {
-  const p = String(filePath || "");
-  if (!p) return;
-  if (!window.api || typeof window.api.openWorkingCopy !== "function") return;
-  if (workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p)) return;
-
-  const seq = (lazyWorkingCopyOpenSeq += 1);
-  const perfOn = isFilePerfEnabled();
-  const t0 = perfOn ? perfNowMs() : 0;
-  recordRecentAction("wc.open.lazy", { path: p, reason });
-
-  window.api.openWorkingCopy(p).then(async (res) => {
-    if (seq !== lazyWorkingCopyOpenSeq) return;
-    if (res && res.ok === false) {
-      if (perfOn) logFilePerf("lazyWorkingCopyOpen: failed", { ms: Math.round(perfNowMs() - t0), file: safeBasename(p), error: res.error || "" });
-      return;
-    }
-    const snapshot = await refreshWorkingCopySnapshot();
-    if (seq !== lazyWorkingCopyOpenSeq) return;
-    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) return;
-    attachTuneUidsToLibraryFile(p, snapshot);
-    scheduleRenderLibraryTree();
-    if (perfOn) logFilePerf("lazyWorkingCopyOpen: done", { ms: Math.round(perfNowMs() - t0), file: safeBasename(p) });
-    if (
-      activeTuneMeta
-      && activeTuneMeta.path
-      && pathsEqual(activeTuneMeta.path, p)
-      && isCurrentDocumentDirty()
-    ) {
-      scheduleWorkingCopyTuneSync();
-    }
-  }).catch((err) => {
-    if (perfOn) logFilePerf("lazyWorkingCopyOpen: error", {
-      ms: Math.round(perfNowMs() - t0),
-      file: safeBasename(p),
-      error: err && err.message ? String(err.message) : String(err),
-    });
-  });
+  if (workingCopyRuntimeController) workingCopyRuntimeController.scheduleLazyOpenForActiveFile(filePath, reason);
 }
 
 async function confirmReloadFromDisk(filePath) {
@@ -2291,7 +2218,7 @@ workingCopySyncController = createWorkingCopySyncController({
     getChordProFullText: () => chordProFeature.getFullText(),
     getCurrentDocumentPath,
     getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
     isPayloadMode,
@@ -2414,7 +2341,7 @@ saveFlowController = createSaveFlowController({
     getIsNewTuneDraft: () => isNewTuneDraft,
     getLibraryIndex: () => libraryIndex,
     getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     getChordProFullText: () => chordProFeature.getFullText(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -2913,7 +2840,7 @@ editStateController = createEditStateController({
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
     getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
   },
   actions: {
     renderUnifiedStatus: () => renderUnifiedStatus(),
@@ -2927,7 +2854,7 @@ editStateController = createEditStateController({
 fileOperationGuard = createFileOperationGuard({
   state: {
     getActiveEditFilePath,
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     hasGlobalUnsavedChanges,
   },
   actions: {
@@ -3034,7 +2961,7 @@ libraryMetadataController = createLibraryMetadataController({
   state: {
     getLibraryIndex: () => libraryIndex,
     setLibraryIndex: (next) => { libraryIndex = next; },
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     getActiveFilePath: () => activeFilePath,
     setActiveFilePath: (next) => { activeFilePath = next; },
     getActiveTuneMeta: () => activeTuneMeta,
@@ -3101,7 +3028,7 @@ libraryMetadataController = createLibraryMetadataController({
 tuneClipboardController = createTuneClipboardController({
   state: {
     getLibraryIndex: () => libraryIndex,
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
   },
   actions: {
     getFileContentFromCache,
@@ -3193,7 +3120,7 @@ pasteMoveTuneAction = createPasteMoveTuneAction({
     getClipboardTune,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     hasGlobalUnsavedChanges,
     isCurrentDocumentDirty,
     isWorkingCopyOpenForFile,
@@ -3282,7 +3209,7 @@ libraryLifecycleController = createLibraryLifecycleController({
   state: {
     getLibraryIndex: () => libraryIndex,
     setLibraryIndex: (next) => { libraryIndex = next; },
-    getWorkingCopySnapshot: () => workingCopySnapshot,
+    getWorkingCopySnapshot,
     getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: isFocusModeEnabled,
     getActiveTuneMeta: () => activeTuneMeta,

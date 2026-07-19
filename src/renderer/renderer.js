@@ -129,6 +129,7 @@ import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import { createImportExportFeature } from "./tools/import_export/import_export_feature.js";
 import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
 import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
+import { createRawModeEnterGuard } from "./tools/raw_mode/raw_mode_enter_guard.js";
 import { createRawModeFeature } from "./tools/raw_mode/raw_mode_feature.js";
 import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feature.js";
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
@@ -3550,64 +3551,35 @@ installDevUiSmokeHook({
   getPlaybackDebug: () => window.__abcarusPlaybackDebug || null,
 });
 
-async function normalizeCleanStateBeforeRaw(filePath, diskText) {
-  const p = String(filePath || "");
-  if (!p) return;
-  const fullText = String(diskText || "");
-  const activePath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path || "")
-    : String(activeFilePath || getCurrentDocumentPath() || "");
-  if (!activePath || !pathsEqual(activePath, p)) return;
-
-  const currentDoc = getCurrentDocument();
-  if (currentDoc && currentDoc.dirty && activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, p)) {
-    const start = Number(activeTuneMeta.startOffset);
-    const end = Number(activeTuneMeta.endOffset);
-    if (Number.isFinite(start) && Number.isFinite(end) && end >= start && end <= fullText.length) {
-      const diskTuneText = fullText.slice(start, end);
-      if (String(getEditorValue() || "") === diskTuneText || String(currentDoc.content || "") === diskTuneText) {
-        patchCurrentDocument({ content: diskTuneText, dirty: false }, { create: false });
-      }
-    }
-  }
-
-  if (getHeaderDirty()) {
-    const entry = getActiveFileEntry();
-    const headerEnd = entry && pathsEqual(entry.path, p) && Number.isFinite(Number(entry.headerEndOffset))
-      ? Number(entry.headerEndOffset)
-      : findHeaderEndOffset(fullText);
-    const diskHeaderText = fullText.slice(0, Math.max(0, headerEnd));
-    if (String(getHeaderEditorValue() || "") === diskHeaderText) {
-      markHeaderClean();
-      updateHeaderStateUI();
-    }
-  }
-
-  const snapshot = getWorkingCopySnapshot();
-  if (snapshot && snapshot.dirty && snapshot.path && pathsEqual(snapshot.path, p) && String(snapshot.text || "") === fullText) {
-    try {
-      if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
-        await window.api.reloadWorkingCopyFromDisk({ force: true });
-        await refreshWorkingCopySnapshot();
-        markDiskConflictPath(p, false);
-      }
-    } catch {}
-  }
-
-  setDirtyIndicator(isCurrentDocumentDirty());
-}
-
-async function ensureSafeToEnterRaw(filePath, contextLabel) {
-  const p = String(filePath || "");
-  if (isNewTuneDraft) return ensureSafeToAbandonCurrentDoc(contextLabel || "switching to raw mode");
-  const currentDoc = getCurrentDocument();
-  if (!currentDoc || !currentDoc.dirty) return true;
-  const activePath = (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path || "")
-    : String(currentDoc.path || activeFilePath || "");
-  if (p && activePath && pathsEqual(activePath, p)) return true;
-  return ensureSafeToAbandonCurrentDoc(contextLabel || "switching to raw mode");
-}
+const rawModeEnterGuard = createRawModeEnterGuard({
+  api: window.api,
+  state: {
+    getActiveFilePath: () => activeFilePath,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getCurrentDocument,
+    getCurrentDocumentPath,
+    getHeaderDirty,
+    getIsCurrentDocumentDirty: isCurrentDocumentDirty,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    getWorkingCopySnapshot,
+  },
+  actions: {
+    ensureSafeToAbandonCurrentDoc,
+    findHeaderEndOffset,
+    getActiveFileEntry,
+    getEditorValue,
+    getHeaderEditorValue,
+    markDiskConflictPath,
+    markHeaderClean,
+    patchCurrentDocument,
+    refreshWorkingCopySnapshot,
+    setDirtyIndicator,
+    updateHeaderStateUI,
+  },
+  utils: {
+    pathsEqual,
+  },
+});
 
 rawModeFeature = createRawModeFeature({
   api: window.api,
@@ -3670,7 +3642,7 @@ rawModeFeature = createRawModeFeature({
   stopPlaybackTransport,
   flushWorkingCopyTuneSync,
   flushWorkingCopyFullSync,
-  normalizeCleanStateBeforeRaw,
+  normalizeCleanStateBeforeRaw: rawModeEnterGuard.normalizeCleanStateBeforeRaw,
   ensureWorkingCopyOpenForPath,
   refreshWorkingCopySnapshot,
   handleMissingWorkingCopySave,
@@ -3688,7 +3660,7 @@ rawModeFeature = createRawModeFeature({
     source: source || "raw_mode",
   }),
   ensureSafeToAbandonCurrentDoc,
-  ensureSafeToEnterRaw,
+  ensureSafeToEnterRaw: rawModeEnterGuard.ensureSafeToEnterRaw,
   setTuneMetaText,
   buildTuneMetaLabel,
   markActiveTuneButton,

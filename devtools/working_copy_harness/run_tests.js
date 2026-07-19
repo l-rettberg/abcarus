@@ -153,7 +153,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
         && context.includes("async function discardChangesForActiveFile");
       const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
         && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");
-      const allowedRawCleanStateNormalize = rel === "src/renderer/renderer.js"
+      const allowedRawCleanStateNormalize = rel === "src/renderer/tools/raw_mode/raw_mode_enter_guard.js"
         && context.includes("function normalizeCleanStateBeforeRaw");
       if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign && !allowedRawCleanStateNormalize) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);

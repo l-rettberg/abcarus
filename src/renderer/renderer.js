@@ -162,6 +162,7 @@ import { createPlaybackTransportController } from "./playback/playback_transport
 import { createPlaybackPlayerController } from "./playback/playback_player_controller.js";
 import { createPlaybackFollowController } from "./playback/playback_follow_controller.js";
 import { createPlaybackAutoScrollController } from "./playback/playback_autoscroll_controller.js";
+import { createFollowHighlightSettings } from "./playback/follow_highlight_settings.js";
 import {
   expandRepeatsForPlayback,
   shouldForceRepeatExpansionForPlayback,
@@ -1295,15 +1296,19 @@ const playbackTransportController = createPlaybackTransportController({
   setSoundfontCaption,
   showToast,
 });
+const followHighlightSettings = createFollowHighlightSettings({
+  documentRef: document,
+  clampNumber,
+});
 const scoreHighlightController = createScoreHighlightController({
   documentRef: document,
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
   getEditorView: () => editorView,
   clampNumber,
-  getFollowPlayheadPad: () => followPlayheadPad,
-  getFollowPlayheadWidth: () => followPlayheadWidth,
-  getFollowPlayheadShift: () => followPlayheadShift,
+  getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
+  getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
+  getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
 });
@@ -7112,16 +7117,6 @@ if ($fileHeaderToggle) {
 // ---------- AUDIO ----------
 
 let followPlayback = true;
-let followHighlightColor = "#1e90ff";
-let followMeasureColor = "";
-let followHighlightBarOpacity = 0.12;
-let followMeasureOpacity = 0.08;
-let followPlayheadOpacity = 0.7;
-let followPlayheadWidth = 2;
-let followPlayheadPad = 8;
-let followPlayheadBetweenNotesWeight = 1;
-let followPlayheadShift = 0;
-let followPlayheadFirstBias = 6;
 let drumVelocityMap = buildDefaultDrumVelocityMap();
 
 let focusModeEnabled = false;
@@ -7571,50 +7566,10 @@ function updateFollowToggle() {
   }
 }
 
-function normalizeHexColor(value, fallback) {
-  const raw = String(value || "").trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
-  return fallback;
-}
-
 function clampNumber(value, min, max, fallback) {
   const v = Number(value);
   if (!Number.isFinite(v)) return fallback;
   return Math.max(min, Math.min(max, v));
-}
-
-function applyFollowHighlightCssVars() {
-  const root = document.documentElement;
-  if (!root || !root.style) return;
-  root.style.setProperty("--abcarus-follow-color", followHighlightColor);
-  root.style.setProperty("--abcarus-follow-bar-opacity", String(followHighlightBarOpacity));
-  root.style.setProperty("--abcarus-follow-measure-opacity", String(followMeasureOpacity));
-  root.style.setProperty("--abcarus-follow-playhead-opacity", String(followPlayheadOpacity));
-  if (followMeasureColor) {
-    root.style.setProperty("--abcarus-follow-measure-color", followMeasureColor);
-  } else {
-    root.style.removeProperty("--abcarus-follow-measure-color");
-  }
-}
-
-function setFollowHighlightFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  followHighlightColor = normalizeHexColor(settings.followHighlightColor, followHighlightColor);
-  const measureColorRaw = String(settings.followMeasureColor || "").trim();
-  if (!measureColorRaw) {
-    followMeasureColor = "";
-  } else {
-    followMeasureColor = normalizeHexColor(measureColorRaw, followMeasureColor || followHighlightColor);
-  }
-  followHighlightBarOpacity = clampNumber(settings.followHighlightBarOpacity, 0, 1, followHighlightBarOpacity);
-  followMeasureOpacity = clampNumber(settings.followMeasureOpacity, 0, 1, followMeasureOpacity);
-  followPlayheadOpacity = clampNumber(settings.followPlayheadOpacity, 0, 1, followPlayheadOpacity);
-  followPlayheadWidth = clampNumber(settings.followPlayheadWidth, 1, 6, followPlayheadWidth);
-  followPlayheadPad = clampNumber(settings.followPlayheadPad, 0, 24, followPlayheadPad);
-  followPlayheadBetweenNotesWeight = clampNumber(settings.followPlayheadBetweenNotesWeight, 0, 1, followPlayheadBetweenNotesWeight);
-  followPlayheadShift = clampNumber(settings.followPlayheadShift, -20, 20, followPlayheadShift);
-  followPlayheadFirstBias = clampNumber(settings.followPlayheadFirstBias, 0, 20, followPlayheadFirstBias);
-  applyFollowHighlightCssVars();
 }
 
 function clampInt(value, min, max, fallback) {
@@ -7942,7 +7897,7 @@ function setLoopFromSettings(settings) {
 
 function setFollowFromSettings(settings) {
   if (!settings || typeof settings !== "object") return;
-  setFollowHighlightFromSettings(settings);
+  followHighlightSettings.setFromSettings(settings);
   if (settings.followPlayback === undefined) return;
   followPlayback = settings.followPlayback !== false;
   updateFollowToggle();

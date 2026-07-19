@@ -14,6 +14,7 @@ function createScoreHighlightController({
   let lastSvgFollowMeasureEls = [];
   let lastSvgPlayheadEl = null;
   let lastSvgPlayheadSvg = null;
+  let lastNoteSelection = [];
   let noteHighlightIndexCache = null;
 
   function clearSvgFollowBarHighlight() {
@@ -321,6 +322,13 @@ function createScoreHighlightController({
     noteHighlightIndexCache = null;
   }
 
+  function clearNoteSelection() {
+    for (const el of lastNoteSelection) {
+      try { el.classList.remove("note-select"); } catch {}
+    }
+    lastNoteSelection = [];
+  }
+
   function extractRenderIdxFromElementClass(el) {
     if (el && typeof el.getAttribute === "function") {
       const raw = Number(el.getAttribute("data-start"));
@@ -398,7 +406,28 @@ function createScoreHighlightController({
     return Array.isArray(hit) ? hit : [];
   }
 
+  function highlightRenderNoteAtIndex(renderIdx, { scrollToNote = () => {} } = {}) {
+    const out = getOutElement();
+    if (!out) return;
+    clearNoteSelection();
+    if (!Number.isFinite(renderIdx)) return;
+    const els = out.querySelectorAll("._" + renderIdx + "_");
+    if (!els.length) return;
+    lastNoteSelection = Array.from(els);
+    for (const el of lastNoteSelection) {
+      try { el.classList.add("note-select"); } catch {}
+    }
+    const chosen = pickClosestNoteElement(lastNoteSelection);
+    if (chosen) scrollToNote(chosen);
+  }
+
+  function highlightEditorNoteAtIndex(editorIdx, { scrollToNote = () => {} } = {}) {
+    const renderIdx = Number.isFinite(editorIdx) ? mapEditorOffsetToRenderIdx(editorIdx) : editorIdx;
+    highlightRenderNoteAtIndex(renderIdx, { scrollToNote });
+  }
+
   return {
+    clearNoteSelection,
     clearSvgFollowBarHighlight,
     clearSvgFollowMeasureHighlight,
     clearSvgPlayhead,
@@ -408,6 +437,8 @@ function createScoreHighlightController({
     getSvgPlayheadElement,
     highlightSvgFollowBarAtEditorOffset,
     highlightSvgFollowMeasureForNote,
+    highlightEditorNoteAtIndex,
+    highlightRenderNoteAtIndex,
     invalidateNoteHighlightIndexCache,
     pickClosestNoteElement,
     queryNoteHighlightElementsByRenderIdx,

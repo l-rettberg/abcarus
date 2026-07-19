@@ -4981,7 +4981,6 @@ function alignBarsInEditor() {
   abcTransformFeature.alignBars();
 }
 
-let lastNoteSelection = [];
 let pendingCursorNoteHighlightRaf = null;
 let pendingCursorNoteHighlightIdx = null;
 
@@ -5583,10 +5582,7 @@ function logErr(m, loc, context) {
 }
 
 function clearNoteSelection() {
-  for (const el of lastNoteSelection) {
-    el.classList.remove("note-select");
-  }
-  lastNoteSelection = [];
+  return scoreHighlightController.clearNoteSelection();
 }
 
 function pickClosestNoteElement(els) {
@@ -5610,18 +5606,7 @@ function findNearestNoteHighlightElements(renderIdx, maxDelta = 240) {
 }
 
 function highlightNoteAtIndex(idx) {
-  if (!$out) return;
-  clearNoteSelection();
-  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-    ? getLastRenderPayload().offset
-    : 0;
-  const renderIdx = Number.isFinite(idx) ? mapEditorOffsetToRenderIdx(idx) : idx;
-  const els = $out.querySelectorAll("._" + renderIdx + "_");
-  if (!els.length) return;
-  lastNoteSelection = Array.from(els);
-  for (const el of lastNoteSelection) el.classList.add("note-select");
-  const chosen = pickClosestNoteElement(lastNoteSelection);
-  if (chosen) maybeScrollRenderToNote(chosen);
+  scoreHighlightController.highlightEditorNoteAtIndex(idx, { scrollToNote: maybeScrollRenderToNote });
 }
 
 function scheduleCursorNoteHighlight(idx) {
@@ -5640,15 +5625,7 @@ function scheduleCursorNoteHighlight(idx) {
 }
 
 function highlightRenderNoteAtIndex(renderIdx) {
-  if (!$out) return;
-  clearNoteSelection();
-  if (!Number.isFinite(renderIdx)) return;
-  const els = $out.querySelectorAll("._" + renderIdx + "_");
-  if (!els.length) return;
-  lastNoteSelection = Array.from(els);
-  for (const el of lastNoteSelection) el.classList.add("note-select");
-  const chosen = pickClosestNoteElement(lastNoteSelection);
-  if (chosen) maybeScrollRenderToNote(chosen);
+  scoreHighlightController.highlightRenderNoteAtIndex(renderIdx, { scrollToNote: maybeScrollRenderToNote });
 }
 
 function setEditorSelectionAt(idx) {

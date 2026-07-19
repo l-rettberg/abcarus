@@ -23,10 +23,16 @@ export function createLayoutController({
   minErrorPaneHeight = 120,
   useErrorOverlay = true,
   getLibraryVisible = () => false,
+  getLatestSettings = () => null,
+  isNormalModeForSplitToggle = () => true,
+  isRawMode = () => false,
+  readRenderZoom = () => null,
   getSidebarWidth = () => 280,
+  setRenderZoom = () => {},
   setSidebarWidth = () => {},
   saveLibraryPrefs = () => {},
   saveLayoutPrefs = async () => {},
+  showToast = () => {},
 } = {}) {
   let rightSplitOrientation = "vertical";
   let rightSplitRatioVertical = 0.5;
@@ -103,8 +109,13 @@ export function createLayoutController({
     }
   };
 
-  const applyRightSplitSizesFromRatio = () => {
+  const applyRightSplitSizesFromRatio = ({ rawMode = false } = {}) => {
     if (!rightSplit || !splitDivider || !editorPane) return;
+    if (rawMode) {
+      rightSplit.style.gridTemplateColumns = "1fr";
+      rightSplit.style.gridTemplateRows = "1fr";
+      return;
+    }
     const dividerSize = (rightSplitOrientation === "horizontal")
       ? (splitDivider.offsetHeight || 6)
       : (splitDivider.offsetWidth || 6);
@@ -254,6 +265,53 @@ export function createLayoutController({
     applyRightSplitSizesFromRatio();
   };
 
+  const setSplitOrientation = (nextOrientation, { persist = true, userAction = false } = {}) => {
+    const next = (nextOrientation === "horizontal") ? "horizontal" : "vertical";
+    if (userAction && !isNormalModeForSplitToggle()) {
+      showToast("Exit Focus/Raw mode to change split orientation.", 2400);
+      return false;
+    }
+    const currentOrientation = rightSplitOrientation;
+    if (currentOrientation === next) return true;
+
+    try {
+      const currentZoom = readRenderZoom();
+      if (Number.isFinite(currentZoom) && currentZoom > 0) {
+        const key = (currentOrientation === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
+        const settings = getLatestSettings() || null;
+        const prev = settings && settings[key] != null ? Number(settings[key]) : null;
+        if (!Number.isFinite(prev) || Math.abs(prev - currentZoom) > 0.0001) {
+          scheduleSaveLayoutPrefs({ [key]: currentZoom });
+        }
+      }
+    } catch {}
+
+    applyRightSplitOrientation(next);
+    applyRightSplitSizesFromRatio({ rawMode: Boolean(isRawMode()) });
+
+    try {
+      const settings = getLatestSettings() || null;
+      const targetKey = (next === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
+      const desired = settings && settings[targetKey] != null ? Number(settings[targetKey]) : null;
+      if (Number.isFinite(desired) && desired > 0) {
+        setRenderZoom(desired);
+        const current = settings && settings.renderZoom != null ? Number(settings.renderZoom) : null;
+        if (!Number.isFinite(current) || Math.abs(current - desired) > 0.0001) {
+          scheduleSaveLayoutPrefs({ renderZoom: desired });
+        }
+      }
+    } catch {}
+
+    if (persist) scheduleSaveLayoutPrefs({ layoutSplitOrientation: next });
+    showToast(next === "horizontal" ? "Split: Horizontal" : "Split: Vertical", 1500);
+    return true;
+  };
+
+  const toggleSplitOrientation = ({ userAction = false } = {}) => {
+    const next = rightSplitOrientation === "horizontal" ? "vertical" : "horizontal";
+    return setSplitOrientation(next, { persist: true, userAction });
+  };
+
   return {
     applyRightSplitOrientation,
     applyRightSplitSizesFromRatio,
@@ -268,5 +326,7 @@ export function createLayoutController({
     setPaneSizes,
     setRightPaneSizes,
     setSidebarSplitSizes,
+    setSplitOrientation,
+    toggleSplitOrientation,
   };
 }

@@ -1717,13 +1717,19 @@ const layoutController = createLayoutController({
   minErrorPaneHeight: MIN_ERROR_PANE_HEIGHT,
   useErrorOverlay: USE_ERROR_OVERLAY,
   getLibraryVisible: () => isLibraryVisible,
+  getLatestSettings: () => latestSettingsSnapshot,
+  isNormalModeForSplitToggle,
+  isRawMode: () => isRawModeActive(),
+  readRenderZoom: readRenderZoomCss,
   getSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
+  setRenderZoom: setRenderZoomCss,
   setSidebarWidth: (value) => { if (libraryUiStateController) libraryUiStateController.setLastSidebarWidth(value); },
   saveLibraryPrefs: (patch) => { if (libraryUiStateController) libraryUiStateController.scheduleSaveLibraryPrefs(patch); },
   saveLayoutPrefs: async (patch) => {
     if (!window.api || typeof window.api.updateSettings !== "function") return;
     await window.api.updateSettings(patch);
   },
+  showToast,
 });
 
 let decorationCatalogEnrichment = null;
@@ -1777,14 +1783,7 @@ function applyRightSplitOrientation(next) {
 }
 
 function applyRightSplitSizesFromRatio() {
-  if (isRawModeActive()) {
-    if ($rightSplit) {
-      $rightSplit.style.gridTemplateColumns = "1fr";
-      $rightSplit.style.gridTemplateRows = "1fr";
-    }
-    return;
-  }
-  layoutController.applyRightSplitSizesFromRatio();
+  layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() });
 }
 
 function setRightPaneSizes(leftWidth) {
@@ -7835,51 +7834,24 @@ function setLayoutFromSettings(settings) {
 }
 
 function setSplitOrientation(nextOrientation, { persist = true, userAction = false } = {}) {
-  const next = (nextOrientation === "horizontal") ? "horizontal" : "vertical";
-  if (userAction && !isNormalModeForSplitToggle()) {
-    showToast("Exit Focus/Raw mode to change split orientation.", 2400);
-    return false;
+  const before = layoutController.getRightSplitOrientation();
+  const ok = layoutController.setSplitOrientation(nextOrientation, { persist, userAction });
+  if (ok && before !== layoutController.getRightSplitOrientation()) {
+    // Avoid follow-scroll fighting layout reflow right after a toggle.
+    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    suppressFollowScrollUntilMs = now + 250;
   }
-  const currentOrientation = layoutController.getRightSplitOrientation();
-  if (currentOrientation === next) return true;
-  // Persist the current zoom under the current split orientation before switching.
-  try {
-    const currentZoom = readRenderZoomCss();
-    if (Number.isFinite(currentZoom) && currentZoom > 0) {
-      const key = (currentOrientation === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
-      const prev = latestSettingsSnapshot && latestSettingsSnapshot[key] != null ? Number(latestSettingsSnapshot[key]) : null;
-      if (!Number.isFinite(prev) || Math.abs(prev - currentZoom) > 0.0001) {
-        scheduleSaveLayoutPrefs({ [key]: currentZoom });
-      }
-    }
-  } catch {}
-  applyRightSplitOrientation(next);
-  applyRightSplitSizesFromRatio();
-  // Avoid follow-scroll fighting layout reflow right after a toggle.
-  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-  suppressFollowScrollUntilMs = now + 250;
-  // Restore the preferred zoom for the target split orientation (persisted across restarts).
-  try {
-    const targetKey = (next === "horizontal") ? "layoutRenderZoomHorizontal" : "layoutRenderZoomVertical";
-    const desired = latestSettingsSnapshot && latestSettingsSnapshot[targetKey] != null ? Number(latestSettingsSnapshot[targetKey]) : null;
-    if (Number.isFinite(desired) && desired > 0) {
-      setRenderZoomCss(desired);
-      if (window.api && typeof window.api.updateSettings === "function") {
-        const current = latestSettingsSnapshot && latestSettingsSnapshot.renderZoom != null ? Number(latestSettingsSnapshot.renderZoom) : null;
-        if (!Number.isFinite(current) || Math.abs(current - desired) > 0.0001) {
-          window.api.updateSettings({ renderZoom: desired }).catch(() => {});
-        }
-      }
-    }
-  } catch {}
-  if (persist) scheduleSaveLayoutPrefs({ layoutSplitOrientation: next });
-  showToast(next === "horizontal" ? "Split: Horizontal" : "Split: Vertical", 1500);
-  return true;
+  return ok;
 }
 
 function toggleSplitOrientation({ userAction = false } = {}) {
-  const next = layoutController.getRightSplitOrientation() === "horizontal" ? "vertical" : "horizontal";
-  return setSplitOrientation(next, { persist: true, userAction });
+  const before = layoutController.getRightSplitOrientation();
+  const ok = layoutController.toggleSplitOrientation({ userAction });
+  if (ok && before !== layoutController.getRightSplitOrientation()) {
+    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    suppressFollowScrollUntilMs = now + 250;
+  }
+  return ok;
 }
 
 function setPlaybackAutoScrollFromSettings(settings) {

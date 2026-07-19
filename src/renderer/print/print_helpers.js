@@ -1,3 +1,8 @@
+import {
+  normalizeSuggestedKeyName,
+  parseAbcHeaderFields,
+} from "../abc/header_fields.js";
+
 function sanitizeFileBaseName(text) {
   const cleaned = String(text || "")
     .normalize("NFKC")
@@ -9,6 +14,34 @@ function sanitizeFileBaseName(text) {
     .trim();
   if (!cleaned) return "untitled";
   return cleaned.slice(0, 120);
+}
+
+function buildSuggestedTuneBaseName({
+  editorText = "",
+  activeTuneMeta = null,
+  includeKey = false,
+} = {}) {
+  const parsed = parseAbcHeaderFields(editorText);
+  const title = parsed.title || (activeTuneMeta && activeTuneMeta.title) || "untitled";
+  const composerCandidate = parsed.composer || (activeTuneMeta && activeTuneMeta.composer) || "";
+  const composer = String(composerCandidate || "").trim();
+  const key = normalizeSuggestedKeyName(parsed.key || (activeTuneMeta && activeTuneMeta.key) || "");
+  const parts = [title];
+  if (composer) parts.push(composer);
+  if (includeKey && key) parts.push(key);
+  return sanitizeFileBaseName(parts.join(" - "));
+}
+
+function buildSongbookSuggestedBaseName({
+  activeFilePath = "",
+  fallbackBaseName = "songbook",
+  safeBasename = (filePath) => String(filePath || ""),
+} = {}) {
+  if (activeFilePath) {
+    const raw = safeBasename(activeFilePath).replace(/\.abc$/i, "");
+    return sanitizeFileBaseName(raw || "songbook");
+  }
+  return sanitizeFileBaseName(fallbackBaseName || "songbook");
 }
 
 function applyPrintDebugMarkup(markup, { noRaster = false } = {}) {
@@ -32,6 +65,8 @@ function ensureOnePerPageDirective(text) {
 
 export {
   applyPrintDebugMarkup,
+  buildSongbookSuggestedBaseName,
+  buildSuggestedTuneBaseName,
   ensureOnePerPageDirective,
   sanitizeFileBaseName,
 };

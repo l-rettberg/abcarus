@@ -412,24 +412,31 @@ async function assertSepIsPrestrippedForRender() {
 }
 
 async function assertPrintSuggestedBaseNameIncludesKey() {
-  const rendererPath = "src/renderer/renderer.js";
-  const headerFieldsPath = "src/renderer/abc/header_fields.js";
-  const printHelpersPath = "src/renderer/print/print_helpers.js";
-  const src = await readFile(rendererPath, "utf8");
-  const headerFieldsSrc = await readFile(headerFieldsPath, "utf8");
-  const printHelpersSrc = await readFile(printHelpersPath, "utf8");
-  const start = src.indexOf("function buildSuggestedTuneBaseName(");
-  const end = src.indexOf("function getPlaybackText()", start);
-  if (start < 0 || end < 0) throw new Error("Unable to isolate print suggested filename helpers.");
-
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { buildSuggestedTuneBaseName } from './src/renderer/print/print_helpers.js';",
+        "export { buildSuggestedTuneBaseName };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "print-filename-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
   const module = { exports: {} };
-  const prelude = "let activeTuneMeta = null; let editorText = ''; function getEditorValue() { return editorText; }\n";
-  const headerHelpers = headerFieldsSrc.replace(/export\s+\{[\s\S]*?\};\s*$/, "");
-  const printHelpers = printHelpersSrc.replace(/export\s+\{[\s\S]*?\};\s*$/, "");
-  const load = new Function("module", "exports", `${prelude}${headerHelpers}\n${printHelpers}\n${src.slice(start, end)}\nmodule.exports = { getSuggestedBaseName, getSuggestedPrintBaseName, setText: (value) => { editorText = value; } };\n`);
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
   load(module, module.exports);
-  const { getSuggestedBaseName, getSuggestedPrintBaseName, setText } = module.exports;
-  setText([
+  const { buildSuggestedTuneBaseName } = module.exports;
+  if (typeof buildSuggestedTuneBaseName !== "function") {
+    throw new Error("Unable to load print suggested filename helper.");
+  }
+  const textWithKey = [
     "X:1",
     "T:Զով Գիշեր Է",
     "T:Zov Gisher E",
@@ -437,15 +444,14 @@ async function assertPrintSuggestedBaseNameIncludesKey() {
     "M:6/8",
     "K:Gmaj",
     "GABc |]",
-  ].join("\n"));
-  if (getSuggestedBaseName() !== "Zov Gisher E - Komitas") {
+  ].join("\n");
+  if (buildSuggestedTuneBaseName({ editorText: textWithKey }) !== "Zov Gisher E - Komitas") {
     throw new Error("Default suggested filename should keep title/composer without key.");
   }
-  if (getSuggestedPrintBaseName() !== "Zov Gisher E - Komitas - Gmaj") {
+  if (buildSuggestedTuneBaseName({ editorText: textWithKey, includeKey: true }) !== "Zov Gisher E - Komitas - Gmaj") {
     throw new Error("Print/PDF suggested filename should include title, composer, and key.");
   }
-  setText("X:2\nT:Untitled Keyless\nK:none\nCDEF |]\n");
-  if (getSuggestedPrintBaseName() !== "Untitled Keyless") {
+  if (buildSuggestedTuneBaseName({ editorText: "X:2\nT:Untitled Keyless\nK:none\nCDEF |]\n", includeKey: true }) !== "Untitled Keyless") {
     throw new Error("Print/PDF suggested filename must omit K:none.");
   }
 }

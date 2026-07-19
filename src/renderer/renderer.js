@@ -102,7 +102,6 @@ import {
   parseMeterParts,
 } from "./abc/measure_stats.js";
 import {
-  normalizeSuggestedKeyName,
   parseAbcHeaderFields,
   parseTuneIdentityFields,
 } from "./abc/header_fields.js";
@@ -210,6 +209,8 @@ import { createPracticeBarHighlightController } from "./render/practice_bar_high
 import { createHeaderLayersController } from "./render/header_layers_controller.js";
 import {
   applyPrintDebugMarkup as applyPrintDebugMarkupCore,
+  buildSongbookSuggestedBaseName as buildSongbookSuggestedBaseNameCore,
+  buildSuggestedTuneBaseName as buildSuggestedTuneBaseNameCore,
   ensureOnePerPageDirective,
   sanitizeFileBaseName,
 } from "./print/print_helpers.js";
@@ -5681,15 +5682,11 @@ function setEditorSelectionAtLineCol(line, col) {
 }
 
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
-  const parsed = parseAbcHeaderFields(getEditorValue());
-  const title = parsed.title || (activeTuneMeta && activeTuneMeta.title) || "untitled";
-  const composerCandidate = parsed.composer || (activeTuneMeta && activeTuneMeta.composer) || "";
-  const composer = String(composerCandidate || "").trim();
-  const key = normalizeSuggestedKeyName(parsed.key || (activeTuneMeta && activeTuneMeta.key) || "");
-  const parts = [title];
-  if (composer) parts.push(composer);
-  if (includeKey && key) parts.push(key);
-  return sanitizeFileBaseName(parts.join(" - "));
+  return buildSuggestedTuneBaseNameCore({
+    editorText: getEditorValue(),
+    activeTuneMeta,
+    includeKey,
+  });
 }
 
 function getSuggestedBaseName() {
@@ -5726,11 +5723,11 @@ function applyPrintDebugMarkup(markup) {
 }
 
 function getSongbookSuggestedBaseName() {
-  if (activeFilePath) {
-    const raw = safeBasename(activeFilePath).replace(/\.abc$/i, "");
-    return sanitizeFileBaseName(raw || "songbook");
-  }
-  return getSuggestedBaseName();
+  return buildSongbookSuggestedBaseNameCore({
+    activeFilePath,
+    fallbackBaseName: getSuggestedBaseName(),
+    safeBasename,
+  });
 }
 
 async function runPrintAction(type) {

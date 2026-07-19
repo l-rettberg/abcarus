@@ -135,7 +135,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
       const context = text.slice(start, end);
       const allowedMissingFileRecreate = rel === "src/renderer/app/document/save_flow_controller.js"
         && context.includes('choice === "recreate"');
-      const allowedUserConfirmedOverwrite = rel === "src/renderer/renderer.js"
+      const allowedUserConfirmedOverwrite = rel === "src/renderer/app/document/working_copy_conflict_controller.js"
         && context.includes('choice !== "overwrite"');
       if (!allowedMissingFileRecreate && !allowedUserConfirmedOverwrite) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
@@ -153,9 +153,11 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
         && context.includes("async function discardChangesForActiveFile");
       const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
         && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");
+      const allowedConflictReload = rel === "src/renderer/app/document/working_copy_conflict_controller.js"
+        && context.includes("function discardAndReloadWorkingCopyFromDisk");
       const allowedRawCleanStateNormalize = rel === "src/renderer/tools/raw_mode/raw_mode_enter_guard.js"
         && context.includes("function normalizeCleanStateBeforeRaw");
-      if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign && !allowedRawCleanStateNormalize) {
+      if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign && !allowedConflictReload && !allowedRawCleanStateNormalize) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
       }
     }

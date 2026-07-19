@@ -247,6 +247,7 @@ import { createDocumentLifecycleController } from "./app/document/document_lifec
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
 import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
 import { createWorkingCopyRuntimeController } from "./app/document/working_copy_runtime_controller.js";
+import { createWorkingCopyConflictController } from "./app/document/working_copy_conflict_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import {
   SAVE_INTENT,
@@ -1973,134 +1974,61 @@ function scheduleLazyWorkingCopyOpenForActiveFile(filePath, reason = "selectTune
   if (workingCopyRuntimeController) workingCopyRuntimeController.scheduleLazyOpenForActiveFile(filePath, reason);
 }
 
+const workingCopyConflictController = createWorkingCopyConflictController({
+  api: window.api,
+  state: {
+    getRawMode: () => isRawModeActive(),
+  },
+  actions: {
+    attachTuneUidsToLibraryFile,
+    refreshLibraryFile,
+    refreshWorkingCopySnapshot,
+    recordNavFilePath,
+    safeBasename,
+    safeDirname,
+    selectTune,
+    setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+    setDirtyIndicator,
+    setEditorValueClean: (text) => {
+      suppressDirty = true;
+      try {
+        setEditorValue(text);
+      } finally {
+        suppressDirty = false;
+      }
+    },
+    setFileContentInCache,
+    setFileNameMeta,
+    setHeaderClean: markHeaderClean,
+    setHeaderEditorValueClean: (text) => fileHeaderController.setEditorValueClean(text),
+    setRawModeFilePath,
+    setRawModeHeaderEndOffset,
+    stripFileExtension,
+    updateHeaderStateUI,
+    patchCurrentDocument,
+    markDiskConflictPath,
+    splitFileIntoHeaderAndBody,
+    withFileLock,
+  },
+  utils: {
+    pathsEqual,
+  },
+});
+
 async function confirmReloadFromDisk(filePath) {
-  if (!window.api || typeof window.api.confirmReloadFromDisk !== "function") return false;
-  return Boolean(await window.api.confirmReloadFromDisk(filePath));
+  return workingCopyConflictController.confirmReloadFromDisk(filePath);
 }
 
-async function resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId = null } = {}) {
-  const p = String(filePath || "");
-  if (!p) return { ok: false, cancelled: true, action: "cancel" };
-  if (!window.api || typeof window.api.confirmSaveConflict !== "function") {
-    markDiskConflictPath(p, true);
-    return { ok: false, action: "cancel", error: "File changed on disk. Save conflict dialog is unavailable." };
-  }
-  const choice = await window.api.confirmSaveConflict(p);
-  if (choice === "save_copy_as") {
-    return saveWorkingCopyCopyAsAndSwitch(p, { restoreTuneId });
-  }
-  if (choice === "discard_reload") {
-    return discardAndReloadWorkingCopyFromDisk(p, { restoreTuneId });
-  }
-  if (choice !== "overwrite") {
-    markDiskConflictPath(p, true);
-    return { ok: false, cancelled: true, action: "cancel" };
-  }
-  const forced = await window.api.commitWorkingCopyToDisk({ force: true });
-  if (forced && forced.ok) {
-    markDiskConflictPath(p, false);
-    return { ok: true, action: "overwrite" };
-  }
-  markDiskConflictPath(p, true);
-  return { ok: false, action: "overwrite", error: (forced && forced.error) ? forced.error : "Unable to save file." };
+async function resolveWorkingCopySaveConflictDefault(filePath, options = {}) {
+  return workingCopyConflictController.resolveWorkingCopySaveConflictDefault(filePath, options);
 }
 
-async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = null } = {}) {
-  const p = String(filePath || "");
-  if (!p) return { ok: false, error: "Missing file path." };
-  if (
-    !window.api
-    || typeof window.api.openWorkingCopy !== "function"
-    || typeof window.api.reloadWorkingCopyFromDisk !== "function"
-  ) return { ok: false, error: "Working copy reload is unavailable." };
-
-  await window.api.openWorkingCopy(p);
-  const reloaded = await window.api.reloadWorkingCopyFromDisk({ force: true });
-  if (!reloaded || !reloaded.ok) return { ok: false, error: "Unable to reload from disk." };
-
-  const snapReloaded = await refreshWorkingCopySnapshot();
-  if (snapReloaded && snapReloaded.path && pathsEqual(snapReloaded.path, p)) {
-    setFileContentInCache(p, snapReloaded.text);
-    attachTuneUidsToLibraryFile(p, snapReloaded);
-  }
-
-  const updatedFile = await refreshLibraryFile(p, { force: true });
-  if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
-    setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
-  }
-  if (isRawModeActive()) {
-    const parts = splitFileIntoHeaderAndBody((snapReloaded && snapReloaded.text) ? snapReloaded.text : "");
-    fileHeaderController.setEditorValueClean(parts.headerText);
-    suppressDirty = true;
-    setEditorValue(parts.bodyText);
-    suppressDirty = false;
-    markHeaderClean();
-    updateHeaderStateUI();
-    patchCurrentDocument({ path: p, content: parts.bodyText, dirty: false }, { create: false });
-    setDirtyIndicator(false);
-  } else if (restoreTuneId) {
-    try { await selectTune(restoreTuneId, { skipConfirm: true, suppressRecent: true }); } catch {}
-  }
-
-  markDiskConflictPath(p, false);
-  return { ok: true, updatedFile };
+async function discardAndReloadWorkingCopyFromDisk(filePath, options = {}) {
+  return workingCopyConflictController.discardAndReloadWorkingCopyFromDisk(filePath, options);
 }
 
-async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null } = {}) {
-  const fromPath = String(sourcePath || "");
-  if (!fromPath) return { ok: false, error: "Missing file path." };
-  if (
-    !window.api
-    || typeof window.api.showSaveDialog !== "function"
-    || typeof window.api.openWorkingCopy !== "function"
-    || typeof window.api.writeWorkingCopyToPathAndSwitch !== "function"
-  ) return { ok: false, error: "Save Copy As is unavailable." };
-
-  const dir = safeDirname(fromPath);
-  const base = stripFileExtension(safeBasename(fromPath));
-  const suggestedName = `${base || "Untitled"}_Copy.abc`;
-  const targetPath = await window.api.showSaveDialog(suggestedName, dir || undefined);
-  if (!targetPath) return { ok: false, cancelled: true };
-
-  await withFileLock(targetPath, async () => {
-    await window.api.openWorkingCopy(fromPath);
-    const writeRes = await window.api.writeWorkingCopyToPathAndSwitch(targetPath);
-    if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to save copy.");
-  });
-
-  const snap = await refreshWorkingCopySnapshot();
-  if (snap && snap.path && pathsEqual(snap.path, targetPath)) {
-    setFileContentInCache(targetPath, snap.text);
-    attachTuneUidsToLibraryFile(targetPath, snap);
-  }
-  const updatedFile = await refreshLibraryFile(targetPath, { force: true });
-  if (updatedFile && updatedFile.basename) {
-    setFileNameMeta(stripFileExtension(updatedFile.basename || ""));
-  }
-  if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
-    setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
-  }
-  activeFilePath = targetPath;
-  recordNavFilePath(targetPath);
-
-  if (isRawModeActive()) {
-    setRawModeFilePath(targetPath);
-    const parts = splitFileIntoHeaderAndBody((snap && snap.text) ? snap.text : "");
-    fileHeaderController.setEditorValueClean(parts.headerText);
-    suppressDirty = true;
-    setEditorValue(parts.bodyText);
-    suppressDirty = false;
-    markHeaderClean();
-    updateHeaderStateUI();
-    patchCurrentDocument({ path: targetPath, content: parts.bodyText, dirty: false }, { create: false });
-    setDirtyIndicator(false);
-  } else if (restoreTuneId) {
-    try { await selectTune(restoreTuneId, { skipConfirm: true, suppressRecent: true }); } catch {}
-  }
-
-  markDiskConflictPath(fromPath, false);
-  markDiskConflictPath(targetPath, false);
-  return { ok: true, updatedFile, targetPath };
+async function saveWorkingCopyCopyAsAndSwitch(sourcePath, options = {}) {
+  return workingCopyConflictController.saveWorkingCopyCopyAsAndSwitch(sourcePath, options);
 }
 
 let workingCopySyncController = null;

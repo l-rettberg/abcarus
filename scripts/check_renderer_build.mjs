@@ -21,6 +21,8 @@ async function assertSaveIntentGuards() {
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
   const saveFlowPath = "src/renderer/app/document/save_flow_controller.js";
   const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
+  const saveVerificationPath = "src/renderer/app/document/save_verification.js";
+  const saveVerification = await readFile(saveVerificationPath, "utf8").catch(() => "");
   const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
   const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
 
@@ -30,7 +32,10 @@ async function assertSaveIntentGuards() {
   if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
     throw new Error("Missing resolveSaveSession() document-session boundary.");
   }
-  if (!src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")) {
+  if (
+    !src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
+    && !saveVerification.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
+  ) {
     throw new Error("Missing post-commit working-copy save verification.");
   }
 

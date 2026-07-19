@@ -130,7 +130,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
     const text = await fs.promises.readFile(filePath, "utf8");
     let match;
     while ((match = forcedPattern.exec(text))) {
-      const start = Math.max(0, match.index - 1500);
+      const start = Math.max(0, match.index - 2500);
       const end = Math.min(text.length, match.index + 500);
       const context = text.slice(start, end);
       const allowedMissingFileRecreate = rel === "src/renderer/app/document/save_flow_controller.js"
@@ -142,7 +142,7 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
       }
     }
     while ((match = forcedReloadPattern.exec(text))) {
-      const start = Math.max(0, match.index - 1500);
+      const start = Math.max(0, match.index - 2500);
       const end = Math.min(text.length, match.index + 500);
       const context = text.slice(start, end);
       const allowedDiscardReload = rel === "src/renderer/renderer.js"
@@ -153,7 +153,9 @@ async function testForcedCommitsStayExplicitlyAuthorized() {
         && context.includes("async function discardChangesForActiveFile");
       const allowedPostSimpleSaveAlign = rel === "src/renderer/renderer.js"
         && context.includes("function alignWorkingCopyWithDiskAfterSimpleSave");
-      if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign) {
+      const allowedRawCleanStateNormalize = rel === "src/renderer/renderer.js"
+        && context.includes("function normalizeCleanStateBeforeRaw");
+      if (!allowedDiscardReload && !allowedDiscardActive && !allowedDiscardActiveModule && !allowedPostSimpleSaveAlign && !allowedRawCleanStateNormalize) {
         violations.push(`${rel}:${text.slice(0, match.index).split(/\r\n|\n|\r/).length}`);
       }
     }

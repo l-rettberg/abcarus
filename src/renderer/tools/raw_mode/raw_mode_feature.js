@@ -45,6 +45,7 @@ function createRawModeFeature({
   stopPlaybackTransport = () => {},
   flushWorkingCopyTuneSync = async () => {},
   flushWorkingCopyFullSync = async () => {},
+  normalizeCleanStateBeforeRaw = async () => {},
   ensureWorkingCopyOpenForPath = async () => {},
   refreshWorkingCopySnapshot = async () => null,
   handleMissingWorkingCopySave = async () => ({ ok: false }),
@@ -57,6 +58,7 @@ function createRawModeFeature({
   setDirtyIndicator = () => {},
   setSaveFullFileSession = () => {},
   ensureSafeToAbandonCurrentDoc = async () => true,
+  ensureSafeToEnterRaw = null,
   setTuneMetaText = () => {},
   buildTuneMetaLabel = () => "",
   markActiveTuneButton = () => {},
@@ -67,6 +69,7 @@ function createRawModeFeature({
     rawModeFilePath: null,
     rawModeHeaderEndOffset: 0,
     rawModeOriginalTuneId: null,
+    transitionInProgress: false,
   };
 
   function patchState(patch = {}) {
@@ -271,83 +274,114 @@ function createRawModeFeature({
   }
 
   async function enter() {
-    const activeTuneMeta = getActiveTuneMeta();
-    const currentDoc = getCurrentDoc();
-    const filePath = (activeTuneMeta && activeTuneMeta.path)
-      ? activeTuneMeta.path
-      : (getActiveFilePath() || (currentDoc && currentDoc.path) || null);
-    if (!filePath) {
-      showToast("No active file to open in raw mode.", 2200);
-      return;
-    }
-    const ok = await ensureSafeToAbandonCurrentDoc("switching to raw mode");
-    if (!ok) return;
-
-    try { stopPlaybackTransport(); } catch {}
-    try { await flushWorkingCopyTuneSync(); } catch {}
-    try { await flushWorkingCopyFullSync(); } catch {}
-
-    const readRes = await readFile(filePath);
-    if (!readRes || !readRes.ok) {
-      await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-      return;
-    }
-    const fullText = String(readRes.data || "");
-
+    if (state.transitionInProgress || isEnabled()) return;
+    state.transitionInProgress = true;
     try {
-      await ensureWorkingCopyOpenForPath(filePath);
-      if (api && typeof api.reloadWorkingCopyFromDisk === "function") {
-        await api.reloadWorkingCopyFromDisk();
+      const activeTuneMeta = getActiveTuneMeta();
+      const currentDoc = getCurrentDoc();
+      const filePath = (activeTuneMeta && activeTuneMeta.path)
+        ? activeTuneMeta.path
+        : (getActiveFilePath() || (currentDoc && currentDoc.path) || null);
+      if (!filePath) {
+        showToast("No active file to open in raw mode.", 2200);
+        return;
       }
-      await refreshWorkingCopySnapshot();
-    } catch {}
 
-    setActiveFilePath(filePath);
-    setSaveFullFileSession(filePath, "raw_mode");
-    setFileContentInCache(filePath, fullText);
-    const updatedFile = await refreshLibraryFile(filePath, { force: true });
-    const entry = updatedFile || getActiveFileEntry();
-    const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset)
-      ? Number(entry.headerEndOffset)
-      : findHeaderEndOffset(fullText);
-    const bodyText = String(fullText || "").slice(headerEndOffset);
+      try { await flushWorkingCopyTuneSync(); } catch {}
+      try { await flushWorkingCopyFullSync(); } catch {}
 
-    patchState({
-      rawModeFilePath: filePath,
-      rawModeHeaderEndOffset: headerEndOffset,
-      rawModeOriginalTuneId: getActiveTuneId(),
-    });
+      let fullText = "";
+      let usingWorkingCopyText = false;
+      try {
+        const snapshot = await refreshWorkingCopySnapshot();
+        if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath) && typeof snapshot.text === "string") {
+          fullText = String(snapshot.text || "");
+          usingWorkingCopyText = true;
+        }
+      } catch {}
+      if (!usingWorkingCopyText) {
+        const readRes = await readFile(filePath);
+        if (!readRes || !readRes.ok) {
+          await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+          return;
+        }
+        fullText = String(readRes.data || "");
+      }
 
-    setSuppressDirty(true);
-    setEditorText(bodyText);
-    setSuppressDirty(false);
-    patchCurrentDoc({ path: filePath, content: bodyText, dirty: false });
-    setUi(true);
-    updateFileHeaderPanel();
-    setDirtyIndicator(false);
-    const restore = state.rawModeOriginalTuneId;
-    if (restore) {
-      setActiveTune(restore);
-      scrollToTune(restore);
+      try { await normalizeCleanStateBeforeRaw(filePath, fullText); } catch {}
+      const ok = typeof ensureSafeToEnterRaw === "function"
+        ? await ensureSafeToEnterRaw(filePath, "switching to raw mode")
+        : await ensureSafeToAbandonCurrentDoc("switching to raw mode");
+      if (!ok) return;
+
+      try { stopPlaybackTransport(); } catch {}
+
+      try {
+        await ensureWorkingCopyOpenForPath(filePath);
+        if (!usingWorkingCopyText && api && typeof api.reloadWorkingCopyFromDisk === "function") {
+          await api.reloadWorkingCopyFromDisk();
+        }
+        await refreshWorkingCopySnapshot();
+      } catch {}
+
+      setActiveFilePath(filePath);
+      setSaveFullFileSession(filePath, "raw_mode");
+      setFileContentInCache(filePath, fullText);
+      const updatedFile = await refreshLibraryFile(filePath, { force: true });
+      const entry = updatedFile || getActiveFileEntry();
+      const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset)
+        ? Number(entry.headerEndOffset)
+        : findHeaderEndOffset(fullText);
+      const bodyText = String(fullText || "").slice(headerEndOffset);
+
+      patchState({
+        rawModeFilePath: filePath,
+        rawModeHeaderEndOffset: headerEndOffset,
+        rawModeOriginalTuneId: getActiveTuneId(),
+      });
+
+      setSuppressDirty(true);
+      try {
+        setEditorText(bodyText);
+      } finally {
+        setSuppressDirty(false);
+      }
+      patchCurrentDoc({ path: filePath, content: bodyText, dirty: false });
+      setUi(true);
+      updateFileHeaderPanel();
+      setDirtyIndicator(false);
+      const restore = state.rawModeOriginalTuneId;
+      if (restore) {
+        setActiveTune(restore);
+        scrollToTune(restore);
+      }
+      setStatus("Raw mode.");
+    } finally {
+      state.transitionInProgress = false;
     }
-    setStatus("Raw mode.");
   }
 
   async function exit({ ensureSafe } = {}) {
+    if (state.transitionInProgress) return;
     if (!isEnabled()) return;
-    const currentDoc = getCurrentDoc();
-    const fileDirty = Boolean(currentDoc && currentDoc.dirty);
-    const hdrDirty = Boolean(getHeaderDirty());
-    if (fileDirty || hdrDirty) {
-      const ok = await ensureSafe("leaving raw mode", { save: save });
-      if (!ok) return;
+    state.transitionInProgress = true;
+    try {
+      const currentDoc = getCurrentDoc();
+      const fileDirty = Boolean(currentDoc && currentDoc.dirty);
+      const hdrDirty = Boolean(getHeaderDirty());
+      if (fileDirty || hdrDirty) {
+        const ok = await ensureSafe("leaving raw mode", { save: save });
+        if (!ok) return;
+      }
+      setUi(false);
+      const tuneToRestore = getActiveTuneId() || state.rawModeOriginalTuneId;
+      patchState({ rawModeFilePath: null, rawModeHeaderEndOffset: 0, rawModeOriginalTuneId: null });
+      const selected = await restoreTuneOrFirst(tuneToRestore);
+      if (!selected) await restoreTuneOrFirst("");
+      setStatus("Ready");
+    } finally {
+      state.transitionInProgress = false;
     }
-    setUi(false);
-    const tuneToRestore = getActiveTuneId() || state.rawModeOriginalTuneId;
-    patchState({ rawModeFilePath: null, rawModeHeaderEndOffset: 0, rawModeOriginalTuneId: null });
-    const selected = await restoreTuneOrFirst(tuneToRestore);
-    if (!selected) await restoreTuneOrFirst("");
-    setStatus("Ready");
   }
 
   async function restoreTuneOrFirst(tuneId) {
@@ -364,21 +398,33 @@ function createRawModeFeature({
   }
 
   async function leaveForAction(contextLabel, { ensureSafe } = {}) {
+    if (state.transitionInProgress) return false;
     if (!isEnabled()) return true;
-    const currentDoc = getCurrentDoc();
-    const fileDirty = Boolean(currentDoc && currentDoc.dirty);
-    const hdrDirty = Boolean(getHeaderDirty());
-    if (fileDirty || hdrDirty) {
-      const ok = await ensureSafe(contextLabel || "continuing", { save });
-      if (!ok) return false;
+    state.transitionInProgress = true;
+    try {
+      const currentDoc = getCurrentDoc();
+      const fileDirty = Boolean(currentDoc && currentDoc.dirty);
+      const hdrDirty = Boolean(getHeaderDirty());
+      if (fileDirty || hdrDirty) {
+        const ok = await ensureSafe(contextLabel || "continuing", { save });
+        if (!ok) return false;
+      }
+      setUi(false);
+      patchState({ rawModeFilePath: null, rawModeHeaderEndOffset: 0, rawModeOriginalTuneId: null });
+      return true;
+    } finally {
+      state.transitionInProgress = false;
     }
-    setUi(false);
-    patchState({ rawModeFilePath: null, rawModeHeaderEndOffset: 0, rawModeOriginalTuneId: null });
-    return true;
   }
 
   function discardUnsavedRawState() {
     clearUnsavedDiscardState();
+    const currentDoc = getCurrentDoc();
+    if (currentDoc) {
+      patchCurrentDoc({ dirty: false }, { create: false });
+    }
+    setHeaderClean();
+    updateHeaderStateUI();
     updateFileHeaderPanel();
     setDirtyIndicator(false);
   }

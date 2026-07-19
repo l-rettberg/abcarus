@@ -3549,6 +3549,66 @@ installDevUiSmokeHook({
   getHasSvg: () => Boolean($out && $out.querySelector("svg")),
   getPlaybackDebug: () => window.__abcarusPlaybackDebug || null,
 });
+
+async function normalizeCleanStateBeforeRaw(filePath, diskText) {
+  const p = String(filePath || "");
+  if (!p) return;
+  const fullText = String(diskText || "");
+  const activePath = (activeTuneMeta && activeTuneMeta.path)
+    ? String(activeTuneMeta.path || "")
+    : String(activeFilePath || getCurrentDocumentPath() || "");
+  if (!activePath || !pathsEqual(activePath, p)) return;
+
+  const currentDoc = getCurrentDocument();
+  if (currentDoc && currentDoc.dirty && activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, p)) {
+    const start = Number(activeTuneMeta.startOffset);
+    const end = Number(activeTuneMeta.endOffset);
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start && end <= fullText.length) {
+      const diskTuneText = fullText.slice(start, end);
+      if (String(getEditorValue() || "") === diskTuneText || String(currentDoc.content || "") === diskTuneText) {
+        patchCurrentDocument({ content: diskTuneText, dirty: false }, { create: false });
+      }
+    }
+  }
+
+  if (getHeaderDirty()) {
+    const entry = getActiveFileEntry();
+    const headerEnd = entry && pathsEqual(entry.path, p) && Number.isFinite(Number(entry.headerEndOffset))
+      ? Number(entry.headerEndOffset)
+      : findHeaderEndOffset(fullText);
+    const diskHeaderText = fullText.slice(0, Math.max(0, headerEnd));
+    if (String(getHeaderEditorValue() || "") === diskHeaderText) {
+      markHeaderClean();
+      updateHeaderStateUI();
+    }
+  }
+
+  const snapshot = getWorkingCopySnapshot();
+  if (snapshot && snapshot.dirty && snapshot.path && pathsEqual(snapshot.path, p) && String(snapshot.text || "") === fullText) {
+    try {
+      if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
+        await window.api.reloadWorkingCopyFromDisk({ force: true });
+        await refreshWorkingCopySnapshot();
+        markDiskConflictPath(p, false);
+      }
+    } catch {}
+  }
+
+  setDirtyIndicator(isCurrentDocumentDirty());
+}
+
+async function ensureSafeToEnterRaw(filePath, contextLabel) {
+  const p = String(filePath || "");
+  if (isNewTuneDraft) return ensureSafeToAbandonCurrentDoc(contextLabel || "switching to raw mode");
+  const currentDoc = getCurrentDocument();
+  if (!currentDoc || !currentDoc.dirty) return true;
+  const activePath = (activeTuneMeta && activeTuneMeta.path)
+    ? String(activeTuneMeta.path || "")
+    : String(currentDoc.path || activeFilePath || "");
+  if (p && activePath && pathsEqual(activePath, p)) return true;
+  return ensureSafeToAbandonCurrentDoc(contextLabel || "switching to raw mode");
+}
+
 rawModeFeature = createRawModeFeature({
   api: window.api,
   documentRef: document,
@@ -3610,6 +3670,7 @@ rawModeFeature = createRawModeFeature({
   stopPlaybackTransport,
   flushWorkingCopyTuneSync,
   flushWorkingCopyFullSync,
+  normalizeCleanStateBeforeRaw,
   ensureWorkingCopyOpenForPath,
   refreshWorkingCopySnapshot,
   handleMissingWorkingCopySave,
@@ -3627,6 +3688,7 @@ rawModeFeature = createRawModeFeature({
     source: source || "raw_mode",
   }),
   ensureSafeToAbandonCurrentDoc,
+  ensureSafeToEnterRaw,
   setTuneMetaText,
   buildTuneMetaLabel,
   markActiveTuneButton,

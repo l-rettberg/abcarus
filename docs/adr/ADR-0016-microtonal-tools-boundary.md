@@ -94,3 +94,34 @@ rg -n "intonationExplorer|makamDna|perde|supportMicrotonal|makamToolsEnabled|stu
 ```
 
 Remaining renderer matches must be menu/settings routing or host adapters only.
+
+## Known Concerns: Intonation Explorer
+
+Intonation Explorer should be treated as a specialized analysis tool, not as a
+musically verified makam detector. The current candidate ranking is heuristic: it
+scores pitch-class weight, final note, phrase endings, güçlü/yeden activity, common
+`K:` signatures, and coarse seyir signals. This can produce useful suggestions, but
+it can also rank unexpected makams above the makam a user intentionally selected for
+comparison.
+
+Future work should separate these two workflows in the UI and code:
+
+- **Inspect selected makam**: show the declared/overlay makam against the selected
+  tonal base, with transposed durak/güçlü/yeden roles and clear evidence.
+- **Guess makam from tune**: present ranked candidates as heuristic hypotheses, with
+  confidence labels that do not overstate certainty.
+
+Specific follow-up items:
+
+- keep selected `Declared makam` and `Compare to` entries visible even when they fall
+  outside the top candidate limit;
+- make candidate evidence easier to read and explain why a makam ranked above or
+  below another;
+- audit tonal base / durak handling, especially manual bases such as `E` in EDO-53
+  contexts;
+- review whether confidence labels such as `Strong` and `Likely` are too assertive
+  for the present scoring model;
+- build a small regression corpus of known Uşşak, Beyati, Hüseyni, Rast, Hicaz, and
+  related tunes, with expected display behavior and candidate sanity checks;
+- keep Intonation Explorer plugin-like under the `supportMicrotonalNotation` umbrella
+  so this experimental complexity does not leak into ordinary EDO-12 editing.

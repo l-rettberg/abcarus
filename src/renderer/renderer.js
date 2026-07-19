@@ -1706,6 +1706,7 @@ const layoutController = createLayoutController({
   splitDivider: $splitDivider,
   editorPane: $editorPane,
   renderPane: $renderPane,
+  output: $out,
   sidebarBody: $sidebarBody,
   sidebarSplit: $sidebarSplit,
   errorPane: $errorPane,
@@ -1720,9 +1721,7 @@ const layoutController = createLayoutController({
   getLatestSettings: () => latestSettingsSnapshot,
   isNormalModeForSplitToggle,
   isRawMode: () => isRawModeActive(),
-  readRenderZoom: readRenderZoomCss,
   getSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
-  setRenderZoom: setRenderZoomCss,
   setSidebarWidth: (value) => { if (libraryUiStateController) libraryUiStateController.setLastSidebarWidth(value); },
   saveLibraryPrefs: (patch) => { if (libraryUiStateController) libraryUiStateController.scheduleSaveLibraryPrefs(patch); },
   saveLayoutPrefs: async (patch) => {
@@ -7049,42 +7048,18 @@ let focusPrevRenderZoom = null;
 let focusPrevLibraryVisible = null;
 
 function setRenderZoomCss(zoom) {
-  const v = Number(zoom);
-  if (!Number.isFinite(v) || v <= 0) return;
-  try { document.documentElement.style.setProperty("--render-zoom", String(v)); } catch {}
+  layoutController.setRenderZoom(zoom);
 }
 
 function readRenderZoomCss() {
-  try {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
-    const v = Number(String(raw || "").trim());
-    if (Number.isFinite(v) && v > 0) return v;
-  } catch {}
-  return getRenderZoomFactor();
+  return layoutController.readRenderZoom({ fallback: getRenderZoomFactor() });
 }
 
 function computeFocusFitZoom() {
-  if (!$renderPane || !$out) return null;
-  const svgs = Array.from($out.querySelectorAll("svg"));
-  if (!svgs.length) return null;
-  const currentZoom = getRenderZoomFactor();
-  if (!Number.isFinite(currentZoom) || currentZoom <= 0) return null;
-  const paneWidth = $renderPane.clientWidth || 0;
-  if (paneWidth < 50) return null;
-  // Use the widest SVG (not just the first one) to avoid overshooting zoom when the first
-  // page/system is unusually narrow.
-  let maxIntrinsicWidth = 0;
-  const limit = Math.min(8, svgs.length);
-  for (let i = 0; i < limit; i += 1) {
-    const r = svgs[i] ? svgs[i].getBoundingClientRect() : null;
-    if (!(r && r.width > 10)) continue;
-    const w = r.width / currentZoom;
-    if (Number.isFinite(w) && w > maxIntrinsicWidth) maxIntrinsicWidth = w;
-  }
-  if (!Number.isFinite(maxIntrinsicWidth) || maxIntrinsicWidth <= 10) return null;
-  const target = Math.max(100, paneWidth - 24);
-  const next = target / maxIntrinsicWidth;
-  return clampNumber(next, 0.5, 8, currentZoom);
+  return layoutController.computeFocusFitZoom({
+    currentZoom: getRenderZoomFactor(),
+    clamp: clampNumber,
+  });
 }
 
 function updateFocusModeUi() {

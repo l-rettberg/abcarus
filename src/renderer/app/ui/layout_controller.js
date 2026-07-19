@@ -12,6 +12,7 @@ export function createLayoutController({
   splitDivider,
   editorPane,
   renderPane,
+  output,
   sidebarBody,
   sidebarSplit,
   errorPane,
@@ -26,9 +27,7 @@ export function createLayoutController({
   getLatestSettings = () => null,
   isNormalModeForSplitToggle = () => true,
   isRawMode = () => false,
-  readRenderZoom = () => null,
   getSidebarWidth = () => 280,
-  setRenderZoom = () => {},
   setSidebarWidth = () => {},
   saveLibraryPrefs = () => {},
   saveLayoutPrefs = async () => {},
@@ -265,6 +264,46 @@ export function createLayoutController({
     applyRightSplitSizesFromRatio();
   };
 
+  const setRenderZoom = (zoom) => {
+    const v = Number(zoom);
+    if (!Number.isFinite(v) || v <= 0) return;
+    try { document.documentElement.style.setProperty("--render-zoom", String(v)); } catch {}
+  };
+
+  const readRenderZoom = ({ fallback = 1 } = {}) => {
+    try {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
+      const v = Number(String(raw || "").trim());
+      if (Number.isFinite(v) && v > 0) return v;
+    } catch {}
+    return fallback;
+  };
+
+  const computeFocusFitZoom = ({ currentZoom = null, clamp = null } = {}) => {
+    if (!renderPane || !output) return null;
+    const svgs = Array.from(output.querySelectorAll("svg"));
+    if (!svgs.length) return null;
+    const zoom = Number.isFinite(Number(currentZoom)) && Number(currentZoom) > 0
+      ? Number(currentZoom)
+      : readRenderZoom();
+    if (!Number.isFinite(zoom) || zoom <= 0) return null;
+    const paneWidth = renderPane.clientWidth || 0;
+    if (paneWidth < 50) return null;
+
+    let maxIntrinsicWidth = 0;
+    const limit = Math.min(8, svgs.length);
+    for (let i = 0; i < limit; i += 1) {
+      const r = svgs[i] ? svgs[i].getBoundingClientRect() : null;
+      if (!(r && r.width > 10)) continue;
+      const w = r.width / zoom;
+      if (Number.isFinite(w) && w > maxIntrinsicWidth) maxIntrinsicWidth = w;
+    }
+    if (!Number.isFinite(maxIntrinsicWidth) || maxIntrinsicWidth <= 10) return null;
+    const target = Math.max(100, paneWidth - 24);
+    const next = target / maxIntrinsicWidth;
+    return typeof clamp === "function" ? clamp(next, 0.5, 8, zoom) : Math.max(0.5, Math.min(8, next));
+  };
+
   const setSplitOrientation = (nextOrientation, { persist = true, userAction = false } = {}) => {
     const next = (nextOrientation === "horizontal") ? "horizontal" : "vertical";
     if (userAction && !isNormalModeForSplitToggle()) {
@@ -321,9 +360,12 @@ export function createLayoutController({
     initRightPaneResizer,
     initSidebarResizer,
     resetRightPaneSplit,
+    computeFocusFitZoom,
+    readRenderZoom,
     scheduleSaveLayoutPrefs,
     setFromSettings,
     setPaneSizes,
+    setRenderZoom,
     setRightPaneSizes,
     setSidebarSplitSizes,
     setSplitOrientation,

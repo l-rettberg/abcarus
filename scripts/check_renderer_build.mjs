@@ -1,5 +1,6 @@
 import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 
 async function assertSaveIntentGuards() {
   const rendererPath = "src/renderer/renderer.js";
@@ -447,6 +448,65 @@ async function assertPrintSuggestedBaseNameIncludesKey() {
   }
 }
 
+async function assertAbc2svgFontHeaderUrls() {
+  const bundled = await build({
+    entryPoints: ["src/renderer/render/header_layers_controller.js"],
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { createHeaderLayersController } = module.exports;
+  if (typeof createHeaderLayersController !== "function") {
+    throw new Error("Unable to load header layers controller for font smoke.");
+  }
+  const controller = createHeaderLayersController({
+    api: { pathJoin: (a, b) => `${String(a || "").replace(/[\\/]+$/, "")}/${String(b || "")}` },
+    isMeasureCheckEnabled: () => false,
+  });
+  controller.setFromSettings({
+    abc2svgNotationFontFile: "bundled:Leland.otf",
+    abc2svgTextFontFile: "bundled:LelandText.otf",
+  });
+  const tune = "X:1\nT:Font Test\nM:4/4\nL:1/4\nK:C\nC D E F |]\n";
+  const prefix = controller.buildHeaderPrefix("", false, tune);
+  const text = `${prefix.text || ""}${tune}`;
+
+  if (text.includes('url("') || text.includes("url('")) {
+    throw new Error("abc2svg font URLs must be unquoted; quoted url(...) breaks custom music fonts.");
+  }
+  if (!text.includes("%%musicfont url(../../assets/fonts/notation/Leland.otf) 24")) {
+    throw new Error("Missing bundled Leland musicfont header.");
+  }
+  if (!text.includes("%%titlefont url(../../assets/fonts/notation/LelandText.otf) *")) {
+    throw new Error("Missing bundled Leland text font header.");
+  }
+
+  const abc2svgSource = await readFile("third_party/abc2svg/abc2svg-1.js", "utf8");
+  const sandbox = { console };
+  vm.createContext(sandbox);
+  vm.runInContext(abc2svgSource, sandbox, { filename: "abc2svg-1.js" });
+  const parts = [];
+  const errors = [];
+  const AbcCtor = sandbox.abc2svg && sandbox.abc2svg.Abc;
+  if (typeof AbcCtor !== "function") throw new Error("abc2svg constructor unavailable for font header smoke.");
+  const abc = new AbcCtor({
+    img_out: (s) => parts.push(s),
+    err: (msg) => errors.push(String(msg || "")),
+    errmsg: (msg, line, col) => errors.push(`${line}:${col}:${msg}`),
+  });
+  abc.tosvg("out", text);
+  const svg = parts.join("");
+  if (errors.length) throw new Error(`abc2svg font header smoke produced errors: ${errors.join("; ")}`);
+  if (!svg.includes("font-family:Leland") || !svg.includes("font-family:LelandText")) {
+    throw new Error("abc2svg output did not include selected Leland font faces.");
+  }
+}
+
 async function main() {
   const res = await build({
     entryPoints: ["src/renderer/renderer.js"],
@@ -468,6 +528,7 @@ async function main() {
   await assertDirectiveErrorsDoNotGetMeasureStats();
   await assertSepIsPrestrippedForRender();
   await assertPrintSuggestedBaseNameIncludesKey();
+  await assertAbc2svgFontHeaderUrls();
 }
 
 main().catch((err) => {

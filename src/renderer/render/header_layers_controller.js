@@ -91,7 +91,7 @@ function createHeaderLayersController({
       const m = abc2svgNotationFontFile.match(/^(bundled|user):(.*)$/);
       if (m) {
         const url = buildUserFontUrl(m[1], m[2]);
-        if (url) lines.push(`%%musicfont url("${url}") 24`);
+        if (url) lines.push(`%%musicfont url(${url}) 24`);
       }
     }
 
@@ -119,7 +119,7 @@ function createHeaderLayersController({
           "measurefont",
           "repeatfont",
         ];
-        for (const d of directives) lines.push(`%%${d} url("${url}") *`);
+        for (const d of directives) lines.push(`%%${d} url(${url}) *`);
       }
     }
 

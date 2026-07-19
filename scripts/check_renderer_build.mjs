@@ -386,6 +386,8 @@ async function assertSepIsPrestrippedForRender() {
   const src = await readFile(rendererPath, "utf8");
   const renderPipelinePath = "src/renderer/render/render_pipeline_controller.js";
   const renderPipelineSrc = await readFile(renderPipelinePath, "utf8");
+  const markupRenderPath = "src/renderer/render/abc_to_svg_markup.js";
+  const markupRenderSrc = await readFile(markupRenderPath, "utf8");
   const renderPayloadModelPath = "src/renderer/render/render_payload_model.js";
   const modelSrc = await readFile(renderPayloadModelPath, "utf8");
   const start = modelSrc.indexOf("export function stripSepForRender(text)");
@@ -403,7 +405,7 @@ async function assertSepIsPrestrippedForRender() {
   if (out.text.length !== input.length) throw new Error("stripSepForRender() must preserve source length.");
   if (/^%%sep/m.test(out.text)) throw new Error("stripSepForRender() must neutralize %%sep before rendering.");
 
-  const prestripCount = (`${src}\n${renderPipelineSrc}`.match(/const sepStripInitial = stripSepForRender/g) || []).length;
+  const prestripCount = (`${src}\n${renderPipelineSrc}\n${markupRenderSrc}`.match(/const sepStripInitial = stripSepForRender/g) || []).length;
   if (prestripCount < 2) {
     throw new Error("Live and print render paths must pre-strip %%sep before calling abc2svg.");
   }

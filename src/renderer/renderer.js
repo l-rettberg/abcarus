@@ -58,6 +58,11 @@ import {
 import {
   buildDefaultDrumVelocityMap,
   clampVelocity,
+  hasMidiDrumMustBeInVoicePlaybackError,
+  isMidiDrumMustBeInVoicePlaybackError,
+  neutralizeMidiDrumDirectivesForPlayback,
+  shouldRelocateMidiDrumsForPlayback,
+  shouldSuppressUserVisibleAbcError,
   velocityToDynamic,
 } from "./drums.js";
 import { createLibraryViewStore } from "./library/store.js";
@@ -197,6 +202,7 @@ import {
   stripSepForRender,
 } from "./render/render_payload_model.js";
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
+import { createAbcToSvgMarkupRenderer } from "./render/abc_to_svg_markup.js";
 import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
 import { createScoreHighlightController } from "./render/score_highlight_controller.js";
 import { createPracticeBarHighlightController } from "./render/practice_bar_highlight_controller.js";
@@ -576,6 +582,21 @@ const {
   ensureAbc2svgModulesAsync,
   ensureMidiGenLoaded,
 } = abc2svgLoader;
+
+const abcToSvgMarkupRenderer = createAbcToSvgMarkupRenderer({
+  windowRef: window,
+  ensureAbc2svgLoader,
+  ensureAbc2svgModulesReady: ensureAbc2svgModulesAsync,
+  getAbcCtor,
+  normalizeHeaderText: normalizeHeaderNoneSpacing,
+  stripSepForRender,
+  detectKeyFieldNotLastBeforeBody,
+  isErrorsEnabled,
+  isTuneErrorScanInFlight,
+  shouldSuppressUserVisibleAbcError,
+  logError: logErr,
+});
+const { renderAbcToSvgMarkup } = abcToSvgMarkupRenderer;
 
 const soundfontController = createSoundfontController({
   windowRef: window,
@@ -5421,54 +5442,6 @@ function buildMeasureStartsByNumberFromAbc2svg(firstSymbol) {
   return byNumber;
 }
 
-function neutralizeMidiDrumDirectivesForPlayback(text) {
-  const raw = String(text || "");
-  if (!/(%%\s*MIDI\s+drum(on|bars)?\b|^\s*\+:)/im.test(raw)) return raw;
-  // Keep line lengths stable (istart mapping) by replacing "%%" with "% " (comment).
-  let inDrumDirectiveRun = false;
-  return raw.split(/\r\n|\n|\r/).map((line) => {
-    const isDrumDirective = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(line);
-    const isContinuation = inDrumDirectiveRun && /^\s*(%%\s*MIDI\s+drum\s+)?\+:/i.test(line);
-    if (!isDrumDirective && !isContinuation) {
-      inDrumDirectiveRun = false;
-      return line;
-    }
-    inDrumDirectiveRun = isDrumDirective || isContinuation;
-    const idx = line.indexOf("%%");
-    if (idx < 0) {
-      const plusIdx = line.indexOf("+");
-      if (plusIdx < 0) return line;
-      return `${line.slice(0, plusIdx)}% ${line.slice(plusIdx)}`;
-    }
-    return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
-  }).join("\n");
-}
-
-function isMidiDrumMustBeInVoicePlaybackError(message) {
-  return /%%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b[^\n]*must be (?:in|within) a voice/i
-    .test(String(message || ""));
-}
-
-function isMidiDrumBadValueCompatibilityError(message) {
-  return /Bad value in %%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b/i
-    .test(String(message || ""));
-}
-
-function shouldSuppressUserVisibleAbcError(message) {
-  return isMidiDrumMustBeInVoicePlaybackError(message)
-    || isMidiDrumBadValueCompatibilityError(message);
-}
-
-function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
-  if (!Array.isArray(parseErrors)) return false;
-  return parseErrors.some((e) => isMidiDrumMustBeInVoicePlaybackError(e && e.message ? e.message : ""));
-}
-
-function shouldRelocateMidiDrumsForPlayback(scopedOptions) {
-  if (!scopedOptions) return true;
-  return String(scopedOptions.origin || "") === "focus" && scopedOptions.allowMidiDrums !== false;
-}
-
 function getRenderMeasureIndex() {
   if (!editorView) return null;
   const payload = getRenderPayload();
@@ -5757,102 +5730,6 @@ function getSongbookSuggestedBaseName() {
 
 async function runPrintAction(type) {
   await printCurrentFeature.runAction(type);
-}
-
-function ensureAbc2svgModulesReady(content) {
-  return new Promise((resolve) => {
-    if (!window.abc2svg || !window.abc2svg.modules || typeof window.abc2svg.modules.load !== "function") {
-      resolve(true);
-      return;
-    }
-    const done = window.abc2svg.modules.load(content, () => resolve(true), () => resolve(false));
-    if (done) resolve(true);
-  });
-}
-
-async function renderAbcToSvgMarkup(abcText, options = {}) {
-  const errors = [];
-  try {
-    ensureAbc2svgLoader();
-    const normalized = normalizeHeaderNoneSpacing(abcText);
-    const baseText = normalized;
-    const context = options && options.errorContext ? options.errorContext : null;
-    const stopOnFirstError = Boolean(options && options.stopOnFirstError);
-    const noSvg = Boolean(options && options.noSvg);
-    const pageFormat = Boolean(options && options.pageFormat);
-
-    const sepStripInitial = stripSepForRender(baseText);
-    let renderText = sepStripInitial.replaced ? sepStripInitial.text : baseText;
-    let sepFallbackUsed = sepStripInitial.replaced;
-    let attempts = 0;
-    while (attempts < 2) {
-      attempts += 1;
-      try {
-        const ready = await ensureAbc2svgModulesReady(renderText);
-        if (!ready) return { ok: false, error: "ABC modules failed to load." };
-        const svgParts = [];
-        if (isErrorsEnabled() && isTuneErrorScanInFlight()) {
-          const keyWarn = detectKeyFieldNotLastBeforeBody(renderText);
-          if (keyWarn && keyWarn.detail) {
-            const msg = `Warning: ${keyWarn.detail}`;
-            errors.push({ message: msg, loc: keyWarn.loc || null });
-            if (!options || !options.suppressGlobalErrors) {
-              logErr(msg, keyWarn.loc || null, { ...(context || {}), skipMeasureRange: true });
-            }
-          }
-        }
-        const user = {
-          page_format: pageFormat,
-          img_out: (s) => {
-            if (!noSvg) svgParts.push(s);
-          },
-          err: (msg) => {
-            if (shouldSuppressUserVisibleAbcError(msg)) return;
-            const entry = { message: String(msg) };
-            errors.push(entry);
-            if (!options || !options.suppressGlobalErrors) logErr(msg, null, context);
-            if (stopOnFirstError) throw new Error(entry.message);
-          },
-          errmsg: (msg, line, col) => {
-            if (shouldSuppressUserVisibleAbcError(msg)) return;
-            const loc = Number.isFinite(line) && Number.isFinite(col)
-              ? { line: line + 1, col: col + 1 }
-              : null;
-            const entry = { message: String(msg), loc };
-            errors.push(entry);
-            if (!options || !options.suppressGlobalErrors) logErr(msg, loc, context);
-            if (stopOnFirstError) throw new Error(entry.message);
-          },
-        };
-        const AbcCtor = getAbcCtor();
-        if (!AbcCtor) return { ok: false, error: "abc2svg constructor not found." };
-        const abc = new AbcCtor(user);
-        abc.tosvg("out", renderText);
-        if (window.abc2svg && typeof window.abc2svg.abc_end === "function") {
-          window.abc2svg.abc_end();
-        }
-        const svg = svgParts.join("");
-        if (noSvg) return { ok: true, svg: "", errors };
-        if (!svg.trim()) return { ok: false, error: "No SVG output produced.", svg, errors };
-        return { ok: true, svg, errors, sepFallbackUsed };
-      } catch (e) {
-        if (!sepFallbackUsed) {
-          const sepStrip = stripSepForRender(baseText);
-          if (sepStrip.replaced) {
-            renderText = sepStrip.text;
-            sepFallbackUsed = true;
-            continue;
-          }
-        }
-        throw e;
-      }
-    }
-    return { ok: false, error: "No SVG output produced.", errors, sepFallbackUsed };
-  } catch (e) {
-    const message = (e && e.message) ? e.message : String(e);
-    if (stopOnFirstError) return { ok: false, error: message, errors };
-    return { ok: false, error: message };
-  }
 }
 
 async function getFileContentCached(filePath) {

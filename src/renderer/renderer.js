@@ -162,6 +162,7 @@ import { createPlaybackTransportController } from "./playback/playback_transport
 import { createPlaybackPlayerController } from "./playback/playback_player_controller.js";
 import { createPlaybackFollowController } from "./playback/playback_follow_controller.js";
 import { createPlaybackAutoScrollController } from "./playback/playback_autoscroll_controller.js";
+import { createFocusModeController } from "./playback/focus_mode_controller.js";
 import { createFollowHighlightSettings } from "./playback/follow_highlight_settings.js";
 import {
   expandRepeatsForPlayback,
@@ -510,6 +511,7 @@ let playbackUiController = null;
 let documentLifecycleController = null;
 let documentSessionController = null;
 let saveFlowController = null;
+let focusModeController = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
@@ -698,7 +700,7 @@ const payloadModeFeature = createPayloadModeFeature({
   restoreEditorSelection: payloadModeEditorAdapter.restoreEditorSelection,
   getActiveTuneUid: () => activeTuneUid,
   isRawMode: () => isRawModeActive(),
-  isFocusModeEnabled: () => focusModeEnabled,
+  isFocusModeEnabled,
   getHeaderText: () => {
     const entry = getActiveFileEntry();
     return entry ? getHeaderEditorValue() : "";
@@ -1141,7 +1143,7 @@ function getSelectionPlaybackSettings() {
 }
 
 function isFocusBoundedPlaybackScope() {
-  return Boolean(focusModeEnabled)
+  return Boolean(isFocusModeEnabled())
     && (
       clampInt(playbackTransport.playbackLoopFromMeasure, 0, 100000, 0) > 0
       || clampInt(playbackTransport.playbackLoopToMeasure, 0, 100000, 0) > 0
@@ -1277,7 +1279,7 @@ const playbackTransportController = createPlaybackTransportController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
   getEditorView: () => editorView,
-  getFocusModeEnabled: () => focusModeEnabled,
+  getFocusModeEnabled: isFocusModeEnabled,
   normalizeFocusLoopBoundsForPlayback,
   computeFocusPlaybackPlanFromCurrentState,
   getEditorMeasureStartOffset,
@@ -1340,7 +1342,7 @@ const playbackFollowController = createPlaybackFollowController({
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
   getFollowPlaybackEnabled: () => followPlayback,
-  getFocusModeEnabled: () => focusModeEnabled,
+  getFocusModeEnabled: isFocusModeEnabled,
   getSuppressFollowScrollUntilMs: () => suppressFollowScrollUntilMs,
   clearSvgPlayhead,
   clearSvgFollowBarHighlight,
@@ -1366,7 +1368,7 @@ const playbackPlayerController = createPlaybackPlayerController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
   getEditorView: () => editorView,
-  getFocusModeEnabled: () => focusModeEnabled,
+  getFocusModeEnabled: isFocusModeEnabled,
   getFollowPlaybackEnabled: () => followPlayback,
   getSoundfontSource: () => soundfontController.getSource(),
   setSuppressPlaybackRangeSelectionSync: (next) => { suppressPlaybackRangeSelectionSync = Boolean(next); },
@@ -1403,9 +1405,6 @@ const drumPreviewController = createDrumPreviewController({
 });
 var pendingPlaybackRangeOrigin = null;
 let suppressPlaybackRangeSelectionSync = false;
-const FOCUS_LOOP_DEFAULT_FROM = 0;
-const FOCUS_LOOP_DEFAULT_TO = 0;
-
 function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
 }
@@ -1731,6 +1730,53 @@ const layoutController = createLayoutController({
   showToast,
 });
 
+focusModeController = createFocusModeController({
+  elements: {
+    focusButton: $btnFocusMode,
+    practiceTempoWrap: $practiceTempoWrap,
+    practiceTempo: $practiceTempo,
+    practiceFocusRangeGroup: $practiceFocusRangeGroup,
+    practiceFocusOptionsGroup: $practiceFocusOptionsGroup,
+    practiceFocusVoicesGroup: $practiceFocusVoicesGroup,
+    practiceSelectionGroup: $practiceSelectionGroup,
+    practiceLoopWrap: $practiceLoopWrap,
+    practiceLoopEnabled: $practiceLoopEnabled,
+    practiceLoopFrom: $practiceLoopFrom,
+    practiceLoopTo: $practiceLoopTo,
+    selectionSuppressWrap: $selectionSuppressWrap,
+    selectionSuppressEnabled: $selectionSuppressEnabled,
+    selectionGchordsWrap: $selectionGchordsWrap,
+    selectionGchordsEnabled: $selectionGchordsEnabled,
+    selectionDrumsWrap: $selectionDrumsWrap,
+    selectionDrumsEnabled: $selectionDrumsEnabled,
+    selectionMutedWrap: $selectionMutedWrap,
+    selectionMutedVoices: $selectionMutedVoices,
+    selectionLoopWrap: $selectionLoopWrap,
+    selectionLoopEnabled: $selectionLoopEnabled,
+  },
+  transport: playbackTransport,
+  getSettings: () => latestSettingsSnapshot,
+  getActiveTuneId: () => activeTuneId,
+  getLibraryVisible: () => isLibraryVisible,
+  isRawModeActive: () => isRawModeActive(),
+  isPlaybackBusy,
+  isFocusBoundedPlaybackScope,
+  clampInt,
+  readRenderZoom: readRenderZoomCss,
+  setRenderZoom: setRenderZoomCss,
+  computeFocusFitZoom,
+  setLibraryVisible,
+  resetRightPaneSplit,
+  syncPendingPlaybackPlan,
+  clearNormalPlaybackPlan: () => {
+    pendingPlaybackRangeOrigin = null;
+    playbackTransport.pendingPlaybackPlan = null;
+    playbackTransport.currentPlaybackPlan = null;
+  },
+  persistLoopSettingsPatch,
+  showToast,
+});
+
 let decorationCatalogEnrichment = null;
 let decorationCatalogEnrichmentTried = false;
 
@@ -1774,7 +1820,7 @@ function scheduleSaveLayoutPrefs(patch) {
 }
 
 function isNormalModeForSplitToggle() {
-  return !isRawModeActive() && !focusModeEnabled;
+  return !isRawModeActive() && !isFocusModeEnabled();
 }
 
 function applyRightSplitOrientation(next) {
@@ -2362,7 +2408,7 @@ saveFlowController = createSaveFlowController({
     getActiveTuneUid: () => activeTuneUid,
     getCurrentDocument,
     getCurrentDocumentPath,
-    getFocusModeEnabled: () => focusModeEnabled,
+    getFocusModeEnabled: isFocusModeEnabled,
     getHeaderDirty,
     getHeaderEditorValue,
     getIsNewTuneDraft: () => isNewTuneDraft,
@@ -3238,7 +3284,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     setLibraryIndex: (next) => { libraryIndex = next; },
     getWorkingCopySnapshot: () => workingCopySnapshot,
     getRawMode: () => isRawModeActive(),
-    getFocusModeEnabled: () => focusModeEnabled,
+    getFocusModeEnabled: isFocusModeEnabled,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
     getCurrentDocumentPath,
@@ -7043,10 +7089,6 @@ if ($fileHeaderToggle) {
 let followPlayback = true;
 let drumVelocityMap = buildDefaultDrumVelocityMap();
 
-let focusModeEnabled = false;
-let focusPrevRenderZoom = null;
-let focusPrevLibraryVisible = null;
-
 function setRenderZoomCss(zoom) {
   layoutController.setRenderZoom(zoom);
 }
@@ -7062,83 +7104,20 @@ function computeFocusFitZoom() {
   });
 }
 
+function isFocusModeEnabled() {
+  return focusModeController ? focusModeController.isEnabled() : false;
+}
+
 function updateFocusModeUi() {
-  document.body.classList.toggle("focus-mode", focusModeEnabled);
-  if ($btnFocusMode) {
-    $btnFocusMode.classList.toggle("toggle-active", focusModeEnabled);
-    $btnFocusMode.setAttribute("aria-pressed", focusModeEnabled ? "true" : "false");
-  }
-  updatePracticeUi();
+  if (focusModeController) focusModeController.updateUi();
 }
 
 function setFocusModeEnabled(nextEnabled) {
-  const next = Boolean(nextEnabled);
-  if (focusModeEnabled === next) return;
-  if (isRawModeActive() && next) {
-    showToast("Exit Raw mode to use Focus.", 2200);
-    return;
-  }
-  focusModeEnabled = next;
-  // Apply the focus-mode class immediately so layout-dependent measurements (fit zoom)
-  // are based on the Focus layout, not the pre-toggle layout.
-  updateFocusModeUi();
-  if (focusModeEnabled) {
-    focusPrevRenderZoom = readRenderZoomCss();
-    focusPrevLibraryVisible = isLibraryVisible;
-    // Start from a neutral zoom so Focus computes fit independently of the previous layout/zoom.
-    // (Fit will be applied after layout settles.)
-    setRenderZoomCss(1);
-    if (isLibraryVisible) {
-      setLibraryVisible(false, { persist: false });
-      requestAnimationFrame(() => {
-        try { resetRightPaneSplit(); } catch {}
-      });
-    }
-    // Wait for layout to settle (library hide + split reset) before computing fit.
-    // A single rAF can still measure old widths when the DOM is busy; double rAF avoids that.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!focusModeEnabled) return;
-        const fit = computeFocusFitZoom();
-        // Focus is a "stage" mode: it chooses the zoom independently to reduce unused margins
-        // and keep the score readable during playback (restored on exit).
-        if (fit != null) setRenderZoomCss(fit);
-        if (window.__abcarusDebugFocus) {
-          try {
-            const cssZoom = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
-            console.log("[abcarus][focus] apply " + JSON.stringify({
-              fit,
-              cssZoom: String(cssZoom || "").trim(),
-            }));
-          } catch {}
-        }
-      });
-    });
-  } else if (focusPrevRenderZoom != null) {
-    setRenderZoomCss(focusPrevRenderZoom);
-    focusPrevRenderZoom = null;
-    if (focusPrevLibraryVisible) {
-      setLibraryVisible(true, { persist: false });
-      requestAnimationFrame(() => {
-        try { resetRightPaneSplit(); } catch {}
-      });
-    }
-    focusPrevLibraryVisible = null;
-  }
-  if (focusModeEnabled) {
-    maybeResetFocusLoopForTune(activeTuneId, { updateUi: false });
-  } else {
-    // Leaving Focus should not "stick" to the last Focus loop plan.
-    // Recompute transport playback plan from the normal-mode playhead.
-    pendingPlaybackRangeOrigin = null;
-    playbackTransport.pendingPlaybackPlan = null;
-    playbackTransport.currentPlaybackPlan = null;
-    syncPendingPlaybackPlan();
-  }
+  if (focusModeController) focusModeController.setEnabled(nextEnabled);
 }
 
 function toggleFocusMode() {
-  setFocusModeEnabled(!focusModeEnabled);
+  if (focusModeController) focusModeController.toggle();
 }
 
 function clearPlaybackNoteOnEls() {
@@ -7565,7 +7544,7 @@ function buildFocusBarIndexMapFromSvg(editorDocLength) {
 }
 
 function getVisibleFocusRenderRange() {
-  if (!focusModeEnabled || !$out || !$renderPane) return null;
+  if (!isFocusModeEnabled() || !$out || !$renderPane) return null;
   const bars = Array.from($out.querySelectorAll(".bar-hl"));
   if (!bars.length) return null;
   const paneRect = $renderPane.getBoundingClientRect();
@@ -7674,7 +7653,7 @@ function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, min
 }
 
 function computeFocusLoopPlaybackRange() {
-  if (!focusModeEnabled || !editorView || isRawModeActive()) return null;
+  if (!isFocusModeEnabled() || !editorView || isRawModeActive()) return null;
   const focusResult = computeFocusPlaybackPlanFromCurrentState();
   if (!focusResult || !focusResult.ok || !focusResult.plan) return null;
   return {
@@ -7686,113 +7665,23 @@ function computeFocusLoopPlaybackRange() {
 }
 
 function updatePracticeUi() {
-  if ($practiceTempoWrap) $practiceTempoWrap.hidden = !focusModeEnabled;
-  if ($practiceFocusRangeGroup) $practiceFocusRangeGroup.hidden = !focusModeEnabled;
-  if ($practiceFocusOptionsGroup) $practiceFocusOptionsGroup.hidden = !focusModeEnabled;
-  if ($practiceFocusVoicesGroup) $practiceFocusVoicesGroup.hidden = !focusModeEnabled;
-  if ($practiceSelectionGroup) $practiceSelectionGroup.hidden = Boolean(focusModeEnabled);
-  if ($practiceTempo && focusModeEnabled && document.activeElement !== $practiceTempo) {
-    const value = String(playbackTransport.practiceTempoMultiplier);
-    if ($practiceTempo.value !== value) $practiceTempo.value = value;
-  }
-
-  if ($practiceLoopWrap) $practiceLoopWrap.hidden = !focusModeEnabled;
-  if ($practiceLoopEnabled && document.activeElement !== $practiceLoopEnabled) {
-    $practiceLoopEnabled.checked = Boolean(playbackTransport.playbackLoopEnabled);
-  }
-  if ($practiceLoopFrom && document.activeElement !== $practiceLoopFrom) {
-    $practiceLoopFrom.value = String(clampInt(playbackTransport.playbackLoopFromMeasure, 0, 100000, 0) || 0);
-  }
-  if ($practiceLoopTo && document.activeElement !== $practiceLoopTo) {
-    $practiceLoopTo.value = String(clampInt(playbackTransport.playbackLoopToMeasure, 0, 100000, 0) || 0);
-  }
-
-  if ($selectionSuppressWrap) $selectionSuppressWrap.hidden = !focusModeEnabled;
-  if ($selectionSuppressEnabled && document.activeElement !== $selectionSuppressEnabled) {
-    const enabled = isFocusBoundedPlaybackScope()
-      || Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionSuppressRepeats !== false);
-    $selectionSuppressEnabled.checked = enabled;
-  }
-  if ($selectionGchordsWrap) $selectionGchordsWrap.hidden = !focusModeEnabled;
-  if ($selectionGchordsEnabled && document.activeElement !== $selectionGchordsEnabled) {
-    const enabled = Boolean(!latestSettingsSnapshot || latestSettingsSnapshot.playbackSelectionMuteGchords !== true);
-    $selectionGchordsEnabled.checked = enabled;
-  }
-  if ($selectionDrumsWrap) $selectionDrumsWrap.hidden = !focusModeEnabled;
-  if ($selectionDrumsEnabled && document.activeElement !== $selectionDrumsEnabled) {
-    const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionAllowMidiDrums);
-    $selectionDrumsEnabled.checked = enabled;
-  }
-  if ($selectionMutedWrap) $selectionMutedWrap.hidden = !focusModeEnabled;
-  if ($selectionMutedVoices && document.activeElement !== $selectionMutedVoices) {
-    const raw = latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionMutedVoices != null
-      ? String(latestSettingsSnapshot.playbackSelectionMutedVoices)
-      : "";
-    if ($selectionMutedVoices.value !== raw) $selectionMutedVoices.value = raw;
-  }
-
-  // Avoid presenting two different loop concepts at the same time.
-  // In Focus mode we show bar-loop controls; outside Focus we show selection-loop toggle.
-  if ($selectionLoopWrap) $selectionLoopWrap.hidden = Boolean(focusModeEnabled);
-  if ($selectionLoopEnabled && document.activeElement !== $selectionLoopEnabled) {
-    const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.playbackSelectionLoopEnabled);
-    $selectionLoopEnabled.checked = enabled;
-  }
-
-  // Keep the pending plan in sync when Focus is on and playback is idle.
-  if (focusModeEnabled && !isPlaybackBusy()) {
-    syncPendingPlaybackPlan();
-  }
+  if (focusModeController) focusModeController.updatePracticeUi();
 }
 
 function normalizeLoopBounds(fromMeasure, toMeasure) {
-  const from = clampInt(fromMeasure, 0, 100000, 0);
-  const to = clampInt(toMeasure, 0, 100000, 0);
-  return { from, to };
+  return focusModeController ? focusModeController.normalizeLoopBounds(fromMeasure, toMeasure) : { from: 0, to: 0 };
 }
 
 function normalizeFocusLoopBoundsForPlayback() {
-  if (!focusModeEnabled) return false;
-  const from = clampInt(playbackTransport.playbackLoopFromMeasure, 0, 100000, 0);
-  const to = clampInt(playbackTransport.playbackLoopToMeasure, 0, 100000, 0);
-  if (!(from > 0 && to > 0 && from > to)) return false;
-  playbackTransport.playbackLoopFromMeasure = to;
-  playbackTransport.playbackLoopToMeasure = from;
-  updatePracticeUi();
-  syncPendingPlaybackPlan();
-  const patch = {
-    playbackLoopFromMeasure: playbackTransport.playbackLoopFromMeasure,
-    playbackLoopToMeasure: playbackTransport.playbackLoopToMeasure,
-  };
-  if (activeTuneId) {
-    playbackTransport.playbackLoopTuneId = String(activeTuneId);
-    patch.playbackLoopTuneId = playbackTransport.playbackLoopTuneId;
-  }
-  persistLoopSettingsPatch(patch).catch(() => {});
-  return true;
+  return focusModeController ? focusModeController.normalizeLoopBoundsForPlayback() : false;
 }
 
 function maybeResetFocusLoopForTune(tuneId, { updateUi = true } = {}) {
-  if (!focusModeEnabled) return;
-  const id = tuneId != null ? String(tuneId) : "";
-  if (!id) return;
-  const savedId = playbackTransport.playbackLoopTuneId != null ? String(playbackTransport.playbackLoopTuneId) : "";
-  if (savedId && savedId === id) return;
-
-  const normalized = normalizeLoopBounds(FOCUS_LOOP_DEFAULT_FROM, FOCUS_LOOP_DEFAULT_TO);
-  playbackTransport.playbackLoopFromMeasure = normalized.from;
-  playbackTransport.playbackLoopToMeasure = normalized.to;
-  syncPendingPlaybackPlan();
-  if (updateUi) updatePracticeUi();
+  if (focusModeController) focusModeController.maybeResetLoopForTune(tuneId, { updateUi });
 }
 
 function setLoopFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  playbackTransport.playbackLoopEnabled = Boolean(settings.playbackLoopEnabled);
-  playbackTransport.playbackLoopFromMeasure = clampInt(settings.playbackLoopFromMeasure, 0, 100000, 0);
-  playbackTransport.playbackLoopToMeasure = clampInt(settings.playbackLoopToMeasure, 0, 100000, 0);
-  playbackTransport.playbackLoopTuneId = (typeof settings.playbackLoopTuneId === "string") ? settings.playbackLoopTuneId : null;
-  updatePracticeUi();
+  if (focusModeController) focusModeController.setLoopFromSettings(settings);
 }
 
 function setFollowFromSettings(settings) {
@@ -8005,7 +7894,7 @@ if ($practiceTempo) {
     if (!Number.isFinite(next)) return;
     playbackTransport.practiceTempoMultiplier = next;
     syncPendingPlaybackPlan();
-    if (focusModeEnabled && isPlaybackBusy() && playbackTransport.player && typeof playbackTransport.player.set_speed === "function") {
+    if (isFocusModeEnabled() && isPlaybackBusy() && playbackTransport.player && typeof playbackTransport.player.set_speed === "function") {
       playbackTransport.desiredPlayerSpeed = next;
       try { playbackTransport.player.set_speed(playbackTransport.desiredPlayerSpeed); } catch {}
     }
@@ -8015,76 +7904,12 @@ if ($practiceTempo) {
   if (Number.isFinite(initial)) playbackTransport.practiceTempoMultiplier = initial;
 }
 
-const clampLoopField = (raw) => clampInt(raw, 0, 100000, 0);
-
 async function persistLoopSettingsPatch(patch) {
   if (!window.api || typeof window.api.updateSettings !== "function") return;
   try { await window.api.updateSettings(patch); } catch {}
 }
 
-if ($practiceLoopEnabled) {
-  $practiceLoopEnabled.addEventListener("change", () => {
-    const next = Boolean($practiceLoopEnabled.checked);
-    playbackTransport.playbackLoopEnabled = next;
-    syncPendingPlaybackPlan();
-    updatePracticeUi();
-    persistLoopSettingsPatch({ playbackLoopEnabled: next }).catch(() => {});
-  });
-}
-
-if ($practiceLoopFrom) {
-  $practiceLoopFrom.addEventListener("input", () => {
-    const next = clampLoopField($practiceLoopFrom.value);
-    playbackTransport.playbackLoopFromMeasure = next;
-    syncPendingPlaybackPlan();
-    updatePracticeUi();
-  });
-  $practiceLoopFrom.addEventListener("change", () => {
-    const next = clampLoopField($practiceLoopFrom.value);
-    playbackTransport.playbackLoopFromMeasure = next;
-    syncPendingPlaybackPlan();
-    updatePracticeUi();
-    const patch = {
-      playbackLoopFromMeasure: playbackTransport.playbackLoopFromMeasure,
-      playbackLoopToMeasure: playbackTransport.playbackLoopToMeasure,
-    };
-    if (activeTuneId) {
-      playbackTransport.playbackLoopTuneId = String(activeTuneId);
-      patch.playbackLoopTuneId = playbackTransport.playbackLoopTuneId;
-    }
-    persistLoopSettingsPatch(patch).catch(() => {});
-  });
-}
-
-if ($practiceLoopTo) {
-  $practiceLoopTo.addEventListener("input", () => {
-    const next = clampLoopField($practiceLoopTo.value);
-    playbackTransport.playbackLoopToMeasure = next;
-    syncPendingPlaybackPlan();
-    updatePracticeUi();
-  });
-  $practiceLoopTo.addEventListener("change", () => {
-    const next = clampLoopField($practiceLoopTo.value);
-    playbackTransport.playbackLoopToMeasure = next;
-    syncPendingPlaybackPlan();
-    updatePracticeUi();
-    const patch = {
-      playbackLoopFromMeasure: playbackTransport.playbackLoopFromMeasure,
-      playbackLoopToMeasure: playbackTransport.playbackLoopToMeasure,
-    };
-    if (activeTuneId) {
-      playbackTransport.playbackLoopTuneId = String(activeTuneId);
-      patch.playbackLoopTuneId = playbackTransport.playbackLoopTuneId;
-    }
-    persistLoopSettingsPatch(patch).catch(() => {});
-  });
-}
-
-if ($btnFocusMode) {
-  $btnFocusMode.addEventListener("click", () => {
-    toggleFocusMode();
-  });
-}
+if (focusModeController) focusModeController.wireControls();
 
 if ($btnToggleSplit) {
   $btnToggleSplit.addEventListener("click", () => {

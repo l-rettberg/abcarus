@@ -542,6 +542,56 @@ async function assertIntonationTonalBaseUses53Map() {
   }
 }
 
+async function assertIntonationPinnedCandidates() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { suggestMakamCandidates } from './src/renderer/makam_suggestion.mjs';",
+        "export { suggestMakamCandidates };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "intonation-candidates-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { suggestMakamCandidates } = module.exports;
+  if (typeof suggestMakamCandidates !== "function") {
+    throw new Error("Unable to load makam candidate helper.");
+  }
+
+  const candidates = suggestMakamCandidates({
+    makamEntries: [
+      { makam: "Beyati", durak: "A", guclu: "A", yeden: "A" },
+      { makam: "Uşşak", durak: "A" },
+    ],
+    noteEvents: [
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+    ],
+    resolvePerdePc53: (name) => (name === "A" ? [0] : []),
+    maxCandidates: 1,
+    pinnedMakamNames: ["Uşşak"],
+  });
+  if (candidates.length !== 2 || candidates[0].makam !== "Beyati") {
+    throw new Error("Intonation candidates smoke must keep top scoring makam first.");
+  }
+  const pinned = candidates.find((candidate) => candidate && candidate.makam === "Uşşak");
+  if (!pinned || pinned.pinned !== true) {
+    throw new Error("Selected/overlay makam must remain visible when it falls outside the candidate limit.");
+  }
+}
+
 async function main() {
   const res = await build({
     entryPoints: ["src/renderer/renderer.js"],
@@ -565,6 +615,7 @@ async function main() {
   await assertPrintSuggestedBaseNameIncludesKey();
   await assertAbc2svgFontHeaderUrls();
   await assertIntonationTonalBaseUses53Map();
+  await assertIntonationPinnedCandidates();
 }
 
 main().catch((err) => {

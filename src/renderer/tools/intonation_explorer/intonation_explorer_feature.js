@@ -372,7 +372,8 @@ function createIntonationExplorerFeature({
       title.textContent = String(candidate.makam || "");
       const confidence = document.createElement("span");
       confidence.className = "makam-candidate-confidence";
-      confidence.textContent = String(candidate.confidence || "Possible");
+      const confidenceText = String(candidate.confidence || "Possible");
+      confidence.textContent = candidate.pinned ? `Pinned · ${confidenceText}` : confidenceText;
       summary.append(title, confidence);
       item.appendChild(summary);
 
@@ -751,6 +752,7 @@ function createIntonationExplorerFeature({
           makamEntries: getMakamDnaEntries(),
           resolvePerdePc53: resolvePerdePc53Candidates,
           maxCandidates: 5,
+          pinnedMakamNames: [declaredMakam, compareMakam].filter(Boolean),
         });
         renderCandidates(candidates);
       } catch (e) {

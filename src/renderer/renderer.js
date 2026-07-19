@@ -48,7 +48,6 @@ import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
   buildAbDecorations,
-  buildIntonationHighlightDecorations,
   buildPayloadLayerDecorations,
 } from "./editor/range_decorations.js";
 import { initSettings } from "./settings.js";
@@ -132,6 +131,7 @@ import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
 import { createMicrotonalToolsFeature } from "./tools/microtonal/microtonal_tools_feature.js";
 import { createIntonationExplorerFeature } from "./tools/intonation_explorer/intonation_explorer_feature.js";
+import { createIntonationRendererBridge } from "./tools/intonation_explorer/intonation_renderer_bridge.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
@@ -3734,34 +3734,6 @@ function setBarMismatchMarkers(markers) {
   errorsFeature.setBarMismatchMarkers(markers);
 }
 
-let intonationHighlightRanges = [];
-let intonationHighlightVersion = 0;
-
-const intonationHighlightPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = intonationHighlightVersion;
-    this.decorations = buildIntonationHighlightDecorations(view.state, intonationHighlightRanges);
-  }
-  update(update) {
-    if (update.docChanged || this.version !== intonationHighlightVersion) {
-      this.version = intonationHighlightVersion;
-      this.decorations = buildIntonationHighlightDecorations(update.state, intonationHighlightRanges);
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
-});
-
-function setIntonationHighlightRanges(ranges) {
-  intonationHighlightRanges = Array.isArray(ranges) ? ranges : [];
-  intonationHighlightVersion += 1;
-  if (!editorView) return;
-  editorView.dispatch({
-    selection: editorView.state.selection,
-    scrollIntoView: false,
-  });
-}
-
 let intonationExplorerFeature = null;
 
 const microtonalToolsFeature = createMicrotonalToolsFeature({
@@ -3789,161 +3761,30 @@ const microtonalToolsFeature = createMicrotonalToolsFeature({
 });
 
 const perdeService = createPerdeService();
-
-let lastSvgIntonationBarEls = [];
-let lastSvgIntonationNoteEls = [];
-function clearSvgIntonationBarHighlight() {
-  if (!lastSvgIntonationBarEls || !lastSvgIntonationBarEls.length) return;
-  for (const el of lastSvgIntonationBarEls) {
-    try { el.classList.remove("svg-intonation-bar"); } catch {}
-  }
-  lastSvgIntonationBarEls = [];
-}
-
-function clearSvgIntonationNoteHighlight() {
-  if (!lastSvgIntonationNoteEls || !lastSvgIntonationNoteEls.length) return;
-  for (const el of lastSvgIntonationNoteEls) {
-    try { el.classList.remove("svg-intonation-note"); } catch {}
-  }
-  lastSvgIntonationNoteEls = [];
-}
-
-function getIntonationSelectionScope() {
-  if (!editorView || isRawModeActive() || isPayloadMode()) return null;
-  try {
-    const sel = editorView.state && editorView.state.selection ? editorView.state.selection.main : null;
-    if (!sel || sel.empty) return null;
-    const docLen = editorView.state && editorView.state.doc ? editorView.state.doc.length : 0;
-    const start = Math.max(0, Math.min(docLen, Math.min(sel.anchor, sel.head)));
-    const end = Math.max(start, Math.min(docLen, Math.max(sel.anchor, sel.head)));
-    if (end <= start) return null;
-    const selectedText = editorView.state.doc.sliceString(start, end);
-    if (!/[A-Ga-gxzZ]/.test(selectedText)) return null;
-    return { start, end, label: "selection" };
-  } catch {
-    return null;
-  }
-}
-
-function highlightSvgIntonationBarsAtEditorOffsets(offsets) {
-  if (!$out || !$renderPane) return false;
-  if (!editorView) return false;
-  const list = Array.isArray(offsets) ? offsets.filter((n) => Number.isFinite(n)) : [];
-  if (!list.length) {
-    clearSvgIntonationBarHighlight();
-    return false;
-  }
-  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-    ? getLastRenderPayload().offset
-    : 0;
-  const editorText = editorView.state.doc.toString();
-  const measures = new Map();
-  for (const offset of list) {
-    const measure = findMeasureRangeAt(editorText, offset);
-    if (!measure) continue;
-    const key = `${measure.start}:${measure.end}`;
-    if (!measures.has(key)) measures.set(key, measure);
-  }
-  const uniqMeasures = Array.from(measures.values());
-  const barEls = uniqMeasures.length ? Array.from($out.querySelectorAll(".bar-hl")) : [];
-  if (!uniqMeasures.length || !barEls.length) {
-    clearSvgIntonationBarHighlight();
-    return false;
-  }
-  const hits = new Set();
-  for (const measure of uniqMeasures) {
-    const start = mapEditorOffsetToRenderIdx(measure.start);
-    const end = mapEditorOffsetToRenderIdx(measure.end);
-    for (const el of barEls) {
-      const s = Number(el.dataset && el.dataset.start);
-      const e = Number(el.dataset && el.dataset.end);
-      if (!Number.isFinite(s)) continue;
-      const stop = Number.isFinite(e) ? e : s + 1;
-      if (s < end && stop > start) hits.add(el);
-    }
-  }
-  clearSvgIntonationBarHighlight();
-  lastSvgIntonationBarEls = Array.from(hits);
-  for (const el of lastSvgIntonationBarEls) {
-    try { el.classList.add("svg-intonation-bar"); } catch {}
-  }
-  return lastSvgIntonationBarEls.length > 0;
-}
-
-function highlightSvgIntonationNotesAtEditorOffsets(offsets) {
-  if (!$out || !$renderPane) return false;
-  if (!Number.isFinite(playbackTransport.lastRenderIdx)) {
-    // Rendering may not be ready yet; avoid highlighting stale DOM.
-  }
-  const list = Array.isArray(offsets) ? offsets.filter((n) => Number.isFinite(n)) : [];
-  clearSvgIntonationNoteHighlight();
-  if (!list.length) return false;
-
-  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-    ? getLastRenderPayload().offset
-    : 0;
-  const hits = new Set();
-  const maxHits = 800; // keep UI responsive for very dense tunes
-  const maxBack = 120;
-
-  for (const editorOffset of list) {
-    if (hits.size >= maxHits) break;
-    const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
-    if (!Number.isFinite(renderIdx)) continue;
-    let els = $out.querySelectorAll("._" + renderIdx + "_");
-    if ((!els || !els.length) && Number.isFinite(renderIdx)) {
-      for (let d = 1; d <= maxBack; d += 1) {
-        const probe = renderIdx - d;
-        if (probe < 0) break;
-        els = $out.querySelectorAll("._" + probe + "_");
-        if (els && els.length) break;
-      }
-    }
-    if (!els || !els.length) continue;
-    for (const el of Array.from(els)) {
-      if (hits.size >= maxHits) break;
-      if (!el) continue;
-      // Prefer note overlay elements for highlighting (more precise than bar-wide regions).
-      if (el.classList && el.classList.contains("note-hl")) {
-        hits.add(el);
-        continue;
-      }
-      const noteEls = el.querySelectorAll ? el.querySelectorAll(".note-hl") : [];
-      if (noteEls && noteEls.length) {
-        for (const n of Array.from(noteEls)) {
-          if (hits.size >= maxHits) break;
-          hits.add(n);
-        }
-      }
-    }
-  }
-
-  lastSvgIntonationNoteEls = Array.from(hits);
-  for (const el of lastSvgIntonationNoteEls) {
-    try { el.classList.add("svg-intonation-note"); } catch {}
-  }
-  return lastSvgIntonationNoteEls.length > 0;
-}
+const intonationRendererBridge = createIntonationRendererBridge({
+  ViewPlugin,
+  getEditorView: () => editorView,
+  getOutputElement: () => $out,
+  findMeasureRangeAt,
+  mapEditorOffsetToRenderIdx,
+  maybeScrollRenderToNote,
+  isRawMode: () => isRawModeActive(),
+  isPayloadMode,
+});
 
 intonationExplorerFeature = createIntonationExplorerFeature({
   elements: {
     document,
   },
   host: {
-    clearSvgBarHighlight: clearSvgIntonationBarHighlight,
-    clearSvgNoteHighlight: clearSvgIntonationNoteHighlight,
+    clearSvgBarHighlight: intonationRendererBridge.clearSvgBarHighlight,
+    clearSvgNoteHighlight: intonationRendererBridge.clearSvgNoteHighlight,
     enableDraggableToolPanel,
     ensureToolPanelDefaultLeftPosition,
-    focusEditorAt: (offset) => {
-      if (!editorView || !Number.isFinite(offset)) return;
-      const docLen = editorView.state && editorView.state.doc ? editorView.state.doc.length : 0;
-      const safeOff = Math.max(0, Math.min(docLen, offset));
-      editorView.dispatch({ selection: { anchor: safeOff, head: safeOff }, scrollIntoView: true });
-      try { editorView.focus(); } catch {}
-    },
-    getSelectionScope: getIntonationSelectionScope,
-    highlightBarsAtOffsets: highlightSvgIntonationBarsAtEditorOffsets,
-    highlightNotesAtOffsets: highlightSvgIntonationNotesAtEditorOffsets,
+    focusEditorAt: intonationRendererBridge.focusEditorAt,
+    getSelectionScope: intonationRendererBridge.getSelectionScope,
+    highlightBarsAtOffsets: intonationRendererBridge.highlightBarsAtOffsets,
+    highlightNotesAtOffsets: intonationRendererBridge.highlightNotesAtOffsets,
     isPerfEnabled: isIntonationPerfEnabled,
     isRawMode: () => isRawModeActive(),
     logError: (e) => logErr(e && e.message ? e.message : String(e)),
@@ -3955,13 +3796,8 @@ intonationExplorerFeature = createIntonationExplorerFeature({
       tuneIndex: activeTuneIndex,
       startOffset: activeTuneMeta && activeTuneMeta.startOffset,
     }),
-    scrollToCurrentHighlight: () => {
-      const note = lastSvgIntonationNoteEls && lastSvgIntonationNoteEls.length ? lastSvgIntonationNoteEls[0] : null;
-      const bar = lastSvgIntonationBarEls && lastSvgIntonationBarEls.length ? lastSvgIntonationBarEls[0] : null;
-      if (note) maybeScrollRenderToNote(note);
-      else if (bar) maybeScrollRenderToNote(bar);
-    },
-    setHighlightRanges: setIntonationHighlightRanges,
+    scrollToCurrentHighlight: intonationRendererBridge.scrollToCurrentHighlight,
+    setHighlightRanges: intonationRendererBridge.setHighlightRanges,
     showToast: (message, timeout) => showToast(message, timeout),
   },
   microtonalTools: microtonalToolsFeature,
@@ -4573,7 +4409,7 @@ function initEditor() {
         barMismatchPlugin,
         errorActivationHighlightPlugin,
         practiceBarHighlightPlugin,
-        intonationHighlightPlugin,
+        intonationRendererBridge.plugin,
         abPlugin,
         payloadModeDecorations.plugin,
       ]),

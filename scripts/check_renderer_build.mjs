@@ -507,6 +507,41 @@ async function assertAbc2svgFontHeaderUrls() {
   }
 }
 
+async function assertIntonationTonalBaseUses53Map() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { resolveTonalBaseInput } from './src/renderer/tools/intonation_explorer/intonation_model.js';",
+        "import { baseId53ForNaturalLetter } from './src/renderer/transpose.mjs';",
+        "export { resolveTonalBaseInput, baseId53ForNaturalLetter };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "intonation-tonal-base-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { baseId53ForNaturalLetter, resolveTonalBaseInput } = module.exports;
+  if (typeof baseId53ForNaturalLetter !== "function" || typeof resolveTonalBaseInput !== "function") {
+    throw new Error("Unable to load intonation tonal base helpers.");
+  }
+  for (const letter of ["C", "D", "E", "F", "G", "A", "B"]) {
+    const resolved = resolveTonalBaseInput(letter);
+    const expected = baseId53ForNaturalLetter(letter);
+    if (!resolved || !resolved.ok || resolved.base !== expected) {
+      throw new Error(`Tonal base ${letter} must use the 53-EDO natural-letter map (${expected}), got ${resolved && resolved.base}.`);
+    }
+  }
+}
+
 async function main() {
   const res = await build({
     entryPoints: ["src/renderer/renderer.js"],
@@ -529,6 +564,7 @@ async function main() {
   await assertSepIsPrestrippedForRender();
   await assertPrintSuggestedBaseNameIncludesKey();
   await assertAbc2svgFontHeaderUrls();
+  await assertIntonationTonalBaseUses53Map();
 }
 
 main().catch((err) => {

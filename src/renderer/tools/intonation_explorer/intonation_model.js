@@ -19,6 +19,8 @@ function mod53(value) {
   return modNumber(value, 53);
 }
 
+const EURO_SEMITONE_COMMAS_UP_BY_PC12 = [4, 5, 4, 5, 4, 5, 4, 4, 5, 4, 5, 4];
+
 function formatAeuLabel(step) {
   return String(mod53(step));
 }
@@ -64,11 +66,14 @@ function resolveTonalBaseInput(rawValue) {
   if (letterMatch) {
     const letter = letterMatch[1].toUpperCase();
     const accidental = letterMatch[2] || "";
-    const basePc = (NOTE_BASES[letter] != null ? NOTE_BASES[letter] : 0)
-      + (accidental === "#" ? 1 : accidental === "b" ? -1 : 0);
-    const normalizedPc = modNumber(basePc, 12);
-    const approx = Math.round((normalizedPc * 53) / 12);
-    const base = mod53(approx);
+    const basePc12 = NOTE_BASES[letter] != null ? NOTE_BASES[letter] : 0;
+    let base = baseId53ForNaturalLetter(letter);
+    if (accidental === "#") {
+      base += EURO_SEMITONE_COMMAS_UP_BY_PC12[modNumber(basePc12, 12)] || 0;
+    } else if (accidental === "b") {
+      base -= EURO_SEMITONE_COMMAS_UP_BY_PC12[modNumber(basePc12 - 1, 12)] || 0;
+    }
+    base = mod53(base);
     return { ok: true, base, label: `${letter}${accidental} (pc53=${base})` };
   }
   return { ok: false, error: `Unable to parse tonal base (“${raw}”).` };

@@ -90,6 +90,7 @@ import {
 } from "./library/sorting_filtering.js";
 import { createLibraryUiStateController } from "./library/ui_state_controller.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
+import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
 import {
   alignBarsInText,
 } from "./abc/align_bars.js";
@@ -1814,8 +1815,13 @@ let suppressRecentEntries = false;
 let renderPipelineController = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let headerLayersController = null;
-const MAX_FILE_CONTENT_CACHE_ENTRIES = 12;
-const fileContentCache = new Map();
+const fileContentCache = createFileContentCache({
+  maxEntries: 12,
+  normalizePath: normalizeLibraryPath,
+});
+const fileOperationLocks = createFileOperationLocks({
+  normalizePath: normalizeLibraryPath,
+});
 
 headerLayersController = createHeaderLayersController({
   api: window.api,
@@ -1853,38 +1859,16 @@ function mapRenderIdxToEditorOffset(renderIdx, payload = getLastRenderPayload())
   return mapRenderIdxToEditorOffsetCore(renderIdx, payload);
 }
 
-function lruGet(map, key) {
-  if (!map.has(key)) return undefined;
-  const value = map.get(key);
-  map.delete(key);
-  map.set(key, value);
-  return value;
-}
-
-function lruSet(map, key, value, maxEntries) {
-  if (map.has(key)) map.delete(key);
-  map.set(key, value);
-  while (map.size > maxEntries) {
-    const firstKey = map.keys().next().value;
-    if (firstKey == null) break;
-    map.delete(firstKey);
-  }
-}
-
 function normalizeFileContentCacheKey(filePath) {
-  return normalizeLibraryPath(filePath || "");
+  return fileContentCache.normalizeKey(filePath);
 }
 
 function getFileContentFromCache(filePath) {
-  const key = normalizeFileContentCacheKey(filePath);
-  if (!key) return undefined;
-  return lruGet(fileContentCache, key);
+  return fileContentCache.get(filePath);
 }
 
 function setFileContentInCache(filePath, content) {
-  const key = normalizeFileContentCacheKey(filePath);
-  if (!key) return;
-  lruSet(fileContentCache, key, content, MAX_FILE_CONTENT_CACHE_ENTRIES);
+  fileContentCache.set(filePath, content);
 }
 
 function countLinesForPrefix(text) {
@@ -3029,11 +3013,11 @@ libraryMetadataController = createLibraryMetadataController({
     clearFileContentCache: () => fileContentCache.clear(),
     clearLibraryFilter,
     countLines,
-    deleteFileContentCacheKey: (key) => fileContentCache.delete(key),
+    deleteFileContentCacheKey: (key) => fileContentCache.deleteKey(key),
     fileExists,
     getActiveTuneId: () => activeTuneId,
     getFileContentFromCache,
-    hasFileContentCacheKey: (key) => fileContentCache.has(key),
+    hasFileContentCacheKey: (key) => fileContentCache.hasKey(key),
     invalidateLibraryView: () => libraryViewStore.invalidate(),
     isLibraryDisabled: () => chordProFeature.isEnabled(),
     logErr,
@@ -5712,14 +5696,7 @@ async function runPrintAction(type) {
 }
 
 async function getFileContentCached(filePath) {
-  let content = getFileContentFromCache(filePath);
-  if (content == null) {
-    const res = await readFile(filePath);
-    if (!res.ok) return res;
-    content = res.data;
-    setFileContentInCache(filePath, content);
-  }
-  return { ok: true, data: content };
+  return fileContentCache.getCached(filePath, readFile);
 }
 
 function setPrintAllFromSettings(settings) {
@@ -5875,37 +5852,12 @@ async function showOpenFolderDialog() {
   return window.api.showOpenFolderDialog();
 }
 
-const fileOpQueues = new Map();
-
-function normalizeFileOpKey(filePath) {
-  const raw = String(filePath || "");
-  const normalized = normalizeLibraryPath(raw);
-  return normalized || raw;
-}
-
 async function withFileLock(filePath, operation) {
-  const key = normalizeFileOpKey(filePath);
-  if (!key) return operation();
-  const prev = fileOpQueues.get(key) || Promise.resolve();
-  const next = prev.catch(() => {}).then(operation);
-  const tail = next.finally(() => {
-    if (fileOpQueues.get(key) === tail) fileOpQueues.delete(key);
-  });
-  fileOpQueues.set(key, tail);
-  return tail;
+  return fileOperationLocks.withFileLock(filePath, operation);
 }
 
 async function withFileLocks(filePaths, operation) {
-  const list = Array.from(new Set((filePaths || []).map((p) => normalizeFileOpKey(p)).filter(Boolean)));
-  if (!list.length) return operation();
-  list.sort((a, b) => a.localeCompare(b));
-  let chained = operation;
-  for (let i = list.length - 1; i >= 0; i -= 1) {
-    const p = list[i];
-    const prevFn = chained;
-    chained = () => withFileLock(p, prevFn);
-  }
-  return chained();
+  return fileOperationLocks.withFileLocks(filePaths, operation);
 }
 
 function countLines(text) {

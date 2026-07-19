@@ -73,7 +73,8 @@ function createPlaybackTransportController({
 
   function resolveFocusResumeStartOffset(plan, fallbackStartOffset, candidateResumeOffset) {
     const start = Math.max(0, Number(fallbackStartOffset) || 0);
-    const end = Number(plan && plan.rangeEnd);
+    const rawEnd = plan && plan.rangeEnd;
+    const end = rawEnd == null ? null : Number(rawEnd);
     const resume = Number(candidateResumeOffset);
     if (!Number.isFinite(resume) || resume < start) return start;
     if (Number.isFinite(end) && resume >= end) return start;

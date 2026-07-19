@@ -268,6 +268,42 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
   if (!calls.length || calls[0].startOffset !== 160) {
     throw new Error(`Paused Play must resume from converted paused offset 160, got ${calls[0] && calls[0].startOffset}.`);
   }
+
+  calls.length = 0;
+  transport.isPaused = true;
+  transport.resumeStartIdx = 260;
+  transport.playbackIndexOffset = 100;
+  const focusController = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => true,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({
+      ok: true,
+      plan: { startOffset: 0, endOffset: null, loop: false },
+    }),
+    getEditorMeasureStartOffset: () => 0,
+    getEditorPlayStartOffset: () => 0,
+    getEditorSelectionSignature: () => "stable",
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await focusController.togglePlayPauseEffective();
+  if (!calls.length || calls[0].startOffset !== 160 || calls[0].origin !== "focus") {
+    throw new Error(`Paused Focus Play must resume from offset 160 with open range end, got ${JSON.stringify(calls[0] || null)}.`);
+  }
 }
 
 async function assertAlignBarsDoesNotCrossSectionFields() {

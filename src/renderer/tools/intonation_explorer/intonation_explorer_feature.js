@@ -175,6 +175,64 @@ function createIntonationExplorerFeature({
       : null;
   }
 
+  function normalizeSigned53(delta) {
+    let v = Number(delta) || 0;
+    while (v > 26) v -= 53;
+    while (v < -26) v += 53;
+    return v;
+  }
+
+  function shiftAbs53NearObserved(abs53, signedDelta, { observedMinAbs, observedMaxAbs } = {}) {
+    if (!Number.isFinite(abs53)) return null;
+    let shifted = Number(abs53) + normalizeSigned53(signedDelta);
+    if (Number.isFinite(observedMinAbs) && Number.isFinite(observedMaxAbs)) {
+      const mid = (Number(observedMinAbs) + Number(observedMaxAbs)) / 2;
+      while (shifted - mid > 26.5) shifted -= 53;
+      while (mid - shifted > 26.5) shifted += 53;
+    }
+    return shifted;
+  }
+
+  function formatRolePerdeLabel(abs53, fallbackName = "") {
+    if (!Number.isFinite(abs53)) return String(fallbackName || "");
+    const pc53 = mod53(abs53);
+    const octave = Math.floor(Number(abs53) / 53);
+    const resolved = resolvePerdeName({ pc53, octave }) || "";
+    return resolved || String(fallbackName || "") || `pc53=${formatAeuLabel(pc53)}`;
+  }
+
+  function buildMakamRoleOverlay(entry, { targetBaseStep, observedMinAbs, observedMaxAbs } = {}) {
+    if (!entry || !(entry.durak || entry.guclu || entry.yeden)) return null;
+    const durak = parseMakamDnaPerdeField(entry.durak);
+    const guclu = parseMakamDnaPerdeField(entry.guclu);
+    const yeden = parseMakamDnaPerdeField(entry.yeden);
+    const options = { observedMinAbs, observedMaxAbs };
+    const standardDurakAbs = durak && durak.name ? pickOverlayAbs53ForPerde(durak.name, { ...options, hint: durak.hint }) : null;
+    const standardGucluAbs = guclu && guclu.name ? pickOverlayAbs53ForPerde(guclu.name, { ...options, hint: guclu.hint }) : null;
+    const standardYedenAbs = yeden && yeden.name ? pickOverlayAbs53ForPerde(yeden.name, { ...options, hint: yeden.hint }) : null;
+    let delta = 0;
+    let transposed = false;
+    if (Number.isFinite(standardDurakAbs) && Number.isFinite(targetBaseStep)) {
+      delta = normalizeSigned53(mod53(targetBaseStep) - mod53(standardDurakAbs));
+      transposed = delta !== 0;
+    }
+    const durakAbs = shiftAbs53NearObserved(standardDurakAbs, delta, options);
+    const gucluAbs = shiftAbs53NearObserved(standardGucluAbs, delta, options);
+    const yedenAbs = shiftAbs53NearObserved(standardYedenAbs, delta, options);
+    return {
+      transposed,
+      durakAbs,
+      gucluAbs,
+      yedenAbs,
+      durakLabel: formatRolePerdeLabel(durakAbs, durak.name),
+      gucluLabel: formatRolePerdeLabel(gucluAbs, guclu.name),
+      yedenLabel: formatRolePerdeLabel(yedenAbs, yeden.name),
+      standardDurakName: durak.name,
+      standardGucluName: guclu.name,
+      standardYedenName: yeden.name,
+    };
+  }
+
   function resolvePerdePc53Candidates(perdeName) {
     return perdeService && typeof perdeService.resolvePc53Candidates === "function"
       ? perdeService.resolvePc53Candidates(perdeName)
@@ -405,29 +463,32 @@ function createIntonationExplorerFeature({
         if (label) line.setAttribute("data-label", label);
         return line;
       };
-      const durak = parseMakamDnaPerdeField(overlayEntry.durak);
-      const guclu = parseMakamDnaPerdeField(overlayEntry.guclu);
-      const yeden = parseMakamDnaPerdeField(overlayEntry.yeden);
-      const durakAbs = pickOverlayAbs53ForPerde(durak.name, { hint: durak.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
-      const gucluAbs = pickOverlayAbs53ForPerde(guclu.name, { hint: guclu.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
-      const yedenAbs = pickOverlayAbs53ForPerde(yeden.name, { hint: yeden.hint, observedMinAbs: minAbs, observedMaxAbs: maxAbs });
+      const overlayRoles = buildMakamRoleOverlay(overlayEntry, {
+        targetBaseStep: plotBaseStep,
+        observedMinAbs: minAbs,
+        observedMaxAbs: maxAbs,
+      });
+      const durakAbs = overlayRoles ? overlayRoles.durakAbs : null;
+      const gucluAbs = overlayRoles ? overlayRoles.gucluAbs : null;
+      const yedenAbs = overlayRoles ? overlayRoles.yedenAbs : null;
       const overlayLabels = [];
       if (Number.isFinite(durakAbs)) {
-        elements.plotOverlay.appendChild(mkLine(toY(durakAbs), "rgba(20,110,60,1)", "", `Durak: ${durak.name}`));
-        overlayLabels.push(`Durak: ${durak.name}`);
+        elements.plotOverlay.appendChild(mkLine(toY(durakAbs), "rgba(20,110,60,1)", "", `Durak: ${overlayRoles.durakLabel}`));
+        overlayLabels.push(`Durak: ${overlayRoles.durakLabel}`);
       }
       if (Number.isFinite(gucluAbs)) {
-        elements.plotOverlay.appendChild(mkLine(toY(gucluAbs), "rgba(60,120,210,1)", "5,4", `Güçlü: ${guclu.name}`));
-        overlayLabels.push(`Güçlü: ${guclu.name}`);
+        elements.plotOverlay.appendChild(mkLine(toY(gucluAbs), "rgba(60,120,210,1)", "5,4", `Güçlü: ${overlayRoles.gucluLabel}`));
+        overlayLabels.push(`Güçlü: ${overlayRoles.gucluLabel}`);
       }
       if (Number.isFinite(yedenAbs)) {
-        elements.plotOverlay.appendChild(mkLine(toY(yedenAbs), "rgba(210,120,60,1)", "2,4", `Yeden: ${yeden.name}`));
-        overlayLabels.push(`Yeden: ${yeden.name}`);
+        elements.plotOverlay.appendChild(mkLine(toY(yedenAbs), "rgba(210,120,60,1)", "2,4", `Yeden: ${overlayRoles.yedenLabel}`));
+        overlayLabels.push(`Yeden: ${overlayRoles.yedenLabel}`);
       }
       if (elements.plotLegend) {
         const overlayName = String(overlayEntry.makam || "");
+        const transposed = overlayRoles && overlayRoles.transposed ? " transposed" : "";
         elements.plotLegend.textContent = overlayLabels.length
-          ? `Overlay: ${overlayName} (${overlayLabels.join(" · ")})`
+          ? `Overlay: ${overlayName}${transposed} (${overlayLabels.join(" · ")})`
           : `Overlay: ${overlayName}`;
       }
     } else if (elements.plotLegend) {
@@ -662,16 +723,15 @@ function createIntonationExplorerFeature({
         const observedMaxAbs = absVals.length ? Math.max(...absVals) : null;
         if (entry && (entry.durak || entry.guclu || entry.yeden)) {
           try { await ensurePerdeNameIndexLoaded(); } catch {}
-          const durak = parseMakamDnaPerdeField(entry.durak);
-          const guclu = parseMakamDnaPerdeField(entry.guclu);
-          const yeden = parseMakamDnaPerdeField(entry.yeden);
-          const durakAbs = durak && durak.name ? pickOverlayAbs53ForPerde(durak.name, { hint: durak.hint, observedMinAbs, observedMaxAbs }) : null;
-          const gucluAbs = guclu && guclu.name ? pickOverlayAbs53ForPerde(guclu.name, { hint: guclu.hint, observedMinAbs, observedMaxAbs }) : null;
-          const yedenAbs = yeden && yeden.name ? pickOverlayAbs53ForPerde(yeden.name, { hint: yeden.hint, observedMinAbs, observedMaxAbs }) : null;
+          const roles = buildMakamRoleOverlay(entry, {
+            targetBaseStep: baseStep,
+            observedMinAbs,
+            observedMaxAbs,
+          });
           nextRoleAbs53Map = new Map();
-          if (Number.isFinite(durakAbs)) nextRoleAbs53Map.set(String(durakAbs), "durak");
-          if (Number.isFinite(gucluAbs)) nextRoleAbs53Map.set(String(gucluAbs), "güçlü");
-          if (Number.isFinite(yedenAbs)) nextRoleAbs53Map.set(String(yedenAbs), "yeden");
+          if (roles && Number.isFinite(roles.durakAbs)) nextRoleAbs53Map.set(String(roles.durakAbs), "durak");
+          if (roles && Number.isFinite(roles.gucluAbs)) nextRoleAbs53Map.set(String(roles.gucluAbs), "güçlü");
+          if (roles && Number.isFinite(roles.yedenAbs)) nextRoleAbs53Map.set(String(roles.yedenAbs), "yeden");
         }
       } catch {}
       roleAbs53Map = nextRoleAbs53Map;

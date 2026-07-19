@@ -80,6 +80,17 @@ function createPlaybackTransportController({
     return resume;
   }
 
+  function getPausedResumeEditorOffset() {
+    if (!shouldResumeFromPause()) return null;
+    const derived = Number(transport.resumeStartIdx);
+    if (Number.isFinite(derived)) {
+      const editorOffset = Math.max(0, derived - (Number(transport.playbackIndexOffset) || 0));
+      return Number.isFinite(editorOffset) ? editorOffset : null;
+    }
+    const rangeStart = transport.playbackRange ? Number(transport.playbackRange.startOffset) : NaN;
+    return Number.isFinite(rangeStart) ? Math.max(0, rangeStart) : null;
+  }
+
   function syncPendingPlaybackPlan() {
     transport.pendingPlaybackPlan = buildTransportPlaybackPlan();
   }
@@ -122,10 +133,10 @@ function createPlaybackTransportController({
 
   function getResumeStartOffset(plan) {
     const focusModeEnabled = getFocusModeEnabled();
-    const resumeOffset = transport.playbackRange ? Math.max(0, Number(transport.playbackRange.startOffset) || 0) : 0;
+    const pausedResumeOffset = getPausedResumeEditorOffset();
     let startOffset = focusModeEnabled
-      ? (shouldResumeFromPause() ? resumeOffset : getEditorPlayStartOffset())
-      : getEditorMeasureStartOffset();
+      ? (Number.isFinite(pausedResumeOffset) ? pausedResumeOffset : getEditorPlayStartOffset())
+      : (Number.isFinite(pausedResumeOffset) ? pausedResumeOffset : getEditorMeasureStartOffset());
     if (focusModeEnabled) {
       startOffset = resolveFocusResumeStartOffset(plan, plan.rangeStart, startOffset);
     }

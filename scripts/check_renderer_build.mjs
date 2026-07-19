@@ -201,6 +201,75 @@ async function assertInlineToolbarIconsCompatibility() {
   }
 }
 
+async function assertPlaybackPauseResumeUsesPausedOffset() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { createPlaybackTransportController } from './src/renderer/playback/playback_transport_controller.js';",
+        "export { createPlaybackTransportController };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "playback-pause-resume-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { createPlaybackTransportController } = module.exports;
+  if (typeof createPlaybackTransportController !== "function") {
+    throw new Error("Unable to load playback transport controller.");
+  }
+
+  const calls = [];
+  const transport = {
+    isPlaying: false,
+    isPaused: true,
+    pausedSelectionSignature: "stable",
+    resumeStartIdx: 260,
+    playbackIndexOffset: 100,
+    playbackRange: { startOffset: 0, endOffset: null, origin: "cursor", loop: false },
+    pendingPlaybackPlan: null,
+    desiredPlayerSpeed: 1,
+    cloneRange: (range) => ({ ...(range || {}) }),
+    setRange: (range) => { transport.playbackRange = { ...(range || {}) }; },
+  };
+  const controller = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => false,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({ ok: false }),
+    getEditorMeasureStartOffset: () => 0,
+    getEditorPlayStartOffset: () => 0,
+    getEditorSelectionSignature: () => "stable",
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await controller.togglePlayPauseEffective();
+  if (!calls.length || calls[0].startOffset !== 160) {
+    throw new Error(`Paused Play must resume from converted paused offset 160, got ${calls[0] && calls[0].startOffset}.`);
+  }
+}
+
 async function assertAlignBarsDoesNotCrossSectionFields() {
   const barMetricsSrc = await readFile("src/renderer/abc/bar_metrics.js", "utf8");
   const alignBarsSrc = await readFile("src/renderer/abc/align_bars.js", "utf8");
@@ -616,6 +685,7 @@ async function main() {
 
   await assertSaveIntentGuards();
   await assertInlineToolbarIconsCompatibility();
+  await assertPlaybackPauseResumeUsesPausedOffset();
   await assertAlignBarsDoesNotCrossSectionFields();
   await assertBareContinuationDirectiveHighlight();
   await assertDirectiveErrorsDoNotGetMeasureStats();

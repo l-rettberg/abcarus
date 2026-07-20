@@ -27,6 +27,7 @@ export function createLibraryMetadataController({
   const {
     buildTuneMetaLabel = () => "",
     clearLibraryFilter = () => {},
+    clearSaveSession = () => {},
     countLines = () => 1,
     fileExists = async () => false,
     getFileContentFromCache = () => null,
@@ -261,18 +262,25 @@ export function createLibraryMetadataController({
       libraryIndex.files.splice(idx, 1);
       invalidateLibraryView();
     }
-    if (getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) setActiveFilePath(null);
+    let droppedActiveContext = false;
+    if (getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) {
+      setActiveFilePath(null);
+      droppedActiveContext = true;
+    }
     const activeTuneMeta = getActiveTuneMeta();
     if (activeTuneMeta && pathsEqual(activeTuneMeta.path, p)) {
       setActiveTuneMeta(null);
       setActiveTuneId(null);
       setActiveTuneUid(null);
       setActiveTuneIndex(null);
+      droppedActiveContext = true;
     }
     const currentDocumentPath = getCurrentDocumentPath();
     if (currentDocumentPath && pathsEqual(currentDocumentPath, p)) {
       patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
+      droppedActiveContext = true;
     }
+    if (droppedActiveContext) clearSaveSession();
     setDirtyIndicator(false);
     updateLibraryStatus();
     scheduleRenderLibraryTree();

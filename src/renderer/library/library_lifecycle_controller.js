@@ -661,6 +661,7 @@ export function createLibraryLifecycleController({
     setEditorValue("");
     setSuppressDirty(false);
     patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
+    clearSaveSession();
     setDirtyIndicator(false);
 
     try {

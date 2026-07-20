@@ -2871,6 +2871,7 @@ libraryMetadataController = createLibraryMetadataController({
     clearErrorsIndex: () => errorsFeature.clearIndex(),
     clearFileContentCache: () => fileContentCache.clear(),
     clearLibraryFilter,
+    clearSaveSession,
     countLines,
     deleteFileContentCacheKey: (key) => fileContentCache.deleteKey(key),
     fileExists,

@@ -2835,6 +2835,9 @@ documentLifecycleController = createDocumentLifecycleController({
     setTuneMetaText,
     setFileNameMeta,
     clearErrors,
+    setCurrentDocument,
+    setDirtyIndicator,
+    setActiveFilePath: (value) => { activeFilePath = value; },
     setStatus,
     updateFileHeaderPanel,
     updateHeaderStateUi: updateHeaderStateUI,
@@ -3329,16 +3332,12 @@ const importExportFeature = createImportExportFeature({
   pathsEqual,
   newFileMinimalAbc: NEW_FILE_MINIMAL_ABC,
   initializeNewImportFile: async (targetPath) => {
-    activeTuneId = null;
-    activeTuneMeta = null;
-    activeFilePath = targetPath;
-    setTuneMetaText("Untitled");
-    setFileNameMeta(stripFileExtension(safeBasename(targetPath)));
-    setCurrentDocument({ path: targetPath, dirty: false, content: "" });
-    setDirtyIndicator(false);
-    updateFileHeaderPanel();
-    updateHeaderStateUI();
-    clearErrors();
+    documentLifecycleController.beginCleanFileDocument({
+      path: targetPath,
+      content: "",
+      tuneLabel: "Untitled",
+      fileLabel: stripFileExtension(safeBasename(targetPath)),
+    });
     scheduleRenderNow({ clearOutput: true });
     await new Promise((resolve) => setTimeout(resolve, 0));
   },

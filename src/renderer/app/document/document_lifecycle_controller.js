@@ -27,6 +27,9 @@ function createDocumentLifecycleController({
     setTuneMetaText = () => {},
     setFileNameMeta = () => {},
     clearErrors = () => {},
+    setCurrentDocument = () => {},
+    setDirtyIndicator = () => {},
+    setActiveFilePath = () => {},
     setStatus = () => {},
     updateFileHeaderPanel = () => {},
     updateHeaderStateUi = () => {},
@@ -66,8 +69,23 @@ function createDocumentLifecycleController({
     updateHeaderStateUi();
   }
 
+  function beginCleanFileDocument({ path = "", content = "", tuneLabel = untitledLabel, fileLabel = untitledLabel } = {}) {
+    clearActiveTuneState();
+    clearSaveSession();
+    setActiveFilePath(path || null);
+    setCurrentDocument({ path: path || null, dirty: false, content: String(content || "") });
+    setDirtyIndicator(false);
+    markHeaderClean();
+    setTuneMetaText(tuneLabel);
+    setFileNameMeta(fileLabel);
+    clearErrors();
+    updateFileHeaderPanel();
+    updateHeaderStateUi();
+  }
+
   return {
     applyDocumentToUi,
+    beginCleanFileDocument,
     showEmptyState,
   };
 }

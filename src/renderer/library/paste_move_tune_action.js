@@ -44,6 +44,7 @@ export function createPasteMoveTuneAction({
     setCurrentDocument = () => {},
     setFileContentInCache = () => {},
     setStatus = () => {},
+    selectTune = async () => ({ ok: false }),
     showSaveError = async () => {},
     syncLibraryFileFromWorkingCopySnapshot = () => {},
     withFileLock = async (_path, fn) => fn(),
@@ -349,14 +350,23 @@ export function createPasteMoveTuneAction({
 
         setFileContentInCache(targetPath, finalTarget);
         setFileContentInCache(sourcePath, finalSource);
-        await refreshLibraryFile(targetPath, { force: true });
+        const updatedTargetFile = await refreshLibraryFile(targetPath, { force: true });
         await refreshLibraryFile(sourcePath, { force: true });
         setActiveFilePath(targetPath);
 
         if (getActiveTuneId() === clipboardTune.tuneId) {
-          setActiveTuneId(null);
-          setActiveTuneMeta(null);
-          setCurrentDocument(createBlankDocument());
+          const targetTunes = updatedTargetFile && Array.isArray(updatedTargetFile.tunes) ? updatedTargetFile.tunes : [];
+          const movedTune = targetTunes.length ? targetTunes[targetTunes.length - 1] : null;
+          const movedTuneId = movedTune ? (movedTune.tuneUid || movedTune.id) : "";
+          if (movedTuneId) {
+            await selectTune(movedTuneId, { skipConfirm: true, suppressRecent: true });
+          } else {
+            const doc = createBlankDocument();
+            if (doc) doc.path = targetPath;
+            setCurrentDocument(doc);
+            setActiveTuneId(null);
+            setActiveTuneMeta(null);
+          }
         }
 
         clearClipboardTune();

@@ -3039,6 +3039,7 @@ pasteMoveTuneAction = createPasteMoveTuneAction({
     setCurrentDocument,
     setFileContentInCache,
     setStatus,
+    selectTune,
     showSaveError,
     syncLibraryFileFromWorkingCopySnapshot,
     withFileLock,

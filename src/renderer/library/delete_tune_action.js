@@ -15,8 +15,8 @@ export function createDeleteTuneAction({
 
   const {
     attachTuneUidsToLibraryFile = () => {},
+    clearSaveSession = () => {},
     confirmDeleteTune = async () => "",
-    countLines = (text) => String(text || "").split(/\r\n|\n|\r/).length,
     discardWorkingCopyChangesForActiveFile = async () => {},
     ensureSafeToAbandonCurrentDoc = async () => false,
     findTuneById = () => null,
@@ -26,7 +26,6 @@ export function createDeleteTuneAction({
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
     requireCleanForFileOp = async () => false,
-    safeBasename = (path) => String(path || "").split("/").pop() || "",
     selectTune = async () => {},
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
@@ -34,6 +33,7 @@ export function createDeleteTuneAction({
     setActiveTuneMeta = () => {},
     setActiveTuneUid = () => {},
     setActiveTuneText = () => {},
+    setCurrentDocument = () => {},
     setDirtyIndicator = () => {},
     setFileContentInCache = () => {},
     showSaveError = async () => {},
@@ -123,24 +123,16 @@ export function createDeleteTuneAction({
           setDirtyIndicator(false);
         } else {
           const text = String(snapshotAfter.text || "");
-          const pseudoMeta = {
-            id: `${fileMeta.path}::0`,
-            path: fileMeta.path,
-            basename: fileMeta.basename || safeBasename(fileMeta.path),
-            xNumber: "",
-            title: "",
-            startLine: 1,
-            endLine: countLines(text),
-            startOffset: 0,
-            endOffset: text.length,
-          };
-          setActiveTuneText(text, pseudoMeta, { suppressRecent: true });
-          setActiveTuneId(pseudoMeta.id);
+          setActiveTuneText(text, null, { suppressRecent: true });
+          setCurrentDocument({ path: fileMeta.path, dirty: false, content: text });
+          setActiveTuneId(null);
           setActiveTuneUid(null);
           setActiveTuneIndex(null);
+          setActiveTuneMeta(null);
+          clearSaveSession();
           markCurrentDocumentClean();
           setDirtyIndicator(false);
-          markActiveTuneButton(pseudoMeta.id);
+          markActiveTuneButton(null);
         }
         try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
         return;

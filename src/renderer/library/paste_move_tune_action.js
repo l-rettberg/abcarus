@@ -21,7 +21,6 @@ export function createPasteMoveTuneAction({
   const {
     clearClipboardTune = () => {},
     confirmAppendToFile = async () => "",
-    createBlankDocument = () => null,
     ensureXNumberInAbc = (text) => text,
     findTuneById = () => null,
     flushWorkingCopyTuneSync = async () => {},
@@ -39,9 +38,7 @@ export function createPasteMoveTuneAction({
     resolveTuneEntryFromSnapshot = () => null,
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
-    setActiveTuneMeta = () => {},
     setClipboardTune = () => {},
-    setCurrentDocument = () => {},
     setFileContentInCache = () => {},
     setStatus = () => {},
     selectTune = async () => ({ ok: false }),
@@ -358,15 +355,10 @@ export function createPasteMoveTuneAction({
           const targetTunes = updatedTargetFile && Array.isArray(updatedTargetFile.tunes) ? updatedTargetFile.tunes : [];
           const movedTune = targetTunes.length ? targetTunes[targetTunes.length - 1] : null;
           const movedTuneId = movedTune ? (movedTune.tuneUid || movedTune.id) : "";
-          if (movedTuneId) {
-            await selectTune(movedTuneId, { skipConfirm: true, suppressRecent: true });
-          } else {
-            const doc = createBlankDocument();
-            if (doc) doc.path = targetPath;
-            setCurrentDocument(doc);
-            setActiveTuneId(null);
-            setActiveTuneMeta(null);
+          if (!movedTuneId) {
+            throw new Error("Tune was moved, but the target tune could not be found after reindexing. Reopen the target file and try again.");
           }
+          await selectTune(movedTuneId, { skipConfirm: true, suppressRecent: true });
         }
 
         clearClipboardTune();

@@ -15,12 +15,11 @@ export function createDeleteTuneAction({
 
   const {
     attachTuneUidsToLibraryFile = () => {},
-    clearSaveSession = () => {},
+    clearActiveTune = () => {},
     confirmDeleteTune = async () => "",
     discardWorkingCopyChangesForActiveFile = async () => {},
     ensureSafeToAbandonCurrentDoc = async () => false,
     findTuneById = () => null,
-    markActiveTuneButton = () => {},
     markCurrentDocumentClean = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     refreshLibraryFile = async () => null,
@@ -28,14 +27,9 @@ export function createDeleteTuneAction({
     requireCleanForFileOp = async () => false,
     selectTune = async () => {},
     setActiveFilePath = () => {},
-    setActiveTuneId = () => {},
-    setActiveTuneIndex = () => {},
-    setActiveTuneMeta = () => {},
-    setActiveTuneUid = () => {},
-    setActiveTuneText = () => {},
-    setCurrentDocument = () => {},
     setDirtyIndicator = () => {},
     setFileContentInCache = () => {},
+    showCleanFileDocument = () => {},
     showSaveError = async () => {},
     syncLibraryFileFromWorkingCopySnapshot = () => null,
   } = actions;
@@ -106,10 +100,7 @@ export function createDeleteTuneAction({
         setActiveFilePath(fileMeta.path);
 
         if (getActiveTuneId() === tuneId) {
-          setActiveTuneId(null);
-          setActiveTuneUid(null);
-          setActiveTuneIndex(null);
-          setActiveTuneMeta(null);
+          clearActiveTune();
         }
 
         const tunes = updatedFile && Array.isArray(updatedFile.tunes) ? updatedFile.tunes : [];
@@ -123,16 +114,7 @@ export function createDeleteTuneAction({
           setDirtyIndicator(false);
         } else {
           const text = String(snapshotAfter.text || "");
-          setActiveTuneText(text, null, { suppressRecent: true });
-          setCurrentDocument({ path: fileMeta.path, dirty: false, content: text });
-          setActiveTuneId(null);
-          setActiveTuneUid(null);
-          setActiveTuneIndex(null);
-          setActiveTuneMeta(null);
-          clearSaveSession();
-          markCurrentDocumentClean();
-          setDirtyIndicator(false);
-          markActiveTuneButton(null);
+          showCleanFileDocument(fileMeta.path, text);
         }
         try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
         return;

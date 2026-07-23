@@ -74,6 +74,7 @@ import { createLibraryShellController } from "./library/library_shell_controller
 import { createTuneClipboardController } from "./library/tune_clipboard_controller.js";
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
+import { createLibraryDocumentContext } from "./library/library_document_context.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
 import { createAppendCurrentTuneAction } from "./library/append_current_tune_action.js";
 import { createDeleteTuneAction } from "./library/delete_tune_action.js";
@@ -519,6 +520,7 @@ let workingCopyRuntimeController = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
+let libraryDocumentContext = null;
 let tuneClipboardController = null;
 let deleteTuneAction = null;
 let duplicateTuneAction = null;
@@ -2090,6 +2092,20 @@ const navFileHistory = [];
 let isLibraryVisible = true;
 let latestSettingsSnapshot = null;
 
+libraryDocumentContext = createLibraryDocumentContext({
+  clearSaveSession,
+  markActiveTuneButton,
+  markCurrentDocumentClean,
+  setActiveFilePath: (value) => { activeFilePath = value; },
+  setActiveTuneId: (value) => { activeTuneId = value; },
+  setActiveTuneIndex: (value) => { activeTuneIndex = value; },
+  setActiveTuneMeta: (value) => { activeTuneMeta = value; },
+  setActiveTuneText,
+  setActiveTuneUid: (value) => { activeTuneUid = value; },
+  setCurrentDocument,
+  setDirtyIndicator,
+});
+
 workingCopySyncController = createWorkingCopySyncController({
   api: window.api,
   state: {
@@ -2156,7 +2172,7 @@ appendCurrentTuneAction = createAppendCurrentTuneAction({
     refreshWorkingCopySnapshot,
     resolveWorkingCopySaveConflictDefault,
     selectTune,
-    setActiveFilePath: (value) => { activeFilePath = value; },
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
     setFileContentInCache,
     setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
     setSaveSession,
@@ -2191,8 +2207,8 @@ newFileAction = createNewFileAction({
     refreshWorkingCopySnapshot,
     safeBasename,
     safeDirname,
-    setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneText,
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
+    setActiveTuneText: libraryDocumentContext.setActiveTuneTextForLibrary,
     setDirtyIndicator,
     setFileContentInCache,
     setFileNameMeta,
@@ -2840,8 +2856,8 @@ documentLifecycleController = createDocumentLifecycleController({
     clearErrors,
     setCurrentDocument,
     setDirtyIndicator,
-    setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneId: (value) => { activeTuneId = value; },
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
+    setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
     setActiveTuneUid: (value) => { activeTuneUid = value; },
     setActiveTuneIndex: (value) => { activeTuneIndex = value; },
     setActiveTuneMeta: (value) => { activeTuneMeta = value; },
@@ -2954,27 +2970,21 @@ deleteTuneAction = createDeleteTuneAction({
   },
   actions: {
     attachTuneUidsToLibraryFile,
-    clearSaveSession,
+    clearActiveTune: libraryDocumentContext.clearActiveTune,
     confirmDeleteTune,
     discardWorkingCopyChangesForActiveFile,
     ensureSafeToAbandonCurrentDoc,
     findTuneById,
-    markActiveTuneButton,
     markCurrentDocumentClean,
     pathsEqual,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
     requireCleanForFileOp,
     selectTune,
-    setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneId: (value) => { activeTuneId = value; },
-    setActiveTuneIndex: (value) => { activeTuneIndex = value; },
-    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
-    setActiveTuneUid: (value) => { activeTuneUid = value; },
-    setActiveTuneText,
-    setCurrentDocument,
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
     setDirtyIndicator,
     setFileContentInCache,
+    showCleanFileDocument: libraryDocumentContext.showCleanFileDocument,
     showSaveError,
     syncLibraryFileFromWorkingCopySnapshot,
   },
@@ -2998,9 +3008,9 @@ duplicateTuneAction = createDuplicateTuneAction({
     renumberXInTextKeepingFirst,
     requireCleanForFileOp,
     selectTune,
-    setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneId: (value) => { activeTuneId = value; },
-    setActiveTuneText,
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
+    setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
+    setActiveTuneText: libraryDocumentContext.setActiveTuneTextForLibrary,
     setFileContentInCache,
     setStatus,
     showSaveError,
@@ -3042,8 +3052,8 @@ pasteMoveTuneAction = createPasteMoveTuneAction({
     renumberXInTextKeepingFirst,
     requireCleanForFileOp,
     resolveTuneEntryFromSnapshot,
-    setActiveFilePath: (value) => { activeFilePath = value; },
-    setActiveTuneId: (value) => { activeTuneId = value; },
+    setActiveFilePath: libraryDocumentContext.setActiveFile,
+    setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
     setClipboardTune,
     setFileContentInCache,
     setStatus,

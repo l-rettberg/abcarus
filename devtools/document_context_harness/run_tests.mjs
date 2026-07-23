@@ -16,6 +16,9 @@ const { createDocumentLifecycleController } = await importRendererModule(
 const { createLibraryMetadataController } = await importRendererModule(
   resolve("src/renderer/library/library_metadata_controller.js")
 );
+const { createLibraryDocumentContext } = await importRendererModule(
+  resolve("src/renderer/library/library_document_context.js")
+);
 
 function testBeginCleanFileDocumentClearsStaleSaveContext() {
   const calls = [];
@@ -122,6 +125,37 @@ function testSetRawActiveTuneContextClearsStaleUidAndIndex() {
   ]);
 }
 
+function testLibraryDocumentContextShowsCleanFileDocument() {
+  const calls = [];
+  const context = createLibraryDocumentContext({
+    clearSaveSession: () => calls.push(["clearSaveSession"]),
+    markActiveTuneButton: (id) => calls.push(["markActiveTuneButton", id]),
+    markCurrentDocumentClean: () => calls.push(["markCurrentDocumentClean"]),
+    setActiveTuneId: (id) => calls.push(["setActiveTuneId", id]),
+    setActiveTuneUid: (uid) => calls.push(["setActiveTuneUid", uid]),
+    setActiveTuneIndex: (index) => calls.push(["setActiveTuneIndex", index]),
+    setActiveTuneMeta: (meta) => calls.push(["setActiveTuneMeta", meta]),
+    setActiveTuneText: (text, meta, options) => calls.push(["setActiveTuneText", text, meta, options]),
+    setCurrentDocument: (doc) => calls.push(["setCurrentDocument", doc]),
+    setDirtyIndicator: (dirty) => calls.push(["setDirtyIndicator", dirty]),
+  });
+
+  context.showCleanFileDocument("/tmp/empty.abc", "");
+
+  assert.deepEqual(calls, [
+    ["setActiveTuneText", "", null, { suppressRecent: true }],
+    ["setCurrentDocument", { path: "/tmp/empty.abc", dirty: false, content: "" }],
+    ["setActiveTuneId", null],
+    ["setActiveTuneUid", null],
+    ["setActiveTuneIndex", null],
+    ["setActiveTuneMeta", null],
+    ["clearSaveSession"],
+    ["markCurrentDocumentClean"],
+    ["setDirtyIndicator", false],
+    ["markActiveTuneButton", null],
+  ]);
+}
+
 function testDropActiveLibraryFileClearsSaveSession() {
   const activePath = "/tmp/library/active.abc";
   let libraryIndex = {
@@ -222,6 +256,7 @@ testBeginCleanFileDocumentClearsStaleSaveContext();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
 testSetRawActiveTuneContextClearsStaleUidAndIndex();
+testLibraryDocumentContextShowsCleanFileDocument();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 

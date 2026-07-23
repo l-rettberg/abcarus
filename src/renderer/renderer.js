@@ -71,17 +71,11 @@ import { buildGroupEntries as buildGroupEntriesCore } from "./library/group_entr
 import { createLibraryMetadataController } from "./library/library_metadata_controller.js";
 import { createLibraryLifecycleController } from "./library/library_lifecycle_controller.js";
 import { createLibraryShellController } from "./library/library_shell_controller.js";
-import { createTuneClipboardController } from "./library/tune_clipboard_controller.js";
 import { createLibraryTreeView } from "./library/tree_view.js";
 import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createLibraryDocumentContext } from "./library/library_document_context.js";
+import { createLibraryCrudDomain } from "./library/library_crud_domain.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
-import { createAppendCurrentTuneAction } from "./library/append_current_tune_action.js";
-import { createDeleteTuneAction } from "./library/delete_tune_action.js";
-import { createDuplicateTuneAction } from "./library/duplicate_tune_action.js";
-import { createPasteMoveTuneAction } from "./library/paste_move_tune_action.js";
-import { createRenumberXAction } from "./library/renumber_x_action.js";
-import { createNewFileAction } from "./library/new_file_action.js";
 import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
@@ -521,6 +515,7 @@ let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
 let libraryDocumentContext = null;
+let libraryCrudDomain = null;
 let tuneClipboardController = null;
 let deleteTuneAction = null;
 let duplicateTuneAction = null;
@@ -2145,84 +2140,6 @@ workingCopySyncController = createWorkingCopySyncController({
   },
 });
 
-appendCurrentTuneAction = createAppendCurrentTuneAction({
-  api: window.api,
-  SAVE_INTENT,
-  state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
-    getCurrentDocumentPath,
-    getCurrentNavFilePath,
-    getEditorText: getEditorValue,
-    getSaveSession: resolveSaveSession,
-  },
-  actions: {
-    confirmAppendToFile,
-    ensureSafeToAbandonCurrentDoc,
-    ensureXNumberInAbc,
-    getActiveFileEntry,
-    getNextXNumber,
-    markDiskConflictPath,
-    markHeaderClean,
-    parseTuneIdentityFields,
-    patchCurrentDocument,
-    pathsEqual,
-    refreshLibraryFile,
-    refreshWorkingCopySnapshot,
-    resolveWorkingCopySaveConflictDefault,
-    selectTune,
-    setActiveFilePath: libraryDocumentContext.setActiveFile,
-    setFileContentInCache,
-    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
-    setSaveSession,
-    setStatus,
-    setDirtyIndicator,
-    showSaveError,
-    showToast,
-    syncLibraryFileFromWorkingCopySnapshot,
-    updateHeaderStateUI,
-    withFileLock,
-  },
-});
-
-newFileAction = createNewFileAction({
-  api: window.api,
-  constants: {
-    newFileMinimalAbc: NEW_FILE_MINIMAL_ABC,
-    templateAbc: TEMPLATE_ABC,
-  },
-  actions: {
-    confirmOverwrite,
-    ensureSafeToAbandonCurrentDoc,
-    ensureXNumberInAbc,
-    fileExists,
-    getDefaultSaveDir,
-    getSuggestedBaseName,
-    loadLibraryFileIntoEditor,
-    mkdirp,
-    patchCurrentDocument,
-    recordNavFilePath,
-    refreshLibraryFile,
-    refreshWorkingCopySnapshot,
-    safeBasename,
-    safeDirname,
-    setActiveFilePath: libraryDocumentContext.setActiveFile,
-    setActiveTuneText: libraryDocumentContext.setActiveTuneTextForLibrary,
-    setDirtyIndicator,
-    setFileContentInCache,
-    setFileNameMeta,
-    showSaveDialog,
-    showSaveError,
-    showToast,
-    stripFileExtension,
-    updateFileHeaderPanel,
-    updateWindowTitle,
-    withFileLock,
-    writeFile,
-  },
-});
-
 saveFlowController = createSaveFlowController({
   api: window.api,
   SAVE_INTENT,
@@ -2940,173 +2857,103 @@ libraryMetadataController = createLibraryMetadataController({
   },
 });
 
-tuneClipboardController = createTuneClipboardController({
-  state: {
-    getLibraryIndex: () => libraryIndex,
-    getWorkingCopySnapshot,
-  },
-  actions: {
-    getFileContentFromCache,
-    pathsEqual,
-    readFile,
-    resolveTuneEntryFromSnapshot,
-    setBufferStatus,
-    setFileContentInCache,
-    setStatus,
-    showSaveError,
-  },
-});
-
-deleteTuneAction = createDeleteTuneAction({
+libraryCrudDomain = createLibraryCrudDomain({
   api: window.api,
-  state: {
-    getLibraryIndex: () => libraryIndex,
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneId: () => activeTuneId,
-    getRawMode: () => isRawModeActive(),
-    getHeaderDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
-    isCurrentDocumentDirty,
-  },
-  actions: {
-    attachTuneUidsToLibraryFile,
-    clearActiveTune: libraryDocumentContext.clearActiveTune,
-    confirmDeleteTune,
-    discardWorkingCopyChangesForActiveFile,
-    ensureSafeToAbandonCurrentDoc,
-    findTuneById,
-    markCurrentDocumentClean,
-    pathsEqual,
-    refreshLibraryFile,
-    refreshWorkingCopySnapshot,
-    requireCleanForFileOp,
-    selectTune,
-    setActiveFilePath: libraryDocumentContext.setActiveFile,
-    setDirtyIndicator,
-    setFileContentInCache,
-    showCleanFileDocument: libraryDocumentContext.showCleanFileDocument,
-    showSaveError,
-    syncLibraryFileFromWorkingCopySnapshot,
-  },
-});
-
-duplicateTuneAction = createDuplicateTuneAction({
-  api: window.api,
-  state: {
-    isWorkingCopyOpenForFile,
-  },
-  actions: {
-    attachTuneUidsToLibraryFile,
-    ensureCopyTitleInAbc,
-    findTuneById,
-    markActiveTuneButton,
-    markDiskConflictPath,
-    pathsEqual,
-    readFile,
-    refreshLibraryFile,
-    refreshWorkingCopySnapshot,
-    renumberXInTextKeepingFirst,
-    requireCleanForFileOp,
-    selectTune,
-    setActiveFilePath: libraryDocumentContext.setActiveFile,
-    setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
-    setActiveTuneText: libraryDocumentContext.setActiveTuneTextForLibrary,
-    setFileContentInCache,
-    setStatus,
-    showSaveError,
-    syncLibraryFileFromWorkingCopySnapshot,
-    withFileLock,
-    writeFile,
-  },
-});
-
-pasteMoveTuneAction = createPasteMoveTuneAction({
-  api: window.api,
+  SAVE_INTENT,
   state: {
     getActiveFilePath: () => activeFilePath,
     getActiveTuneId: () => activeTuneId,
+    getActiveTuneIndex: () => activeTuneIndex,
     getActiveTuneMeta: () => activeTuneMeta,
-    getClipboardTune,
+    getActiveTuneUid: () => activeTuneUid,
+    getCurrentDocumentPath,
+    getCurrentNavFilePath,
+    getEditorText: getEditorValue,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
-    getWorkingCopySnapshot,
+    getLibraryIndex: () => libraryIndex,
+    getRawMode: () => isRawModeActive(),
+    getSaveSession: resolveSaveSession,
     hasGlobalUnsavedChanges,
     isCurrentDocumentDirty,
     isWorkingCopyOpenForFile,
   },
   actions: {
-    clearClipboardTune,
+    attachTuneUidsToLibraryFile,
     confirmAppendToFile,
+    confirmDeleteTune,
+    confirmOverwrite,
+    discardWorkingCopyChangesForActiveFile,
+    ensureCopyTitleInAbc,
+    ensureSafeToAbandonCurrentDoc,
     ensureXNumberInAbc,
-    findTuneById,
+    fileExists,
     flushWorkingCopyTuneSync,
     getActiveEditFilePath,
+    getActiveFileEntry,
+    getDefaultSaveDir,
+    getFileContentFromCache,
     getNextXNumber,
-    getTuneText,
+    getSuggestedBaseName,
+    getWorkingCopySnapshot,
+    hasUnsavedChangesForFile,
+    libraryDocumentContext,
+    loadLibraryFileIntoEditor,
+    markActiveTuneButton,
+    markCurrentDocumentClean,
     markDiskConflictPath,
+    markHeaderClean,
+    mkdirp,
+    parseTuneIdentityFields,
+    patchCurrentDocument,
     pathsEqual,
     readFile,
+    recordNavFilePath,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
     removeTuneFromContent,
     renumberXInTextKeepingFirst,
+    renumberXLinesConsecutive,
     requireCleanForFileOp,
+    resetWorkingCopyTuneSyncDebounce,
     resolveTuneEntryFromSnapshot,
-    setActiveFilePath: libraryDocumentContext.setActiveFile,
-    setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
-    setClipboardTune,
-    setFileContentInCache,
-    setStatus,
+    resolveWorkingCopySaveConflictDefault,
+    safeBasename,
+    safeDirname,
+    scheduleRenderLibraryTree,
     selectTune,
+    setBufferStatus,
+    setDirtyIndicator,
+    setFileContentInCache,
+    setFileNameMeta,
+    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
+    setSaveSession,
+    setStatus,
+    showSaveDialog,
     showSaveError,
+    showToast,
+    stripFileExtension,
     syncLibraryFileFromWorkingCopySnapshot,
+    updateFileContext,
+    updateFileHeaderPanel,
+    updateHeaderStateUI,
+    updateWindowTitle,
     withFileLock,
     withFileLocks,
     writeFile,
   },
-});
-
-renumberXAction = createRenumberXAction({
-  api: window.api,
-  state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneIndex: () => activeTuneIndex,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
-    getCurrentDocumentPath,
-    getHeaderDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
-    getLibraryIndex: () => libraryIndex,
-    getRawMode: () => isRawModeActive(),
-    isCurrentDocumentDirty,
-    isWorkingCopyOpenForFile,
-  },
-  actions: {
-    attachTuneUidsToLibraryFile,
-    flushWorkingCopyTuneSync,
-    getActiveFileEntry,
-    hasUnsavedChangesForFile,
-    markCurrentDocumentClean,
-    markDiskConflictPath,
-    pathsEqual,
-    patchCurrentDocument,
-    readFile,
-    refreshLibraryFile,
-    refreshWorkingCopySnapshot,
-    renumberXLinesConsecutive,
-    resetWorkingCopyTuneSyncDebounce,
-    scheduleRenderLibraryTree,
-    selectTune,
-    setDirtyIndicator,
-    setFileContentInCache,
-    setStatus,
-    showSaveError,
-    showToast,
-    updateFileContext,
-    withFileLock,
-    writeFile,
+  constants: {
+    newFileMinimalAbc: NEW_FILE_MINIMAL_ABC,
+    templateAbc: TEMPLATE_ABC,
   },
 });
+tuneClipboardController = libraryCrudDomain.tuneClipboardController;
+appendCurrentTuneAction = libraryCrudDomain.appendCurrentTuneAction;
+newFileAction = libraryCrudDomain.newFileAction;
+deleteTuneAction = libraryCrudDomain.deleteTuneAction;
+duplicateTuneAction = libraryCrudDomain.duplicateTuneAction;
+pasteMoveTuneAction = libraryCrudDomain.pasteMoveTuneAction;
+renumberXAction = libraryCrudDomain.renumberXAction;
 
 libraryLifecycleController = createLibraryLifecycleController({
   api: window.api,

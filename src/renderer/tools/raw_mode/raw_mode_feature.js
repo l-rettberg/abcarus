@@ -17,7 +17,7 @@ function createRawModeFeature({
   beginRawFullFileContext = () => {},
   getActiveTuneId = () => "",
   getActiveTuneMeta = () => null,
-  setRawActiveTuneMeta = () => {},
+  setRawActiveTuneContext = () => {},
   clearUnsavedDiscardState = () => {},
   getHeaderDirty = () => false,
   setHeaderClean = () => {},
@@ -250,7 +250,7 @@ function createRawModeFeature({
       startOffset: res.tune.startOffset,
       endOffset: res.tune.endOffset,
     };
-    setRawActiveTuneMeta(tuneId, meta);
+    setRawActiveTuneContext(tuneId, meta);
     markActiveTuneButton(tuneId);
     setTuneMetaText(buildTuneMetaLabel(meta));
   }

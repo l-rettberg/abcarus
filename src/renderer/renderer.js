@@ -2834,6 +2834,10 @@ documentLifecycleController = createDocumentLifecycleController({
     setCurrentDocument,
     setDirtyIndicator,
     setActiveFilePath: (value) => { activeFilePath = value; },
+    setActiveTuneId: (value) => { activeTuneId = value; },
+    setActiveTuneUid: (value) => { activeTuneUid = value; },
+    setActiveTuneIndex: (value) => { activeTuneIndex = value; },
+    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
     setStatus,
     updateFileHeaderPanel,
     updateHeaderStateUi: updateHeaderStateUI,
@@ -3483,12 +3487,7 @@ rawModeFeature = createRawModeFeature({
   beginRawFullFileContext: (filePath, source) => documentLifecycleController.beginRawFullFileContext(filePath, source),
   getActiveTuneId: () => activeTuneId,
   getActiveTuneMeta: () => activeTuneMeta,
-  setRawActiveTuneMeta: (tuneId, meta) => {
-    activeTuneId = tuneId || null;
-    activeTuneUid = null;
-    activeTuneIndex = null;
-    activeTuneMeta = meta || null;
-  },
+  setRawActiveTuneContext: (tuneId, meta) => documentLifecycleController.setRawActiveTuneContext(tuneId, meta),
   clearUnsavedDiscardState: () => {
     resetHeaderEditorFilePath();
     markHeaderClean();

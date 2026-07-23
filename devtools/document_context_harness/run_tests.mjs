@@ -100,6 +100,28 @@ function testBeginRawFullFileContextPreservesTuneState() {
   ]);
 }
 
+function testSetRawActiveTuneContextClearsStaleUidAndIndex() {
+  const calls = [];
+  const meta = { path: "/tmp/raw.abc", xNumber: "2" };
+  const controller = createDocumentLifecycleController({
+    actions: {
+      setActiveTuneId: (value) => calls.push(["setActiveTuneId", value]),
+      setActiveTuneUid: (value) => calls.push(["setActiveTuneUid", value]),
+      setActiveTuneIndex: (value) => calls.push(["setActiveTuneIndex", value]),
+      setActiveTuneMeta: (value) => calls.push(["setActiveTuneMeta", value]),
+    },
+  });
+
+  controller.setRawActiveTuneContext("/tmp/raw.abc::2", meta);
+
+  assert.deepEqual(calls, [
+    ["setActiveTuneId", "/tmp/raw.abc::2"],
+    ["setActiveTuneUid", null],
+    ["setActiveTuneIndex", null],
+    ["setActiveTuneMeta", meta],
+  ]);
+}
+
 function testDropActiveLibraryFileClearsSaveSession() {
   const activePath = "/tmp/library/active.abc";
   let libraryIndex = {
@@ -199,6 +221,7 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 testBeginCleanFileDocumentClearsStaleSaveContext();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
+testSetRawActiveTuneContextClearsStaleUidAndIndex();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 

@@ -69,7 +69,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
     },
     getActiveTuneId: () => activeTuneId,
     getActiveTuneMeta: () => tunes[0],
-    setRawActiveTuneMeta: (tuneId) => { activeTuneId = tuneId; },
+    setRawActiveTuneContext: (tuneId) => { activeTuneId = tuneId; },
     getHeaderDirty: () => false,
     setHeaderClean: () => { headerCleanCalls += 1; },
     getHeaderText: () => fullText.slice(0, fileEntry.headerEndOffset),

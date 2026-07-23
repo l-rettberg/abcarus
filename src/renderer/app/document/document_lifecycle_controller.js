@@ -31,6 +31,10 @@ function createDocumentLifecycleController({
     setCurrentDocument = () => {},
     setDirtyIndicator = () => {},
     setActiveFilePath = () => {},
+    setActiveTuneId = () => {},
+    setActiveTuneUid = () => {},
+    setActiveTuneIndex = () => {},
+    setActiveTuneMeta = () => {},
     setStatus = () => {},
     updateFileHeaderPanel = () => {},
     updateHeaderStateUi = () => {},
@@ -96,11 +100,19 @@ function createDocumentLifecycleController({
     setFullFileSaveSession(filePath || "", source);
   }
 
+  function setRawActiveTuneContext(tuneId, meta = null) {
+    setActiveTuneId(tuneId || null);
+    setActiveTuneUid(null);
+    setActiveTuneIndex(null);
+    setActiveTuneMeta(meta || null);
+  }
+
   return {
     applyDocumentToUi,
     beginCleanFileDocument,
     beginFullFileModeContext,
     beginRawFullFileContext,
+    setRawActiveTuneContext,
     showEmptyState,
   };
 }

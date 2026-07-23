@@ -1974,7 +1974,14 @@ const workingCopyConflictController = createWorkingCopyConflictController({
     safeBasename,
     safeDirname,
     selectTune,
-    setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+    switchWorkingCopyFileContext: (filePath, options = {}) => {
+      if (options && options.rawMode) {
+        documentLifecycleController.beginRawFullFileContext(filePath, options.source || "working_copy");
+        setRawModeFilePath(filePath);
+      } else {
+        activeFilePath = filePath || null;
+      }
+    },
     setDirtyIndicator,
     setEditorValueClean: (text) => {
       suppressDirty = true;

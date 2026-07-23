@@ -14,7 +14,7 @@ function createWorkingCopyConflictController({
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
     selectTune = async () => {},
-    setActiveFilePath = () => {},
+    switchWorkingCopyFileContext = () => {},
     setDirtyIndicator = () => {},
     setEditorValueClean = () => {},
     setFileContentInCache = () => {},
@@ -126,11 +126,10 @@ function createWorkingCopyConflictController({
     const updatedFile = await refreshLibraryFile(targetPath, { force: true });
     if (updatedFile && updatedFile.basename) setFileNameMeta(stripFileExtension(updatedFile.basename || ""));
     if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
-    setActiveFilePath(targetPath);
+    switchWorkingCopyFileContext(targetPath, { rawMode: getRawMode(), source: "save_copy_as" });
     recordNavFilePath(targetPath);
 
     if (getRawMode()) {
-      setRawModeFilePath(targetPath);
       const parts = splitFileIntoHeaderAndBody((snap && snap.text) ? snap.text : "");
       setHeaderEditorValueClean(parts.headerText);
       setEditorValueClean(parts.bodyText);

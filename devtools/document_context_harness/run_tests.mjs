@@ -61,6 +61,25 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   assert.ok(calls.includes("markHeaderClean"), "header state should be clean for a clean file document");
 }
 
+function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
+  const calls = [];
+  const controller = createDocumentLifecycleController({
+    actions: {
+      clearActiveTuneState: (path) => calls.push(["clearActiveTuneState", path]),
+      clearSaveSession: () => calls.push(["clearSaveSession"]),
+      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
+    },
+  });
+
+  controller.beginFullFileModeContext("/tmp/song.pro", "chordpro_open");
+
+  assert.deepEqual(calls, [
+    ["clearActiveTuneState", "/tmp/song.pro"],
+    ["clearSaveSession"],
+    ["setFullFileSaveSession", "/tmp/song.pro", "chordpro_open"],
+  ]);
+}
+
 function testDropActiveLibraryFileClearsSaveSession() {
   const activePath = "/tmp/library/active.abc";
   let libraryIndex = {
@@ -158,6 +177,7 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 }
 
 testBeginCleanFileDocumentClearsStaleSaveContext();
+testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 

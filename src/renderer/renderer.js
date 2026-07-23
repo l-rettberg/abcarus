@@ -794,20 +794,7 @@ const chordProFeature = createChordProFeature({
   resetRawModeState,
   resetPlaybackState,
   clearErrors,
-  clearActiveTuneState: (filePath) => {
-    activeTuneMeta = null;
-    activeTuneId = null;
-    activeTuneUid = null;
-    activeTuneIndex = null;
-    activeFilePath = filePath || null;
-    isNewTuneDraft = false;
-  },
-  setSaveSessionForChordPro: (filePath) => setSaveSession({
-    intent: SAVE_INTENT.FULL_FILE,
-    targetPath: String(filePath || ""),
-    targetTuneUid: "",
-    source: "chordpro_open",
-  }),
+  beginFullFileModeContext: (filePath, source) => documentLifecycleController.beginFullFileModeContext(filePath, source),
   recordNavFilePath,
   setDirtyIndicator,
   setFileContentInCache,
@@ -2825,12 +2812,21 @@ documentLifecycleController = createDocumentLifecycleController({
     setEditorText: setEditorValue,
     scheduleRender: scheduleRenderNow,
     setRenderBusy,
-    clearActiveTuneState: () => {
+    clearActiveTuneState: (filePath = null) => {
       activeTuneMeta = null;
       activeTuneId = null;
-      activeFilePath = null;
+      activeTuneUid = null;
+      activeTuneIndex = null;
+      activeFilePath = filePath || null;
+      isNewTuneDraft = false;
     },
     clearSaveSession,
+    setFullFileSaveSession: (filePath, source) => setSaveSession({
+      intent: SAVE_INTENT.FULL_FILE,
+      targetPath: String(filePath || ""),
+      targetTuneUid: "",
+      source: source || "full_file_mode",
+    }),
     markHeaderClean,
     setTuneMetaText,
     setFileNameMeta,

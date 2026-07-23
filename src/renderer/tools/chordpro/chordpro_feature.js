@@ -366,8 +366,7 @@ function createChordProFeature(host) {
     call(h.resetRawModeState);
     call(h.resetPlaybackState);
     call(h.clearErrors);
-    call(h.clearActiveTuneState, p);
-    call(h.setSaveSessionForChordPro, p);
+    call(h.beginFullFileModeContext, p, "chordpro_open");
     call(h.recordNavFilePath, p);
 
     activeIndex = 0;

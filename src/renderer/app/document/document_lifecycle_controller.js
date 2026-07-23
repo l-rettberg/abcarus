@@ -23,6 +23,7 @@ function createDocumentLifecycleController({
     setRenderBusy = () => {},
     clearActiveTuneState = () => {},
     clearSaveSession = () => {},
+    setFullFileSaveSession = () => {},
     markHeaderClean = () => {},
     setTuneMetaText = () => {},
     setFileNameMeta = () => {},
@@ -83,9 +84,16 @@ function createDocumentLifecycleController({
     updateHeaderStateUi();
   }
 
+  function beginFullFileModeContext(filePath, source = "full_file_mode") {
+    clearActiveTuneState(filePath || null);
+    clearSaveSession();
+    setFullFileSaveSession(filePath || "", source);
+  }
+
   return {
     applyDocumentToUi,
     beginCleanFileDocument,
+    beginFullFileModeContext,
     showEmptyState,
   };
 }

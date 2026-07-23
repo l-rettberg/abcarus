@@ -27,6 +27,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
   let dirtyIndicator = false;
   let headerCleanCalls = 0;
   let workingCopyDirty = Boolean(staleWorkingCopyDirty);
+  let rawContextCalls = 0;
 
   const tunes = [
     {
@@ -61,7 +62,11 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
       if (Object.prototype.hasOwnProperty.call(patch, "content")) currentDoc.content = String(patch.content || "");
     },
     getActiveFilePath: () => activeFilePath,
-    setActiveFilePath: (next) => { activeFilePath = next || ""; },
+    beginRawFullFileContext: (next, source) => {
+      rawContextCalls += 1;
+      assert.equal(source, "raw_mode", "raw enter must use a raw full-file save session source");
+      activeFilePath = next || "";
+    },
     getActiveTuneId: () => activeTuneId,
     getActiveTuneMeta: () => tunes[0],
     setRawActiveTuneMeta: (tuneId) => { activeTuneId = tuneId; },
@@ -109,7 +114,6 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
     setDirtyIndicator: (next) => { dirtyIndicator = Boolean(next); },
     updateHeaderStateUI: () => {},
     updateFileHeaderPanel: () => {},
-    setSaveFullFileSession: () => {},
     setFileContentInCache: () => {},
   });
 
@@ -122,6 +126,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
     get tuneFlushCalls() { return tuneFlushCalls; },
     get selectedTuneCalls() { return selectedTuneCalls; },
     get headerCleanCalls() { return headerCleanCalls; },
+    get rawContextCalls() { return rawContextCalls; },
   };
 }
 
@@ -131,6 +136,7 @@ async function testCleanRawRoundTripDoesNotDirtyDocument() {
   assert.equal(h.feature.isEnabled(), true, "raw mode should be enabled after enter");
   assert.equal(h.currentDoc.dirty, false, "raw enter should keep current document clean");
   assert.equal(h.dirtyIndicator, false, "raw enter should clear dirty indicator");
+  assert.equal(h.rawContextCalls, 1, "raw enter should establish full-file context once");
 
   await h.feature.exit({
     ensureSafe: async () => {

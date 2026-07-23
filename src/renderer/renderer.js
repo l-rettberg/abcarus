@@ -3480,7 +3480,7 @@ rawModeFeature = createRawModeFeature({
     patchCurrentDocument(patch);
   },
   getActiveFilePath: () => activeFilePath,
-  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+  beginRawFullFileContext: (filePath, source) => documentLifecycleController.beginRawFullFileContext(filePath, source),
   getActiveTuneId: () => activeTuneId,
   getActiveTuneMeta: () => activeTuneMeta,
   setRawActiveTuneMeta: (tuneId, meta) => {
@@ -3534,12 +3534,6 @@ rawModeFeature = createRawModeFeature({
   updateHeaderStateUI,
   updateFileHeaderPanel,
   setDirtyIndicator,
-  setSaveFullFileSession: (filePath, source) => setSaveSession({
-    intent: SAVE_INTENT.FULL_FILE,
-    targetPath: String(filePath || ""),
-    targetTuneUid: "",
-    source: source || "raw_mode",
-  }),
   ensureSafeToAbandonCurrentDoc,
   ensureSafeToEnterRaw: rawModeEnterGuard.ensureSafeToEnterRaw,
   setTuneMetaText,

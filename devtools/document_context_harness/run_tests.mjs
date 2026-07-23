@@ -80,6 +80,26 @@ function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
   ]);
 }
 
+function testBeginRawFullFileContextPreservesTuneState() {
+  const calls = [];
+  const controller = createDocumentLifecycleController({
+    actions: {
+      clearActiveTuneState: () => calls.push(["clearActiveTuneState"]),
+      clearSaveSession: () => calls.push(["clearSaveSession"]),
+      setActiveFilePath: (path) => calls.push(["setActiveFilePath", path]),
+      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
+    },
+  });
+
+  controller.beginRawFullFileContext("/tmp/raw.abc", "raw_mode");
+
+  assert.deepEqual(calls, [
+    ["setActiveFilePath", "/tmp/raw.abc"],
+    ["clearSaveSession"],
+    ["setFullFileSaveSession", "/tmp/raw.abc", "raw_mode"],
+  ]);
+}
+
 function testDropActiveLibraryFileClearsSaveSession() {
   const activePath = "/tmp/library/active.abc";
   let libraryIndex = {
@@ -178,6 +198,7 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 
 testBeginCleanFileDocumentClearsStaleSaveContext();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
+testBeginRawFullFileContextPreservesTuneState();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 

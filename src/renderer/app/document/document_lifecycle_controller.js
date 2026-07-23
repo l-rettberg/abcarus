@@ -90,10 +90,17 @@ function createDocumentLifecycleController({
     setFullFileSaveSession(filePath || "", source);
   }
 
+  function beginRawFullFileContext(filePath, source = "raw_mode") {
+    setActiveFilePath(filePath || null);
+    clearSaveSession();
+    setFullFileSaveSession(filePath || "", source);
+  }
+
   return {
     applyDocumentToUi,
     beginCleanFileDocument,
     beginFullFileModeContext,
+    beginRawFullFileContext,
     showEmptyState,
   };
 }

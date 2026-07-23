@@ -14,7 +14,7 @@ function createRawModeFeature({
   getCurrentDoc = () => null,
   patchCurrentDoc = () => {},
   getActiveFilePath = () => "",
-  setActiveFilePath = () => {},
+  beginRawFullFileContext = () => {},
   getActiveTuneId = () => "",
   getActiveTuneMeta = () => null,
   setRawActiveTuneMeta = () => {},
@@ -56,7 +56,6 @@ function createRawModeFeature({
   updateHeaderStateUI = () => {},
   updateFileHeaderPanel = () => {},
   setDirtyIndicator = () => {},
-  setSaveFullFileSession = () => {},
   ensureSafeToAbandonCurrentDoc = async () => true,
   ensureSafeToEnterRaw = null,
   setTuneMetaText = () => {},
@@ -324,8 +323,7 @@ function createRawModeFeature({
         await refreshWorkingCopySnapshot();
       } catch {}
 
-      setActiveFilePath(filePath);
-      setSaveFullFileSession(filePath, "raw_mode");
+      beginRawFullFileContext(filePath, "raw_mode");
       setFileContentInCache(filePath, fullText);
       const updatedFile = await refreshLibraryFile(filePath, { force: true });
       const entry = updatedFile || getActiveFileEntry();

@@ -34,6 +34,7 @@ function createLibraryUiDomain({
   const {
     main = null,
     libraryTree = null,
+    libraryRoot = null,
     tuneSelect = null,
     librarySearch = null,
     groupBy = null,
@@ -55,6 +56,9 @@ function createLibraryUiDomain({
   let shellController = null;
   let uiStateController = null;
   let treeView = null;
+  let libraryFilter = null;
+  let libraryFilterLabel = "";
+  let libraryTextFilter = "";
 
   const viewStore = createLibraryViewStore({
     getIndex: () => (typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null),
@@ -90,15 +94,41 @@ function createLibraryUiDomain({
   });
 
   function setLibraryTextFilter(value) {
-    if (typeof state.setLibraryTextFilter === "function") state.setLibraryTextFilter(value);
-    if (librarySearch) librarySearch.value = String(value || "").trim();
+    libraryTextFilter = String(value || "").trim();
+    if (librarySearch) librarySearch.value = libraryTextFilter;
+  }
+
+  function getLibraryTextFilter() {
+    return libraryTextFilter;
+  }
+
+  function getLibraryFilterLabel() {
+    return libraryFilterLabel;
   }
 
   function getVisibleLibraryFiles() {
-    const libraryFilter = typeof state.getLibraryFilter === "function" ? state.getLibraryFilter() : null;
     if (libraryFilter) return libraryFilter;
     const libraryIndex = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
     return libraryIndex ? (libraryIndex.files || []) : [];
+  }
+
+  function formatPathTail(filePath, segments = 3) {
+    const raw = String(filePath || "").trim();
+    if (!raw) return "";
+    const normalized = raw.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+    const parts = normalized.split("/").filter(Boolean);
+    if (!parts.length) return normalized;
+    const tail = parts.slice(Math.max(0, parts.length - Math.max(1, segments))).join("/");
+    return parts.length > segments ? `…/${tail}` : tail;
+  }
+
+  function updateLibraryRootUI() {
+    if (!libraryRoot) return;
+    const libraryIndex = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
+    const root = libraryIndex && libraryIndex.root ? String(libraryIndex.root) : "";
+    const tail = formatPathTail(root, 3);
+    libraryRoot.textContent = tail ? `Library: ${tail}` : "Library: (none)";
+    libraryRoot.title = root;
   }
 
   function buildGroupEntries(files, mode) {
@@ -131,8 +161,8 @@ function createLibraryUiDomain({
     safeBasename,
     pathsEqual,
     getLibraryIndex: () => (typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null),
-    getLibraryFilter: () => (typeof state.getLibraryFilter === "function" ? state.getLibraryFilter() : null),
-    getLibraryTextFilter: () => (typeof state.getLibraryTextFilter === "function" ? state.getLibraryTextFilter() : ""),
+    getLibraryFilter: () => libraryFilter,
+    getLibraryTextFilter,
     setLibraryTextFilter,
     getActiveFilePath: () => (typeof state.getActiveFilePath === "function" ? state.getActiveFilePath() : ""),
     setActiveFilePath: (filePath) => {
@@ -144,7 +174,7 @@ function createLibraryUiDomain({
     scheduleRenderLibraryTree,
     renderLibraryTree,
     updateLibraryStatus: actions.updateLibraryStatus,
-    updateLibraryRootUI: actions.updateLibraryRootUI,
+    updateLibraryRootUI,
     libraryViewStore: viewStore,
     buildGroupEntries,
     selectTune: actions.selectTune,
@@ -267,7 +297,7 @@ function createLibraryUiDomain({
     collapsedFiles: uiStateController.getCollapsedFiles(),
     collapsedGroups: uiStateController.getCollapsedGroups(),
     getVisibleLibraryFiles,
-    getLibraryTextFilter: () => (typeof state.getLibraryTextFilter === "function" ? state.getLibraryTextFilter() : ""),
+    getLibraryTextFilter,
     applyLibraryTextFilter: (files, query) => uiStateController.applyLibraryTextFilter(files, query),
     sortLibraryFiles: (files) => uiStateController.sortLibraryFiles(files),
     buildGroupEntries: (files) => buildGroupEntries(files, uiStateController.getGroupMode()),
@@ -305,7 +335,7 @@ function createLibraryUiDomain({
     windowRef,
     navigatorRef,
     getLibraryIndex: () => (typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null),
-    getLibraryTextFilter: () => (typeof state.getLibraryTextFilter === "function" ? state.getLibraryTextFilter() : ""),
+    getLibraryTextFilter,
     setLibraryTextFilter,
     getActiveTuneId: () => (typeof state.getActiveTuneId === "function" ? state.getActiveTuneId() : ""),
     getActiveTuneUid: () => (typeof state.getActiveTuneUid === "function" ? state.getActiveTuneUid() : ""),
@@ -386,8 +416,8 @@ function createLibraryUiDomain({
     if (typeof actions.scheduleSaveLibraryPrefs === "function") actions.scheduleSaveLibraryPrefs({ libraryFilterText: "" });
     else uiStateController.scheduleSaveLibraryPrefs({ libraryFilterText: "" });
     uiStateController.clearLibrarySearchTimer();
-    if (!keepFilter && typeof state.hasLibraryFilterLabel === "function" && state.hasLibraryFilterLabel()) {
-      if (typeof actions.clearLibraryFilter === "function") actions.clearLibraryFilter();
+    if (!keepFilter && libraryFilterLabel) {
+      clearLibraryFilter();
     } else {
       renderLibraryTree();
       if (typeof actions.updateLibraryStatus === "function") actions.updateLibraryStatus();
@@ -424,6 +454,13 @@ function createLibraryUiDomain({
   function applyLibraryPrefsFromSettings(settings) {
     uiStateController.applyLibraryPrefsFromSettings(settings);
     uiStateController.syncControls({ groupBy, sortBy, sortTunesBy });
+  }
+
+  function clearLibraryFilter() {
+    libraryFilter = null;
+    libraryFilterLabel = "";
+    scheduleRenderLibraryTree();
+    if (typeof actions.updateLibraryStatus === "function") actions.updateLibraryStatus();
   }
 
   let catalogYieldedByThisOpen = false;
@@ -493,39 +530,26 @@ function createLibraryUiDomain({
     actions: libraryActions,
     applyLibraryPrefsFromSettings,
     applyLibraryUiStateFromSettings: (settings) => uiStateController.applyLibraryUiStateFromSettings(settings),
-    applyLibraryTextFilter: (files, query) => uiStateController.applyLibraryTextFilter(files, query),
-    buildGroupEntries,
-    clearLibrarySearchTimer: () => uiStateController.clearLibrarySearchTimer(),
+    clearLibraryFilter,
     contextMenu,
     beginRenameFile: (filePath) => renameFileController.beginRenameFile(filePath),
     commitRenameFile: (oldPath, inputName) => renameFileController.commitRenameFile(oldPath, inputName),
     flushLibraryPrefsSave: () => uiStateController.flushLibraryPrefsSave(),
     expandInitialCollapsedState: () => uiStateController.expandInitialCollapsedState(),
-    getVisibleLibraryFiles,
+    getLibraryFilterLabel,
+    getLibraryTextFilter,
     invalidateView,
-    libraryActions,
-    moveTuneToFile,
-    normalizeTitleKey: (raw, maxLen, strict) => uiStateController.normalizeTitleKey(raw, maxLen, strict),
     openCatalogFromCurrentIndex,
-    openMoveTuneModal,
     renderLibraryTree,
     restoreLibraryTuneSelection: (selection) => uiStateController.restoreLibraryTuneSelection(selection),
-    scheduleLibrarySearch: (value) => uiStateController.scheduleLibrarySearch(value),
-    scheduleRenderLibraryTree,
     scheduleSaveLibraryPrefs: (patch) => uiStateController.scheduleSaveLibraryPrefs(patch),
     scheduleSaveLibraryUiState: () => uiStateController.scheduleSaveLibraryUiState(),
     setPrefsWriteSuppressed: (value) => uiStateController.setPrefsWriteSuppressed(value),
-    setSortMode: (mode) => uiStateController.setSortMode(mode),
-    setTuneSortMode: (mode) => uiStateController.setTuneSortMode(mode),
     shellController,
-    sortGroupEntries: (entries) => uiStateController.sortGroupEntries(entries),
-    sortLibraryFiles: (files) => uiStateController.sortLibraryFiles(files),
-    sortTunes: (list, mode) => uiStateController.sortTunes(list, mode),
-    syncControls: (controls) => uiStateController.syncControls(controls),
     treeView,
     uiStateController,
     updateModalRowsIfOpen,
-    viewStore,
+    updateLibraryRootUI,
     wireCatalogBridge,
     wireControls,
     wireSearch,

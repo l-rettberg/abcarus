@@ -1827,9 +1827,6 @@ function initSidebarResizer() {
 }
 
 let libraryIndex = null;
-let libraryFilter = null;
-let libraryFilterLabel = "";
-let libraryTextFilter = "";
 let suppressRecentEntries = false;
 let renderPipelineController = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
@@ -2246,6 +2243,7 @@ const libraryUiDomain = createLibraryUiDomain({
   elements: {
     main: $main,
     libraryTree: $libraryTree,
+    libraryRoot: $libraryRoot,
     tuneSelect: $fileTuneSelect,
     librarySearch: $librarySearch,
     groupBy: $groupBy,
@@ -2268,10 +2266,6 @@ const libraryUiDomain = createLibraryUiDomain({
     setLibraryVisibleState: (value) => { isLibraryVisible = Boolean(value); },
     isLibraryDisabled: () => chordProFeature.isEnabled(),
     getLibraryIndex: () => libraryIndex,
-    getLibraryFilter: () => libraryFilter,
-    getLibraryTextFilter: () => libraryTextFilter,
-    setLibraryTextFilter: (value) => { libraryTextFilter = String(value || "").trim(); },
-    hasLibraryFilterLabel: () => Boolean(libraryFilterLabel),
     getActiveFilePath: () => activeFilePath,
     setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
     getActiveTuneId: () => activeTuneId,
@@ -2286,7 +2280,6 @@ const libraryUiDomain = createLibraryUiDomain({
   actions: {
     addTuneToSetList: (tuneId, options = {}) => setListFeature.addTuneById(tuneId, options),
     buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
-    clearLibraryFilter,
     confirmReloadFromDisk,
     copyTuneById,
     deleteTuneById,
@@ -2342,7 +2335,6 @@ const libraryUiDomain = createLibraryUiDomain({
     showToast,
     syncLibraryFileFromWorkingCopySnapshot,
     updateFileHeaderPanel,
-    updateLibraryRootUI,
     updateLibraryStatus,
     withFileLock,
     withFileLocks,
@@ -2374,10 +2366,6 @@ const aboutModalController = createAboutModalController({
   logError: logErr,
 });
 const goToMeasureModalController = createGoToMeasureModalController();
-
-function normalizeTitleKey(raw, maxLen, strict) {
-  return libraryUiDomain.normalizeTitleKey(raw, maxLen, strict);
-}
 
 function formatPathTail(filePath, segments = 3) {
   const raw = String(filePath || "").trim();
@@ -2459,11 +2447,7 @@ function applyLibraryPrefsFromSettings(settings) {
 }
 
 function updateLibraryRootUI() {
-  if (!$libraryRoot) return;
-  const root = libraryIndex && libraryIndex.root ? String(libraryIndex.root) : "";
-  const tail = formatPathTail(root, 3);
-  $libraryRoot.textContent = tail ? `Library: ${tail}` : "Library: (none)";
-  $libraryRoot.title = root;
+  libraryUiDomain.updateLibraryRootUI();
 }
 
 function setScanStatus(text, title) {
@@ -2670,8 +2654,8 @@ libraryMetadataController = createLibraryMetadataController({
     setActiveTuneUid: (next) => { activeTuneUid = next; },
     setActiveTuneIndex: (next) => { activeTuneIndex = next; },
     getCurrentDocumentPath,
-    getLibraryFilterLabel: () => libraryFilterLabel,
-    getLibraryTextFilter: () => libraryTextFilter,
+    getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
+    getLibraryTextFilter: () => libraryUiDomain.getLibraryTextFilter(),
     isTuneErrorFilterActive,
     isTuneErrorScanInFlight,
     isWorkingCopyOpenForFile,
@@ -2834,7 +2818,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
     getCurrentDocumentPath,
-    getLibraryFilterLabel: () => libraryFilterLabel,
+    getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
     getSuppressRecentEntries: () => suppressRecentEntries,
     isPayloadMode,
     isWorkingCopyOpenForFile,
@@ -3459,44 +3443,8 @@ function toggleHeaderCollapsed() {
   fileHeaderController.toggleCollapsed();
 }
 
-function sortTunes(list, mode) {
-  return libraryUiDomain.sortTunes(list, mode);
-}
-
-function sortLibraryFiles(files) {
-  return libraryUiDomain.sortLibraryFiles(files);
-}
-
-function sortGroupEntries(entries) {
-  return libraryUiDomain.sortGroupEntries(entries);
-}
-
-function setSortMode(mode) {
-  const normalized = libraryUiDomain.setSortMode(mode);
-  if ($sortBy) $sortBy.value = normalized;
-}
-
-function setTuneSortMode(mode) {
-  const normalized = libraryUiDomain.setTuneSortMode(mode);
-  if ($sortTunesBy) $sortTunesBy.value = normalized;
-}
-
-function getVisibleLibraryFiles() {
-  return libraryUiDomain.getVisibleLibraryFiles();
-}
-
-function setLibraryFilter(filteredFiles, label) {
-  libraryFilter = filteredFiles;
-  libraryFilterLabel = label || "";
-  scheduleRenderLibraryTree();
-  updateLibraryStatus();
-}
-
 function clearLibraryFilter() {
-  libraryFilter = null;
-  libraryFilterLabel = "";
-  scheduleRenderLibraryTree();
-  updateLibraryStatus();
+  libraryUiDomain.clearLibraryFilter();
 }
 
 function getActiveFileEntry() {
@@ -3527,11 +3475,6 @@ function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
 function setPracticeBarHighlight(range) {
   return practiceBarHighlightController.setPracticeBarHighlight(range);
 }
-
-function applyLibraryTextFilter(files, query) {
-  return libraryUiDomain.applyLibraryTextFilter(files, query);
-}
-
 
 function getEditorValue() {
   if (!editorView) return "";
@@ -4148,10 +4091,6 @@ function toggleLibrary() {
   return libraryShellController.toggleLibrary();
 }
 
-function buildGroupEntries(files, mode) {
-  return libraryUiDomain.buildGroupEntries(files, mode);
-}
-
 function scheduleRenderLibraryTree(files = null) {
   libraryTreeView.schedule(files);
 }
@@ -4465,16 +4404,6 @@ async function jumpToError(errItem) {
 
 async function checkExternalTools() {
   await toolStatusController.check();
-}
-
-function applyLibrarySearch(value) {
-  libraryTextFilter = String(value || "").trim();
-  scheduleRenderLibraryTree();
-  updateLibraryStatus();
-}
-
-function scheduleLibrarySearch(value) {
-  libraryUiDomain.scheduleLibrarySearch(value);
 }
 
 function setSoundfontStatus(text, autoClearMs) {

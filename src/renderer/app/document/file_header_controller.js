@@ -9,11 +9,14 @@ function createFileHeaderController({
   scheduleRenderNow = () => {},
   setDirtyIndicator = () => {},
   logError = () => {},
+  actions = {},
 } = {}) {
   const {
     panel = null,
     editorHost = null,
     toggleButton = null,
+    saveButton = null,
+    reloadButton = null,
     stateMarker = null,
   } = elements;
   const {
@@ -30,6 +33,7 @@ function createFileHeaderController({
   let suppressDirty = false;
   let editorFilePath = null;
   let renderTimer = null;
+  let actionsWired = false;
 
   function getEditorView() {
     return editorView;
@@ -187,6 +191,64 @@ function createFileHeaderController({
     updateStateUi({ announce: true });
   }
 
+  async function handleSaveClick() {
+    const entry = getActiveFileEntry();
+    if (!entry || !entry.path) {
+      if (typeof actions.setStatus === "function") actions.setStatus("No active file to update.");
+      return;
+    }
+    try {
+      try {
+        if (typeof actions.flushWorkingCopyTuneSync === "function") await actions.flushWorkingCopyTuneSync();
+      } catch {}
+      const headerRes = typeof actions.saveFileHeaderText === "function"
+        ? await actions.saveFileHeaderText(entry.path, getEditorValue())
+        : null;
+      if (headerRes && headerRes.ok) {
+        setClean();
+        updateStateUi();
+        if (typeof actions.setStatus === "function") {
+          actions.setStatus(headerRes.action === "save_copy_as" ? "Saved copy and switched." : "Header saved.");
+        }
+      } else if (headerRes && headerRes.action === "discard_reload") {
+        resetEditorFilePath();
+        setClean();
+        updateStateUi();
+        updatePanel();
+        if (typeof actions.setStatus === "function") actions.setStatus("Reloaded from disk.");
+      } else {
+        if (typeof actions.setStatus === "function") actions.setStatus("Save canceled.");
+        updateStateUi();
+      }
+    } catch (e) {
+      if (typeof actions.showSaveError === "function") {
+        await actions.showSaveError(e && e.message ? e.message : String(e));
+      }
+    }
+  }
+
+  function handleReloadClick() {
+    resetEditorFilePath();
+    setClean();
+    updatePanel();
+  }
+
+  function handleToggleClick() {
+    if (!getActiveFileEntry()) {
+      if (typeof actions.showToast === "function") actions.showToast("No library file loaded.", 2400);
+      return;
+    }
+    toggleCollapsed();
+  }
+
+  function wireActions() {
+    if (actionsWired) return;
+    actionsWired = true;
+    if (saveButton) saveButton.addEventListener("click", () => { handleSaveClick().catch(() => {}); });
+    if (reloadButton) reloadButton.addEventListener("click", handleReloadClick);
+    if (toggleButton) toggleButton.addEventListener("click", handleToggleClick);
+  }
+
   return {
     computePresence,
     getCollapsed,
@@ -204,6 +266,7 @@ function createFileHeaderController({
     toggleCollapsed,
     updatePanel,
     updateStateUi,
+    wireActions,
   };
 }
 

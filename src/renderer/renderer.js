@@ -615,6 +615,8 @@ const fileHeaderController = createFileHeaderController({
     panel: $fileHeaderPanel,
     editorHost: $fileHeaderEditor,
     toggleButton: $fileHeaderToggle,
+    saveButton: $fileHeaderSave,
+    reloadButton: $fileHeaderReload,
     stateMarker: $headerStateMarker,
   },
   editorDeps: {
@@ -632,6 +634,13 @@ const fileHeaderController = createFileHeaderController({
   scheduleRenderNow,
   setDirtyIndicator: () => setDirtyIndicator(isCurrentDocumentDirty()),
   logError: (...args) => console.error(...args),
+  actions: {
+    flushWorkingCopyTuneSync,
+    saveFileHeaderText,
+    setStatus,
+    showSaveError,
+    showToast,
+  },
 });
 
 const payloadModeEditorAdapter = createPayloadModeEditorAdapter({
@@ -5256,6 +5265,7 @@ function renderNow() {
 initEditor();
 initSearchPanelShortcuts();
 initHeaderEditor();
+fileHeaderController.wireActions();
 if (fileContextController) fileContextController.wire();
 setHeaderCollapsed(getHeaderCollapsed());
 setCurrentDocument(createBlankDocument());
@@ -6245,54 +6255,6 @@ if ($disclaimerModal) {
     }
   });
   enableDraggableModal($disclaimerModal);
-}
-
-if ($fileHeaderSave) {
-  $fileHeaderSave.addEventListener("click", async () => {
-    const entry = getActiveFileEntry();
-    if (!entry || !entry.path) {
-      setStatus("No active file to update.");
-      return;
-    }
-    try {
-      try { await flushWorkingCopyTuneSync(); } catch {}
-      const headerRes = await saveFileHeaderText(entry.path, getHeaderEditorValue());
-      if (headerRes && headerRes.ok) {
-        markHeaderClean();
-        updateHeaderStateUI();
-        setStatus(headerRes.action === "save_copy_as" ? "Saved copy and switched." : "Header saved.");
-      } else if (headerRes && headerRes.action === "discard_reload") {
-        resetHeaderEditorFilePath();
-        markHeaderClean();
-        updateHeaderStateUI();
-        updateFileHeaderPanel();
-        setStatus("Reloaded from disk.");
-      } else {
-        setStatus("Save canceled.");
-        updateHeaderStateUI();
-      }
-    } catch (e) {
-      await showSaveError(e && e.message ? e.message : String(e));
-    }
-  });
-}
-
-if ($fileHeaderReload) {
-  $fileHeaderReload.addEventListener("click", () => {
-    resetHeaderEditorFilePath();
-    markHeaderClean();
-    updateFileHeaderPanel();
-  });
-}
-
-if ($fileHeaderToggle) {
-  $fileHeaderToggle.addEventListener("click", () => {
-    if (!getActiveFileEntry()) {
-      showToast("No library file loaded.", 2400);
-      return;
-    }
-    toggleHeaderCollapsed();
-  });
 }
 
 // ---------- AUDIO ----------

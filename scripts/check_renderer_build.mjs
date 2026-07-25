@@ -312,6 +312,52 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
   if (!calls.length || calls[0].startOffset !== 160 || calls[0].origin !== "focus") {
     throw new Error(`Paused Focus Play must resume from offset 160 with open range end, got ${JSON.stringify(calls[0] || null)}.`);
   }
+
+  calls.length = 0;
+  transport.isPlaying = false;
+  transport.isPaused = false;
+  transport.waitingForFirstNote = false;
+  transport.transportJumpHighlightActive = true;
+  transport.transportPlayheadOffset = 240;
+  const focusJumpController = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => true,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({
+      ok: true,
+      plan: { startOffset: 10, endOffset: 500, loop: false },
+    }),
+    getEditorMeasureStartOffset: () => 0,
+    getEditorPlayStartOffset: () => 0,
+    getEditorSelectionSignature: () => "stable",
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await focusJumpController.transportPlay();
+  if (!calls.length || calls[0].startOffset !== 240 || calls[0].origin !== "focus") {
+    throw new Error(`Focus Play after measure jump must start at highlighted offset 240, got ${JSON.stringify(calls[0] || null)}.`);
+  }
+
+  calls.length = 0;
+  transport.transportJumpHighlightActive = false;
+  transport.transportPlayheadOffset = 240;
+  await focusJumpController.transportPlay();
+  if (!calls.length || calls[0].startOffset !== 10 || calls[0].origin !== "focus") {
+    throw new Error(`Focus Play without active measure jump must start at focus plan offset 10, got ${JSON.stringify(calls[0] || null)}.`);
+  }
 }
 
 async function assertAlignBarsDoesNotCrossSectionFields() {

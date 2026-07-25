@@ -23,6 +23,17 @@ function createPlaybackTransportController({
   setSoundfontCaption,
   showToast,
 } = {}) {
+  function resolveFocusPlanStartOffset(plan) {
+    const plannedStart = Math.max(0, Number(plan && plan.startOffset) || 0);
+    if (!transport.transportJumpHighlightActive) return plannedStart;
+    const candidate = Number(transport.transportPlayheadOffset);
+    if (!Number.isFinite(candidate) || candidate < plannedStart) return plannedStart;
+    const rawEnd = plan && plan.endOffset;
+    const end = rawEnd == null ? null : Number(rawEnd);
+    if (Number.isFinite(end) && candidate >= end) return plannedStart;
+    return Math.max(0, candidate);
+  }
+
   function buildTransportPlaybackPlan() {
     const focusModeEnabled = getFocusModeEnabled();
     const tempoMultiplier = focusModeEnabled
@@ -46,7 +57,7 @@ function createPlaybackTransportController({
         mode: "focus",
         invalid: false,
         invalidReason: "",
-        rangeStart: focusResult.plan.startOffset,
+        rangeStart: resolveFocusPlanStartOffset(focusResult.plan),
         rangeEnd: focusResult.plan.endOffset,
         loopEnabled: Boolean(focusResult.plan.loop),
         tempoMultiplier,

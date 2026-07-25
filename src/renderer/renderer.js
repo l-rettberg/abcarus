@@ -231,6 +231,7 @@ import { createWorkingCopySyncController } from "./app/document/working_copy_syn
 import { createWorkingCopyRuntimeController } from "./app/document/working_copy_runtime_controller.js";
 import { createWorkingCopyConflictController } from "./app/document/working_copy_conflict_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
+import { createMenuActionsController } from "./app/commands/menu_actions_controller.js";
 import {
   SAVE_INTENT,
   createDocumentSessionController,
@@ -5759,6 +5760,105 @@ async function exportMp3() {
   await importExportFeature.exportMp3();
 }
 
+function openAbcHelpersFromMenu() {
+  if (!editorView) return;
+  if (isPayloadMode()) {
+    showToast("Exit Payload Mode to use ABC Helpers.", 2400);
+    return;
+  }
+  editorView.focus();
+  try {
+    const ev = new KeyboardEvent("keydown", {
+      key: "F2",
+      code: "F2",
+      ctrlKey: true,
+      bubbles: true,
+    });
+    editorView.dom.dispatchEvent(ev);
+  } catch (_) {
+    // no-op
+  }
+}
+
+function toggleFocusedEditorComment() {
+  const view = getFocusedEditorView();
+  if (view) toggleLineComments(view);
+}
+
+function setNoteTypingPreviewFromMenu(enabled) {
+  midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: Boolean(enabled) });
+  try { showToast(enabled ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
+}
+
+function openIntonationExplorerFromMenu() {
+  const enabled = latestSettingsSnapshot == null
+    ? true
+    : isMicrotonalNotationSupported();
+  if (!enabled) {
+    showToast("Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
+    return;
+  }
+  intonationExplorerFeature.toggle();
+}
+
+function openSettingsFromMenu() {
+  if (settingsController) settingsController.openSettings();
+}
+
+function openFontsSettingsFromMenu() {
+  if (!settingsController) return;
+  if (typeof settingsController.openTab === "function") settingsController.openTab("fonts");
+  else settingsController.openSettings();
+}
+
+async function exportSettingsFromMenu() {
+  if (!window.api || typeof window.api.exportSettings !== "function") {
+    showToast("Export not available.", 2400);
+    return;
+  }
+  const res = await window.api.exportSettings();
+  if (res && res.ok) {
+    const note = res.exportedHeader ? " (incl. user_settings.abc)" : "";
+    showToast(`Settings exported${note} and will be used next time.`, 4200);
+  } else if (res && res.error && res.error !== "Canceled") {
+    showToast(String(res.error), 3200);
+  }
+}
+
+async function importSettingsFromMenu() {
+  if (!window.api || typeof window.api.importSettings !== "function") {
+    showToast("Import not available.", 2400);
+    return;
+  }
+  const res = await window.api.importSettings();
+  if (res && res.ok) {
+    showToast(
+      res.importedHeader
+        ? "Settings imported (incl. user_settings.abc) and will be used next time."
+        : "Settings imported and will be used next time.",
+      4200
+    );
+    refreshHeaderLayers().catch(() => {});
+  } else if (res && res.error && res.error !== "Canceled") {
+    showToast(String(res.error), 3200);
+  }
+}
+
+async function openSettingsFolderFromMenu() {
+  if (!window.api || typeof window.api.openSettingsFolder !== "function") {
+    showToast("Not available.", 2400);
+    return;
+  }
+  const res = await window.api.openSettingsFolder();
+  if (res && res.ok) showToast("Opened settings folder.", 2000);
+}
+
+function zoomResetFromMenu() {
+  if (shouldIgnoreMenuZoomAction() || !settingsController) return;
+  settingsController.zoomReset();
+  requestAnimationFrame(() => centerRenderPaneOnCurrentAnchor());
+}
+
 async function renumberXInActiveFile(explicitFilePath) {
   await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
@@ -5767,339 +5867,86 @@ async function appQuit() {
   await requestQuitApplication();
 }
 
-function wireMenuActions() {
-  if (!window.api || typeof window.api.onMenuAction !== "function") return;
-  window.api.onMenuAction(async (action) => {
-    try {
-      const actionType = typeof action === "string" ? action : action && action.type;
-      const busy = isPlaybackBusy();
-      if (busy) {
-        // During Play/Pause, ignore menu actions (except Play/Pause itself, Reset Layout, and Quit).
-        const allowed = new Set([
-          "playToggle",
-          "stopPlayback",
-          "resetLayout",
-          "quit",
-          "openPayloadMode",
-          "playGotoMeasure",
-          "toggleFocusMode",
-          "setSplitOrientation",
-          "toggleSplitOrientation",
-          "toggleDebugMessages",
-          "toggleAutoDump",
-          "toggleNoteTypingPreview",
-          "openIntonationExplorer",
-        ]);
-        if (!allowed.has(actionType)) return;
-      }
-      if (isPayloadMode()) {
-        // Payload Mode is diagnostics-only. Keep actions that don't touch the library/working copy.
-        const allowed = new Set([
-          "openPayloadMode",
-          "playStart",
-          "playPrev",
-          "playToggle",
-          "playNext",
-          "stopPlayback",
-          "playGotoMeasure",
-          "zoomIn",
-          "zoomOut",
-          "zoomReset",
-          "resetLayout",
-          "setSplitOrientation",
-          "toggleSplitOrientation",
-          "toggleDebugMessages",
-          "toggleAutoDump",
-          "toggleNoteTypingPreview",
-          "openKeyboardHelp",
-          "openSettings",
-          "openSettingsFolder",
-        ]);
-        if (!allowed.has(actionType)) {
-          showToast("Payload Mode: exit to use file/library actions.", 2600);
-          return;
-        }
-      }
-      if (isRawModeActive()) {
-        const blocked = new Set([
-          "playStart",
-          "playPrev",
-          "playToggle",
-          "playNext",
-          "transformTransposeUp",
-          "transformTransposeDown",
-          "transformDouble",
-          "transformHalf",
-          "transformMeasures",
-          "alignBars",
-          "printPreview",
-          "print",
-          "printAll",
-          "exportPdf",
-          "exportPdfAll",
-          "exportMusicXml",
-          "exportMidi",
-          "exportMp3",
-          "importMusicXml",
-          "importMidi",
-          "templatesModal",
-          "abcHelpers",
-          "revertToDisk",
-        ]);
-        if (blocked.has(actionType)) {
-          showToast("Raw mode: switch to tune mode for tools/playback/print/export.", 2400);
-          return;
-        }
-
-        const needsExit = new Set([
-          "new",
-          "newTune",
-          "newFromTemplate",
-          "open",
-          "openFolder",
-          "openRecentTune",
-          "openRecentFile",
-          "openRecentFolder",
-          "templatesModal",
-          "revertToDisk",
-          "close",
-          "quit",
-        ]);
-        if (needsExit.has(actionType)) {
-          const labelMap = {
-            new: "creating a new file",
-            newTune: "creating a new tune",
-            newFromTemplate: "creating a new tune",
-            open: "opening a file",
-            openFolder: "opening a folder",
-            openRecentTune: "opening a recent tune",
-            openRecentFile: "opening a recent file",
-            openRecentFolder: "opening a recent folder",
-            templatesModal: "opening templates",
-            revertToDisk: "reverting to disk",
-            close: "closing this file",
-            quit: "quitting",
-          };
-          const ok = await leaveRawModeForAction(labelMap[actionType] || "continuing");
-          if (!ok) return;
-        }
-      }
-      if (actionType === "new") await fileNew();
-      else if (actionType === "newTune") await fileNewTune();
-      else if (actionType === "newFromTemplate") await fileNewFromTemplate();
-      else if (actionType === "templatesModal") {
-        if (isPayloadMode()) {
-          showToast("Exit Payload Mode to use templates.", 2400);
-          return;
-        }
-        await openTemplatesModal();
-      }
-      else if (actionType === "open") await fileOpen();
-      else if (actionType === "openFolder") await scanAndLoadLibrary();
-      else if (actionType === "importMusicXml") await importMusicXml();
-      else if (actionType === "importMidi") await importMidi();
-      else if (actionType === "save") await fileSave();
-      else if (actionType === "saveAs") await fileSaveAs();
-      else if (actionType === "revertToDisk") {
-        const entry = getActiveFileEntry();
-        const filePath = entry && entry.path ? String(entry.path) : "";
-        if (!filePath) {
-          showToast("Open a file first.", 2200);
-          return;
-        }
-        if (playbackTransport.isPlaying || playbackTransport.isPaused) {
-          showToast("Stop playback to revert.", 2200);
-          return;
-        }
-        const confirm = await confirmReloadFromDisk(filePath);
-        if (!confirm) return;
-        const restoreTuneId = isRawModeActive() ? null : (activeTuneId || null);
-        const res = await discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId });
-        if (!res || !res.ok) {
-          await showSaveError(res && res.error ? res.error : "Unable to revert to disk.");
-          return;
-        }
-        setStatus("Reverted to disk.");
-        showToast("Reverted to disk.", 1600);
-      }
-      else if (actionType === "openPayloadMode") {
-        const enabled = Boolean(latestSettingsSnapshot && latestSettingsSnapshot.payloadModeEnabled);
-        if (!enabled) {
-          showToast("Payload Mode is disabled. Enable in Settings → Options → Tools → Diagnostics.", 4200);
-          return;
-        }
-        payloadModeFeature.wire();
-        if (isPayloadMode()) await payloadModeFeature.exit();
-        else await payloadModeFeature.enter();
-      }
-      else if (actionType === "toggleDebugMessages") {
-        const enabled = Boolean(action && action.value);
-        window.__abcarusDebugMessages = enabled;
-        window.__abcarusDebugPlayback = enabled;
-        window.__abcarusDebugDrums = enabled;
-      }
-      else if (actionType === "toggleAutoDump") {
-        const enabled = Boolean(action && action.value);
-        window.__abcarusAutoDumpOnError = enabled;
-      }
-      else if (actionType === "printPreview") await runPrintAction("preview");
-      else if (actionType === "print") await runPrintAction("print");
-      else if (actionType === "printAll") await runPrintAllAction("print");
-      else if (actionType === "exportMusicXml") await exportMusicXml();
-      else if (actionType === "exportMidi") await exportMidi();
-      else if (actionType === "exportMp3") await exportMp3();
-      else if (actionType === "exportPdf") await runPrintAction("pdf");
-      else if (actionType === "exportPdfAll") await runPrintAllAction("pdf");
-      else if (actionType === "close") await requestCloseDocument();
-      else if (actionType === "quit") await requestQuitApplication();
-      else if (actionType === "libraryList") {
-        libraryUiDomain.openCatalogFromCurrentIndex();
-      }
-      else if (actionType === "setList") setListFeature.open();
-      else if (actionType === "toggleLibrary") toggleLibrary();
-      else if (actionType === "toggleFocusMode") toggleFocusMode();
-      else if (actionType === "toggleSplitOrientation") {
-        toggleSplitOrientation({ userAction: true });
-      }
-      else if (actionType === "setSplitOrientation") {
-        const value = action && action.value ? String(action.value) : "";
-        setSplitOrientation(value, { persist: true, userAction: true });
-      }
-      else if (actionType === "renumberXInFile") await renumberXInActiveFile();
-      else if (actionType === "navTunePrev") await navigateTuneByDelta(-1);
-      else if (actionType === "navTuneNext") await navigateTuneByDelta(1);
-      else if (actionType === "openRecentTune" && action && action.entry) {
-        await openRecentTune(action.entry);
-      }
-      else if (actionType === "openRecentFile" && action && action.entry) {
-        await openRecentFile(action.entry);
-      }
-      else if (actionType === "openRecentFolder" && action && action.entry) {
-        await openRecentFolder(action.entry);
-      }
-      else if (actionType === "abcHelpers") {
-        if (!editorView) return;
-        if (isPayloadMode()) {
-          showToast("Exit Payload Mode to use ABC Helpers.", 2400);
-          return;
-        }
-        editorView.focus();
-        try {
-          const ev = new KeyboardEvent("keydown", {
-            key: "F2",
-            code: "F2",
-            ctrlKey: true,
-            bubbles: true,
-          });
-          editorView.dom.dispatchEvent(ev);
-        } catch (_) {
-          // no-op
-        }
-      }
-      else if (actionType === "find" && editorView) openFindPanel(editorView);
-      else if (actionType === "replace" && editorView) openReplacePanel(editorView);
-      else if (actionType === "gotoLine" && editorView) gotoLine(editorView);
-      else if (actionType === "toggleComment") {
-        const view = getFocusedEditorView();
-        if (view) toggleLineComments(view);
-      }
-      else if (actionType === "clearLibraryFilter") clearLibraryFilter();
-      else if (actionType === "playStart") await transportStartOver();
-      else if (actionType === "playToggle") { await togglePlayPauseEffective(); }
-      else if (actionType === "playGotoMeasure") await goToMeasureFromMenu();
-      else if (actionType === "toggleNoteTypingPreview") {
-        const next = Boolean(action && action.value);
-        midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: next });
-        try { showToast(next ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
-      }
-      else if (actionType === "resetLayout") resetLayout();
-      else if (actionType === "helpGuide") await openExternal("https://abcplus.sourceforge.net/abcplus_en.pdf");
-      else if (actionType === "helpUserGuide") await openExternal("https://github.com/topchyan/abcarus/blob/master/docs/USER_GUIDE.md");
-      else if (actionType === "helpLink" && action && action.url) await openExternal(action.url);
-      else if (actionType === "about") await openAbout();
-      else if (actionType === "transformTransposeUp") await applyAbc2abcTransform({ transposeSemitones: 1 });
-      else if (actionType === "transformTransposeDown") await applyAbc2abcTransform({ transposeSemitones: -1 });
-      else if (actionType === "transformDouble") await applyAbc2abcTransform({ doubleLengths: true });
-      else if (actionType === "transformHalf") await applyAbc2abcTransform({ halfLengths: true });
-      else if (actionType === "transformMeasures" && action && Number.isFinite(action.value)) {
-        await applyAbc2abcTransform({ measuresPerLine: action.value });
-      }
-      else if (actionType === "transformLinebreakMarkers") {
-        await applyAbc2abcTransform({ linebreakMarker: true });
-      }
-      else if (actionType === "alignBars") alignBarsInEditor();
-      else if (actionType === "openIntonationExplorer") {
-        const enabled = latestSettingsSnapshot == null
-          ? true
-          : isMicrotonalNotationSupported();
-        if (!enabled) {
-          showToast("Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
-          return;
-        }
-        intonationExplorerFeature.toggle();
-      }
-		      else if (actionType === "dumpDebug") debugDumpFeature.dumpToFile().catch(() => {});
-		      else if (actionType === "settings" && settingsController) settingsController.openSettings();
-		      else if (actionType === "fonts" && settingsController) {
-		        if (typeof settingsController.openTab === "function") settingsController.openTab("fonts");
-		        else settingsController.openSettings();
-		      }
-		      else if (actionType === "exportSettings") {
-		        if (!window.api || typeof window.api.exportSettings !== "function") {
-		          showToast("Export not available.", 2400);
-		          return;
-		        }
-	        const res = await window.api.exportSettings();
-	        if (res && res.ok) {
-	          const note = res.exportedHeader ? " (incl. user_settings.abc)" : "";
-	          showToast(`Settings exported${note} and will be used next time.`, 4200);
-	        } else if (res && res.error && res.error !== "Canceled") {
-	          showToast(String(res.error), 3200);
-	        }
-	      }
-	      else if (actionType === "importSettings") {
-	        if (!window.api || typeof window.api.importSettings !== "function") {
-	          showToast("Import not available.", 2400);
-	          return;
-	        }
-	        const res = await window.api.importSettings();
-	        if (res && res.ok) {
-	          showToast(
-	            res.importedHeader
-	              ? "Settings imported (incl. user_settings.abc) and will be used next time."
-	              : "Settings imported and will be used next time.",
-	            4200
-	          );
-	          refreshHeaderLayers().catch(() => {});
-	        } else if (res && res.error && res.error !== "Canceled") {
-	          showToast(String(res.error), 3200);
-	        }
-	      }
-	      else if (actionType === "openSettingsFolder") {
-	        if (!window.api || typeof window.api.openSettingsFolder !== "function") {
-	          showToast("Not available.", 2400);
-	          return;
-	        }
-	        const res = await window.api.openSettingsFolder();
-	        if (res && res.ok) showToast("Opened settings folder.", 2000);
-	      }
-	      else if (actionType === "zoomIn" && settingsController) { if (!shouldIgnoreMenuZoomAction()) settingsController.zoomIn(); }
-	      else if (actionType === "zoomOut" && settingsController) { if (!shouldIgnoreMenuZoomAction()) settingsController.zoomOut(); }
-	      else if (actionType === "zoomReset" && settingsController) {
-	        if (!shouldIgnoreMenuZoomAction()) {
-          settingsController.zoomReset();
-          requestAnimationFrame(() => centerRenderPaneOnCurrentAnchor());
-        }
-      }
-      else if (actionType === "toggleFileHeader") toggleHeaderCollapsed();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
-wireMenuActions();
+const menuActionsController = createMenuActionsController({
+  api: window.api,
+  windowRef: window,
+  state: {
+    getActiveTuneId: () => activeTuneId,
+    isPayloadMode,
+    isPayloadModeSettingEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.payloadModeEnabled),
+    isPlaybackActive: () => Boolean(playbackTransport.isPlaying || playbackTransport.isPaused),
+    isPlaybackBusy,
+    isRawModeActive: () => isRawModeActive(),
+  },
+  actions: {
+    alignBarsInEditor,
+    applyAbc2abcTransform,
+    clearLibraryFilter,
+    confirmReloadFromDisk,
+    discardAndReloadWorkingCopyFromDisk,
+    dumpDebug: () => debugDumpFeature.dumpToFile().catch(() => {}),
+    enterPayloadMode: () => payloadModeFeature.enter(),
+    exitPayloadMode: () => payloadModeFeature.exit(),
+    exportMidi,
+    exportMp3,
+    exportMusicXml,
+    exportSettings: exportSettingsFromMenu,
+    fileNew,
+    fileNewFromTemplate,
+    fileNewTune,
+    fileOpen,
+    fileSave,
+    fileSaveAs,
+    getActiveFileEntry,
+    goToMeasureFromMenu,
+    gotoLine: () => { if (editorView) gotoLine(editorView); },
+    importMidi,
+    importMusicXml,
+    importSettings: importSettingsFromMenu,
+    leaveRawModeForAction,
+    logError: logErr,
+    navigateTuneByDelta,
+    openAbout,
+    openAbcHelpers: openAbcHelpersFromMenu,
+    openExternal,
+    openFind: () => { if (editorView) openFindPanel(editorView); },
+    openFontsSettings: openFontsSettingsFromMenu,
+    openIntonationExplorer: openIntonationExplorerFromMenu,
+    openLibraryCatalog: () => libraryUiDomain.openCatalogFromCurrentIndex(),
+    openRecentFile,
+    openRecentFolder,
+    openRecentTune,
+    openReplace: () => { if (editorView) openReplacePanel(editorView); },
+    openSetList: () => setListFeature.open(),
+    openSettings: openSettingsFromMenu,
+    openSettingsFolder: openSettingsFolderFromMenu,
+    openTemplatesModal,
+    renumberXInActiveFile,
+    requestCloseDocument,
+    requestQuitApplication,
+    resetLayout,
+    runPrintAction,
+    runPrintAllAction,
+    scanAndLoadLibrary,
+    setNoteTypingPreview: setNoteTypingPreviewFromMenu,
+    setSplitOrientation,
+    setStatus,
+    showSaveError,
+    showToast,
+    toggleComment: toggleFocusedEditorComment,
+    toggleFileHeader: toggleHeaderCollapsed,
+    toggleFocusMode,
+    toggleLibrary,
+    togglePlayPauseEffective,
+    toggleSplitOrientation,
+    transportStartOver,
+    wirePayloadMode: () => payloadModeFeature.wire(),
+    zoomIn: () => { if (!shouldIgnoreMenuZoomAction() && settingsController) settingsController.zoomIn(); },
+    zoomOut: () => { if (!shouldIgnoreMenuZoomAction() && settingsController) settingsController.zoomOut(); },
+    zoomReset: zoomResetFromMenu,
+  },
+});
+menuActionsController.wire();
 
 if (window.api && typeof window.api.onAppRequestQuit === "function") {
   window.api.onAppRequestQuit(() => {

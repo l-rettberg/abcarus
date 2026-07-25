@@ -1752,7 +1752,7 @@ focusModeController = createFocusModeController({
   setRenderZoom: setRenderZoomCss,
   computeFocusFitZoom,
   setLibraryVisible,
-  resetRightPaneSplit,
+  resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
   syncPendingPlaybackPlan,
   clearNormalPlaybackPlan: () => {
     pendingPlaybackRangeOrigin = null;
@@ -1791,50 +1791,10 @@ async function loadDecorationCatalogEnrichment() {
   }
 }
 
-function setPaneSizes(leftWidth) {
-  layoutController.setPaneSizes(leftWidth);
-}
-
-function initPaneResizer() {
-  layoutController.initPaneResizer();
-}
-
 let suppressFollowScrollUntilMs = 0;
-
-function scheduleSaveLayoutPrefs(patch) {
-  layoutController.scheduleSaveLayoutPrefs(patch);
-}
 
 function isNormalModeForSplitToggle() {
   return !isRawModeActive() && !isFocusModeEnabled();
-}
-
-function applyRightSplitOrientation(next) {
-  layoutController.applyRightSplitOrientation(next);
-}
-
-function applyRightSplitSizesFromRatio() {
-  layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() });
-}
-
-function setRightPaneSizes(leftWidth) {
-  layoutController.setRightPaneSizes(leftWidth, { rawMode: isRawModeActive() });
-}
-
-function initRightPaneResizer() {
-  layoutController.initRightPaneResizer({ isRawMode: () => isRawModeActive() });
-}
-
-function resetRightPaneSplit() {
-  layoutController.resetRightPaneSplit();
-}
-
-function setSidebarSplitSizes(topHeight) {
-  layoutController.setSidebarSplitSizes(topHeight);
-}
-
-function initSidebarResizer() {
-  layoutController.initSidebarResizer();
 }
 
 let libraryIndex = null;
@@ -2344,14 +2304,14 @@ const libraryUiDomain = createLibraryUiDomain({
     renameFile,
     renameLibraryFile,
     requestLoadLibraryFile,
-    resetRightPaneSplit,
+    resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
     restoreHoverStatus,
     renumberXInActiveFile,
     safeDirname,
     scheduleSaveLibraryPrefs,
     selectTune,
     selectTuneInRaw,
-    setPaneSizes,
+    setPaneSizes: (leftWidth) => layoutController.setPaneSizes(leftWidth),
     setFileContentInCache,
     setStatus,
     showContextMenuAt,
@@ -3240,7 +3200,7 @@ rawModeFeature = createRawModeFeature({
   setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
   setFocusModeEnabled,
   setBarMismatchMarkers,
-  applyRightSplitSizesFromRatio,
+  applyRightSplitSizesFromRatio: () => layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }),
   updateSourceLinkPanel: () => sourceLinkFeature.update(),
   showToast,
   showOpenError,
@@ -3509,7 +3469,7 @@ function getEditorValue() {
 
 function resetLayout() {
   if (settingsController) settingsController.zoomReset();
-  resetRightPaneSplit();
+  layoutController.resetRightPaneSplit();
 }
 
 let startupLayoutResetDone = false;
@@ -3524,7 +3484,7 @@ function scheduleStartupLayoutReset() {
     startupLayoutResetDone = true;
     try {
       // On startup, respect persisted zoom and split preferences.
-      applyRightSplitSizesFromRatio();
+      layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() });
     } catch {}
     requestAnimationFrame(() => {
       try { centerRenderPaneOnCurrentAnchor(); } catch {}
@@ -5279,9 +5239,9 @@ setHeaderCollapsed(getHeaderCollapsed());
 setCurrentDocument(createBlankDocument());
 updateWindowTitle();
 updateHeaderStateUI();
-initPaneResizer();
-initRightPaneResizer();
-initSidebarResizer();
+layoutController.initPaneResizer();
+layoutController.initRightPaneResizer({ isRawMode: () => isRawModeActive() });
+layoutController.initSidebarResizer();
 initPlaybackAutoScrollListeners();
 setLibraryVisible(false);
 
@@ -6182,7 +6142,7 @@ initContextMenu();
 requestAnimationFrame(() => {
   // Do not reset zoom on startup. Persisted zoom is applied via settings.
   // We only need an initial split size application until settings load.
-  try { applyRightSplitSizesFromRatio(); } catch {}
+  try { layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }); } catch {}
 });
 
 loadLastRecentEntry()

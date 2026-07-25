@@ -65,25 +65,16 @@ import {
   shouldSuppressUserVisibleAbcError,
   velocityToDynamic,
 } from "./drums.js";
-import { createLibraryViewStore } from "./library/store.js";
-import { createLibraryActions } from "./library/actions.js";
-import { buildGroupEntries as buildGroupEntriesCore } from "./library/group_entries.js";
 import { createLibraryMetadataController } from "./library/library_metadata_controller.js";
 import { createLibraryLifecycleController } from "./library/library_lifecycle_controller.js";
-import { createLibraryShellController } from "./library/library_shell_controller.js";
-import { createLibraryTreeView } from "./library/tree_view.js";
-import { createLibraryContextMenu } from "./library/context_menu.js";
 import { createLibraryDocumentContext } from "./library/library_document_context.js";
 import { createLibraryCrudDomain } from "./library/library_crud_domain.js";
+import { createLibraryUiDomain } from "./library/library_ui_domain.js";
 import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
 import { createRenameFileController } from "./library/rename_file_controller.js";
 import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
 import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
-import {
-  getEntryTuneCount,
-} from "./library/sorting_filtering.js";
-import { createLibraryUiStateController } from "./library/ui_state_controller.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
 import {
@@ -2251,76 +2242,108 @@ const templatesFeature = createTemplatesFeature({
   setStatus,
 });
 
-const libraryViewStore = createLibraryViewStore({
-  getIndex: () => libraryIndex,
-  safeBasename,
-});
-libraryShellController = createLibraryShellController({
+const libraryUiDomain = createLibraryUiDomain({
   api: window.api,
   documentRef: document,
   windowRef: window,
+  navigatorRef: navigator,
   elements: {
     main: $main,
+    libraryTree: $libraryTree,
+    tuneSelect: $fileTuneSelect,
+    librarySearch: $librarySearch,
+    groupBy: $groupBy,
+    sortBy: $sortBy,
+    sortTunesBy: $sortTunesBy,
   },
   state: {
     getLibraryVisible: () => isLibraryVisible,
     setLibraryVisibleState: (value) => { isLibraryVisible = Boolean(value); },
     isLibraryDisabled: () => chordProFeature.isEnabled(),
-    getLastSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
     getLibraryIndex: () => libraryIndex,
+    getLibraryFilter: () => libraryFilter,
+    getLibraryTextFilter: () => libraryTextFilter,
+    setLibraryTextFilter: (value) => { libraryTextFilter = String(value || "").trim(); },
+    hasLibraryFilterLabel: () => Boolean(libraryFilterLabel),
+    getActiveFilePath: () => activeFilePath,
+    setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
+    getActiveTuneId: () => activeTuneId,
+    getActiveTuneUid: () => activeTuneUid,
+    getActiveTuneMeta: () => activeTuneMeta,
+    getCurrentDocDirty: isCurrentDocumentDirty,
+    getHeaderDirty,
+    getIsNewTuneDraft: () => isNewTuneDraft,
+    isPayloadMode,
+    isRawMode: () => isRawModeActive(),
   },
   actions: {
+    addTuneToSetList: (tuneId) => setListFeature.addTuneById(tuneId),
+    appendTuneToActiveFile: (tuneId) => appendTuneToActiveFileAction.run(tuneId),
+    beginRenameFile,
+    buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
+    clearLibraryFilter,
+    commitRenameFile,
+    confirmReloadFromDisk,
+    copyTuneById,
+    deleteTuneById,
+    discardAndReloadWorkingCopyFromDisk,
+    duplicateTuneById,
+    ensureFullLibraryIndex,
     ensureSafeToAbandonCurrentDoc,
+    findTuneById,
+    getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
+      ? String(activeTuneMeta.path || "")
+      : getCurrentDocumentPath(),
+    getClipboardTune,
+    getEditorView: () => editorView,
+    getRenamingFilePath: () => renameFileController.getRenamingFilePath(),
+    hasDiskConflictPath,
+    hasFullLibraryIndex,
+    hasUnsavedChangesForFile,
+    handleTemplatesContextMenuAction: (action, target) => templatesFeature.handleContextMenuAction(action, target),
+    isWorkingCopyOpenForFile,
     loadLibraryFromFolder,
+    moveTuneToFile,
+    openMoveTuneModal,
+    openTuneFromLibrarySelection,
+    openXIssues: (filePath) => xIssuesModalController.open(filePath),
+    pasteClipboardToFile,
+    pinHoverStatus,
+    refreshLibraryFile,
+    refreshLibraryIndex,
     renderBufferStatus,
+    requestLoadLibraryFile,
     resetRightPaneSplit,
+    restoreHoverStatus,
+    renumberXInActiveFile,
     scheduleSaveLibraryPrefs,
+    selectTune,
+    selectTuneInRaw,
     setPaneSizes,
+    setRenamingFilePath: (value) => renameFileController.setRenamingFilePath(value),
     setStatus,
+    showContextMenuAt,
+    showHoverStatus,
     showOpenFolderDialog,
+    showSaveError,
     showToast,
+    updateFileHeaderPanel,
+    updateLibraryRootUI,
+    updateLibraryStatus,
+  },
+  utils: {
+    pathsEqual,
+    safeBasename,
   },
   constants: {
     MIN_PANE_WIDTH,
   },
 });
-libraryUiStateController = createLibraryUiStateController({
-  windowRef: window,
-  api: window.api,
-  documentRef: document,
-  safeBasename,
-  pathsEqual,
-  getLibraryIndex: () => libraryIndex,
-  getLibraryFilter: () => libraryFilter,
-  getLibraryTextFilter: () => libraryTextFilter,
-  setLibraryTextFilter: (value) => {
-    libraryTextFilter = String(value || "").trim();
-    if ($librarySearch) $librarySearch.value = libraryTextFilter;
-  },
-  getActiveFilePath: () => activeFilePath,
-  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
-  getActiveTuneId: () => activeTuneId,
-  getActiveTuneMeta: () => activeTuneMeta,
-  setLibraryVisible,
-  scheduleRenderLibraryTree,
-  renderLibraryTree,
-  updateLibraryStatus,
-  updateLibraryRootUI,
-  libraryViewStore,
-  buildGroupEntries,
-  selectTune,
-  refreshLibraryFile,
-  hasFullLibraryIndex,
-  ensureFullLibraryIndex,
-  onModalRowsChanged: () => {
-    const rows = libraryViewStore.getModalRows();
-    document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
-  },
-  searchDebounceMs: 180,
-});
-const libraryActions = createLibraryActions({
-  openTuneFromSelection: openTuneFromLibrarySelection,
-});
+libraryShellController = libraryUiDomain.shellController;
+libraryUiStateController = libraryUiDomain.uiStateController;
+const libraryActions = libraryUiDomain.actions;
+const libraryTreeView = libraryUiDomain.treeView;
+const libraryContextMenu = libraryUiDomain.contextMenu;
 window.libraryActions = libraryActions;
 const renameFileController = createRenameFileController({
   elements: {
@@ -2347,46 +2370,6 @@ const renameFileController = createRenameFileController({
     pathsEqual,
     safeDirname,
   },
-});
-const libraryTreeView = createLibraryTreeView({
-  documentRef: document,
-  windowRef: window,
-  treeElement: $libraryTree,
-  tuneSelectElement: $fileTuneSelect,
-  collapsedFiles: libraryUiStateController.getCollapsedFiles(),
-  collapsedGroups: libraryUiStateController.getCollapsedGroups(),
-  getVisibleLibraryFiles,
-  getLibraryTextFilter: () => libraryTextFilter,
-  applyLibraryTextFilter,
-  sortLibraryFiles,
-  buildGroupEntries: (files) => buildGroupEntries(files, libraryUiStateController.getGroupMode()),
-  sortGroupEntries,
-  sortTunes: (tunes) => sortTunes(tunes, libraryUiStateController.getTuneSortMode()),
-  getEntryTuneCount,
-  getRenamingFilePath: () => renameFileController.getRenamingFilePath(),
-  setRenamingFilePath: (value) => renameFileController.setRenamingFilePath(value),
-  getActiveFilePath: () => activeFilePath,
-  setActiveFilePath: (value) => { activeFilePath = value || null; },
-  getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
-    ? String(activeTuneMeta.path || "")
-    : getCurrentDocumentPath(),
-  getActiveTuneId: () => activeTuneId,
-  getActiveTuneUid: () => activeTuneUid,
-  isPayloadMode,
-  isRawMode: () => isRawModeActive(),
-  pathsEqual,
-  commitRenameFile,
-  requestLoadLibraryFile,
-  moveTuneToFile,
-  showContextMenuAt,
-  scheduleSaveLibraryUiState,
-  updateFileHeaderPanel,
-  showHoverStatus,
-  restoreHoverStatus,
-  pinHoverStatus,
-  selectTuneInRaw,
-  openTuneFromLibrarySelection,
-  showToast,
 });
 const moveTuneModalController = createMoveTuneModalController({
   modal: $moveTuneModal,
@@ -2440,60 +2423,6 @@ const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
   confirmAppendToFile,
   showToast,
 });
-const libraryContextMenu = createLibraryContextMenu({
-  documentRef: document,
-  windowRef: window,
-  navigatorRef: navigator,
-  getLibraryIndex: () => libraryIndex,
-  getLibraryTextFilter: () => libraryTextFilter,
-  setLibraryTextFilter: (value) => {
-    libraryTextFilter = value || "";
-    if ($librarySearch) $librarySearch.value = libraryTextFilter;
-  },
-  getActiveTuneId: () => activeTuneId,
-  getActiveTuneUid: () => activeTuneUid,
-  getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDocDirty: isCurrentDocumentDirty,
-  getHeaderDirty,
-  getIsNewTuneDraft: () => isNewTuneDraft,
-  getRawMode: () => isRawModeActive(),
-  getClipboardTune,
-  getEditorView: () => editorView,
-  getWindowApi: () => window.api,
-  pathsEqual,
-  safeBasename,
-  findTuneById,
-  hasUnsavedChangesForFile,
-  isWorkingCopyOpenForFile,
-  hasDiskConflictPath,
-  confirmReloadFromDisk,
-  discardAndReloadWorkingCopyFromDisk,
-  requestLoadLibraryFile,
-  deleteTuneById,
-  copyTuneById,
-  duplicateTuneById,
-  pasteClipboardToFile,
-  promptFindInLibrary: () => {
-    setLibraryVisible(true);
-    if ($librarySearch) {
-      $librarySearch.focus();
-      try { $librarySearch.select(); } catch {}
-    }
-  },
-  renderLibraryTree,
-  updateLibraryStatus,
-  refreshLibraryIndex,
-  beginRenameFile,
-  openXIssues: (filePath) => xIssuesModalController.open(filePath),
-  renumberXInActiveFile,
-  openMoveTuneModal,
-  addTuneToSetList: (tuneId) => setListFeature.addTuneById(tuneId),
-  appendTuneToActiveFile: (tuneId) => appendTuneToActiveFileAction.run(tuneId),
-  buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
-  handleTemplatesContextMenuAction: (action, target) => templatesFeature.handleContextMenuAction(action, target),
-  showToast,
-  showSaveError,
-});
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
   infoElement: $aboutInfo,
@@ -2507,7 +2436,7 @@ const aboutModalController = createAboutModalController({
 const goToMeasureModalController = createGoToMeasureModalController();
 
 function normalizeTitleKey(raw, maxLen, strict) {
-  return libraryUiStateController.normalizeTitleKey(raw, maxLen, strict);
+  return libraryUiDomain.normalizeTitleKey(raw, maxLen, strict);
 }
 
 function formatPathTail(filePath, segments = 3) {
@@ -2566,28 +2495,27 @@ async function ensureFullLibraryIndex({ reason = "" } = {}) {
 }
 
 function scheduleSaveLibraryPrefs(patch) {
-  libraryUiStateController.scheduleSaveLibraryPrefs(patch);
+  libraryUiDomain.scheduleSaveLibraryPrefs(patch);
 }
 
 function scheduleSaveLibraryUiState() {
-  libraryUiStateController.scheduleSaveLibraryUiState();
+  libraryUiDomain.scheduleSaveLibraryUiState();
 }
 
 function applyLibraryUiStateFromSettings(settings) {
-  return libraryUiStateController.applyLibraryUiStateFromSettings(settings);
+  return libraryUiDomain.applyLibraryUiStateFromSettings(settings);
 }
 
 async function restoreLibraryTuneSelection(selection) {
-  return libraryUiStateController.restoreLibraryTuneSelection(selection);
+  return libraryUiDomain.restoreLibraryTuneSelection(selection);
 }
 
 async function flushLibraryPrefsSave() {
-  await libraryUiStateController.flushLibraryPrefsSave();
+  await libraryUiDomain.flushLibraryPrefsSave();
 }
 
 function applyLibraryPrefsFromSettings(settings) {
-  libraryUiStateController.applyLibraryPrefsFromSettings(settings);
-  libraryUiStateController.syncControls({ groupBy: $groupBy, sortBy: $sortBy, sortTunesBy: $sortTunesBy });
+  libraryUiDomain.applyLibraryPrefsFromSettings(settings);
 }
 
 function updateLibraryRootUI() {
@@ -2821,7 +2749,7 @@ libraryMetadataController = createLibraryMetadataController({
     getActiveTuneId: () => activeTuneId,
     getFileContentFromCache,
     hasFileContentCacheKey: (key) => fileContentCache.hasKey(key),
-    invalidateLibraryView: () => libraryViewStore.invalidate(),
+    invalidateLibraryView: () => libraryUiDomain.invalidateView(),
     isLibraryDisabled: () => chordProFeature.isEnabled(),
     logErr,
     logStartupPerf,
@@ -2848,7 +2776,7 @@ libraryMetadataController = createLibraryMetadataController({
     updateLibraryModalRows: () => {
       try {
         if (document.body.classList.contains("library-list-open")) {
-          const rows = libraryViewStore.getModalRows();
+          const rows = libraryUiDomain.getModalRows();
           document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
         }
       } catch {}
@@ -2990,10 +2918,10 @@ libraryLifecycleController = createLibraryLifecycleController({
     ensureSafeToAbandonCurrentDoc,
     errorsClearIndex: () => errorsFeature.clearIndex(),
     errorsHasActiveHighlight: () => errorsFeature.hasActiveHighlight(),
-    expandInitialCollapsedState: () => libraryUiStateController.expandInitialCollapsedState(),
+    expandInitialCollapsedState: () => libraryUiDomain.expandInitialCollapsedState(),
     getFileContentFromCache,
     getLatestSettingsSnapshot: () => latestSettingsSnapshot,
-    invalidateLibraryView: () => libraryViewStore.invalidate(),
+    invalidateLibraryView: () => libraryUiDomain.invalidateView(),
     isChordProFilePath,
     isChordProText,
     isFilePerfEnabled,
@@ -3595,30 +3523,29 @@ function toggleHeaderCollapsed() {
 }
 
 function sortTunes(list, mode) {
-  return libraryUiStateController.sortTunes(list, mode);
+  return libraryUiDomain.sortTunes(list, mode);
 }
 
 function sortLibraryFiles(files) {
-  return libraryUiStateController.sortLibraryFiles(files);
+  return libraryUiDomain.sortLibraryFiles(files);
 }
 
 function sortGroupEntries(entries) {
-  return libraryUiStateController.sortGroupEntries(entries);
+  return libraryUiDomain.sortGroupEntries(entries);
 }
 
 function setSortMode(mode) {
-  const normalized = libraryUiStateController.setSortMode(mode);
+  const normalized = libraryUiDomain.setSortMode(mode);
   if ($sortBy) $sortBy.value = normalized;
 }
 
 function setTuneSortMode(mode) {
-  const normalized = libraryUiStateController.setTuneSortMode(mode);
+  const normalized = libraryUiDomain.setTuneSortMode(mode);
   if ($sortTunesBy) $sortTunesBy.value = normalized;
 }
 
 function getVisibleLibraryFiles() {
-  if (libraryFilter) return libraryFilter;
-  return libraryIndex ? (libraryIndex.files || []) : [];
+  return libraryUiDomain.getVisibleLibraryFiles();
 }
 
 function setLibraryFilter(filteredFiles, label) {
@@ -3665,7 +3592,7 @@ function setPracticeBarHighlight(range) {
 }
 
 function applyLibraryTextFilter(files, query) {
-  return libraryUiStateController.applyLibraryTextFilter(files, query);
+  return libraryUiDomain.applyLibraryTextFilter(files, query);
 }
 
 
@@ -4285,7 +4212,7 @@ function toggleLibrary() {
 }
 
 function buildGroupEntries(files, mode) {
-  return buildGroupEntriesCore(files, mode, { normalizeTitleKey });
+  return libraryUiDomain.buildGroupEntries(files, mode);
 }
 
 function scheduleRenderLibraryTree(files = null) {
@@ -4373,61 +4300,8 @@ document.addEventListener("keydown", (e) => {
   stopPlaybackTransport();
 });
 
-if ($groupBy) {
-  $groupBy.addEventListener("change", () => {
-    libraryUiStateController.handleGroupModeChange($groupBy.value || "file");
-    libraryUiStateController.syncControls({ groupBy: $groupBy, sortBy: $sortBy, sortTunesBy: $sortTunesBy });
-  });
-}
-
-if ($sortBy) {
-  if ($sortBy.value) setSortMode($sortBy.value);
-  $sortBy.addEventListener("change", () => {
-    libraryUiStateController.handleSortModeChange($sortBy.value || "");
-    libraryUiStateController.syncControls({ sortBy: $sortBy });
-  });
-}
-
-if ($sortTunesBy) {
-  if ($sortTunesBy.value) setTuneSortMode($sortTunesBy.value);
-  $sortTunesBy.addEventListener("change", () => {
-    libraryUiStateController.handleTuneSortModeChange($sortTunesBy.value || "");
-    libraryUiStateController.syncControls({ sortTunesBy: $sortTunesBy });
-  });
-}
-
-if ($librarySearch) {
-  $librarySearch.addEventListener("input", () => {
-    scheduleLibrarySearch($librarySearch.value || "");
-    scheduleSaveLibraryPrefs({ libraryFilterText: $librarySearch.value || "" });
-  });
-  $librarySearch.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      libraryTextFilter = "";
-      $librarySearch.value = "";
-      scheduleSaveLibraryPrefs({ libraryFilterText: "" });
-      libraryUiStateController.clearLibrarySearchTimer();
-      renderLibraryTree();
-      updateLibraryStatus();
-      e.preventDefault();
-    }
-  });
-}
-
-if ($btnLibraryClearFilter) {
-  $btnLibraryClearFilter.addEventListener("click", () => {
-    libraryTextFilter = "";
-    if ($librarySearch) $librarySearch.value = "";
-    scheduleSaveLibraryPrefs({ libraryFilterText: "" });
-    libraryUiStateController.clearLibrarySearchTimer();
-    if (libraryFilterLabel) {
-      clearLibraryFilter();
-    } else {
-      renderLibraryTree();
-      updateLibraryStatus();
-    }
-  });
-}
+libraryUiDomain.wireControls();
+libraryUiDomain.wireSearch({ clearButton: $btnLibraryClearFilter });
 
 if ($btnLibraryRefresh) {
   $btnLibraryRefresh.addEventListener("click", async () => {
@@ -4662,7 +4536,7 @@ function applyLibrarySearch(value) {
 }
 
 function scheduleLibrarySearch(value) {
-  libraryUiStateController.scheduleLibrarySearch(value);
+  libraryUiDomain.scheduleLibrarySearch(value);
 }
 
 function setSoundfontStatus(text, autoClearMs) {
@@ -5883,7 +5757,7 @@ function openLibraryListFromCurrentLibraryIndex() {
   }
   if (!window.openLibraryModal) return false;
 
-  const rows = libraryViewStore.getModalRows();
+  const rows = libraryUiDomain.getModalRows();
   if (!hasFullLibraryIndex()) {
     ensureFullLibraryIndex({ reason: "library list" }).catch(() => {});
   }
@@ -6439,12 +6313,7 @@ if (window.api && typeof window.api.onAppRequestQuit === "function") {
 
 document.addEventListener("abcarus:reset-library-cache", () => {
   try {
-    libraryViewStore.invalidate();
-    scheduleRenderLibraryTree();
-    if (document.body.classList.contains("library-list-open")) {
-      const rows = libraryViewStore.getModalRows();
-      document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
-    }
+    libraryUiDomain.invalidateView();
   } catch {}
 });
 
@@ -6483,10 +6352,10 @@ if (window.api && typeof window.api.getSettings === "function") {
 		      logStartupPerf("apply settings: end");
 	        markStartupSettingsApplied();
 	    }
-	    libraryUiStateController.setPrefsWriteSuppressed(false);
+	    libraryUiDomain.setPrefsWriteSuppressed(false);
       if (!settings) markStartupSettingsApplied();
 	  }).catch(() => {
-      libraryUiStateController.setPrefsWriteSuppressed(false);
+      libraryUiDomain.setPrefsWriteSuppressed(false);
       markStartupSettingsApplied();
     });
 }

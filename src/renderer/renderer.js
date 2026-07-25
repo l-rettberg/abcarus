@@ -188,6 +188,7 @@ import {
 } from "./render/render_payload_model.js";
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
 import { createAbcToSvgMarkupRenderer } from "./render/abc_to_svg_markup.js";
+import { createRenderPayloadController } from "./render/render_payload_controller.js";
 import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
 import { createScoreHighlightController } from "./render/score_highlight_controller.js";
 import { createPracticeBarHighlightController } from "./render/practice_bar_highlight_controller.js";
@@ -1838,6 +1839,7 @@ function initSidebarResizer() {
 
 let libraryIndex = null;
 let suppressRecentEntries = false;
+let renderPayloadController = null;
 let renderPipelineController = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let headerLayersController = null;
@@ -1859,6 +1861,20 @@ headerLayersController = createHeaderLayersController({
   isMeasureCheckEnabled,
   scheduleRender: () => scheduleRenderNow(),
   setButtonText,
+});
+
+renderPayloadController = createRenderPayloadController({
+  getEditorText: getEditorValue,
+  getActiveFileEntry,
+  getHeaderText: getHeaderEditorValue,
+  isPayloadMode,
+  isChordProEnabled: () => chordProFeature.isEnabled(),
+  isChordProFullView: () => chordProFeature.isFullView(),
+  computePayloadTuneOffset,
+  countLinesForPrefix,
+  sanitizeHeaderText: sanitizeFileHeaderForInteractiveRender,
+  buildHeaderPrefix,
+  assertCleanAbcText,
 });
 
 function getRenderCompatMap() {
@@ -5166,20 +5182,12 @@ function getSongbookSuggestedBaseName() {
   });
 }
 
-async function runPrintAction(type) {
-  await printCurrentFeature.runAction(type);
-}
-
 async function getFileContentCached(filePath) {
   return fileContentCache.getCached(filePath, readFile);
 }
 
 function setPrintAllFromSettings(settings) {
   printAllFeature.applySettings(settings);
-}
-
-async function runPrintAllAction(type) {
-  await printAllFeature.runAction(type);
 }
 
 function normalizeAccThreeQuarterToneForAbc2svg(text) {
@@ -5730,14 +5738,6 @@ async function fileOpen() {
   if (documentSessionController) await documentSessionController.fileOpen();
 }
 
-async function importMusicXml() {
-  await importExportFeature.importMusicXml();
-}
-
-async function importMidi() {
-  await importExportFeature.importMidi();
-}
-
 async function fileSave() {
   if (documentSessionController) await documentSessionController.fileSave();
 }
@@ -5756,18 +5756,6 @@ async function requestQuitApplication() {
 
 async function fileClose() {
   if (documentSessionController) await documentSessionController.fileClose();
-}
-
-async function exportMusicXml() {
-  await importExportFeature.exportMusicXml();
-}
-
-async function exportMidi() {
-  await importExportFeature.exportMidi();
-}
-
-async function exportMp3() {
-  await importExportFeature.exportMp3();
 }
 
 function openAbcHelpersFromMenu() {
@@ -5897,9 +5885,9 @@ const menuActionsController = createMenuActionsController({
     dumpDebug: () => debugDumpFeature.dumpToFile().catch(() => {}),
     enterPayloadMode: () => payloadModeFeature.enter(),
     exitPayloadMode: () => payloadModeFeature.exit(),
-    exportMidi,
-    exportMp3,
-    exportMusicXml,
+    exportMidi: () => importExportFeature.exportMidi(),
+    exportMp3: () => importExportFeature.exportMp3(),
+    exportMusicXml: () => importExportFeature.exportMusicXml(),
     exportSettings: exportSettingsFromMenu,
     fileNew,
     fileNewFromTemplate,
@@ -5910,8 +5898,8 @@ const menuActionsController = createMenuActionsController({
     getActiveFileEntry,
     goToMeasureFromMenu,
     gotoLine: () => { if (editorView) gotoLine(editorView); },
-    importMidi,
-    importMusicXml,
+    importMidi: () => importExportFeature.importMidi(),
+    importMusicXml: () => importExportFeature.importMusicXml(),
     importSettings: importSettingsFromMenu,
     leaveRawModeForAction,
     logError: logErr,
@@ -5935,8 +5923,8 @@ const menuActionsController = createMenuActionsController({
     requestCloseDocument,
     requestQuitApplication,
     resetLayout,
-    runPrintAction,
-    runPrintAllAction,
+    runPrintAction: (type) => printCurrentFeature.runAction(type),
+    runPrintAllAction: (type) => printAllFeature.runAction(type),
     scanAndLoadLibrary,
     setNoteTypingPreview: setNoteTypingPreviewFromMenu,
     setSplitOrientation,
@@ -6790,32 +6778,7 @@ function getPlaybackPayload() {
 }
 
 function getRenderPayload() {
-  if (isPayloadMode()) {
-    const text = getEditorValue();
-    const offset = computePayloadTuneOffset(text);
-    const out = { text, offset };
-    assertCleanAbcText(out.text, "render payload");
-    return out;
-  }
-  if (chordProFeature.isEnabled()) {
-    if (chordProFeature.isFullView()) return { text: "", offset: 0, lineOffset: 0, empty: true };
-    const tuneText = getEditorValue();
-    const prefixPayload = buildHeaderPrefix("", true, tuneText);
-    const text = prefixPayload.text ? `${prefixPayload.text}${tuneText}` : tuneText;
-    const lineOffset = countLinesForPrefix(prefixPayload.text);
-    const out = { text, offset: prefixPayload.offset || 0, lineOffset };
-    assertCleanAbcText(out.text, "render payload");
-    return out;
-  }
-  const tuneText = getEditorValue();
-  const entry = getActiveFileEntry();
-  const headerTextRaw = entry ? getHeaderEditorValue() : "";
-  const headerText = sanitizeFileHeaderForInteractiveRender(headerTextRaw);
-  const prefixPayload = buildHeaderPrefix(headerText, true, tuneText);
-  if (!prefixPayload.text) return { text: tuneText, offset: 0 };
-  const out = { text: `${prefixPayload.text}${tuneText}`, offset: prefixPayload.offset };
-  assertCleanAbcText(out.text, "render payload");
-  return out;
+  return renderPayloadController.getRenderPayload();
 }
 
 async function preparePlayback() {

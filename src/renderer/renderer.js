@@ -2284,7 +2284,7 @@ const libraryUiDomain = createLibraryUiDomain({
     isRawMode: () => isRawModeActive(),
   },
   actions: {
-    addTuneToSetList: (tuneId) => setListFeature.addTuneById(tuneId),
+    addTuneToSetList: (tuneId, options = {}) => setListFeature.addTuneById(tuneId, options),
     buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
     clearLibraryFilter,
     confirmReloadFromDisk,
@@ -2715,10 +2715,7 @@ libraryMetadataController = createLibraryMetadataController({
     updateFileHeaderPanel,
     updateLibraryModalRows: () => {
       try {
-        if (document.body.classList.contains("library-list-open")) {
-          const rows = libraryUiDomain.getModalRows();
-          document.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
-        }
+        libraryUiDomain.updateModalRowsIfOpen();
       } catch {}
     },
     updateLibraryRootUI,
@@ -4219,7 +4216,7 @@ async function requestLoadLibraryFile(filePath) {
 if ($btnToggleLibrary) {
   $btnToggleLibrary.addEventListener("click", (e) => {
     if (e && e.shiftKey) {
-      openLibraryListFromCurrentLibraryIndex();
+      libraryUiDomain.openCatalogFromCurrentIndex();
       return;
     }
     toggleLibrary();
@@ -4242,6 +4239,7 @@ document.addEventListener("keydown", (e) => {
 
 libraryUiDomain.wireControls();
 libraryUiDomain.wireSearch({ clearButton: $btnLibraryClearFilter });
+libraryUiDomain.wireCatalogBridge();
 
 if ($btnLibraryRefresh) {
   $btnLibraryRefresh.addEventListener("click", async () => {
@@ -5646,58 +5644,6 @@ async function openExternal(url) {
   if (res && res.error) logErr(res.error);
 }
 
-let libraryListYieldedByThisOpen = false;
-let libraryTreeHintToastShown = false;
-document.addEventListener("library-modal:closed", () => {
-  if (!libraryListYieldedByThisOpen) return;
-  document.body.classList.remove("library-list-open");
-  libraryListYieldedByThisOpen = false;
-});
-
-document.addEventListener("set-list:add", (ev) => {
-  try {
-    const row = ev && ev.detail && ev.detail.row ? ev.detail.row : null;
-    if (!row) return;
-    const tuneId = row && row.tuneId ? String(row.tuneId) : "";
-    setListFeature.addTuneById(tuneId, { fallbackTitle: row.title, fallbackComposer: row.composer }).then(() => {
-      showToast("Added to Set List.", 2000);
-    }).catch((e) => {
-      showToast(e && e.message ? e.message : String(e), 5000);
-    });
-  } catch {}
-});
-
-function openLibraryListFromCurrentLibraryIndex() {
-  if (chordProFeature.isEnabled()) {
-    showToast("Library is disabled while editing ChordPro.", 2400);
-    return false;
-  }
-  if (!libraryIndex || !libraryIndex.root || !Array.isArray(libraryIndex.files) || !libraryIndex.files.length) {
-    setStatus("Load a library folder first.");
-    return false;
-  }
-  if (!window.openLibraryModal) return false;
-
-  const rows = libraryUiDomain.getModalRows();
-  if (!hasFullLibraryIndex()) {
-    ensureFullLibraryIndex({ reason: "library list" }).catch(() => {});
-  }
-
-  if (!isLibraryVisible && !libraryTreeHintToastShown) {
-    libraryTreeHintToastShown = true;
-    showToast("Tip: Library Tree is hidden. Click Library or press Ctrl+L.", 4200);
-  }
-
-  libraryListYieldedByThisOpen = false;
-  if (isLibraryVisible) {
-    document.body.classList.add("library-list-open");
-    libraryListYieldedByThisOpen = true;
-  }
-
-  window.openLibraryModal(rows);
-  return true;
-}
-
 async function openAbout() {
   await aboutModalController.open();
 }
@@ -6078,7 +6024,7 @@ function wireMenuActions() {
       else if (actionType === "close") await requestCloseDocument();
       else if (actionType === "quit") await requestQuitApplication();
       else if (actionType === "libraryList") {
-        openLibraryListFromCurrentLibraryIndex();
+        libraryUiDomain.openCatalogFromCurrentIndex();
       }
       else if (actionType === "setList") setListFeature.open();
       else if (actionType === "toggleLibrary") toggleLibrary();

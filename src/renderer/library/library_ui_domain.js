@@ -119,6 +119,11 @@ function createLibraryUiDomain({
     documentRef.dispatchEvent(new CustomEvent("library-modal:update-rows", { detail: { rows } }));
   }
 
+  function updateModalRowsIfOpen() {
+    if (!documentRef || !documentRef.body || !documentRef.body.classList.contains("library-list-open")) return;
+    updateModalRows();
+  }
+
   uiStateController = createLibraryUiStateController({
     windowRef,
     api,
@@ -421,6 +426,69 @@ function createLibraryUiDomain({
     uiStateController.syncControls({ groupBy, sortBy, sortTunesBy });
   }
 
+  let catalogYieldedByThisOpen = false;
+  let catalogTreeHintToastShown = false;
+
+  function openCatalogFromCurrentIndex() {
+    if (typeof state.isLibraryDisabled === "function" && state.isLibraryDisabled()) {
+      if (typeof actions.showToast === "function") actions.showToast("Library is disabled while editing ChordPro.", 2400);
+      return false;
+    }
+    const libraryIndex = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
+    if (!libraryIndex || !libraryIndex.root || !Array.isArray(libraryIndex.files) || !libraryIndex.files.length) {
+      if (typeof actions.setStatus === "function") actions.setStatus("Load a library folder first.");
+      return false;
+    }
+    if (!windowRef || typeof windowRef.openLibraryModal !== "function") return false;
+
+    const rows = viewStore.getModalRows();
+    if (typeof actions.hasFullLibraryIndex === "function" && !actions.hasFullLibraryIndex()) {
+      if (typeof actions.ensureFullLibraryIndex === "function") {
+        actions.ensureFullLibraryIndex({ reason: "library list" }).catch(() => {});
+      }
+    }
+
+    const isVisible = typeof state.getLibraryVisible === "function" ? state.getLibraryVisible() : false;
+    if (!isVisible && !catalogTreeHintToastShown) {
+      catalogTreeHintToastShown = true;
+      if (typeof actions.showToast === "function") {
+        actions.showToast("Tip: Library Tree is hidden. Click Library or press Ctrl+L.", 4200);
+      }
+    }
+
+    catalogYieldedByThisOpen = false;
+    if (isVisible && documentRef && documentRef.body) {
+      documentRef.body.classList.add("library-list-open");
+      catalogYieldedByThisOpen = true;
+    }
+
+    windowRef.openLibraryModal(rows);
+    return true;
+  }
+
+  function wireCatalogBridge() {
+    if (!documentRef) return;
+    documentRef.addEventListener("library-modal:closed", () => {
+      if (!catalogYieldedByThisOpen) return;
+      if (documentRef.body) documentRef.body.classList.remove("library-list-open");
+      catalogYieldedByThisOpen = false;
+    });
+
+    documentRef.addEventListener("set-list:add", (ev) => {
+      try {
+        const row = ev && ev.detail && ev.detail.row ? ev.detail.row : null;
+        if (!row) return;
+        const tuneId = row && row.tuneId ? String(row.tuneId) : "";
+        if (!tuneId || typeof actions.addTuneToSetList !== "function") return;
+        actions.addTuneToSetList(tuneId, { fallbackTitle: row.title, fallbackComposer: row.composer }).then(() => {
+          if (typeof actions.showToast === "function") actions.showToast("Added to Set List.", 2000);
+        }).catch((e) => {
+          if (typeof actions.showToast === "function") actions.showToast(e && e.message ? e.message : String(e), 5000);
+        });
+      } catch {}
+    });
+  }
+
   return {
     actions: libraryActions,
     applyLibraryPrefsFromSettings,
@@ -433,12 +501,12 @@ function createLibraryUiDomain({
     commitRenameFile: (oldPath, inputName) => renameFileController.commitRenameFile(oldPath, inputName),
     flushLibraryPrefsSave: () => uiStateController.flushLibraryPrefsSave(),
     expandInitialCollapsedState: () => uiStateController.expandInitialCollapsedState(),
-    getModalRows: () => viewStore.getModalRows(),
     getVisibleLibraryFiles,
     invalidateView,
     libraryActions,
     moveTuneToFile,
     normalizeTitleKey: (raw, maxLen, strict) => uiStateController.normalizeTitleKey(raw, maxLen, strict),
+    openCatalogFromCurrentIndex,
     openMoveTuneModal,
     renderLibraryTree,
     restoreLibraryTuneSelection: (selection) => uiStateController.restoreLibraryTuneSelection(selection),
@@ -456,7 +524,9 @@ function createLibraryUiDomain({
     syncControls: (controls) => uiStateController.syncControls(controls),
     treeView,
     uiStateController,
+    updateModalRowsIfOpen,
     viewStore,
+    wireCatalogBridge,
     wireControls,
     wireSearch,
   };

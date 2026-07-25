@@ -1,7 +1,10 @@
+import { createAppendTuneToActiveFileAction } from "./append_tune_action.js";
 import { createLibraryActions } from "./actions.js";
 import { createLibraryContextMenu } from "./context_menu.js";
 import { buildGroupEntries as buildGroupEntriesCore } from "./group_entries.js";
 import { createLibraryShellController } from "./library_shell_controller.js";
+import { createMoveTuneModalController } from "./move_tune_modal_controller.js";
+import { createRenameFileController } from "./rename_file_controller.js";
 import { getEntryTuneCount } from "./sorting_filtering.js";
 import { createLibraryViewStore } from "./store.js";
 import { createLibraryTreeView } from "./tree_view.js";
@@ -9,6 +12,7 @@ import {
   createLibraryUiStateController,
   normalizeTitleKey as normalizeLibraryTitleKey,
 } from "./ui_state_controller.js";
+import { createXIssuesModalController } from "./x_issues_modal_controller.js";
 
 function createLibraryUiDomain({
   api = null,
@@ -35,6 +39,17 @@ function createLibraryUiDomain({
     groupBy = null,
     sortBy = null,
     sortTunesBy = null,
+    moveTuneModal = null,
+    moveTuneClose = null,
+    moveTuneCancel = null,
+    moveTuneTarget = null,
+    moveTuneApply = null,
+    xIssuesModal = null,
+    xIssuesInfo = null,
+    xIssuesClose = null,
+    xIssuesCopy = null,
+    xIssuesJump = null,
+    xIssuesAutoFix = null,
   } = elements;
 
   let shellController = null;
@@ -139,6 +154,106 @@ function createLibraryUiDomain({
     openTuneFromSelection: actions.openTuneFromLibrarySelection,
   });
 
+  const renameFileController = createRenameFileController({
+    elements: {
+      libraryTree,
+    },
+    state: {
+      getActiveEditFilePath: actions.getActiveEditFilePath,
+      hasGlobalUnsavedChanges: actions.hasGlobalUnsavedChanges,
+      hasUnsavedChangesForFile: actions.hasUnsavedChangesForFile,
+      isWorkingCopyOpenForFile: actions.isWorkingCopyOpenForFile,
+    },
+    actions: {
+      renderLibraryTree,
+      renameLibraryFile: actions.renameLibraryFile,
+      showSaveError: actions.showSaveError,
+      showToast: actions.showToast,
+      withFileLocks: actions.withFileLocks,
+    },
+    io: {
+      fileExists: actions.fileExists,
+      renameFile: actions.renameFile,
+    },
+    utils: {
+      pathsEqual,
+      safeDirname: actions.safeDirname,
+    },
+  });
+
+  function moveTuneToFile(tuneId, targetPath) {
+    if (typeof actions.moveTuneToFile === "function") return actions.moveTuneToFile(tuneId, targetPath);
+    return Promise.resolve();
+  }
+
+  const moveTuneModalController = createMoveTuneModalController({
+    modal: moveTuneModal,
+    closeButton: moveTuneClose,
+    cancelButton: moveTuneCancel,
+    targetSelect: moveTuneTarget,
+    applyButton: moveTuneApply,
+    safeBasename,
+    enableDraggableModal: actions.enableDraggableModal,
+    showError: actions.showSaveError,
+    onMove: moveTuneToFile,
+  });
+
+  function openMoveTuneModal(tuneId) {
+    const libraryIndex = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
+    moveTuneModalController.open(tuneId, {
+      files: libraryIndex && Array.isArray(libraryIndex.files) ? libraryIndex.files : [],
+      activeFilePath: typeof state.getActiveFilePath === "function" ? state.getActiveFilePath() : "",
+    });
+  }
+
+  const xIssuesModalController = createXIssuesModalController({
+    modal: xIssuesModal,
+    infoElement: xIssuesInfo,
+    closeButton: xIssuesClose,
+    copyButton: xIssuesCopy,
+    jumpButton: xIssuesJump,
+    autoFixButton: xIssuesAutoFix,
+    safeBasename,
+    enableDraggableModal: actions.enableDraggableModal,
+    getFileEntry: (filePath) => {
+      const libraryIndex = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
+      return libraryIndex && Array.isArray(libraryIndex.files)
+        ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
+        : null;
+    },
+    refreshFile: actions.refreshLibraryFile,
+    loadFile: actions.requestLoadLibraryFile,
+    selectTune: actions.selectTune,
+    autoFixFile: actions.renumberXInActiveFile,
+    showToast: actions.showToast,
+  });
+
+  const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
+    api,
+    getActiveTuneMeta: () => (typeof state.getActiveTuneMeta === "function" ? state.getActiveTuneMeta() : null),
+    getCurrentDocDirty: state.getCurrentDocDirty,
+    getHeaderDirty: state.getHeaderDirty,
+    getRawMode: state.isRawMode,
+    findTuneById: actions.findTuneById,
+    getTuneText: actions.getTuneText,
+    pathsEqual,
+    withFileLock: actions.withFileLock,
+    refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
+    markDiskConflictPath: actions.markDiskConflictPath,
+    setFileContentInCache: actions.setFileContentInCache,
+    syncLibraryFileFromWorkingCopySnapshot: actions.syncLibraryFileFromWorkingCopySnapshot,
+    appendTuneTextToFileUnlocked: actions.appendTuneTextToFileUnlocked,
+    refreshLibraryFile: actions.refreshLibraryFile,
+    setActiveFilePath: (filePath) => {
+      if (typeof state.setActiveFilePath === "function") state.setActiveFilePath(filePath || null);
+    },
+    selectTune: actions.selectTune,
+    getNextXNumber: actions.getNextXNumber,
+    ensureXNumberInAbc: actions.ensureXNumberInAbc,
+    confirmAppendToFile: actions.confirmAppendToFile,
+    showToast: actions.showToast,
+  });
+
   treeView = createLibraryTreeView({
     documentRef,
     windowRef,
@@ -154,8 +269,8 @@ function createLibraryUiDomain({
     sortGroupEntries: (entries) => uiStateController.sortGroupEntries(entries),
     sortTunes: (tunes) => uiStateController.sortTunes(tunes, uiStateController.getTuneSortMode()),
     getEntryTuneCount,
-    getRenamingFilePath: actions.getRenamingFilePath,
-    setRenamingFilePath: actions.setRenamingFilePath,
+    getRenamingFilePath: () => renameFileController.getRenamingFilePath(),
+    setRenamingFilePath: (value) => renameFileController.setRenamingFilePath(value),
     getActiveFilePath: () => (typeof state.getActiveFilePath === "function" ? state.getActiveFilePath() : ""),
     setActiveFilePath: (value) => {
       if (typeof state.setActiveFilePath === "function") state.setActiveFilePath(value || null);
@@ -166,9 +281,9 @@ function createLibraryUiDomain({
     isPayloadMode: state.isPayloadMode,
     isRawMode: state.isRawMode,
     pathsEqual,
-    commitRenameFile: actions.commitRenameFile,
+    commitRenameFile: (oldPath, inputName) => renameFileController.commitRenameFile(oldPath, inputName),
     requestLoadLibraryFile: actions.requestLoadLibraryFile,
-    moveTuneToFile: actions.moveTuneToFile,
+    moveTuneToFile,
     showContextMenuAt: actions.showContextMenuAt,
     scheduleSaveLibraryUiState: () => uiStateController.scheduleSaveLibraryUiState(),
     updateFileHeaderPanel: actions.updateFileHeaderPanel,
@@ -220,12 +335,12 @@ function createLibraryUiDomain({
     renderLibraryTree,
     updateLibraryStatus: actions.updateLibraryStatus,
     refreshLibraryIndex: actions.refreshLibraryIndex,
-    beginRenameFile: actions.beginRenameFile,
-    openXIssues: actions.openXIssues,
+    beginRenameFile: (filePath) => renameFileController.beginRenameFile(filePath),
+    openXIssues: (filePath) => xIssuesModalController.open(filePath),
     renumberXInActiveFile: actions.renumberXInActiveFile,
-    openMoveTuneModal: actions.openMoveTuneModal,
+    openMoveTuneModal,
     addTuneToSetList: actions.addTuneToSetList,
-    appendTuneToActiveFile: actions.appendTuneToActiveFile,
+    appendTuneToActiveFile: (tuneId) => appendTuneToActiveFileAction.run(tuneId),
     buildTemplatesPreviewContextMenuItems: actions.buildTemplatesPreviewContextMenuItems,
     handleTemplatesContextMenuAction: actions.handleTemplatesContextMenuAction,
     showToast: actions.showToast,
@@ -314,13 +429,17 @@ function createLibraryUiDomain({
     buildGroupEntries,
     clearLibrarySearchTimer: () => uiStateController.clearLibrarySearchTimer(),
     contextMenu,
+    beginRenameFile: (filePath) => renameFileController.beginRenameFile(filePath),
+    commitRenameFile: (oldPath, inputName) => renameFileController.commitRenameFile(oldPath, inputName),
     flushLibraryPrefsSave: () => uiStateController.flushLibraryPrefsSave(),
     expandInitialCollapsedState: () => uiStateController.expandInitialCollapsedState(),
     getModalRows: () => viewStore.getModalRows(),
     getVisibleLibraryFiles,
     invalidateView,
     libraryActions,
+    moveTuneToFile,
     normalizeTitleKey: (raw, maxLen, strict) => uiStateController.normalizeTitleKey(raw, maxLen, strict),
+    openMoveTuneModal,
     renderLibraryTree,
     restoreLibraryTuneSelection: (selection) => uiStateController.restoreLibraryTuneSelection(selection),
     scheduleLibrarySearch: (value) => uiStateController.scheduleLibrarySearch(value),

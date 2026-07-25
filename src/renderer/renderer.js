@@ -70,10 +70,6 @@ import { createLibraryLifecycleController } from "./library/library_lifecycle_co
 import { createLibraryDocumentContext } from "./library/library_document_context.js";
 import { createLibraryCrudDomain } from "./library/library_crud_domain.js";
 import { createLibraryUiDomain } from "./library/library_ui_domain.js";
-import { createAppendTuneToActiveFileAction } from "./library/append_tune_action.js";
-import { createRenameFileController } from "./library/rename_file_controller.js";
-import { createMoveTuneModalController } from "./library/move_tune_modal_controller.js";
-import { createXIssuesModalController } from "./library/x_issues_modal_controller.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
@@ -2255,6 +2251,17 @@ const libraryUiDomain = createLibraryUiDomain({
     groupBy: $groupBy,
     sortBy: $sortBy,
     sortTunesBy: $sortTunesBy,
+    moveTuneModal: $moveTuneModal,
+    moveTuneClose: $moveTuneClose,
+    moveTuneCancel: $moveTuneCancel,
+    moveTuneTarget: $moveTuneTarget,
+    moveTuneApply: $moveTuneApply,
+    xIssuesModal: $xIssuesModal,
+    xIssuesInfo: $xIssuesInfo,
+    xIssuesClose: $xIssuesClose,
+    xIssuesCopy: $xIssuesCopy,
+    xIssuesJump: $xIssuesJump,
+    xIssuesAutoFix: $xIssuesAutoFix,
   },
   state: {
     getLibraryVisible: () => isLibraryVisible,
@@ -2278,58 +2285,69 @@ const libraryUiDomain = createLibraryUiDomain({
   },
   actions: {
     addTuneToSetList: (tuneId) => setListFeature.addTuneById(tuneId),
-    appendTuneToActiveFile: (tuneId) => appendTuneToActiveFileAction.run(tuneId),
-    beginRenameFile,
     buildTemplatesPreviewContextMenuItems: (target) => templatesFeature.buildPreviewContextMenuItems(target),
     clearLibraryFilter,
-    commitRenameFile,
     confirmReloadFromDisk,
     copyTuneById,
     deleteTuneById,
     discardAndReloadWorkingCopyFromDisk,
     duplicateTuneById,
+    enableDraggableModal,
     ensureFullLibraryIndex,
     ensureSafeToAbandonCurrentDoc,
+    ensureXNumberInAbc,
+    fileExists,
     findTuneById,
     getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
       ? String(activeTuneMeta.path || "")
       : getCurrentDocumentPath(),
+    getActiveEditFilePath,
     getClipboardTune,
     getEditorView: () => editorView,
-    getRenamingFilePath: () => renameFileController.getRenamingFilePath(),
+    getNextXNumber,
+    getTuneText,
     hasDiskConflictPath,
     hasFullLibraryIndex,
+    hasGlobalUnsavedChanges,
     hasUnsavedChangesForFile,
     handleTemplatesContextMenuAction: (action, target) => templatesFeature.handleContextMenuAction(action, target),
     isWorkingCopyOpenForFile,
     loadLibraryFromFolder,
-    moveTuneToFile,
-    openMoveTuneModal,
+    moveTuneToFile: (tuneId, targetPath) => pasteMoveTuneAction.moveTuneToFile(tuneId, targetPath),
     openTuneFromLibrarySelection,
-    openXIssues: (filePath) => xIssuesModalController.open(filePath),
     pasteClipboardToFile,
     pinHoverStatus,
+    markDiskConflictPath,
     refreshLibraryFile,
     refreshLibraryIndex,
+    refreshWorkingCopySnapshot,
     renderBufferStatus,
+    renameFile,
+    renameLibraryFile,
     requestLoadLibraryFile,
     resetRightPaneSplit,
     restoreHoverStatus,
     renumberXInActiveFile,
+    safeDirname,
     scheduleSaveLibraryPrefs,
     selectTune,
     selectTuneInRaw,
     setPaneSizes,
-    setRenamingFilePath: (value) => renameFileController.setRenamingFilePath(value),
+    setFileContentInCache,
     setStatus,
     showContextMenuAt,
     showHoverStatus,
     showOpenFolderDialog,
     showSaveError,
     showToast,
+    syncLibraryFileFromWorkingCopySnapshot,
     updateFileHeaderPanel,
     updateLibraryRootUI,
     updateLibraryStatus,
+    withFileLock,
+    withFileLocks,
+    appendTuneTextToFileUnlocked,
+    confirmAppendToFile,
   },
   utils: {
     pathsEqual,
@@ -2345,84 +2363,6 @@ const libraryActions = libraryUiDomain.actions;
 const libraryTreeView = libraryUiDomain.treeView;
 const libraryContextMenu = libraryUiDomain.contextMenu;
 window.libraryActions = libraryActions;
-const renameFileController = createRenameFileController({
-  elements: {
-    libraryTree: $libraryTree,
-  },
-  state: {
-    getActiveEditFilePath,
-    hasGlobalUnsavedChanges,
-    hasUnsavedChangesForFile,
-    isWorkingCopyOpenForFile,
-  },
-  actions: {
-    renderLibraryTree,
-    renameLibraryFile,
-    showSaveError,
-    showToast,
-    withFileLocks,
-  },
-  io: {
-    fileExists,
-    renameFile,
-  },
-  utils: {
-    pathsEqual,
-    safeDirname,
-  },
-});
-const moveTuneModalController = createMoveTuneModalController({
-  modal: $moveTuneModal,
-  closeButton: $moveTuneClose,
-  cancelButton: $moveTuneCancel,
-  targetSelect: $moveTuneTarget,
-  applyButton: $moveTuneApply,
-  safeBasename,
-  enableDraggableModal,
-  showError: showSaveError,
-  onMove: moveTuneToFile,
-});
-const xIssuesModalController = createXIssuesModalController({
-  modal: $xIssuesModal,
-  infoElement: $xIssuesInfo,
-  closeButton: $xIssuesClose,
-  copyButton: $xIssuesCopy,
-  jumpButton: $xIssuesJump,
-  autoFixButton: $xIssuesAutoFix,
-  safeBasename,
-  enableDraggableModal,
-  getFileEntry: (filePath) => libraryIndex && Array.isArray(libraryIndex.files)
-    ? libraryIndex.files.find((f) => pathsEqual(f.path, filePath))
-    : null,
-  refreshFile: refreshLibraryFile,
-  loadFile: requestLoadLibraryFile,
-  selectTune,
-  autoFixFile: renumberXInActiveFile,
-  showToast,
-});
-const appendTuneToActiveFileAction = createAppendTuneToActiveFileAction({
-  api: window.api,
-  getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDocDirty: isCurrentDocumentDirty,
-  getHeaderDirty,
-  getRawMode: () => isRawModeActive(),
-  findTuneById,
-  getTuneText,
-  pathsEqual,
-  withFileLock,
-  refreshWorkingCopySnapshot,
-  markDiskConflictPath,
-  setFileContentInCache,
-  syncLibraryFileFromWorkingCopySnapshot,
-  appendTuneTextToFileUnlocked,
-  refreshLibraryFile,
-  setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
-  selectTune,
-  getNextXNumber,
-  ensureXNumberInAbc,
-  confirmAppendToFile,
-  showToast,
-});
 const aboutModalController = createAboutModalController({
   modal: $aboutModal,
   infoElement: $aboutInfo,
@@ -4639,25 +4579,6 @@ function showContextMenuAt(x, y, target) {
 
 function hideContextMenu() {
   libraryContextMenu.hide();
-}
-
-function beginRenameFile(filePath) {
-  renameFileController.beginRenameFile(filePath);
-}
-
-async function commitRenameFile(oldPath, inputName) {
-  await renameFileController.commitRenameFile(oldPath, inputName);
-}
-
-function openMoveTuneModal(tuneId) {
-  moveTuneModalController.open(tuneId, {
-    files: libraryIndex && Array.isArray(libraryIndex.files) ? libraryIndex.files : [],
-    activeFilePath,
-  });
-}
-
-async function moveTuneToFile(tuneId, targetPath) {
-  await pasteMoveTuneAction.moveTuneToFile(tuneId, targetPath);
 }
 
 function setErrorLineOffsetFromHeader(headerText) {

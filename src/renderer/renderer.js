@@ -226,6 +226,7 @@ import {
   setEditorHelpFromSettings as applyEditorHelpSettings,
   setUiFontsFromSettings as applyUiFontSettings,
 } from "./app/ui/settings_applicator.js";
+import { createSettingsRuntimeController } from "./app/ui/settings_runtime_controller.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
 import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
@@ -5920,112 +5921,61 @@ document.addEventListener("abcarus:reset-library-cache", () => {
 
 settingsController = initSettings(window.api);
 logStartupPerf("initSettings() done");
-if (window.api && typeof window.api.getSettings === "function") {
-  logStartupPerf("getSettings() start");
-  window.api.getSettings().then((settings) => {
-		      logStartupPerf("getSettings() done", { hasSettings: Boolean(settings) });
-			      if (settings) {
-			      const prevSettings = latestSettingsSnapshot;
-			      latestSettingsSnapshot = settings;
-			      logStartupPerf("apply settings: begin");
-			      setUiFontsFromSettings(settings);
-			      setEditorHelpFromSettings(settings);
-			      setGlobalHeaderFromSettings(settings);
-			      setAbc2svgFontsFromSettings(settings);
-	    setSoundfontFromSettings(settings);
-	    setDrumVelocityFromSettings(settings);
-      midiInputFeature.applyMidiSettings(settings);
-      midiInputFeature.applyNoteTypingPreviewSettings(settings);
-	        setLayoutFromSettings(settings);
-		      setFollowFromSettings(settings);
-		      setLoopFromSettings(settings);
-				      setPlaybackAutoScrollFromSettings(settings);
-		        setPrintAllFromSettings(settings);
-			      applyLibraryPrefsFromSettings(settings);
-			      updateGlobalHeaderToggle();
-		      updateErrorsFeatureUI();
-		      refreshHeaderLayers().catch(() => {});
-		      try {
-		        if (settings && settings.payloadModeEnabled) payloadModeFeature.wire();
-		      } catch {}
-		      showDisclaimerIfNeeded(settings);
-		      scheduleStartupLayoutReset();
-		      logStartupPerf("apply settings: end");
-	        markStartupSettingsApplied();
-	    }
-	    libraryUiDomain.setPrefsWriteSuppressed(false);
-      if (!settings) markStartupSettingsApplied();
-	  }).catch(() => {
-      libraryUiDomain.setPrefsWriteSuppressed(false);
-      markStartupSettingsApplied();
-    });
-}
-
-if (window.api && typeof window.api.getFontDirs === "function") {
-  window.api.getFontDirs().then((res) => {
-    if (res && res.ok) {
-      headerLayersController.setFontDirs(res);
-    }
-  }).catch(() => {});
-}
-if (window.api && typeof window.api.onSettingsChanged === "function") {
-  window.api.onSettingsChanged((settings) => {
-    const prevSettings = latestSettingsSnapshot;
-    latestSettingsSnapshot = settings || null;
-	    const prevHeader = headerLayersController.getSettingsSignature();
-	    const prevSoundfont = soundfontController.getName();
-      const prevChordproBinPath = prevSettings && prevSettings.chordproBinPath ? String(prevSettings.chordproBinPath) : "";
-      const prevChordproRepoPath = prevSettings && prevSettings.chordproRepoPath ? String(prevSettings.chordproRepoPath) : "";
-	    setUiFontsFromSettings(settings);
-	    setEditorHelpFromSettings(settings);
-	    setGlobalHeaderFromSettings(settings);
-	    setAbc2svgFontsFromSettings(settings);
-		    setSoundfontFromSettings(settings);
-		    setDrumVelocityFromSettings(settings);
-      midiInputFeature.applyMidiSettings(settings);
-      midiInputFeature.applyNoteTypingPreviewSettings(settings);
-      setLayoutFromSettings(settings);
-	    setFollowFromSettings(settings);
-	    setLoopFromSettings(settings);
-	    setPlaybackAutoScrollFromSettings(settings);
-	    setPrintAllFromSettings(settings);
-		    applyLibraryPrefsFromSettings(settings);
-		    updateGlobalHeaderToggle();
-	    updateErrorsFeatureUI();
-	    refreshHeaderLayers().catch(() => {});
-	    try {
-	      const payloadEnabled = Boolean(settings && settings.payloadModeEnabled);
-	      if (payloadEnabled) payloadModeFeature.wire();
-	      if (!payloadEnabled && isPayloadMode()) payloadModeFeature.exit().catch(() => {});
-	    } catch {}
-	    try {
-	      const microtonalEnabled = isMicrotonalNotationSupported(settings);
-	      if (!microtonalEnabled && intonationExplorerFeature && intonationExplorerFeature.isVisible()) intonationExplorerFeature.close();
-	    } catch {}
-	    showDisclaimerIfNeeded(settings);
-    if (settings && prevHeader !== headerLayersController.getSettingsSignature()) {
-      scheduleRenderNow();
-    }
-	    if (settings && prevSoundfont !== soundfontController.getName()) {
-	      resetSoundfontCache();
-	      if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
+createSettingsRuntimeController({
+  api: window.api,
+  state: {
+    getLatestSettings: () => latestSettingsSnapshot,
+    setLatestSettings: (settings) => { latestSettingsSnapshot = settings || null; },
+    getHeaderSignature: () => headerLayersController.getSettingsSignature(),
+    getSoundfontName: () => soundfontController.getName(),
+    isPayloadMode,
+    isMicrotonalNotationSupported,
+    isIntonationExplorerVisible: () => Boolean(intonationExplorerFeature && intonationExplorerFeature.isVisible()),
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+  },
+  actions: {
+    applyUiFonts: setUiFontsFromSettings,
+    applyEditorHelp: setEditorHelpFromSettings,
+    applyGlobalHeader: setGlobalHeaderFromSettings,
+    applyAbc2svgFonts: setAbc2svgFontsFromSettings,
+    applySoundfont: setSoundfontFromSettings,
+    applyDrumVelocity: setDrumVelocityFromSettings,
+    applyMidiSettings: (settings) => midiInputFeature.applyMidiSettings(settings),
+    applyNoteTypingPreviewSettings: (settings) => midiInputFeature.applyNoteTypingPreviewSettings(settings),
+    applyLayout: setLayoutFromSettings,
+    applyFollow: setFollowFromSettings,
+    applyLoop: setLoopFromSettings,
+    applyPlaybackAutoScroll: setPlaybackAutoScrollFromSettings,
+    applyPrintAll: setPrintAllFromSettings,
+    applyLibraryPrefs: applyLibraryPrefsFromSettings,
+    closeIntonationExplorer: () => intonationExplorerFeature.close(),
+    ensureSoundfontLoaded,
+    exitPayloadMode: () => payloadModeFeature.exit(),
+    logStartupPerf,
+    markStartupSettingsApplied,
+    refreshChordProPdfButtonState: (options) => chordProFeature.refreshPdfButtonState(options),
+    refreshHeaderLayers,
+    resetSoundfontCache,
+    resetPlaybackForSoundfontChange: () => {
+      if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
         playbackTransport.suppressOnEnd = true;
         playbackTransport.player.stop();
       }
       playbackTransport.player = null;
       playbackTransport.playbackState = null;
       playbackTransport.playbackIndexOffset = 0;
-	      ensureSoundfontLoaded().catch(() => setSoundfontStatus("Soundfont load failed", 5000));
-	    }
-      if (chordProFeature.isEnabled()) {
-        const nextChordproBinPath = settings && settings.chordproBinPath ? String(settings.chordproBinPath) : "";
-        const nextChordproRepoPath = settings && settings.chordproRepoPath ? String(settings.chordproRepoPath) : "";
-        if (nextChordproBinPath !== prevChordproBinPath || nextChordproRepoPath !== prevChordproRepoPath) {
-          chordProFeature.refreshPdfButtonState({ force: true }).catch(() => {});
-        }
-      }
-	  });
-	}
+    },
+    scheduleRender: scheduleRenderNow,
+    scheduleStartupLayoutReset,
+    setHeaderFontDirs: (res) => headerLayersController.setFontDirs(res),
+    setLibraryPrefsWriteSuppressed: (next) => libraryUiDomain.setPrefsWriteSuppressed(next),
+    setSoundfontStatus,
+    showDisclaimerIfNeeded,
+    updateErrorsFeatureUi: updateErrorsFeatureUI,
+    updateGlobalHeaderToggle,
+    wirePayloadMode: () => payloadModeFeature.wire(),
+  },
+}).start();
 if (settingsController && editorView) {
   editorView.dom.addEventListener("focusin", () => {
     settingsController.setActivePane("editor");

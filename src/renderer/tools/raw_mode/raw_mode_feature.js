@@ -23,6 +23,8 @@ function createRawModeFeature({
   setHeaderClean = () => {},
   getHeaderText = () => "",
   getEditorText = () => "",
+  getEditorView = () => null,
+  scrollEditor = () => {},
   setEditorText = () => {},
   setSuppressDirty = () => {},
   setFocusModeEnabled = () => {},
@@ -58,10 +60,10 @@ function createRawModeFeature({
   setDirtyIndicator = () => {},
   ensureSafeToAbandonCurrentDoc = async () => true,
   ensureSafeToEnterRaw = null,
+  confirmUnsavedChanges = async () => "cancel",
   setTuneMetaText = () => {},
   buildTuneMetaLabel = () => "",
   markActiveTuneButton = () => {},
-  scrollToPosInEditor = () => {},
 } = {}) {
   const state = {
     rawMode: false,
@@ -293,6 +295,28 @@ function createRawModeFeature({
     scrollToTune(tuneId);
   }
 
+  function scrollToPosInEditor(pos, { y = "start" } = {}) {
+    scrollEditor(getEditorView(), pos, { y });
+  }
+
+  async function confirmLeave(contextLabel, { save: saveAction } = {}) {
+    const currentDoc = getCurrentDoc();
+    const fileDirty = Boolean(currentDoc && currentDoc.dirty);
+    const headerDirty = Boolean(getHeaderDirty());
+    if (!fileDirty && !headerDirty) return true;
+    const choice = await confirmUnsavedChanges(contextLabel || "continuing");
+    if (choice === "cancel") return false;
+    if (choice === "save") {
+      const saved = typeof saveAction === "function" ? await saveAction() : await save();
+      return Boolean(saved);
+    }
+    if (choice === "dont_save") {
+      discardUnsavedRawState();
+      return true;
+    }
+    return false;
+  }
+
   async function enter() {
     if (state.transitionInProgress || isEnabled()) return;
     state.transitionInProgress = true;
@@ -390,7 +414,7 @@ function createRawModeFeature({
     }
   }
 
-  async function exit({ ensureSafe } = {}) {
+  async function exit() {
     if (state.transitionInProgress) return;
     if (!isEnabled()) return;
     state.transitionInProgress = true;
@@ -399,7 +423,7 @@ function createRawModeFeature({
       const fileDirty = Boolean(currentDoc && currentDoc.dirty);
       const hdrDirty = Boolean(getHeaderDirty());
       if (fileDirty || hdrDirty) {
-        const ok = await ensureSafe("leaving raw mode", { save: save });
+        const ok = await confirmLeave("leaving raw mode", { save });
         if (!ok) return;
       }
       setUi(false);
@@ -426,7 +450,7 @@ function createRawModeFeature({
     return false;
   }
 
-  async function leaveForAction(contextLabel, { ensureSafe } = {}) {
+  async function leaveForAction(contextLabel) {
     if (state.transitionInProgress) return false;
     if (!isEnabled()) return true;
     state.transitionInProgress = true;
@@ -435,7 +459,7 @@ function createRawModeFeature({
       const fileDirty = Boolean(currentDoc && currentDoc.dirty);
       const hdrDirty = Boolean(getHeaderDirty());
       if (fileDirty || hdrDirty) {
-        const ok = await ensureSafe(contextLabel || "continuing", { save });
+        const ok = await confirmLeave(contextLabel || "continuing", { save });
         if (!ok) return false;
       }
       setUi(false);
@@ -460,6 +484,7 @@ function createRawModeFeature({
 
   return {
     buildRawFileText,
+    confirmLeave,
     discardUnsavedRawState,
     enter,
     exit,

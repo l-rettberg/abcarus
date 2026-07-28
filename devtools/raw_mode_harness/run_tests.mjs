@@ -12,7 +12,7 @@ async function importRendererModule(filePath) {
 
 const { createRawModeFeature } = await importRendererModule(resolve("src/renderer/tools/raw_mode/raw_mode_feature.js"));
 
-function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
+function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmChoice = "cancel" } = {}) {
   const filePath = "/tmp/raw-mode.abc";
   const fullText = "%%abc-charset utf-8\nX:1\nT:One\nK:C\nC|\nX:2\nT:Two\nK:D\nD|\n";
   let currentDoc = { path: filePath, content: "X:1\nT:One\nK:C\nC|\n", dirty: false };
@@ -28,6 +28,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
   let headerCleanCalls = 0;
   let workingCopyDirty = Boolean(staleWorkingCopyDirty);
   let rawContextCalls = 0;
+  let confirmCalls = 0;
 
   const tunes = [
     {
@@ -107,6 +108,10 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
       assert.equal(workingCopyDirty, false, "raw enter must flush stale working-copy dirty before abandon preflight");
       return true;
     },
+    confirmUnsavedChanges: async () => {
+      confirmCalls += 1;
+      return confirmChoice;
+    },
     flushWorkingCopyTuneSync: async () => {
       tuneFlushCalls += 1;
       workingCopyDirty = false;
@@ -127,6 +132,8 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false } = {}) {
     get selectedTuneCalls() { return selectedTuneCalls; },
     get headerCleanCalls() { return headerCleanCalls; },
     get rawContextCalls() { return rawContextCalls; },
+    get confirmCalls() { return confirmCalls; },
+    markDirty() { currentDoc = { ...currentDoc, dirty: true }; },
   };
 }
 
@@ -175,11 +182,29 @@ function testDiscardClearsDirtyState() {
   assert.equal(h.dirtyIndicator, false, "discard should clear dirty indicator");
 }
 
+async function testDirtyRawExitUsesOwnedConfirmationFlow() {
+  const canceled = createHarness({ confirmChoice: "cancel" });
+  await canceled.feature.enter();
+  canceled.markDirty();
+  await canceled.feature.exit();
+  assert.equal(canceled.confirmCalls, 1, "dirty raw exit should ask once");
+  assert.equal(canceled.feature.isEnabled(), true, "cancel should keep raw mode active");
+
+  const discarded = createHarness({ confirmChoice: "dont_save" });
+  await discarded.feature.enter();
+  discarded.markDirty();
+  await discarded.feature.exit();
+  assert.equal(discarded.confirmCalls, 1, "discarding raw exit should ask once");
+  assert.equal(discarded.feature.isEnabled(), false, "Don't Save should leave raw mode");
+  assert.equal(discarded.currentDoc.dirty, false, "Don't Save should clear raw dirty state");
+}
+
 try {
   await testCleanRawRoundTripDoesNotDirtyDocument();
   await testConcurrentRawEnterIsIgnored();
   await testRawEnterFlushesBeforeAbandonPreflight();
   testDiscardClearsDirtyState();
+  await testDirtyRawExitUsesOwnedConfirmationFlow();
   console.log("[raw_mode_harness] OK");
 } catch (err) {
   console.log("[raw_mode_harness] FAIL");

@@ -1,8 +1,47 @@
 import {
   EditorSelection,
+  EditorView,
   indentUnit,
   openSearchPanel,
 } from "../../../third_party/codemirror/cm.js";
+
+function scrollEditorToPos(view, pos, { y = "start" } = {}) {
+  if (!view) return;
+  const docLen = view.state.doc.length;
+  const safePos = Math.max(0, Math.min(Number(pos) || 0, docLen));
+  const effects = [];
+  if (typeof EditorView.scrollIntoView === "function") {
+    try {
+      effects.push(EditorView.scrollIntoView(safePos, { y }));
+    } catch {}
+  }
+  view.dispatch({
+    selection: EditorSelection.cursor(safePos),
+    effects,
+    scrollIntoView: true,
+  });
+  if (typeof view.lineBlockAt !== "function" || !view.scrollDOM) return;
+  const applyManualScroll = () => {
+    try {
+      const block = view.lineBlockAt(safePos);
+      if (!block || !Number.isFinite(Number(block.top))) return;
+      view.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
+    } catch {}
+  };
+  if (typeof view.requestMeasure === "function") {
+    try {
+      view.requestMeasure({
+        read: () => view.lineBlockAt(safePos),
+        write: (block) => {
+          if (!block || !Number.isFinite(Number(block.top))) return;
+          view.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
+        },
+      });
+      return;
+    } catch {}
+  }
+  applyManualScroll();
+}
 
 function openFindPanel(view) {
   openSearchPanel(view);
@@ -249,4 +288,5 @@ export {
   moveLineSelection,
   openFindPanel,
   openReplacePanel,
+  scrollEditorToPos,
 };

@@ -33,6 +33,10 @@ async function assertSaveIntentGuards() {
   const playbackUi = await readFile(playbackUiPath, "utf8").catch(() => "");
   const layoutControllerPath = "src/renderer/app/ui/layout_controller.js";
   const layoutController = await readFile(layoutControllerPath, "utf8").catch(() => "");
+  const rawModeFeaturePath = "src/renderer/tools/raw_mode/raw_mode_feature.js";
+  const rawModeFeature = await readFile(rawModeFeaturePath, "utf8").catch(() => "");
+  const editorCommandsPath = "src/renderer/editor/editor_commands.js";
+  const editorCommands = await readFile(editorCommandsPath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -130,6 +134,15 @@ async function assertSaveIntentGuards() {
   }
   if (!layoutController.includes("const getRenderZoomFactor = () => {")) {
     throw new Error("Layout controller must own render zoom resolution.");
+  }
+  if (src.includes("async function confirmRawModeLeave(")) {
+    throw new Error("Raw mode dirty confirmation must not remain in renderer.");
+  }
+  if (!rawModeFeature.includes("async function confirmLeave(")) {
+    throw new Error("Raw mode feature must own dirty exit confirmation.");
+  }
+  if (!editorCommands.includes("function scrollEditorToPos(")) {
+    throw new Error("Shared editor commands must own editor position scrolling.");
   }
   if (
     !src.includes("let playbackScopedOptions = null;")

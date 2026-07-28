@@ -27,6 +27,7 @@ import {
   moveLineSelection,
   openFindPanel,
   openReplacePanel,
+  scrollEditorToPos,
 } from "./editor/editor_commands.js";
 import {
   parseDecorationCatalogEnrichment,
@@ -3161,6 +3162,8 @@ rawModeFeature = createRawModeFeature({
   setHeaderClean: markHeaderClean,
   getHeaderText: getHeaderEditorValue,
   getEditorText: getEditorValue,
+  getEditorView: () => editorView,
+  scrollEditor: scrollEditorToPos,
   setEditorText: setEditorValue,
   setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
   setFocusModeEnabled,
@@ -3199,10 +3202,10 @@ rawModeFeature = createRawModeFeature({
   setDirtyIndicator,
   ensureSafeToAbandonCurrentDoc,
   ensureSafeToEnterRaw: rawModeEnterGuard.ensureSafeToEnterRaw,
+  confirmUnsavedChanges,
   setTuneMetaText,
   buildTuneMetaLabel,
   markActiveTuneButton,
-  scrollToPosInEditor,
 });
 
 function setDirtyIndicator(isDirty) {
@@ -3532,68 +3535,16 @@ function setEditorValue(text) {
   });
 }
 
-async function confirmRawModeLeave(contextLabel, { save } = {}) {
-  const fileDirty = isCurrentDocumentDirty();
-  const hdrDirty = getHeaderDirty();
-  if (!fileDirty && !hdrDirty) return true;
-  const choice = await confirmUnsavedChanges(contextLabel || "continuing");
-  if (choice === "cancel") return false;
-  if (choice === "save") {
-    const saved = typeof save === "function" ? await save() : await performRawSaveFlow();
-    return Boolean(saved);
-  }
-  if (choice === "dont_save") {
-    rawModeFeature.discardUnsavedRawState();
-    return true;
-  }
-  return false;
-}
-
-function setRawModeUI(enabled) {
-  rawModeFeature.setUi(enabled);
-}
-
 async function performRawSaveFlow() {
   return rawModeFeature.save();
 }
 
-function scrollToPosInEditor(pos, { y = "start" } = {}) {
-  if (!editorView) return;
-  const docLen = editorView.state.doc.length;
-  const safePos = Math.max(0, Math.min(Number(pos) || 0, docLen));
-  const effects = [];
-  if (typeof EditorView.scrollIntoView === "function") {
-    try {
-      effects.push(EditorView.scrollIntoView(safePos, { y }));
-    } catch {}
-  }
-  editorView.dispatch({
-    selection: EditorSelection.cursor(safePos),
-    effects,
-    scrollIntoView: true,
-  });
-  if (typeof editorView.lineBlockAt !== "function" || !editorView.scrollDOM) return;
-  const applyManualScroll = () => {
-    try {
-      const block = editorView.lineBlockAt(safePos);
-      if (!block || !Number.isFinite(Number(block.top))) return;
-      const top = Math.max(0, Number(block.top) - 8);
-      editorView.scrollDOM.scrollTop = top;
-    } catch {}
-  };
-  if (typeof editorView.requestMeasure === "function") {
-    try {
-      editorView.requestMeasure({
-        read: () => editorView.lineBlockAt(safePos),
-        write: (block) => {
-          if (!block || !Number.isFinite(Number(block.top))) return;
-          editorView.scrollDOM.scrollTop = Math.max(0, Number(block.top) - 8);
-        },
-      });
-      return;
-    } catch {}
-  }
-  applyManualScroll();
+function scrollToPosInEditor(pos, options = {}) {
+  return scrollEditorToPos(editorView, pos, options);
+}
+
+function setRawModeUI(enabled) {
+  if (rawModeFeature) rawModeFeature.setUi(enabled);
 }
 
 function selectTuneInRaw(tuneId) {
@@ -3605,11 +3556,11 @@ async function enterRawMode() {
 }
 
 async function exitRawMode() {
-  await rawModeFeature.exit({ ensureSafe: confirmRawModeLeave });
+  await rawModeFeature.exit();
 }
 
 async function leaveRawModeForAction(contextLabel) {
-  return rawModeFeature.leaveForAction(contextLabel, { ensureSafe: confirmRawModeLeave });
+  return rawModeFeature.leaveForAction(contextLabel);
 }
 
 function toggleLineComments(view) {

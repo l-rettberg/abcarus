@@ -29,6 +29,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
   let workingCopyDirty = Boolean(staleWorkingCopyDirty);
   let rawContextCalls = 0;
   let confirmCalls = 0;
+  let fileContextUpdates = 0;
 
   const tunes = [
     {
@@ -119,6 +120,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
     setDirtyIndicator: (next) => { dirtyIndicator = Boolean(next); },
     updateHeaderStateUI: () => {},
     updateFileHeaderPanel: () => {},
+    updateFileContext: () => { fileContextUpdates += 1; },
     setFileContentInCache: () => {},
   });
 
@@ -133,6 +135,7 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
     get headerCleanCalls() { return headerCleanCalls; },
     get rawContextCalls() { return rawContextCalls; },
     get confirmCalls() { return confirmCalls; },
+    get fileContextUpdates() { return fileContextUpdates; },
     markDirty() { currentDoc = { ...currentDoc, dirty: true }; },
   };
 }
@@ -144,6 +147,7 @@ async function testCleanRawRoundTripDoesNotDirtyDocument() {
   assert.equal(h.currentDoc.dirty, false, "raw enter should keep current document clean");
   assert.equal(h.dirtyIndicator, false, "raw enter should clear dirty indicator");
   assert.equal(h.rawContextCalls, 1, "raw enter should establish full-file context once");
+  assert.ok(h.fileContextUpdates >= 1, "raw enter should refresh and lock tune context controls");
 
   await h.feature.exit({
     ensureSafe: async () => {

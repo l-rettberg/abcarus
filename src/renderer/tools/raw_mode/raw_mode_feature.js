@@ -57,6 +57,7 @@ function createRawModeFeature({
   attachTuneUidsToLibraryFile = () => {},
   updateHeaderStateUI = () => {},
   updateFileHeaderPanel = () => {},
+  updateFileContext = () => {},
   setDirtyIndicator = () => {},
   ensureSafeToAbandonCurrentDoc = async () => true,
   ensureSafeToEnterRaw = null,
@@ -121,6 +122,7 @@ function createRawModeFeature({
     if (elements.scanErrorsButton) elements.scanErrorsButton.disabled = next;
     if (elements.errorsIndicator) elements.errorsIndicator.disabled = next;
     updateSourceLinkPanel();
+    updateFileContext();
   }
 
   async function save() {
@@ -229,6 +231,7 @@ function createRawModeFeature({
       setDirtyIndicator(false);
 
       const updatedFile = await refreshLibraryFile(filePath, { force: true });
+      updateFileContext();
       if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) {
         patchState({ rawModeHeaderEndOffset: Number(updatedFile.headerEndOffset) || 0 });
       }
@@ -288,11 +291,6 @@ function createRawModeFeature({
     if (win && typeof win.requestAnimationFrame === "function") {
       win.requestAnimationFrame(() => scrollToPosInEditor(pos, { y: "start" }));
     }
-  }
-
-  function selectTuneInRaw(tuneId) {
-    setActiveTune(tuneId);
-    scrollToTune(tuneId);
   }
 
   function scrollToPosInEditor(pos, { y = "start" } = {}) {
@@ -495,7 +493,6 @@ function createRawModeFeature({
     resetState,
     save,
     scrollToTune,
-    selectTuneInRaw,
     setActiveTune,
     setFilePath,
     setHeaderEndOffset,

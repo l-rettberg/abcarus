@@ -37,6 +37,10 @@ async function assertSaveIntentGuards() {
   const rawModeFeature = await readFile(rawModeFeaturePath, "utf8").catch(() => "");
   const editorCommandsPath = "src/renderer/editor/editor_commands.js";
   const editorCommands = await readFile(editorCommandsPath, "utf8").catch(() => "");
+  const fileContextPath = "src/renderer/app/document/file_context_controller.js";
+  const fileContext = await readFile(fileContextPath, "utf8").catch(() => "");
+  const libraryTreePath = "src/renderer/library/tree_view.js";
+  const libraryTree = await readFile(libraryTreePath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -143,6 +147,15 @@ async function assertSaveIntentGuards() {
   }
   if (!editorCommands.includes("function scrollEditorToPos(")) {
     throw new Error("Shared editor commands must own editor position scrolling.");
+  }
+  if (src.includes("function selectTuneInRaw(")) {
+    throw new Error("Renderer must not retain live Raw tune navigation.");
+  }
+  if (!fileContext.includes("tuneSelect.disabled = rawMode;")) {
+    throw new Error("Tune dropdown must be disabled while Raw mode owns the full file.");
+  }
+  if (!libraryTree.includes('showToast("Raw mode: save or exit before selecting another tune."')) {
+    throw new Error("Library tune selection must be guarded while Raw mode owns the full file.");
   }
   if (
     !src.includes("let playbackScopedOptions = null;")

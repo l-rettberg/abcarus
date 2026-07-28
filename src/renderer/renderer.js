@@ -826,7 +826,6 @@ fileContextController = createFileContextController({
   },
   actions: {
     selectTune,
-    selectTuneInRaw,
     showToast,
   },
   utils: {
@@ -2216,7 +2215,6 @@ const libraryUiDomain = createLibraryUiDomain({
     safeDirname,
     scheduleSaveLibraryPrefs,
     selectTune,
-    selectTuneInRaw,
     setPaneSizes: (leftWidth) => layoutController.setPaneSizes(leftWidth),
     setFileContentInCache,
     setStatus,
@@ -3199,6 +3197,7 @@ rawModeFeature = createRawModeFeature({
   attachTuneUidsToLibraryFile,
   updateHeaderStateUI,
   updateFileHeaderPanel,
+  updateFileContext,
   setDirtyIndicator,
   ensureSafeToAbandonCurrentDoc,
   ensureSafeToEnterRaw: rawModeEnterGuard.ensureSafeToEnterRaw,
@@ -3545,10 +3544,6 @@ function scrollToPosInEditor(pos, options = {}) {
 
 function setRawModeUI(enabled) {
   if (rawModeFeature) rawModeFeature.setUi(enabled);
-}
-
-function selectTuneInRaw(tuneId) {
-  rawModeFeature.selectTuneInRaw(tuneId);
 }
 
 async function enterRawMode() {

@@ -4,7 +4,6 @@ function createLibraryTreeView({
   documentRef = typeof document !== "undefined" ? document : null,
   windowRef = typeof window !== "undefined" ? window : null,
   treeElement = null,
-  tuneSelectElement = null,
   collapsedFiles = new Set(),
   collapsedGroups = new Set(),
   getVisibleLibraryFiles = () => [],
@@ -34,7 +33,6 @@ function createLibraryTreeView({
   showHoverStatus = () => {},
   restoreHoverStatus = () => {},
   pinHoverStatus = () => {},
-  selectTuneInRaw = () => {},
   openTuneFromLibrarySelection = async () => ({ ok: false }),
   showToast = () => {},
 } = {}) {
@@ -255,17 +253,16 @@ function createLibraryTreeView({
         });
         button.addEventListener("click", () => {
           pinHoverStatus(tuneLabel);
+          if (isRawMode()) {
+            showToast("Raw mode: save or exit before selecting another tune.", 2400);
+            return;
+          }
           const targetPath = entry.isFile
             ? entry.id
             : String(tune.id || "").split("::")[0];
           if (targetPath) {
             setActiveFilePath(targetPath);
             schedule(sourceFiles);
-          }
-          if (isRawMode()) {
-            if (tuneSelectElement) tuneSelectElement.value = tune.id;
-            selectTuneInRaw(tune.id);
-            return;
           }
           openTuneFromLibrarySelection({
             filePath: targetPath,

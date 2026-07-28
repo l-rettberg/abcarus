@@ -41,7 +41,6 @@ function createFileContextController({
 
   const {
     selectTune = async () => {},
-    selectTuneInRaw = () => {},
     showToast = () => {},
   } = actions;
 
@@ -100,7 +99,7 @@ function createFileContextController({
       option.textContent = label;
       tuneSelect.appendChild(option);
     }
-    tuneSelect.disabled = false;
+    tuneSelect.disabled = rawMode;
     const activeTuneUid = getActiveTuneUid();
     const activeTuneId = getActiveTuneId();
     if (!getIsNewTuneDraft() && (activeTuneUid || activeTuneId)) {
@@ -145,6 +144,10 @@ function createFileContextController({
   async function navigateTuneByDelta(delta) {
     if (isChordProEnabled()) {
       setChordProActiveBlock(getChordProActiveIndex() + delta, { scroll: true });
+      return;
+    }
+    if (getRawMode()) {
+      showToast("Raw mode: tune navigation updates after save or exit.", 2400);
       return;
     }
 
@@ -228,12 +231,6 @@ function createFileContextController({
       }
     }
 
-    if (rawMode) {
-      const rawTuneId = nextTune && nextTune.id ? String(nextTune.id) : String(nextId);
-      if (tuneSelect) tuneSelect.value = rawTuneId;
-      selectTuneInRaw(rawTuneId);
-      return;
-    }
     await selectTune(nextId);
   }
 
@@ -258,7 +255,9 @@ function createFileContextController({
       return;
     }
     if (getRawMode()) {
-      selectTuneInRaw(tuneId);
+      const activeTuneId = getActiveTuneId();
+      if (activeTuneId) tuneSelect.value = activeTuneId;
+      showToast("Raw mode: tune selection updates after save or exit.", 2400);
       return;
     }
     selectTune(tuneId);

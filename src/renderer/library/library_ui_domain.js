@@ -293,7 +293,6 @@ function createLibraryUiDomain({
     documentRef,
     windowRef,
     treeElement: libraryTree,
-    tuneSelectElement: tuneSelect,
     collapsedFiles: uiStateController.getCollapsedFiles(),
     collapsedGroups: uiStateController.getCollapsedGroups(),
     getVisibleLibraryFiles,
@@ -325,7 +324,6 @@ function createLibraryUiDomain({
     showHoverStatus: actions.showHoverStatus,
     restoreHoverStatus: actions.restoreHoverStatus,
     pinHoverStatus: actions.pinHoverStatus,
-    selectTuneInRaw: actions.selectTuneInRaw,
     openTuneFromLibrarySelection: actions.openTuneFromLibrarySelection,
     showToast: actions.showToast,
   });

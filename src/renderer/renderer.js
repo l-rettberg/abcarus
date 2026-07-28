@@ -50,7 +50,6 @@ import {
   buildAbDecorations,
   buildPayloadLayerDecorations,
 } from "./editor/range_decorations.js";
-import { initSettings } from "./settings.js";
 import {
   normalizeMeasuresLineBreaks,
   transformMeasuresPerLine,
@@ -220,11 +219,7 @@ import { createFileContextController } from "./app/document/file_context_control
 import { createEditStateController } from "./app/document/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
-import {
-  setEditorHelpFromSettings as applyEditorHelpSettings,
-  setUiFontsFromSettings as applyUiFontSettings,
-} from "./app/ui/settings_applicator.js";
-import { createSettingsRuntimeController } from "./app/ui/settings_runtime_controller.js";
+import { createSettingsDomain } from "./app/ui/settings_domain.js";
 import { createMeasureNavigationController } from "./app/navigation/measure_navigation_controller.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
@@ -1572,21 +1567,6 @@ function highlightSvgAtEditorOffset(editorOffset) {
   return errorsFeature.highlightSvgAtEditorOffset(editorOffset);
 }
 
-function setUiFontsFromSettings(settings) {
-  applyUiFontSettings({
-    documentRef: document,
-    settings,
-    libraryTree: $libraryTree,
-  });
-}
-
-function setEditorHelpFromSettings(settings) {
-  applyEditorHelpSettings({
-    settings,
-    reconfigureEditor: reconfigureAbcExtensions,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // A–B playback (Issue #21, MVP)
 // ---------------------------------------------------------------------------
@@ -1596,7 +1576,7 @@ const MIN_RIGHT_PANE_WIDTH = 220;
 const MIN_RIGHT_PANE_HEIGHT = 180;
 const MIN_ERROR_PANE_HEIGHT = 120;
 const USE_ERROR_OVERLAY = true;
-let settingsController = null;
+let settingsDomain = null;
 let disclaimerShown = false;
 let libraryUiStateController = null;
 const layoutController = createLayoutController({
@@ -2359,20 +2339,12 @@ function scheduleSaveLibraryUiState() {
   libraryUiDomain.scheduleSaveLibraryUiState();
 }
 
-function applyLibraryUiStateFromSettings(settings) {
-  return libraryUiDomain.applyLibraryUiStateFromSettings(settings);
-}
-
 async function restoreLibraryTuneSelection(selection) {
   return libraryUiDomain.restoreLibraryTuneSelection(selection);
 }
 
 async function flushLibraryPrefsSave() {
   await libraryUiDomain.flushLibraryPrefsSave();
-}
-
-function applyLibraryPrefsFromSettings(settings) {
-  libraryUiDomain.applyLibraryPrefsFromSettings(settings);
 }
 
 function updateLibraryRootUI() {
@@ -2755,7 +2727,7 @@ libraryLifecycleController = createLibraryLifecycleController({
   },
   actions: {
     abbreviatePathForLog,
-    applyLibraryUiStateFromSettings,
+    applyLibraryUiStateFromSettings: (settings) => libraryUiDomain.applyLibraryUiStateFromSettings(settings),
     attachTuneUidsToLibraryFile,
     buildTuneMetaLabel,
     clearAbPlan,
@@ -2792,7 +2764,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     readFile,
     recordNavFilePath,
     recordRecentAction,
-    refreshHeaderLayers,
+    refreshHeaderLayers: () => headerLayersController.refreshHeaderLayers(),
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
     reportStartupStatus,
@@ -3409,8 +3381,7 @@ function getEditorValue() {
 }
 
 function resetLayout() {
-  if (settingsController) settingsController.zoomReset();
-  layoutController.resetRightPaneSplit();
+  if (settingsDomain) settingsDomain.resetLayout();
 }
 
 let startupLayoutResetDone = false;
@@ -4633,10 +4604,6 @@ async function getFileContentCached(filePath) {
   return fileContentCache.getCached(filePath, readFile);
 }
 
-function setPrintAllFromSettings(settings) {
-  printAllFeature.applySettings(settings);
-}
-
 function normalizeAccThreeQuarterToneForAbc2svg(text) {
   // abc2svg has built-in glyphs for quarter-tones as 1/2 semitone (acc-1_2) and 3/2 semitones (acc-3_2),
   // but some real-world ABC uses 3/4 tone accidentals written as "_3/4" or "^3/4".
@@ -5247,61 +5214,27 @@ function openIntonationExplorerFromMenu() {
 }
 
 function openSettingsFromMenu() {
-  if (settingsController) settingsController.openSettings();
+  if (settingsDomain) settingsDomain.openSettings();
 }
 
 function openFontsSettingsFromMenu() {
-  if (!settingsController) return;
-  if (typeof settingsController.openTab === "function") settingsController.openTab("fonts");
-  else settingsController.openSettings();
+  if (settingsDomain) settingsDomain.openFontsSettings();
 }
 
 async function exportSettingsFromMenu() {
-  if (!window.api || typeof window.api.exportSettings !== "function") {
-    showToast("Export not available.", 2400);
-    return;
-  }
-  const res = await window.api.exportSettings();
-  if (res && res.ok) {
-    const note = res.exportedHeader ? " (incl. user_settings.abc)" : "";
-    showToast(`Settings exported${note} and will be used next time.`, 4200);
-  } else if (res && res.error && res.error !== "Canceled") {
-    showToast(String(res.error), 3200);
-  }
+  if (settingsDomain) await settingsDomain.exportSettings();
 }
 
 async function importSettingsFromMenu() {
-  if (!window.api || typeof window.api.importSettings !== "function") {
-    showToast("Import not available.", 2400);
-    return;
-  }
-  const res = await window.api.importSettings();
-  if (res && res.ok) {
-    showToast(
-      res.importedHeader
-        ? "Settings imported (incl. user_settings.abc) and will be used next time."
-        : "Settings imported and will be used next time.",
-      4200
-    );
-    refreshHeaderLayers().catch(() => {});
-  } else if (res && res.error && res.error !== "Canceled") {
-    showToast(String(res.error), 3200);
-  }
+  if (settingsDomain) await settingsDomain.importSettings();
 }
 
 async function openSettingsFolderFromMenu() {
-  if (!window.api || typeof window.api.openSettingsFolder !== "function") {
-    showToast("Not available.", 2400);
-    return;
-  }
-  const res = await window.api.openSettingsFolder();
-  if (res && res.ok) showToast("Opened settings folder.", 2000);
+  if (settingsDomain) await settingsDomain.openSettingsFolder();
 }
 
 function zoomResetFromMenu() {
-  if (shouldIgnoreMenuZoomAction() || !settingsController) return;
-  settingsController.zoomReset();
-  requestAnimationFrame(() => centerRenderPaneOnCurrentAnchor());
+  if (settingsDomain) settingsDomain.zoomResetFromMenu();
 }
 
 async function renumberXInActiveFile(explicitFilePath) {
@@ -5386,8 +5319,8 @@ const menuActionsController = createMenuActionsController({
     toggleSplitOrientation,
     transportStartOver,
     wirePayloadMode: () => payloadModeFeature.wire(),
-    zoomIn: () => { if (!shouldIgnoreMenuZoomAction() && settingsController) settingsController.zoomIn(); },
-    zoomOut: () => { if (!shouldIgnoreMenuZoomAction() && settingsController) settingsController.zoomOut(); },
+    zoomIn: () => { if (settingsDomain) settingsDomain.zoomInFromMenu(); },
+    zoomOut: () => { if (settingsDomain) settingsDomain.zoomOutFromMenu(); },
     zoomReset: zoomResetFromMenu,
   },
 });
@@ -5405,43 +5338,45 @@ document.addEventListener("abcarus:reset-library-cache", () => {
   } catch {}
 });
 
-settingsController = initSettings(window.api);
-logStartupPerf("initSettings() done");
-createSettingsRuntimeController({
+settingsDomain = createSettingsDomain({
   api: window.api,
+  documentRef: document,
+  requestAnimationFrameRef: requestAnimationFrame,
   state: {
     getLatestSettings: () => latestSettingsSnapshot,
     setLatestSettings: (settings) => { latestSettingsSnapshot = settings || null; },
-    getHeaderSignature: () => headerLayersController.getSettingsSignature(),
-    getSoundfontName: () => soundfontController.getName(),
+    setFollowPlayback: (next) => { followPlayback = Boolean(next); },
+    setDrumVelocityMap: (next) => { drumVelocityMap = next; },
+    getEditorDom: () => editorView ? editorView.dom : null,
     isPayloadMode,
     isMicrotonalNotationSupported,
     isIntonationExplorerVisible: () => Boolean(intonationExplorerFeature && intonationExplorerFeature.isVisible()),
     isChordProEnabled: () => chordProFeature.isEnabled(),
   },
+  elements: {
+    libraryTree: $libraryTree,
+    renderPane: $renderPane,
+  },
+  controllers: {
+    headerLayers: headerLayersController,
+    soundfont: soundfontController,
+    layout: layoutController,
+    followHighlightSettings,
+    playbackAutoScroll: playbackAutoScrollController,
+    focusMode: focusModeController,
+    printAll: printAllFeature,
+    libraryUiDomain,
+    midiInput: midiInputFeature,
+  },
   actions: {
-    applyUiFonts: setUiFontsFromSettings,
-    applyEditorHelp: setEditorHelpFromSettings,
-    applyGlobalHeader: setGlobalHeaderFromSettings,
-    applyAbc2svgFonts: setAbc2svgFontsFromSettings,
-    applySoundfont: setSoundfontFromSettings,
-    applyDrumVelocity: setDrumVelocityFromSettings,
-    applyMidiSettings: (settings) => midiInputFeature.applyMidiSettings(settings),
-    applyNoteTypingPreviewSettings: (settings) => midiInputFeature.applyNoteTypingPreviewSettings(settings),
-    applyLayout: setLayoutFromSettings,
-    applyFollow: setFollowFromSettings,
-    applyLoop: setLoopFromSettings,
-    applyPlaybackAutoScroll: setPlaybackAutoScrollFromSettings,
-    applyPrintAll: setPrintAllFromSettings,
-    applyLibraryPrefs: applyLibraryPrefsFromSettings,
+    centerRenderPaneOnCurrentAnchor,
     closeIntonationExplorer: () => intonationExplorerFeature.close(),
     ensureSoundfontLoaded,
     exitPayloadMode: () => payloadModeFeature.exit(),
     logStartupPerf,
     markStartupSettingsApplied,
+    reconfigureEditor: reconfigureAbcExtensions,
     refreshChordProPdfButtonState: (options) => chordProFeature.refreshPdfButtonState(options),
-    refreshHeaderLayers,
-    resetSoundfontCache,
     resetPlaybackForSoundfontChange: () => {
       if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
         playbackTransport.suppressOnEnd = true;
@@ -5453,34 +5388,21 @@ createSettingsRuntimeController({
     },
     scheduleRender: scheduleRenderNow,
     scheduleStartupLayoutReset,
-    setHeaderFontDirs: (res) => headerLayersController.setFontDirs(res),
-    setLibraryPrefsWriteSuppressed: (next) => libraryUiDomain.setPrefsWriteSuppressed(next),
     setSoundfontStatus,
     showDisclaimerIfNeeded,
+    showToast,
     updateErrorsFeatureUi: updateErrorsFeatureUI,
+    updateFollowToggle,
     updateGlobalHeaderToggle,
     wirePayloadMode: () => payloadModeFeature.wire(),
   },
-}).start();
-if (settingsController && editorView) {
-  editorView.dom.addEventListener("focusin", () => {
-    settingsController.setActivePane("editor");
-  });
-}
-
-if ($renderPane && settingsController) {
-  $renderPane.addEventListener("pointerdown", () => {
-    settingsController.setActivePane("render");
-  });
-}
-
-let lastZoomShortcutAtMs = 0;
-function markZoomShortcut() {
-  lastZoomShortcutAtMs = Date.now();
-}
-function shouldIgnoreMenuZoomAction() {
-  return Date.now() - lastZoomShortcutAtMs < 150;
-}
+  helpers: {
+    buildDefaultDrumVelocityMap,
+    clampVelocity,
+  },
+});
+logStartupPerf("settings domain init done");
+settingsDomain.start();
 
 function centerRenderPaneOnCurrentAnchor() {
   if (!$out || !$renderPane || !editorView) return;
@@ -5513,54 +5435,6 @@ function centerRenderPaneOnCurrentAnchor() {
   $renderPane.scrollTop = Math.max(0, centerTop);
   $renderPane.scrollLeft = Math.max(0, centerLeft);
 }
-
-	// Prevent Chromium page-zoom shortcuts fighting the app's render/editor zoom.
-	document.addEventListener("keydown", (e) => {
-	  if (!settingsController) return;
-	  const mod = e.ctrlKey || e.metaKey;
-	  if (!mod || e.altKey) return;
-	  const key = String(e.key || "");
-	  const target = e.target;
-	  const tag = target && target.tagName ? String(target.tagName).toLowerCase() : "";
-	  if (tag === "input" || tag === "textarea") return;
-
-	  const isZoomIn = key === "+" || (key === "=" && e.shiftKey);
-	  const isZoomOut = key === "-" || key === "_";
-	  const isZoomReset = key === "0";
-	  if (!isZoomIn && !isZoomOut && !isZoomReset) return;
-
-	  e.preventDefault();
-	  e.stopPropagation();
-	  markZoomShortcut();
-
-	  try {
-	    // Prefer zooming the pane that has focus (or is under the event target).
-	    const t = target || document.activeElement;
-	    if ($renderPane && t && $renderPane.contains(t)) settingsController.setActivePane("render");
-	    else if (editorView && editorView.dom && t && editorView.dom.contains(t)) settingsController.setActivePane("editor");
-	  } catch {}
-	  if (isZoomIn) settingsController.zoomIn();
-	  else if (isZoomOut) settingsController.zoomOut();
-	  else {
-	    settingsController.zoomReset();
-	    requestAnimationFrame(() => centerRenderPaneOnCurrentAnchor());
-	  }
-	}, true);
-
-document.addEventListener("wheel", (e) => {
-  if (!settingsController) return;
-  if (!e.ctrlKey && !e.metaKey) return;
-  e.preventDefault();
-  try {
-    // Zoom the pane under the pointer rather than the last "active" pane.
-    const t = e.target;
-    if ($renderPane && t && $renderPane.contains(t)) settingsController.setActivePane("render");
-    else if (editorView && editorView.dom && t && editorView.dom.contains(t)) settingsController.setActivePane("editor");
-  } catch {}
-  const direction = e.deltaY > 0 ? -1 : 1;
-  if (direction > 0) settingsController.zoomIn();
-  else settingsController.zoomOut();
-}, { passive: false });
 
 document.addEventListener("keydown", (e) => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -5974,14 +5848,6 @@ function toEditorOffset(derivedOffset) {
   return Math.max(0, raw - (playbackTransport.playbackIndexOffset || 0));
 }
 
-function setGlobalHeaderFromSettings(settings) {
-  headerLayersController.setFromSettings(settings);
-}
-
-function setAbc2svgFontsFromSettings(settings) {
-  headerLayersController.setFromSettings(settings);
-}
-
 function updateGlobalHeaderToggle() {
   headerLayersController.updateToggle();
 }
@@ -6089,23 +5955,6 @@ function maybeResetFocusLoopForTune(tuneId, { updateUi = true } = {}) {
   if (focusModeController) focusModeController.maybeResetLoopForTune(tuneId, { updateUi });
 }
 
-function setLoopFromSettings(settings) {
-  if (focusModeController) focusModeController.setLoopFromSettings(settings);
-}
-
-function setFollowFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  followHighlightSettings.setFromSettings(settings);
-  if (settings.followPlayback === undefined) return;
-  followPlayback = settings.followPlayback !== false;
-  updateFollowToggle();
-}
-
-function setLayoutFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  layoutController.setFromSettings(settings);
-}
-
 function setSplitOrientation(nextOrientation, { persist = true, userAction = false } = {}) {
   const before = layoutController.getRightSplitOrientation();
   const ok = layoutController.setSplitOrientation(nextOrientation, { persist, userAction });
@@ -6125,36 +5974,6 @@ function toggleSplitOrientation({ userAction = false } = {}) {
     suppressFollowScrollUntilMs = now + 250;
   }
   return ok;
-}
-
-function setPlaybackAutoScrollFromSettings(settings) {
-  return playbackAutoScrollController.setFromSettings(settings);
-}
-
-function setSoundfontFromSettings(settings) {
-  soundfontController.setFromSettings(settings);
-}
-
-function setDrumVelocityFromSettings(settings) {
-  if (!settings || typeof settings !== "object") return;
-  const next = settings.drumVelocityMap;
-  const base = buildDefaultDrumVelocityMap();
-  if (next && typeof next === "object") {
-    for (const [key, value] of Object.entries(next)) {
-      const pitch = Number(key);
-      if (!Number.isFinite(pitch)) continue;
-      base[pitch] = clampVelocity(value);
-    }
-  }
-  drumVelocityMap = base;
-}
-
-function resetSoundfontCache() {
-  soundfontController.resetCache();
-}
-
-async function refreshHeaderLayers() {
-  return headerLayersController.refreshHeaderLayers();
 }
 
 function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
@@ -6377,12 +6196,7 @@ document.addEventListener("drum:preview", (event) => {
 
 if ($btnFonts) {
   $btnFonts.addEventListener("click", () => {
-    if (!settingsController) return;
-    if (typeof settingsController.openTab === "function") {
-      settingsController.openTab("fonts");
-      return;
-    }
-    settingsController.openSettings();
+    if (settingsDomain) settingsDomain.openFontsSettings();
   });
 }
 

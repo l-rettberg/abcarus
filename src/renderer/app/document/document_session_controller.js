@@ -165,6 +165,14 @@ function createDocumentSessionController({
     return setCurrentDocumentDirty(false, { create: false });
   }
 
+  function hasOpenEditContext() {
+    if (getCurrentDoc()) return true;
+    if (getActiveFilePath()) return true;
+    if (getCurrentDocumentPath()) return true;
+    if (getRawModeFilePath()) return true;
+    return Boolean(getActiveTuneMeta());
+  }
+
   async function showOpenDialog() {
     if (typeof showOpenDialogAction === "function") return showOpenDialogAction();
     if (!api || typeof api.showOpenDialog !== "function") return null;
@@ -273,13 +281,17 @@ function createDocumentSessionController({
 
   async function requestCloseDocument() {
     if (abandonFlowInProgress) return;
-    if (!getCurrentDoc()) return;
+    if (!hasOpenEditContext()) {
+      showToast("No file is open.", 1800);
+      return;
+    }
     abandonFlowInProgress = true;
     try {
       const ok = await confirmAbandonIfDirty("closing this file");
       if (!ok) return;
       clearCurrentDocument();
       setDirtyIndicator(false);
+      showToast("Closed file.", 1400);
     } finally {
       abandonFlowInProgress = false;
     }

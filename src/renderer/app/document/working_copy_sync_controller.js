@@ -191,6 +191,13 @@ export function createWorkingCopySyncController({
           tuneUid: getActiveTuneUid(),
           tuneIndex: getActiveTuneIndex(),
           text: tuneText,
+          expected: {
+            xNumber: targetX,
+            title: activeTuneMeta && activeTuneMeta.title ? String(activeTuneMeta.title) : "",
+            startOffset: activeTuneMeta && Number.isFinite(Number(activeTuneMeta.startOffset))
+              ? Number(activeTuneMeta.startOffset)
+              : null,
+          },
         });
         if (epoch !== tuneSyncEpoch) {
           result = { ok: false, stale: true, error: "Working copy tune sync was superseded." };

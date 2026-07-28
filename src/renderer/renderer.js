@@ -4816,7 +4816,13 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
     let slice = resolveActiveTuneSliceInFullText(p, fullText);
     if (!slice) {
       const refreshed = await refreshLibraryFile(p, { force: true });
-      if (refreshed) slice = resolveActiveTuneSliceInFullText(p, fullText);
+      if (refreshed) {
+        const readRes = await readFile(p);
+        if (readRes && readRes.ok) {
+          fullText = String(readRes.data || "");
+          slice = resolveActiveTuneSliceInFullText(p, fullText);
+        }
+      }
     }
     if (!slice && cached != null) {
       const readRes = await readFile(p);

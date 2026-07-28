@@ -10,6 +10,7 @@ const {
   getWorkingCopySnapshot,
   reloadWorkingCopyFromDisk,
   applyFullText,
+  applyTuneText,
 } = require("../../src/main/workingCopyStore");
 
 async function walkFiles(dir, out = []) {
@@ -118,6 +119,63 @@ async function testDirtyWorkingCopyCannotBeReloadedByDefault() {
   });
 }
 
+async function testTuneApplyCannotOverwriteFirstTuneByStaleIndex() {
+  await withTempDir(async (dir) => {
+    const filePath = path.join(dir, "identity.abc");
+    const original = [
+      "X:1",
+      "T:First Valuable Tune",
+      "K:C",
+      "C |]",
+      "",
+      "X:217",
+      "T:Edited Work Tune",
+      "K:D",
+      "D |]",
+      "",
+    ].join("\n");
+    await fs.promises.writeFile(filePath, original, "utf8");
+    await openWorkingCopyFromPath(filePath);
+
+    const snap = getWorkingCopySnapshot();
+    const firstUid = snap.tunes[0].tuneUid;
+    const secondUid = snap.tunes[1].tuneUid;
+    const editedSecond = "X:217\nT:Edited Work Tune\nK:D\nE F |]\n";
+
+    assert.throws(
+      () => applyTuneText({
+        tuneIndex: 0,
+        text: editedSecond,
+        expected: { xNumber: "217", title: "Edited Work Tune" },
+      }),
+      /Missing stable tuneUid/,
+      "index-only tune replacement must fail closed"
+    );
+
+    assert.throws(
+      () => applyTuneText({
+        tuneUid: firstUid,
+        tuneIndex: 0,
+        text: editedSecond,
+        expected: { xNumber: "217", title: "Edited Work Tune" },
+      }),
+      /target tune identity changed|target tune text changed/,
+      "wrong stable UID must not accept text for a different X number"
+    );
+
+    applyTuneText({
+      tuneUid: secondUid,
+      tuneIndex: 1,
+      text: editedSecond,
+      expected: { xNumber: "217", title: "Edited Work Tune" },
+    });
+
+    const after = getWorkingCopySnapshot().text;
+    assert(after.includes("X:1\nT:First Valuable Tune"), "X:1 tune must remain intact");
+    assert(after.includes("X:217\nT:Edited Work Tune\nK:D\nE F |]"), "edited X:217 tune must be updated");
+  });
+}
+
 async function testForcedCommitsStayExplicitlyAuthorized() {
   const root = path.resolve(__dirname, "../..");
   const rendererFiles = await walkFiles(path.join(root, "src", "renderer"));
@@ -174,6 +232,7 @@ async function main() {
   await testConflictDoesNotOverwriteByDefault();
   await testDirtyWorkingCopyCannotBeReplacedByOpen();
   await testDirtyWorkingCopyCannotBeReloadedByDefault();
+  await testTuneApplyCannotOverwriteFirstTuneByStaleIndex();
   await testForcedCommitsStayExplicitlyAuthorized();
   console.log("% PASS working copy conflict guard");
 }

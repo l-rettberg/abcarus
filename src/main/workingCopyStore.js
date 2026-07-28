@@ -29,6 +29,58 @@ function beginsWithXLine(text) {
   return /^\s*X:/.test(first);
 }
 
+function parseXNumberFromText(text) {
+  const first = firstNonEmptyLine(text);
+  const match = first.match(/^\s*X:\s*(\d+)/);
+  return match && match[1] ? String(match[1]) : "";
+}
+
+function parseXNumberFromLabel(label) {
+  const match = String(label || "").match(/^\s*X:\s*(\d+)/);
+  return match && match[1] ? String(match[1]) : "";
+}
+
+function parseFirstTitle(text) {
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  for (const line of lines) {
+    const raw = String(line || "");
+    if (/^\s*X:/.test(raw)) continue;
+    const match = raw.match(/^T:\s*(.*)$/);
+    if (match) return String(match[1] || "").trim();
+    const trimmed = raw.trim();
+    if (trimmed && !/^[A-Za-z]:/.test(raw) && !/^%/.test(raw)) break;
+  }
+  return "";
+}
+
+function assertTuneIdentity({ tune, oldSlice, nextTuneText, expected } = {}) {
+  const exp = expected && typeof expected === "object" ? expected : {};
+  const expectedX = String(exp.xNumber || "").trim();
+  const expectedTitle = String(exp.title || "").trim();
+  const targetX = parseXNumberFromLabel(tune && tune.xLabel);
+  const oldX = parseXNumberFromText(oldSlice);
+  const nextX = parseXNumberFromText(nextTuneText);
+
+  if (expectedX) {
+    if (targetX && targetX !== expectedX) {
+      throw new Error(`Refusing to save: target tune identity changed (expected X:${expectedX}, found X:${targetX}).`);
+    }
+    if (oldX && oldX !== expectedX) {
+      throw new Error(`Refusing to save: target tune text changed (expected X:${expectedX}, found X:${oldX}).`);
+    }
+    if (nextX && nextX !== expectedX) {
+      throw new Error(`Refusing to save: editor tune identity does not match target (expected X:${expectedX}, got X:${nextX}).`);
+    }
+  }
+
+  if (expectedTitle) {
+    const oldTitle = parseFirstTitle(oldSlice);
+    if (oldTitle && oldTitle !== expectedTitle && !expectedX) {
+      throw new Error("Refusing to save: target tune title changed.");
+    }
+  }
+}
+
 function freezeSnapshot(obj) {
   try {
     return Object.freeze(obj);
@@ -519,19 +571,18 @@ function deleteTune({ tuneUid, tuneIndex } = {}) {
   }, { kind: "deleteTune", tuneUid: uid || null, tuneIndex: idx, resolvedIndex });
 }
 
-function applyTuneText({ tuneUid, tuneIndex, text } = {}) {
+function applyTuneText({ tuneUid, tuneIndex, text, expected } = {}) {
   const uid = tuneUid != null ? String(tuneUid) : "";
   const idx = Number.isFinite(Number(tuneIndex)) ? Number(tuneIndex) : null;
   const nextTuneText = (text != null) ? String(text) : "";
-  if (!uid && idx == null) throw new Error("Missing tuneUid/tuneIndex.");
+  if (!uid) throw new Error("Missing stable tuneUid.");
 
   return mutateWorkingCopy((draft) => {
     const tunes = state && Array.isArray(state.tunes) ? state.tunes : [];
-    // Prefer tuneUid over tuneIndex. tuneIndex is inherently unstable across reparses.
     let resolvedIndex = null;
     const byUid = state && state.tuneUidToIndex && uid ? state.tuneUidToIndex.get(uid) : null;
     if (Number.isFinite(Number(byUid))) resolvedIndex = Number(byUid);
-    if (resolvedIndex == null && idx != null) resolvedIndex = idx;
+    if (resolvedIndex == null) throw new Error("Tune not found by stable tuneUid.");
     if (resolvedIndex == null || resolvedIndex < 0 || resolvedIndex >= tunes.length) {
       throw new Error("Tune not found.");
     }
@@ -547,6 +598,7 @@ function applyTuneText({ tuneUid, tuneIndex, text } = {}) {
     if (beginsWithXLine(oldSlice) && !beginsWithXLine(nextTuneText)) {
       throw new Error("Refusing to save: tune must start with an X: header.");
     }
+    assertTuneIdentity({ tune, oldSlice, nextTuneText, expected });
     draft.text = `${fullText.slice(0, start)}${nextTuneText}${fullText.slice(end)}`;
     return { text: draft.text };
   }, { kind: "applyTuneText", tuneUid: uid || null, tuneIndex: idx });

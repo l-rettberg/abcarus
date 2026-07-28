@@ -28,6 +28,11 @@ import {
   openFindPanel,
   openReplacePanel,
   scrollEditorToPos,
+  insertTextAtEditorSelection as insertTextAtEditorSelectionCore,
+  setEditorSelectionAt as setEditorSelectionAtCore,
+  setEditorSelectionAtLineCol as setEditorSelectionAtLineColCore,
+  setEditorSelectionRange as setEditorSelectionRangeCore,
+  toggleLineComments as toggleLineCommentsCore,
 } from "./editor/editor_commands.js";
 import {
   parseDecorationCatalogEnrichment,
@@ -3489,58 +3494,14 @@ async function leaveRawModeForAction(contextLabel) {
 }
 
 function toggleLineComments(view) {
-  if (!view) return false;
-  if (playbackTransport.isPlaying || playbackTransport.isPaused || playbackTransport.waitingForFirstNote) {
-    showToast("Playback active: stop before editing.", 2400);
-    return true;
-  }
-
-  const doc = view.state.doc;
-  const ranges = view.state.selection.ranges || [];
-  if (!ranges.length) return false;
-
-  const lineNumbers = new Set();
-  for (const r of ranges) {
-    const from = Math.min(r.from, r.to);
-    const to = Math.max(r.from, r.to);
-    const fromLine = doc.lineAt(from);
-    const toLine = doc.lineAt(to);
-    for (let n = fromLine.number; n <= toLine.number; n += 1) {
-      lineNumbers.add(n);
-    }
-  }
-  const lines = Array.from(lineNumbers).sort((a, b) => a - b);
-  if (!lines.length) return false;
-
-  const lineInfo = lines.map((n) => doc.line(n));
-  const isCommented = (lineText) => {
-    const m = /^[\t ]*/.exec(lineText);
-    const i = m ? m[0].length : 0;
-    return lineText[i] === "%";
-  };
-  const allCommented = lineInfo.every((ln) => isCommented(ln.text));
-
-  const changes = [];
-  for (let idx = lineInfo.length - 1; idx >= 0; idx -= 1) {
-    const ln = lineInfo[idx];
-    const text = ln.text;
-    const m = /^[\t ]*/.exec(text);
-    const indentLen = m ? m[0].length : 0;
-    const at = ln.from + indentLen;
-    if (allCommented) {
-      if (text[indentLen] === "%") {
-        const next = text[indentLen + 1];
-        const removeLen = next === " " ? 2 : 1;
-        changes.push({ from: at, to: at + removeLen, insert: "" });
-      }
-    } else {
-      changes.push({ from: at, to: at, insert: "% " });
-    }
-  }
-
-  if (!changes.length) return true;
-  view.dispatch({ changes });
-  return true;
+  return toggleLineCommentsCore(view, {
+    isEditingBlocked: () => (
+      playbackTransport.isPlaying
+      || playbackTransport.isPaused
+      || playbackTransport.waitingForFirstNote
+    ),
+    onEditingBlocked: () => showToast("Playback active: stop before editing.", 2400),
+  });
 }
 
 function getFocusedEditorView() {
@@ -3850,19 +3811,7 @@ function setActiveTuneText(text, metadata, options = {}) {
 }
 
 function insertTextAtEditorSelection(text) {
-  if (!editorView) return false;
-  if (!text) return false;
-  try {
-    const sel = editorView.state.selection;
-    editorView.dispatch({
-      changes: { from: sel.main.from, to: sel.main.to, insert: text },
-      selection: { anchor: sel.main.from + text.length },
-      userEvent: "input",
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return insertTextAtEditorSelectionCore(editorView, text);
 }
 
 function setLibraryVisible(visible, { persist = true } = {}) {
@@ -4278,33 +4227,20 @@ function highlightRenderNoteAtIndex(renderIdx) {
 }
 
 function setEditorSelectionAt(idx) {
-  if (!editorView || !Number.isFinite(idx)) return;
-  const max = editorView.state.doc.length;
-  const pos = Math.max(0, Math.min(idx, max));
-  editorView.dispatch({
-    selection: EditorSelection.cursor(pos),
-    scrollIntoView: true,
-  });
-  highlightNoteAtIndex(pos);
+  return setEditorSelectionAtCore(editorView, idx, { onSelect: highlightNoteAtIndex });
 }
 
 function setEditorSelectionRange(start, end) {
-  if (!editorView || !Number.isFinite(start)) return;
-  const max = editorView.state.doc.length;
-  const anchor = Math.max(0, Math.min(start, max));
-  const head = Number.isFinite(end) ? Math.max(anchor, Math.min(end, max)) : anchor;
-  editorView.dispatch({
-    selection: EditorSelection.range(anchor, head),
-    scrollIntoView: true,
-  });
-  highlightNoteAtIndex(anchor);
+  return setEditorSelectionRangeCore(editorView, start, end, { onSelect: highlightNoteAtIndex });
 }
 
 function setEditorSelectionAtLineCol(line, col) {
-  if (!editorView || !Number.isFinite(line) || !Number.isFinite(col)) return;
-  const lineInfo = editorView.state.doc.line(Math.max(1, Math.min(line, editorView.state.doc.lines)));
-  const pos = Math.min(lineInfo.to, lineInfo.from + Math.max(0, col - 1));
-  setEditorSelectionAt(pos);
+  return setEditorSelectionAtLineColCore(
+    editorView,
+    line,
+    col,
+    { onSelect: highlightNoteAtIndex },
+  );
 }
 
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {

@@ -27,10 +27,22 @@ function createPlaybackStartController({
   findSymbolAtOrAfter,
   findSymbolAtOrBefore,
   findMeasureIndex,
-  getEditorSelectionSignature,
   isFollowPlaybackEnabled,
   getDebugParts,
 } = {}) {
+  function getEditorSelectionSignature() {
+    const editorView = getEditorView();
+    if (!editorView) return "";
+    const sel = editorView.state.selection && editorView.state.selection.main
+      ? editorView.state.selection.main
+      : null;
+    if (!sel) return "";
+    const max = editorView.state.doc.length;
+    const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+    const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+    return `${anchor}:${head}`;
+  }
+
   function getDocLength() {
     const editorView = getEditorView();
     return editorView ? editorView.state.doc.length : 0;

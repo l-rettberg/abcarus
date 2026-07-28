@@ -1,3 +1,9 @@
+import {
+  buildFocusBarIndexMap,
+  buildFocusPlaybackPlan,
+  getVisibleFocusRenderRangeFromElements,
+} from "./focus_playback_model.js";
+
 export function createFocusModeController({
   elements = {},
   transport,
@@ -7,6 +13,15 @@ export function createFocusModeController({
   isRawModeActive = () => false,
   isPlaybackBusy = () => false,
   isFocusBoundedPlaybackScope = () => false,
+  getEditorView = () => null,
+  getEditorText = () => "",
+  getRenderMeasureIndex = () => null,
+  getRenderCompatMap = () => null,
+  mapRenderIdxToEditorOffset = (offset) => offset,
+  getOutputElement = () => null,
+  getRenderPane = () => null,
+  getScopedPlaybackSettingsForOrigin = () => ({}),
+  findMeasureStartOffsetByNumber = () => null,
   clampInt = (value, _min, _max, fallback) => fallback,
   readRenderZoom = () => null,
   setRenderZoom = () => {},
@@ -205,6 +220,48 @@ export function createFocusModeController({
     return true;
   }
 
+  function computePlaybackPlan() {
+    const editorView = getEditorView();
+    if (!editorView) return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
+    const tuneText = String(getEditorText() || "");
+    const measureIndex = getRenderMeasureIndex();
+    const barMap = buildFocusBarIndexMap({
+      measureIndex,
+      editorDocLength: editorView.state.doc.length,
+      getRenderCompatMap,
+      mapRenderIdxToEditorOffset,
+    });
+    const firstMeasureOffset = findMeasureStartOffsetByNumber(tuneText, 1);
+    const settings = getScopedPlaybackSettingsForOrigin("focus") || {};
+    const outputElement = getOutputElement();
+    const renderPane = getRenderPane();
+    const visibleRange = enabled && outputElement && renderPane
+      ? getVisibleFocusRenderRangeFromElements({
+          barElements: outputElement.querySelectorAll(".bar-hl"),
+          paneRect: renderPane.getBoundingClientRect(),
+        })
+      : null;
+    return buildFocusPlaybackPlan({
+      parsedTune: {
+        text: tuneText,
+        barMap,
+        byNumber: measureIndex && measureIndex.byNumber ? measureIndex.byNumber : null,
+        firstMeasureOffset: Number.isFinite(firstMeasureOffset) ? Number(firstMeasureOffset) : null,
+      },
+      focusState: {
+        fromMeasure: Number(transport.playbackLoopFromMeasure),
+        toMeasure: Number(transport.playbackLoopToMeasure),
+        loop: Boolean(transport.playbackLoopEnabled),
+        suppressRepeats: Boolean(settings.suppressRepeats),
+        mutedVoices: Array.isArray(settings.mutedVoices) ? settings.mutedVoices.slice() : [],
+        muteGchords: Boolean(settings.muteGchords),
+        allowMidiDrums: Boolean(settings.allowMidiDrums),
+      },
+      visibleRange,
+      getMeasureStartOffsetByNumber: findMeasureStartOffsetByNumber,
+    });
+  }
+
   function maybeResetLoopForTune(tuneId, { updateUi: shouldUpdateUi = true } = {}) {
     if (!enabled) return;
     const id = tuneId != null ? String(tuneId) : "";
@@ -285,9 +342,56 @@ export function createFocusModeController({
         toggle();
       });
     }
+
+    const persistBooleanSetting = (element, key, invert = false) => {
+      if (!element) return;
+      element.addEventListener("change", () => {
+        const value = invert ? !element.checked : Boolean(element.checked);
+        persistLoopSettingsPatch({ [key]: value }).catch(() => {});
+      });
+    };
+    persistBooleanSetting(selectionLoopEnabled, "playbackSelectionLoopEnabled");
+    persistBooleanSetting(selectionSuppressEnabled, "playbackSelectionSuppressRepeats");
+    persistBooleanSetting(selectionGchordsEnabled, "playbackSelectionMuteGchords", true);
+    persistBooleanSetting(selectionDrumsEnabled, "playbackSelectionAllowMidiDrums");
+
+    if (selectionMutedVoices) {
+      const persistMutedVoices = () => {
+        const normalized = String(selectionMutedVoices.value || "")
+          .split(/[,\s]+/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .join(",");
+        persistLoopSettingsPatch({ playbackSelectionMutedVoices: normalized }).catch(() => {});
+      };
+      selectionMutedVoices.addEventListener("change", persistMutedVoices);
+      selectionMutedVoices.addEventListener("blur", persistMutedVoices);
+    }
+
+    if (practiceTempo) {
+      practiceTempo.addEventListener("change", () => {
+        const next = Number(practiceTempo.value);
+        if (!Number.isFinite(next)) return;
+        transport.practiceTempoMultiplier = next;
+        syncPendingPlaybackPlan();
+        if (
+          enabled
+          && isPlaybackBusy()
+          && transport.player
+          && typeof transport.player.set_speed === "function"
+        ) {
+          transport.desiredPlayerSpeed = next;
+          try { transport.player.set_speed(transport.desiredPlayerSpeed); } catch {}
+        }
+        updatePracticeUi();
+      });
+      const initial = Number(practiceTempo.value);
+      if (Number.isFinite(initial)) transport.practiceTempoMultiplier = initial;
+    }
   }
 
   return {
+    computePlaybackPlan,
     isEnabled,
     maybeResetLoopForTune,
     normalizeLoopBounds,

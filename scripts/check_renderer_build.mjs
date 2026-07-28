@@ -11,10 +11,14 @@ async function assertSaveIntentGuards() {
   const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
   const focusPlaybackModelPath = "src/renderer/playback/focus_playback_model.js";
   const focusPlaybackModel = await readFile(focusPlaybackModelPath, "utf8").catch(() => "");
+  const focusModeControllerPath = "src/renderer/playback/focus_mode_controller.js";
+  const focusModeController = await readFile(focusModeControllerPath, "utf8").catch(() => "");
   const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
   const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
   const playbackStartControllerPath = "src/renderer/playback/playback_start_controller.js";
   const playbackStartController = await readFile(playbackStartControllerPath, "utf8").catch(() => "");
+  const playbackTransportControllerPath = "src/renderer/playback/playback_transport_controller.js";
+  const playbackTransportController = await readFile(playbackTransportControllerPath, "utf8").catch(() => "");
   const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
   const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
   const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
@@ -80,7 +84,10 @@ async function assertSaveIntentGuards() {
   if (!focusPlaybackModel.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
     throw new Error("Focus segment mode must resolve From/To via abc2svg bar numbering.");
   }
-  if (!src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")) {
+  if (
+    !src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")
+    && !focusModeController.includes("const firstMeasureOffset = findMeasureStartOffsetByNumber(tuneText, 1);")
+  ) {
     throw new Error("Focus plan must compute first measure fallback offset.");
   }
   if (!focusPlaybackModel.includes("mode === \"segment\"") || !focusPlaybackModel.includes("Number(state.fromMeasure) === 1")) {
@@ -88,6 +95,25 @@ async function assertSaveIntentGuards() {
   }
   if (!focusPlaybackModel.includes("startOffset = firstMeasureOffset;")) {
     throw new Error("Focus segment mode must apply first-measure fallback start.");
+  }
+  for (const rendererTail of [
+    "function updatePlaybackRangeFromSelection(",
+    "function getEditorMeasureStartOffset(",
+    "function getEditorPlayStartOffset(",
+    "function getEditorSelectionSignature(",
+    "function buildFocusBarIndexMap(",
+    "function getVisibleFocusRenderRange(",
+    "function getFocusPlaybackState(",
+  ]) {
+    if (src.includes(rendererTail)) {
+      throw new Error(`Playback runtime tail must not remain in renderer: ${rendererTail}`);
+    }
+  }
+  if (!playbackTransportController.includes("function updatePlaybackRangeFromSelection(")) {
+    throw new Error("Playback transport controller must own editor selection range synchronization.");
+  }
+  if (!focusModeController.includes("function computePlaybackPlan()")) {
+    throw new Error("Focus mode controller must own Focus playback plan assembly.");
   }
   if (
     !src.includes("let playbackScopedOptions = null;")
@@ -248,7 +274,7 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
   const transport = {
     isPlaying: false,
     isPaused: true,
-    pausedSelectionSignature: "stable",
+    pausedSelectionSignature: "0:0",
     resumeStartIdx: 260,
     playbackIndexOffset: 100,
     playbackRange: { startOffset: 0, endOffset: null, origin: "cursor", loop: false },
@@ -263,9 +289,6 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
     getFocusModeEnabled: () => false,
     normalizeFocusLoopBoundsForPlayback: () => {},
     computeFocusPlaybackPlanFromCurrentState: () => ({ ok: false }),
-    getEditorMeasureStartOffset: () => 0,
-    getEditorPlayStartOffset: () => 0,
-    getEditorSelectionSignature: () => "stable",
     startPlaybackFromRange: async (range) => { calls.push(range); },
     startPlaybackAtIndex: async () => {},
     pausePlayback: () => {},
@@ -299,9 +322,6 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
       ok: true,
       plan: { startOffset: 0, endOffset: null, loop: false },
     }),
-    getEditorMeasureStartOffset: () => 0,
-    getEditorPlayStartOffset: () => 0,
-    getEditorSelectionSignature: () => "stable",
     startPlaybackFromRange: async (range) => { calls.push(range); },
     startPlaybackAtIndex: async () => {},
     pausePlayback: () => {},
@@ -337,9 +357,6 @@ async function assertPlaybackPauseResumeUsesPausedOffset() {
       ok: true,
       plan: { startOffset: 10, endOffset: 500, loop: false },
     }),
-    getEditorMeasureStartOffset: () => 0,
-    getEditorPlayStartOffset: () => 0,
-    getEditorSelectionSignature: () => "stable",
     startPlaybackFromRange: async (range) => { calls.push(range); },
     startPlaybackAtIndex: async () => {},
     pausePlayback: () => {},

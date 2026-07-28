@@ -168,11 +168,6 @@ import {
   snapIstartToPlayable as snapIstartToPlayableModel,
   upperBoundTime,
 } from "./playback/playback_state_model.js";
-import {
-  buildFocusBarIndexMap as buildFocusBarIndexMapModel,
-  buildFocusPlaybackPlan as buildFocusPlaybackPlanModel,
-  getVisibleFocusRenderRangeFromElements,
-} from "./playback/focus_playback_model.js";
 import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
@@ -1359,7 +1354,6 @@ const playbackStartController = createPlaybackStartController({
   findSymbolAtOrAfter,
   findSymbolAtOrBefore,
   findMeasureIndex,
-  getEditorSelectionSignature,
   isFollowPlaybackEnabled: () => followPlayback,
   getDebugParts: () => window.__abcarusDebugParts === true,
 });
@@ -1367,12 +1361,11 @@ const playbackTransportController = createPlaybackTransportController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
   getEditorView: () => editorView,
+  getEditorText: getEditorValue,
+  findMeasureStartOffsetByNumber,
   getFocusModeEnabled: isFocusModeEnabled,
   normalizeFocusLoopBoundsForPlayback,
   computeFocusPlaybackPlanFromCurrentState,
-  getEditorMeasureStartOffset,
-  getEditorPlayStartOffset,
-  getEditorSelectionSignature,
   startPlaybackFromRange,
   startPlaybackAtIndex,
   pausePlayback,
@@ -1643,6 +1636,15 @@ focusModeController = createFocusModeController({
   isRawModeActive: () => isRawModeActive(),
   isPlaybackBusy,
   isFocusBoundedPlaybackScope,
+  getEditorView: () => editorView,
+  getEditorText: getEditorValue,
+  getRenderMeasureIndex,
+  getRenderCompatMap,
+  mapRenderIdxToEditorOffset,
+  getOutputElement: () => $out,
+  getRenderPane: () => $renderPane,
+  getScopedPlaybackSettingsForOrigin,
+  findMeasureStartOffsetByNumber: findMeasureStartOffsetByNumberInPrimaryVoice,
   clampInt,
   readRenderZoom: readRenderZoomCss,
   setRenderZoom: setRenderZoomCss,
@@ -3864,7 +3866,11 @@ function initEditor() {
       if (!suppressPlaybackRangeSelectionSync) {
         const origin = pendingPlaybackRangeOrigin || "cursor";
         pendingPlaybackRangeOrigin = null;
-        updatePlaybackRangeFromSelection(update.state.selection, origin);
+        playbackTransportController.updatePlaybackRangeFromSelection(
+          update.state.selection,
+          origin,
+          errorsFeature.getActiveHighlight()
+        );
       } else {
         pendingPlaybackRangeOrigin = null;
       }
@@ -5210,20 +5216,12 @@ function resetPlaybackUiState() {
   return playbackFollowController.resetPlaybackUiState();
 }
 
-function normalizeAutoScrollMode(raw) {
-  return playbackAutoScrollController.normalizeAutoScrollMode(raw);
-}
-
 function initPlaybackAutoScrollListeners() {
   return playbackAutoScrollController.initPlaybackAutoScrollListeners();
 }
 
 function cancelPlaybackAutoScroll() {
   return playbackAutoScrollController.cancelPlaybackAutoScroll();
-}
-
-function animateRenderPaneScrollTo(targetTop, targetLeft, durationMs) {
-  return playbackAutoScrollController.animateRenderPaneScrollTo(targetTop, targetLeft, durationMs);
 }
 
 function getRenderZoomFactor() {
@@ -5280,31 +5278,6 @@ function setPlaybackRange(next) {
   return playbackTransportController.setPlaybackRange(next);
 }
 
-function updatePlaybackRangeFromSelection(selection, origin) {
-  if (!selection || !editorView) return;
-  if (playbackTransport.isPlaying) return;
-  // While an error anchor is active, keep the error-derived PlaybackRange stable and loopable.
-  // The user can move the cursor to fix the error without losing the loop range.
-  const activeErrorHighlight = errorsFeature.getActiveHighlight();
-  if (activeErrorHighlight && playbackTransport.playbackRange && playbackTransport.playbackRange.origin === "error" && playbackTransport.playbackRange.loop) return;
-  const max = editorView.state.doc.length;
-  const main = selection.main || null;
-  if (!main) return;
-
-  const anchor = Math.max(0, Math.min(Number(main.anchor) || 0, max));
-  const head = Math.max(0, Math.min(Number(main.head) || 0, max));
-  const start = Math.min(anchor, head);
-  const end = Math.max(anchor, head);
-  const isRange = end > start;
-
-  setPlaybackRange({
-    startOffset: start,
-    endOffset: isRange ? end : null,
-    origin: origin || (isRange ? "selection" : "cursor"),
-    loop: Boolean(activeErrorHighlight && playbackTransport.playbackRange.loop),
-  });
-}
-
 function appendPlaybackTrace(evt) {
   playbackTransport.appendTrace(evt);
 }
@@ -5327,70 +5300,6 @@ function updatePlaybackInteractionLock() {
 
 function buildTransportPlaybackPlan() {
   return playbackTransportController.buildTransportPlaybackPlan();
-}
-
-function getEditorPlayStartOffset() {
-  if (!editorView) return 0;
-  const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
-  if (!sel) return 0;
-  const max = editorView.state.doc.length;
-  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
-  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
-  return Math.min(anchor, head);
-}
-
-function getEditorMeasureStartOffset() {
-  if (!editorView) return 0;
-  const text = getEditorValue();
-  const max = editorView.state.doc.length;
-  if (!text || max <= 0) return 0;
-  const cursor = Math.max(0, Math.min(getEditorPlayStartOffset(), max));
-  const len = text.length;
-
-  // Deterministic textual rule:
-  // - current measure starts right after the nearest barline to the left of cursor
-  // - if cursor is exactly on a barline, this barline is the current measure boundary
-  // - for measure 1 (no previous barline), start at first detected measure start in body
-  // Do not cross section boundaries (e.g. [P:E]) when searching for the current bar start.
-  const leftText = text.slice(0, cursor + 1);
-  const partMatches = [...leftText.matchAll(/(?:^|\n)\s*\[P:[^\]\n]*\]\s*(?:\n|$)/g)];
-  const sectionStart = partMatches.length
-    ? Math.min(cursor, partMatches[partMatches.length - 1].index + partMatches[partMatches.length - 1][0].length)
-    : 0;
-
-  let bar = -1;
-  if (cursor < len && text[cursor] === "|") {
-    bar = cursor;
-  } else {
-    bar = text.lastIndexOf("|", Math.max(0, cursor - 1));
-  }
-  if (bar < sectionStart) bar = -1;
-
-  let start = 0;
-  if (bar >= 0) {
-    start = bar + 1;
-  } else {
-    const first = findMeasureStartOffsetByNumber(text.slice(sectionStart), 1);
-    if (Number.isFinite(first)) {
-      start = sectionStart + Number(first);
-    } else {
-      start = sectionStart;
-    }
-  }
-
-  // Skip only separators between barline and content.
-  while (start < len && /[\s|:\]]/.test(text[start] || "")) start += 1;
-  return Math.max(0, Math.min(start, max));
-}
-
-function getEditorSelectionSignature() {
-  if (!editorView) return "";
-  const sel = editorView.state.selection && editorView.state.selection.main ? editorView.state.selection.main : null;
-  if (!sel) return "";
-  const max = editorView.state.doc.length;
-  const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
-  const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
-  return `${anchor}:${head}`;
 }
 
 function syncPendingPlaybackPlan() {
@@ -5527,66 +5436,10 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, n));
 }
 
-function buildFocusBarIndexMap(measureIndex, editorDocLength) {
-  return buildFocusBarIndexMapModel({
-    measureIndex,
-    editorDocLength,
-    getRenderCompatMap,
-    mapRenderIdxToEditorOffset,
-  });
-}
-
-function getVisibleFocusRenderRange() {
-  if (!isFocusModeEnabled() || !$out || !$renderPane) return null;
-  return getVisibleFocusRenderRangeFromElements({
-    barElements: $out.querySelectorAll(".bar-hl"),
-    paneRect: $renderPane.getBoundingClientRect(),
-  });
-}
-
-function getFocusPlaybackState() {
-  const selectionSettings = getScopedPlaybackSettingsForOrigin("focus");
-  return {
-    fromMeasure: Number(playbackTransport.playbackLoopFromMeasure),
-    toMeasure: Number(playbackTransport.playbackLoopToMeasure),
-    loop: Boolean(playbackTransport.playbackLoopEnabled),
-    suppressRepeats: Boolean(selectionSettings.suppressRepeats),
-    mutedVoices: Array.isArray(selectionSettings.mutedVoices) ? selectionSettings.mutedVoices.slice() : [],
-    muteGchords: Boolean(selectionSettings.muteGchords),
-    allowMidiDrums: Boolean(selectionSettings.allowMidiDrums),
-  };
-}
-
 function computeFocusPlaybackPlanFromCurrentState() {
-  if (!editorView) return { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
-  const tuneText = getEditorValue();
-  const measureIndex = getRenderMeasureIndex();
-  const barMap = buildFocusBarIndexMap(measureIndex, editorView.state.doc.length);
-  const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);
-  const focusState = getFocusPlaybackState();
-  return buildFocusPlaybackPlanModel({
-    parsedTune: {
-      text: tuneText,
-      barMap,
-      byNumber: measureIndex && measureIndex.byNumber ? measureIndex.byNumber : null,
-      firstMeasureOffset: Number.isFinite(firstMeasureOffset) ? Number(firstMeasureOffset) : null,
-    },
-    focusState,
-    visibleRange: getVisibleFocusRenderRange(),
-    getMeasureStartOffsetByNumber: findMeasureStartOffsetByNumberInPrimaryVoice,
-  });
-}
-
-function computeFocusLoopPlaybackRange() {
-  if (!isFocusModeEnabled() || !editorView || isRawModeActive()) return null;
-  const focusResult = computeFocusPlaybackPlanFromCurrentState();
-  if (!focusResult || !focusResult.ok || !focusResult.plan) return null;
-  return {
-    startOffset: Number(focusResult.plan.startOffset) || 0,
-    endOffset: Number.isFinite(Number(focusResult.plan.endOffset)) ? Number(focusResult.plan.endOffset) : null,
-    origin: "focus",
-    loop: Boolean(focusResult.plan.loop),
-  };
+  return focusModeController
+    ? focusModeController.computePlaybackPlan()
+    : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
 }
 
 function updatePracticeUi() {
@@ -5672,74 +5525,6 @@ async function startPlaybackAtMeasureOffset(delta) {
 
 async function playDrumPreview(pitch, velocity) {
   return drumPreviewController.playDrumPreview(pitch, velocity);
-}
-
-if ($selectionLoopEnabled) {
-  $selectionLoopEnabled.addEventListener("change", () => {
-    const next = Boolean($selectionLoopEnabled.checked);
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackSelectionLoopEnabled: next }).catch(() => {});
-    }
-  });
-}
-
-if ($selectionSuppressEnabled) {
-  $selectionSuppressEnabled.addEventListener("change", () => {
-    const next = Boolean($selectionSuppressEnabled.checked);
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackSelectionSuppressRepeats: next }).catch(() => {});
-    }
-  });
-}
-
-if ($selectionGchordsEnabled) {
-  $selectionGchordsEnabled.addEventListener("change", () => {
-    const next = Boolean($selectionGchordsEnabled.checked);
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackSelectionMuteGchords: !next }).catch(() => {});
-    }
-  });
-}
-
-if ($selectionDrumsEnabled) {
-  $selectionDrumsEnabled.addEventListener("change", () => {
-    const next = Boolean($selectionDrumsEnabled.checked);
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackSelectionAllowMidiDrums: next }).catch(() => {});
-    }
-  });
-}
-
-if ($selectionMutedVoices) {
-  const persistMutedVoices = () => {
-    const raw = String($selectionMutedVoices.value || "");
-    const normalized = raw
-      .split(/[,\s]+/)
-      .map((v) => v.trim())
-      .filter(Boolean)
-      .join(",");
-    if (window.api && typeof window.api.updateSettings === "function") {
-      window.api.updateSettings({ playbackSelectionMutedVoices: normalized }).catch(() => {});
-    }
-  };
-  $selectionMutedVoices.addEventListener("change", persistMutedVoices);
-  $selectionMutedVoices.addEventListener("blur", persistMutedVoices);
-}
-
-if ($practiceTempo) {
-  $practiceTempo.addEventListener("change", () => {
-    const next = Number($practiceTempo.value);
-    if (!Number.isFinite(next)) return;
-    playbackTransport.practiceTempoMultiplier = next;
-    syncPendingPlaybackPlan();
-    if (isFocusModeEnabled() && isPlaybackBusy() && playbackTransport.player && typeof playbackTransport.player.set_speed === "function") {
-      playbackTransport.desiredPlayerSpeed = next;
-      try { playbackTransport.player.set_speed(playbackTransport.desiredPlayerSpeed); } catch {}
-    }
-    updatePracticeUi();
-  });
-  const initial = Number($practiceTempo.value);
-  if (Number.isFinite(initial)) playbackTransport.practiceTempoMultiplier = initial;
 }
 
 async function persistLoopSettingsPatch(patch) {

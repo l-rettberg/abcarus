@@ -2,12 +2,11 @@ function createPlaybackTransportController({
   transport,
   selectionRuntime,
   getEditorView,
+  getEditorText = () => "",
+  findMeasureStartOffsetByNumber = () => null,
   getFocusModeEnabled,
   normalizeFocusLoopBoundsForPlayback,
   computeFocusPlaybackPlanFromCurrentState,
-  getEditorMeasureStartOffset,
-  getEditorPlayStartOffset,
-  getEditorSelectionSignature,
   startPlaybackFromRange,
   startPlaybackAtIndex,
   pausePlayback,
@@ -23,6 +22,67 @@ function createPlaybackTransportController({
   setSoundfontCaption,
   showToast,
 } = {}) {
+  function getEditorPlayStartOffset() {
+    const editorView = getEditorView();
+    if (!editorView) return 0;
+    const sel = editorView.state.selection && editorView.state.selection.main
+      ? editorView.state.selection.main
+      : null;
+    if (!sel) return 0;
+    const max = editorView.state.doc.length;
+    const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+    const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+    return Math.min(anchor, head);
+  }
+
+  function getEditorMeasureStartOffset() {
+    const editorView = getEditorView();
+    if (!editorView) return 0;
+    const text = String(getEditorText() || "");
+    const max = editorView.state.doc.length;
+    if (!text || max <= 0) return 0;
+    const cursor = Math.max(0, Math.min(getEditorPlayStartOffset(), max));
+    const len = text.length;
+
+    const leftText = text.slice(0, cursor + 1);
+    const partMatches = [...leftText.matchAll(/(?:^|\n)\s*\[P:[^\]\n]*\]\s*(?:\n|$)/g)];
+    const sectionStart = partMatches.length
+      ? Math.min(cursor, partMatches[partMatches.length - 1].index + partMatches[partMatches.length - 1][0].length)
+      : 0;
+
+    let bar = -1;
+    if (cursor < len && text[cursor] === "|") {
+      bar = cursor;
+    } else {
+      bar = text.lastIndexOf("|", Math.max(0, cursor - 1));
+    }
+    if (bar < sectionStart) bar = -1;
+
+    let start = 0;
+    if (bar >= 0) {
+      start = bar + 1;
+    } else {
+      const first = findMeasureStartOffsetByNumber(text.slice(sectionStart), 1);
+      start = Number.isFinite(first) ? sectionStart + Number(first) : sectionStart;
+    }
+
+    while (start < len && /[\s|:\]]/.test(text[start] || "")) start += 1;
+    return Math.max(0, Math.min(start, max));
+  }
+
+  function getEditorSelectionSignature() {
+    const editorView = getEditorView();
+    if (!editorView) return "";
+    const sel = editorView.state.selection && editorView.state.selection.main
+      ? editorView.state.selection.main
+      : null;
+    if (!sel) return "";
+    const max = editorView.state.doc.length;
+    const anchor = Math.max(0, Math.min(Number(sel.anchor) || 0, max));
+    const head = Math.max(0, Math.min(Number(sel.head) || 0, max));
+    return `${anchor}:${head}`;
+  }
+
   function resolveFocusPlanStartOffset(plan) {
     const plannedStart = Math.max(0, Number(plan && plan.startOffset) || 0);
     if (!transport.transportJumpHighlightActive) return plannedStart;
@@ -124,6 +184,33 @@ function createPlaybackTransportController({
     }
 
     transport.setRange(nextRange);
+  }
+
+  function updatePlaybackRangeFromSelection(selection, origin, activeErrorHighlight = null) {
+    const editorView = getEditorView();
+    if (!selection || !editorView || transport.isPlaying) return;
+    if (
+      activeErrorHighlight
+      && transport.playbackRange
+      && transport.playbackRange.origin === "error"
+      && transport.playbackRange.loop
+    ) return;
+
+    const max = editorView.state.doc.length;
+    const main = selection.main || null;
+    if (!main) return;
+    const anchor = Math.max(0, Math.min(Number(main.anchor) || 0, max));
+    const head = Math.max(0, Math.min(Number(main.head) || 0, max));
+    const start = Math.min(anchor, head);
+    const end = Math.max(anchor, head);
+    const isRange = end > start;
+
+    setPlaybackRange({
+      startOffset: start,
+      endOffset: isRange ? end : null,
+      origin: origin || (isRange ? "selection" : "cursor"),
+      loop: Boolean(activeErrorHighlight && transport.playbackRange.loop),
+    });
   }
 
   function stopPlaybackForRestart() {
@@ -384,6 +471,7 @@ function createPlaybackTransportController({
     transportPlay,
     transportStartOver,
     transportTogglePlayPause,
+    updatePlaybackRangeFromSelection,
   };
 }
 

@@ -227,7 +227,7 @@ import { createWorkingCopySyncController } from "./app/document/working_copy_syn
 import { createWorkingCopyRuntimeController } from "./app/document/working_copy_runtime_controller.js";
 import { createWorkingCopyConflictController } from "./app/document/working_copy_conflict_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
-import { createMenuActionsController } from "./app/commands/menu_actions_controller.js";
+import { createAppCommandsDomain } from "./app/commands/app_commands_domain.js";
 import {
   SAVE_INTENT,
   createDocumentSessionController,
@@ -3708,8 +3708,8 @@ function initEditor() {
     { key: "Mod-Alt-m", run: () => { midiInputFeature.toggleMuteSetting(); return true; } },
     { key: "Ctrl-Alt-g", run: gotoLine },
     { key: "Mod-Alt-g", run: gotoLine },
-    { key: "Ctrl-g", run: () => { goToMeasureFromMenu().catch(() => {}); return true; } },
-    { key: "Mod-g", run: () => { goToMeasureFromMenu().catch(() => {}); return true; } },
+    { key: "Ctrl-g", run: () => { goToMeasureCommand().catch(() => {}); return true; } },
+    { key: "Mod-g", run: () => { goToMeasureCommand().catch(() => {}); return true; } },
     { key: "Ctrl-F7", run: (view) => moveLineSelection(view, 1) },
     { key: "Mod-F7", run: (view) => moveLineSelection(view, 1) },
 		    { key: "Ctrl-F5", run: (view) => moveLineSelection(view, -1) },
@@ -4050,137 +4050,9 @@ async function requestLoadLibraryFile(filePath) {
   return libraryLifecycleController.requestLoadLibraryFile(filePath);
 }
 
-if ($btnToggleLibrary) {
-  $btnToggleLibrary.addEventListener("click", (e) => {
-    if (e && e.shiftKey) {
-      libraryUiDomain.openCatalogFromCurrentIndex();
-      return;
-    }
-    toggleLibrary();
-  });
-}
-
-// Global Stop shortcut (Esc): stop playback if it is active.
-// Note: other Esc handlers (search, popovers, inputs) run in capture phase and will preventDefault/stopPropagation.
-document.addEventListener("keydown", (e) => {
-  if (e.defaultPrevented) return;
-  if (e.key !== "Escape") return;
-  // Avoid surprising behavior when typing in inputs (Escape is often used to clear/close UI).
-  const el = e.target;
-  const tag = el && el.tagName ? String(el.tagName).toLowerCase() : "";
-  if (tag === "input" || tag === "textarea" || (el && el.isContentEditable)) return;
-  e.preventDefault();
-  // Always route Esc to transport stop/reset so users can “double‑Esc” out of selection play.
-  stopPlaybackTransport();
-});
-
 libraryUiDomain.wireControls();
 libraryUiDomain.wireSearch({ clearButton: $btnLibraryClearFilter });
 libraryUiDomain.wireCatalogBridge();
-
-if ($btnLibraryRefresh) {
-  $btnLibraryRefresh.addEventListener("click", async () => {
-    try {
-      await refreshLibraryIndex();
-    } catch {}
-  });
-}
-
-if ($scanErrorTunes) {
-  $scanErrorTunes.addEventListener("click", () => {
-    errorsFeature.handleScanButtonClick();
-  });
-}
-
-function startScanForErrorsFromToolbarEnable() {
-  errorsFeature.startScanFromToolbarEnable();
-}
-
-if ($btnFileNew) {
-  $btnFileNew.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to create a new file.", 2400); return; }
-      if (isRawModeActive()) {
-        const ok = await leaveRawModeForAction("creating a new file");
-        if (!ok) return;
-      }
-      await fileNew();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnNewTune) {
-  $btnNewTune.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to create/append tunes.", 2400); return; }
-      if (isRawModeActive()) {
-        const ok = await leaveRawModeForAction("creating a new tune");
-        if (!ok) return;
-      }
-      await fileNewTuneAndAppendNow();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnTemplates) {
-  $btnTemplates.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to use templates.", 2400); return; }
-      if (isRawModeActive()) {
-        const ok = await leaveRawModeForAction("opening templates");
-        if (!ok) return;
-      }
-      await openTemplatesModal();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnChordproPdf) {
-  $btnChordproPdf.addEventListener("click", () => {
-    chordProFeature.exportPdf().catch((e) => logErr((e && e.message) ? e.message : String(e)));
-  });
-}
-if ($btnFileOpen) {
-  $btnFileOpen.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to open files.", 2400); return; }
-      if (isRawModeActive()) {
-        const ok = await leaveRawModeForAction("opening a file");
-        if (!ok) return;
-      }
-      await fileOpen();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnFileSave) {
-  $btnFileSave.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Payload Mode is diagnostics-only (no saves).", 2600); return; }
-      await fileSave();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnFileClose) {
-  $btnFileClose.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to close files.", 2400); return; }
-      await fileClose();
-    } catch (e) { logErr((e && e.stack) ? e.stack : String(e)); }
-  });
-}
-if ($btnToggleRaw) {
-  $btnToggleRaw.addEventListener("click", async () => {
-    try {
-      if (isPayloadMode()) { showToast("Exit Payload Mode to switch Raw mode.", 2400); return; }
-      if (chordProFeature.isEnabled()) {
-        chordProFeature.setFullView(!chordProFeature.isFullView());
-        return;
-      }
-      if (isRawModeActive()) await exitRawMode();
-      else await enterRawMode();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
 
 if (window.api && typeof window.api.onLibraryProgress === "function") {
   let scanStatusClearTimer = null;
@@ -4460,8 +4332,8 @@ async function promptGoToMeasureNumber() {
   return goToMeasureModalController.prompt();
 }
 
-async function goToMeasureFromMenu() {
-  return measureNavigationController.goToMeasureFromMenu();
+async function goToMeasureCommand() {
+  return measureNavigationController.goToMeasureCommand();
 }
 
 function addError(message, locOverride, contextOverride) {
@@ -5172,84 +5044,55 @@ async function fileClose() {
   if (documentSessionController) await documentSessionController.fileClose();
 }
 
-function openAbcHelpersFromMenu() {
-  if (!editorView) return;
-  if (isPayloadMode()) {
-    showToast("Exit Payload Mode to use ABC Helpers.", 2400);
-    return;
-  }
-  editorView.focus();
-  try {
-    const ev = new KeyboardEvent("keydown", {
-      key: "F2",
-      code: "F2",
-      ctrlKey: true,
-      bubbles: true,
-    });
-    editorView.dom.dispatchEvent(ev);
-  } catch (_) {
-    // no-op
-  }
-}
-
-function toggleFocusedEditorComment() {
-  const view = getFocusedEditorView();
-  if (view) toggleLineComments(view);
-}
-
-function setNoteTypingPreviewFromMenu(enabled) {
-  midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: Boolean(enabled) });
-  try { showToast(enabled ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
-}
-
-function openIntonationExplorerFromMenu() {
-  const enabled = latestSettingsSnapshot == null
-    ? true
-    : isMicrotonalNotationSupported();
-  if (!enabled) {
-    showToast("Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
-    return;
-  }
-  intonationExplorerFeature.toggle();
-}
-
-function openSettingsFromMenu() {
-  if (settingsDomain) settingsDomain.openSettings();
-}
-
-function openFontsSettingsFromMenu() {
-  if (settingsDomain) settingsDomain.openFontsSettings();
-}
-
-async function exportSettingsFromMenu() {
-  if (settingsDomain) await settingsDomain.exportSettings();
-}
-
-async function importSettingsFromMenu() {
-  if (settingsDomain) await settingsDomain.importSettings();
-}
-
-async function openSettingsFolderFromMenu() {
-  if (settingsDomain) await settingsDomain.openSettingsFolder();
-}
-
-function zoomResetFromMenu() {
-  if (settingsDomain) settingsDomain.zoomResetFromMenu();
-}
-
 async function renumberXInActiveFile(explicitFilePath) {
   await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
 
-async function appQuit() {
-  await requestQuitApplication();
-}
-
-const menuActionsController = createMenuActionsController({
+const appCommandsDomain = createAppCommandsDomain({
   api: window.api,
   windowRef: window,
+  documentRef: document,
+  controllers: {
+    errors: errorsFeature,
+    getSettingsDomain: () => settingsDomain,
+    measureNavigation: measureNavigationController,
+  },
+  elements: {
+    toggleLibraryButton: $btnToggleLibrary,
+    libraryRefreshButton: $btnLibraryRefresh,
+    scanErrorTunesButton: $scanErrorTunes,
+    fileNewButton: $btnFileNew,
+    newTuneButton: $btnNewTune,
+    templatesButton: $btnTemplates,
+    chordproPdfButton: $btnChordproPdf,
+    fileOpenButton: $btnFileOpen,
+    fileSaveButton: $btnFileSave,
+    fileCloseButton: $btnFileClose,
+    toggleRawButton: $btnToggleRaw,
+    playPauseButton: $btnPlayPause,
+    playButton: $btnPlay,
+    pauseButton: $btnPause,
+    stopButton: $btnStop,
+    restartButton: $btnRestart,
+    prevMeasureButton: $btnPrevMeasure,
+    nextMeasureButton: $btnNextMeasure,
+    fontsButton: $btnFonts,
+    resetLayoutButton: $btnResetLayout,
+    toggleSplitButton: $btnToggleSplit,
+    toggleFollowButton: $btnToggleFollow,
+    toggleErrorsButton: $btnToggleErrors,
+    toggleGlobalsButton: $btnToggleGlobals,
+  },
   state: {
+    getEditorView: () => editorView,
+    getFollowPlayback: () => followPlayback,
+    getLatestSettings: () => latestSettingsSnapshot,
     getActiveTuneId: () => activeTuneId,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+    isChordProFullView: () => chordProFeature.isFullView(),
+    isErrorsEnabled,
+    isGlobalHeaderEnabled: () => headerLayersController.isGlobalHeaderEnabled(),
+    isMicrotonalNotationSupported,
     isPayloadMode,
     isPayloadModeSettingEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.payloadModeEnabled),
     isPlaybackActive: () => Boolean(playbackTransport.isPlaying || playbackTransport.isPaused),
@@ -5268,7 +5111,6 @@ const menuActionsController = createMenuActionsController({
     exportMidi: () => importExportFeature.exportMidi(),
     exportMp3: () => importExportFeature.exportMp3(),
     exportMusicXml: () => importExportFeature.exportMusicXml(),
-    exportSettings: exportSettingsFromMenu,
     fileNew,
     fileNewFromTemplate,
     fileNewTune,
@@ -5276,28 +5118,25 @@ const menuActionsController = createMenuActionsController({
     fileSave,
     fileSaveAs,
     getActiveFileEntry,
-    goToMeasureFromMenu,
     gotoLine: () => { if (editorView) gotoLine(editorView); },
     importMidi: () => importExportFeature.importMidi(),
     importMusicXml: () => importExportFeature.importMusicXml(),
-    importSettings: importSettingsFromMenu,
     leaveRawModeForAction,
     logError: logErr,
     navigateTuneByDelta,
+    activateErrorByNav,
+    enterRawMode,
+    exitRawMode,
+    exportChordProPdf: () => chordProFeature.exportPdf(),
     openAbout,
-    openAbcHelpers: openAbcHelpersFromMenu,
     openExternal,
     openFind: () => { if (editorView) openFindPanel(editorView); },
-    openFontsSettings: openFontsSettingsFromMenu,
-    openIntonationExplorer: openIntonationExplorerFromMenu,
     openLibraryCatalog: () => libraryUiDomain.openCatalogFromCurrentIndex(),
     openRecentFile,
     openRecentFolder,
     openRecentTune,
     openReplace: () => { if (editorView) openReplacePanel(editorView); },
     openSetList: () => setListFeature.open(),
-    openSettings: openSettingsFromMenu,
-    openSettingsFolder: openSettingsFolderFromMenu,
     openTemplatesModal,
     renumberXInActiveFile,
     requestCloseDocument,
@@ -5306,31 +5145,31 @@ const menuActionsController = createMenuActionsController({
     runPrintAction: (type) => printCurrentFeature.runAction(type),
     runPrintAllAction: (type) => printAllFeature.runAction(type),
     scanAndLoadLibrary,
-    setNoteTypingPreview: setNoteTypingPreviewFromMenu,
+    setChordProFullView: (next) => chordProFeature.setFullView(next),
+    setErrorsEnabled,
+    setFollowPlayback: (next) => { followPlayback = Boolean(next); },
+    setNoteTypingPreview: (enabled) => midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: Boolean(enabled) }),
     setSplitOrientation,
     setStatus,
     showSaveError,
     showToast,
-    toggleComment: toggleFocusedEditorComment,
     toggleFileHeader: toggleHeaderCollapsed,
     toggleFocusMode,
+    toggleIntonationExplorer: () => intonationExplorerFeature.toggle(),
     toggleLibrary,
     togglePlayPauseEffective,
+    transportPlay,
+    transportPause,
+    stopPlaybackTransport,
     toggleSplitOrientation,
     transportStartOver,
+    updateFollowToggle,
+    getFocusedEditorView,
+    toggleLineComments,
     wirePayloadMode: () => payloadModeFeature.wire(),
-    zoomIn: () => { if (settingsDomain) settingsDomain.zoomInFromMenu(); },
-    zoomOut: () => { if (settingsDomain) settingsDomain.zoomOutFromMenu(); },
-    zoomReset: zoomResetFromMenu,
   },
 });
-menuActionsController.wire();
-
-if (window.api && typeof window.api.onAppRequestQuit === "function") {
-  window.api.onAppRequestQuit(() => {
-    requestQuitApplication();
-  });
-}
+appCommandsDomain.wire();
 
 document.addEventListener("abcarus:reset-library-cache", () => {
   try {
@@ -6024,21 +5863,6 @@ async function playDrumPreview(pitch, velocity) {
   return drumPreviewController.playDrumPreview(pitch, velocity);
 }
 
-if ($btnPlayPause) {
-  $btnPlayPause.addEventListener("click", async () => {
-    try {
-      if (isRawModeActive()) {
-        showToast("Raw mode: switch to tune mode to play.", 2200);
-        return;
-      }
-      await togglePlayPauseEffective();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
 if ($selectionLoopEnabled) {
   $selectionLoopEnabled.addEventListener("change", () => {
     const next = Boolean($selectionLoopEnabled.checked);
@@ -6114,131 +5938,10 @@ async function persistLoopSettingsPatch(patch) {
 
 if (focusModeController) focusModeController.wireControls();
 
-if ($btnToggleSplit) {
-  $btnToggleSplit.addEventListener("click", () => {
-    toggleSplitOrientation({ userAction: true });
-  });
-}
-
-if ($btnPlay) {
-  $btnPlay.addEventListener("click", async () => {
-    try {
-      if (isRawModeActive()) {
-        showToast("Raw mode: switch to tune mode to play.", 2200);
-        return;
-      }
-      await transportPlay();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
-if ($btnPause) {
-  $btnPause.addEventListener("click", async () => {
-    try {
-      if (isRawModeActive()) {
-        showToast("Raw mode: switch to tune mode to play.", 2200);
-        return;
-      }
-      await transportPause();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
-if ($btnStop) {
-  $btnStop.addEventListener("click", () => {
-    stopPlaybackTransport();
-  });
-}
-
-if ($btnRestart) {
-  $btnRestart.addEventListener("click", async () => {
-    try {
-      await transportStartOver();
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
-if ($btnPrevMeasure) {
-  $btnPrevMeasure.addEventListener("click", async () => {
-    try {
-      await activateErrorByNav(-1);
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
-if ($btnNextMeasure) {
-  $btnNextMeasure.addEventListener("click", async () => {
-    try {
-      await activateErrorByNav(1);
-    } catch (e) {
-      logErr((e && e.stack) ? e.stack : String(e));
-      setStatus("Error");
-    }
-  });
-}
-
 document.addEventListener("drum:preview", (event) => {
   const detail = event && event.detail ? event.detail : {};
   playDrumPreview(detail.pitch, detail.velocity);
 });
-
-if ($btnFonts) {
-  $btnFonts.addEventListener("click", () => {
-    if (settingsDomain) settingsDomain.openFontsSettings();
-  });
-}
-
-if ($btnResetLayout) {
-  $btnResetLayout.addEventListener("click", () => {
-    resetLayout();
-  });
-}
-
-if ($btnToggleFollow) {
-  $btnToggleFollow.addEventListener("click", async () => {
-    if (window.api && typeof window.api.updateSettings === "function") {
-      await window.api.updateSettings({ followPlayback: !followPlayback });
-      return;
-    }
-    followPlayback = !followPlayback;
-    updateFollowToggle();
-  });
-}
-
-if ($btnToggleErrors) {
-  $btnToggleErrors.addEventListener("click", async () => {
-    const next = !isErrorsEnabled();
-    if (!next) {
-      if (window.api && typeof window.api.updateSettings === "function") {
-        window.api.updateSettings({ errorsEnabled: false }).catch(() => {});
-      }
-      setErrorsEnabled(false, { triggerRefresh: false });
-      return;
-    }
-    // Enabling errors is session-only (not persisted).
-    setErrorsEnabled(true, { triggerRefresh: true });
-    startScanForErrorsFromToolbarEnable();
-  });
-}
-
-if ($btnToggleGlobals) {
-  $btnToggleGlobals.addEventListener("click", async () => {
-    if (!window.api || typeof window.api.updateSettings !== "function") return;
-    await window.api.updateSettings({ globalHeaderEnabled: !headerLayersController.isGlobalHeaderEnabled() });
-  });
-}
 
 updatePlayButton();
 updateFollowToggle();

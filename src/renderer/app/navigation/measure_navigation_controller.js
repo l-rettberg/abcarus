@@ -162,6 +162,7 @@ function createMeasureNavigationController({
     findMeasureStartOffsetByNumber,
     findMeasureStartOffsetByNumberInPrimaryVoice,
     getRenderMeasureIndex,
+    goToMeasureCommand: goToMeasureFromMenu,
     goToMeasureFromMenu,
   };
 }

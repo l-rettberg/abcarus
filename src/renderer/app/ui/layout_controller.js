@@ -279,6 +279,21 @@ export function createLayoutController({
     return fallback;
   };
 
+  const getRenderZoomFactor = () => {
+    const cssZoom = readRenderZoom({ fallback: null });
+    if (Number.isFinite(cssZoom) && cssZoom > 0) return cssZoom;
+    try {
+      if (output) {
+        const raw = getComputedStyle(output).zoom;
+        const value = Number(String(raw || "").trim());
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+    } catch {}
+    const settings = getLatestSettings() || null;
+    const fromSettings = settings && Number(settings.renderZoom);
+    return Number.isFinite(fromSettings) && fromSettings > 0 ? fromSettings : 1;
+  };
+
   const computeFocusFitZoom = ({ currentZoom = null, clamp = null } = {}) => {
     if (!renderPane || !output) return null;
     const svgs = Array.from(output.querySelectorAll("svg"));
@@ -361,6 +376,7 @@ export function createLayoutController({
     initSidebarResizer,
     resetRightPaneSplit,
     computeFocusFitZoom,
+    getRenderZoomFactor,
     readRenderZoom,
     scheduleSaveLayoutPrefs,
     setFromSettings,

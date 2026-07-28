@@ -29,6 +29,10 @@ async function assertSaveIntentGuards() {
   const saveVerification = await readFile(saveVerificationPath, "utf8").catch(() => "");
   const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
   const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
+  const playbackUiPath = "src/renderer/app/ui/playback_ui_controller.js";
+  const playbackUi = await readFile(playbackUiPath, "utf8").catch(() => "");
+  const layoutControllerPath = "src/renderer/app/ui/layout_controller.js";
+  const layoutController = await readFile(layoutControllerPath, "utf8").catch(() => "");
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
@@ -114,6 +118,18 @@ async function assertSaveIntentGuards() {
   }
   if (!focusModeController.includes("function computePlaybackPlan()")) {
     throw new Error("Focus mode controller must own Focus playback plan assembly.");
+  }
+  if (src.includes("const result = playbackTransport.resetAfterGuardStop(message);")) {
+    throw new Error("Playback guard-stop behavior must not remain in renderer.");
+  }
+  if (!playbackUi.includes("function handlePlaybackGuardStop(message)")) {
+    throw new Error("Playback UI controller must own guard-stop UI reconciliation.");
+  }
+  if (!playbackUi.includes("function updateFollowToggle()")) {
+    throw new Error("Playback UI controller must own Follow toggle rendering.");
+  }
+  if (!layoutController.includes("const getRenderZoomFactor = () => {")) {
+    throw new Error("Layout controller must own render zoom resolution.");
   }
   if (
     !src.includes("let playbackScopedOptions = null;")

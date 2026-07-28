@@ -1372,7 +1372,9 @@ const playbackTransportController = createPlaybackTransportController({
   playSelectionOnce,
   setPracticeBarHighlight,
   clearSvgPracticeBarHighlight,
-  playbackGuardError,
+  playbackGuardError: (message) => {
+    if (playbackUiController) playbackUiController.reportPlaybackGuardError(message);
+  },
   stopPlaybackFromGuard,
   setStatus,
   updatePlayButton,
@@ -2483,13 +2485,28 @@ playbackUiController = createPlaybackUiController({
     xIssuesCloseButton: $xIssuesClose,
   },
   state: {
+    transport: playbackTransport,
+    selectionRuntime: selectionPlaybackRuntime,
+    getEditorView: () => editorView,
     getIsPlaying: () => playbackTransport.isPlaying,
     getIsPaused: () => playbackTransport.isPaused,
     getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
+    getFollowPlayback: () => followPlayback,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
   },
   actions: {
+    recordDebugLog,
+    scheduleAutoDump,
+    logPlaybackGuardError: (message) => {
+      console.error(`[abcarus][playback-range] ${message}`);
+    },
+    setStatus,
+    clearNoteSelection,
+    resetPlaybackUiState,
+    clearSvgPlayhead,
+    clearSvgFollowBarHighlight,
+    clearSvgFollowMeasureHighlight,
     setButtonText,
     updateAbUi,
     updatePracticeUi,
@@ -5225,49 +5242,15 @@ function cancelPlaybackAutoScroll() {
 }
 
 function getRenderZoomFactor() {
-  try {
-    // Source of truth: the CSS custom property (set by Settings and Focus mode).
-    const raw = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
-    const v = Number(String(raw || "").trim());
-    if (Number.isFinite(v) && v > 0) return v;
-  } catch {}
-  try {
-    // Fallback for environments where CSS custom properties may not be readable (should be rare).
-    if ($out) {
-      const raw = getComputedStyle($out).zoom;
-      const v = Number(String(raw || "").trim());
-      if (Number.isFinite(v) && v > 0) return v;
-    }
-  } catch {}
-  const fromSettings = latestSettingsSnapshot && Number(latestSettingsSnapshot.renderZoom);
-  if (Number.isFinite(fromSettings) && fromSettings > 0) return fromSettings;
-  try {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
-    const v = Number(String(raw || "").trim());
-    if (Number.isFinite(v) && v > 0) return v;
-  } catch {}
-  return 1;
+  return layoutController ? layoutController.getRenderZoomFactor() : 1;
+}
+
+function stopPlaybackFromGuard(message) {
+  if (playbackUiController) playbackUiController.handlePlaybackGuardStop(message);
 }
 
 function maybeAutoScrollRenderToCursor(el) {
   return playbackAutoScrollController.maybeAutoScrollRenderToCursor(el);
-}
-
-function playbackGuardError(message) {
-  console.error(`[abcarus][playback-range] ${message}`);
-}
-
-function stopPlaybackFromGuard(message) {
-  const result = playbackTransport.resetAfterGuardStop(message);
-  try { recordDebugLog("warn", [`Playback guard: ${playbackTransport.lastPlaybackGuardMessage}`]); } catch {}
-  playbackGuardError(message);
-  try { scheduleAutoDump("playback-guard", playbackTransport.lastPlaybackGuardMessage); } catch {}
-  setStatus("OK");
-  updatePlayButton();
-  clearNoteSelection();
-  resetPlaybackUiState();
-  if (result.wasSelectionOrigin) selectionPlaybackRuntime.restoreSelection(editorView);
-  selectionPlaybackRuntime.clearSelectionCapture();
 }
 
 function clonePlaybackRange(r) {
@@ -5412,15 +5395,7 @@ function updateGlobalHeaderToggle() {
 }
 
 function updateFollowToggle() {
-  if (!$btnToggleFollow) return;
-  $btnToggleFollow.classList.toggle("toggle-active", followPlayback);
-  setButtonText($btnToggleFollow, "Follow");
-  $btnToggleFollow.setAttribute("aria-pressed", followPlayback ? "true" : "false");
-  if (!followPlayback) {
-    clearSvgPlayhead();
-    clearSvgFollowBarHighlight();
-    clearSvgFollowMeasureHighlight();
-  }
+  if (playbackUiController) playbackUiController.updateFollowToggle();
 }
 
 function clampNumber(value, min, max, fallback) {

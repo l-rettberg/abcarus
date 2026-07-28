@@ -46,15 +46,28 @@ function createPlaybackUiController({
   } = elements;
 
   const {
+    transport = null,
+    selectionRuntime = null,
+    getEditorView = () => null,
     getIsPlaying = () => false,
     getIsPaused = () => false,
     getWaitingForFirstNote = () => false,
+    getFollowPlayback = () => false,
     isChordProEnabled = () => false,
     isChordProFullView = () => false,
   } = state;
 
   const {
     setButtonText = (button, text) => { if (button) button.textContent = String(text || ""); },
+    recordDebugLog = () => {},
+    scheduleAutoDump = () => {},
+    logPlaybackGuardError = () => {},
+    setStatus = () => {},
+    clearNoteSelection = () => {},
+    resetPlaybackUiState = () => {},
+    clearSvgPlayhead = () => {},
+    clearSvgFollowBarHighlight = () => {},
+    clearSvgFollowMeasureHighlight = () => {},
     updateAbUi = () => {},
     updatePracticeUi = () => {},
   } = actions;
@@ -165,9 +178,52 @@ function createPlaybackUiController({
     }
   }
 
+  function handlePlaybackGuardStop(message) {
+    if (!transport || typeof transport.resetAfterGuardStop !== "function") return;
+    const result = transport.resetAfterGuardStop(message);
+    try { recordDebugLog("warn", [`Playback guard: ${transport.lastPlaybackGuardMessage}`]); } catch {}
+    try { reportPlaybackGuardError(message); } catch {}
+    try { scheduleAutoDump("playback-guard", transport.lastPlaybackGuardMessage); } catch {}
+    setStatus("OK");
+    updatePlayButton();
+    clearNoteSelection();
+    resetPlaybackUiState();
+    if (
+      result
+      && result.wasSelectionOrigin
+      && selectionRuntime
+      && typeof selectionRuntime.restoreSelection === "function"
+    ) {
+      selectionRuntime.restoreSelection(getEditorView());
+    }
+    if (selectionRuntime && typeof selectionRuntime.clearSelectionCapture === "function") {
+      selectionRuntime.clearSelectionCapture();
+    }
+  }
+
+  function reportPlaybackGuardError(message) {
+    logPlaybackGuardError(message);
+  }
+
+  function updateFollowToggle() {
+    if (!toggleFollowButton) return;
+    const enabled = Boolean(getFollowPlayback());
+    toggleFollowButton.classList.toggle("toggle-active", enabled);
+    setButtonText(toggleFollowButton, "Follow");
+    toggleFollowButton.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (!enabled) {
+      clearSvgPlayhead();
+      clearSvgFollowBarHighlight();
+      clearSvgFollowMeasureHighlight();
+    }
+  }
+
   return {
+    handlePlaybackGuardStop,
     isPlaybackBusy,
+    reportPlaybackGuardError,
     setRenderBusy,
+    updateFollowToggle,
     updatePlayButton,
     updatePlaybackInteractionLock,
   };

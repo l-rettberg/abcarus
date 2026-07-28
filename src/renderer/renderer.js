@@ -211,9 +211,7 @@ import { enableDraggableModal } from "./app/ui/draggable_modal.js";
 import { enableDraggableFixedPopover } from "./app/ui/draggable_fixed_popover.js";
 import { enableDraggableToolPanel } from "./app/ui/draggable_tool_panel.js";
 import { createLayoutController } from "./app/ui/layout_controller.js";
-import { createDiagnosticsController } from "./app/diagnostics/diagnostics_controller.js";
-import { createDebugDumpFeature } from "./app/diagnostics/debug_dump_feature.js";
-import { installDevUiSmokeHook } from "./app/diagnostics/dev_ui_smoke_hook.js";
+import { createDiagnosticsDomain } from "./app/diagnostics/diagnostics_domain.js";
 import { createToolStatusController } from "./app/ui/tool_status_controller.js";
 import { createStatusController } from "./app/ui/status_controller.js";
 import { createToastHoverController } from "./app/ui/toast_hover_controller.js";
@@ -1178,6 +1176,113 @@ async function playSelectionOnce() {
   return abSelectionPlaybackController.playSelectionOnce();
 }
 
+let diagnosticsDomain = null;
+diagnosticsDomain = createDiagnosticsDomain({
+  api: window.api,
+  windowRef: window,
+  documentRef: document,
+  storage: typeof localStorage !== "undefined" ? localStorage : null,
+  getLatestSettings: () => latestSettingsSnapshot,
+  clampInt,
+  debugDumpHost: {
+    getActiveTuneMeta: () => activeTuneMeta,
+    getCurrentDoc: getCurrentDocument,
+    getDebugLogBuffer: () => diagnosticsDomain ? diagnosticsDomain.controller.debugLogBuffer : [],
+    getRecentActions: () => diagnosticsDomain ? diagnosticsDomain.controller.recentActions : [],
+    getEditorView: () => editorView,
+    getHeaderDirty,
+    getHeaderCollapsed,
+    getEditorValue,
+    getHeaderEditorValue,
+    getWorkingCopySnapshot,
+    getPlaybackPayload,
+    getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
+    getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
+    getIsPlaying: () => playbackTransport.isPlaying,
+    getIsPaused: () => playbackTransport.isPaused,
+    getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
+    getFollowPlayback: () => followPlayback,
+    getFollowVoiceId: () => playbackFollowController.getFollowVoiceId(),
+    getFollowVoiceIndex: () => playbackFollowController.getFollowVoiceIndex(),
+    getPlaybackState: () => playbackTransport.playbackState,
+    getPracticeTempoMultiplier: () => playbackTransport.practiceTempoMultiplier,
+    getPlaybackLoopEnabled: () => playbackTransport.playbackLoopEnabled,
+    getPlaybackLoopFromMeasure: () => playbackTransport.playbackLoopFromMeasure,
+    getPlaybackLoopToMeasure: () => playbackTransport.playbackLoopToMeasure,
+    getSoundfontName: () => soundfontController.getName(),
+    getSoundfontSource: () => soundfontController.getSource(),
+    getSoundfontReadyName: () => soundfontController.getReadyName(),
+    getLastSoundfontApplied: () => soundfontController.getLastApplied(),
+    getPlaybackIndexOffset: () => playbackTransport.playbackIndexOffset,
+    getPlaybackRange: () => playbackTransport.playbackRange,
+    getActivePlaybackRange: () => playbackTransport.activePlaybackRange,
+    getActivePlaybackEndAbcOffset: () => playbackTransport.activePlaybackEndAbcOffset,
+    getLastStartPlaybackIdx: () => playbackTransport.lastStartPlaybackIdx,
+    getResumeStartIdx: () => playbackTransport.resumeStartIdx,
+    getDesiredPlayerSpeed: () => playbackTransport.desiredPlayerSpeed,
+    getCurrentPlaybackPlan: () => playbackTransport.currentPlaybackPlan,
+    getPendingPlaybackPlan: () => playbackTransport.pendingPlaybackPlan,
+    getLastPlaybackGuardMessage: () => playbackTransport.lastPlaybackGuardMessage,
+    getLastPlaybackAbortMessage: () => playbackTransport.lastPlaybackAbortMessage,
+    getLastPlaybackException: () => playbackTransport.lastPlaybackException,
+    getPlaybackNoteTrace: () => playbackTransport.playbackNoteTrace,
+    getPlaybackParseErrors: () => playbackTransport.playbackParseErrors,
+    getPlaybackSanitizeWarnings: () => playbackTransport.playbackSanitizeWarnings,
+    getLastRhythmErrorSuggestion: () => errorsFeature.getLastRhythmErrorSuggestion(),
+    getLastRenderPayload: () => getLastRenderPayload(),
+    getBarMismatchMarkers: () => errorsFeature.getBarMismatchMarkers(),
+    getErrorEntries: () => getErrorEntries(),
+    getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
+    getActiveFileEntry,
+    isPayloadMode,
+    computeHeaderPresence,
+    buildHeaderPrefix,
+    injectGchordOn,
+    normalizeLeadingInlineDirectivesForPlayback,
+    normalizeDollarLineBreaksForPlayback,
+    normalizeBlankLinesForPlayback,
+    normalizeReadableMidiDrumsForPlayback,
+    sanitizeAbcForPlayback,
+    clonePlaybackRange,
+    clampInt,
+    mkdirp,
+    writeFile,
+    showSaveDialog,
+    showSaveError,
+    showToast,
+    safeBasename,
+    safeDirname,
+  },
+});
+diagnosticsDomain.install();
+const devConfig = diagnosticsDomain.devConfig;
+const recordDebugLog = diagnosticsDomain.recordDebugLog;
+const recordRecentAction = diagnosticsDomain.recordRecentAction;
+const perfNowMs = diagnosticsDomain.perfNowMs;
+const isIntonationPerfEnabled = diagnosticsDomain.isIntonationPerfEnabled;
+const logIntonationPerf = diagnosticsDomain.logIntonationPerf;
+const isStartupPerfEnabled = diagnosticsDomain.isStartupPerfEnabled;
+const logStartupPerf = diagnosticsDomain.logStartupPerf;
+const isFilePerfEnabled = diagnosticsDomain.isFilePerfEnabled;
+const logFilePerf = diagnosticsDomain.logFilePerf;
+const isRenderPerfEnabled = diagnosticsDomain.isRenderPerfEnabled;
+const logRenderPerf = diagnosticsDomain.logRenderPerf;
+const reportStartupStatus = diagnosticsDomain.reportStartupStatus;
+const abbreviatePathForLog = diagnosticsDomain.abbreviatePathForLog;
+const scheduleAutoDump = diagnosticsDomain.scheduleAutoDump;
+const scheduleAutoWcDump = diagnosticsDomain.scheduleAutoWcDump;
+const toolStatusController = createToolStatusController({
+  element: $toolStatus,
+  api: window.api,
+  showToast,
+});
+const toastHoverController = createToastHoverController({
+  documentRef: document,
+  toastElement: $toast,
+  hoverElement: $hoverStatus,
+  isDebugMessagesEnabled: diagnosticsDomain.isDebugMessagesEnabled,
+});
+
 // Playback transport state must be initialized before initEditor() runs (selection listeners fire early).
 const playbackTransport = createPlaybackTransportState();
 const playbackPayloadController = createPlaybackPayloadController({
@@ -1467,59 +1572,6 @@ function highlightSvgAtEditorOffset(editorOffset) {
   return errorsFeature.highlightSvgAtEditorOffset(editorOffset);
 }
 
-let diagnosticsController = null;
-
-function recordDebugLog(level, args, stackOverride) {
-  if (diagnosticsController) diagnosticsController.recordDebugLog(level, args, stackOverride);
-}
-
-function recordRecentAction(type, details) {
-  if (diagnosticsController) diagnosticsController.recordRecentAction(type, details);
-}
-
-function perfNowMs() {
-  return diagnosticsController ? diagnosticsController.perfNowMs() : Date.now();
-}
-
-function isIntonationPerfEnabled() {
-  return diagnosticsController ? diagnosticsController.isIntonationPerfEnabled() : false;
-}
-
-function logIntonationPerf(label, data) {
-  if (diagnosticsController) diagnosticsController.logIntonationPerf(label, data);
-}
-
-function isStartupPerfEnabled() {
-  return diagnosticsController ? diagnosticsController.isStartupPerfEnabled() : false;
-}
-function logStartupPerf(label, data) {
-  if (diagnosticsController) diagnosticsController.logStartupPerf(label, data);
-}
-
-function isFilePerfEnabled() {
-  return diagnosticsController ? diagnosticsController.isFilePerfEnabled() : false;
-}
-
-function logFilePerf(label, data) {
-  if (diagnosticsController) diagnosticsController.logFilePerf(label, data);
-}
-
-function isRenderPerfEnabled() {
-  return diagnosticsController ? diagnosticsController.isRenderPerfEnabled() : false;
-}
-
-function logRenderPerf(label, data) {
-  if (diagnosticsController) diagnosticsController.logRenderPerf(label, data);
-}
-
-function reportStartupStatus(text) {
-  if (diagnosticsController) diagnosticsController.reportStartupStatus(text);
-}
-
-function abbreviatePathForLog(fullPath, tailSegments = 3) {
-  return diagnosticsController ? diagnosticsController.abbreviatePathForLog(fullPath, tailSegments) : "";
-}
-
 function setUiFontsFromSettings(settings) {
   applyUiFontSettings({
     documentRef: document,
@@ -1535,147 +1587,9 @@ function setEditorHelpFromSettings(settings) {
   });
 }
 
-const devConfig = (() => {
-  try {
-    return (window.api && typeof window.api.getDevConfig === "function") ? (window.api.getDevConfig() || {}) : {};
-  } catch {
-    return {};
-  }
-})();
-const AUTO_DUMP_DEFAULT_ENABLED = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
-const AUTO_DUMP_DIR_OVERRIDE = String(devConfig.ABCARUS_DEV_AUTO_DUMP_DIR || "");
-const toolStatusController = createToolStatusController({
-  element: $toolStatus,
-  api: window.api,
-  showToast,
-});
-const toastHoverController = createToastHoverController({
-  documentRef: document,
-  toastElement: $toast,
-  hoverElement: $hoverStatus,
-  isDebugMessagesEnabled,
-});
-const debugDumpFeature = createDebugDumpFeature({
-  api: window.api,
-  windowRef: window,
-  documentRef: document,
-  getAutoDumpDirOverride: () => AUTO_DUMP_DIR_OVERRIDE,
-  getActiveTuneMeta: () => activeTuneMeta,
-  getCurrentDoc: getCurrentDocument,
-  getDebugLogBuffer: () => diagnosticsController ? diagnosticsController.debugLogBuffer : [],
-  getRecentActions: () => diagnosticsController ? diagnosticsController.recentActions : [],
-  getEditorView: () => editorView,
-  getHeaderDirty,
-  getHeaderCollapsed,
-  getEditorValue,
-  getHeaderEditorValue,
-  getWorkingCopySnapshot,
-  getPlaybackPayload,
-  getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
-  getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
-  getIsPlaying: () => playbackTransport.isPlaying,
-  getIsPaused: () => playbackTransport.isPaused,
-  getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
-  getFollowPlayback: () => followPlayback,
-  getFollowVoiceId: () => playbackFollowController.getFollowVoiceId(),
-  getFollowVoiceIndex: () => playbackFollowController.getFollowVoiceIndex(),
-  getPlaybackState: () => playbackTransport.playbackState,
-  getPracticeTempoMultiplier: () => playbackTransport.practiceTempoMultiplier,
-  getPlaybackLoopEnabled: () => playbackTransport.playbackLoopEnabled,
-  getPlaybackLoopFromMeasure: () => playbackTransport.playbackLoopFromMeasure,
-  getPlaybackLoopToMeasure: () => playbackTransport.playbackLoopToMeasure,
-  getSoundfontName: () => soundfontController.getName(),
-  getSoundfontSource: () => soundfontController.getSource(),
-  getSoundfontReadyName: () => soundfontController.getReadyName(),
-  getLastSoundfontApplied: () => soundfontController.getLastApplied(),
-  getPlaybackIndexOffset: () => playbackTransport.playbackIndexOffset,
-  getPlaybackRange: () => playbackTransport.playbackRange,
-  getActivePlaybackRange: () => playbackTransport.activePlaybackRange,
-  getActivePlaybackEndAbcOffset: () => playbackTransport.activePlaybackEndAbcOffset,
-  getLastStartPlaybackIdx: () => playbackTransport.lastStartPlaybackIdx,
-  getResumeStartIdx: () => playbackTransport.resumeStartIdx,
-  getDesiredPlayerSpeed: () => playbackTransport.desiredPlayerSpeed,
-  getCurrentPlaybackPlan: () => playbackTransport.currentPlaybackPlan,
-  getPendingPlaybackPlan: () => playbackTransport.pendingPlaybackPlan,
-  getLastPlaybackGuardMessage: () => playbackTransport.lastPlaybackGuardMessage,
-  getLastPlaybackAbortMessage: () => playbackTransport.lastPlaybackAbortMessage,
-  getLastPlaybackException: () => playbackTransport.lastPlaybackException,
-  getPlaybackNoteTrace: () => playbackTransport.playbackNoteTrace,
-  getPlaybackParseErrors: () => playbackTransport.playbackParseErrors,
-  getPlaybackSanitizeWarnings: () => playbackTransport.playbackSanitizeWarnings,
-  getLastRhythmErrorSuggestion: () => errorsFeature.getLastRhythmErrorSuggestion(),
-  getLastRenderPayload: () => getLastRenderPayload(),
-  getBarMismatchMarkers: () => errorsFeature.getBarMismatchMarkers(),
-  getErrorEntries: () => getErrorEntries(),
-  getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
-  getActiveFileEntry,
-  isPayloadMode,
-  computeHeaderPresence,
-  buildHeaderPrefix,
-  injectGchordOn,
-  normalizeLeadingInlineDirectivesForPlayback,
-  normalizeDollarLineBreaksForPlayback,
-  normalizeBlankLinesForPlayback,
-  normalizeReadableMidiDrumsForPlayback,
-  sanitizeAbcForPlayback,
-  clonePlaybackRange,
-  clampInt,
-  mkdirp,
-  writeFile,
-  showSaveDialog,
-  showSaveError,
-  showToast,
-  safeBasename,
-  safeDirname,
-});
-debugDumpFeature.exposeGlobalApi();
-debugDumpFeature.installGlobalShortcuts();
-diagnosticsController = createDiagnosticsController({
-  api: window.api,
-  storage: typeof localStorage !== "undefined" ? localStorage : null,
-  autoDumpDefaultEnabled: AUTO_DUMP_DEFAULT_ENABLED,
-  autoWcDumpDefaultEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.autoWcDumpsEnabled),
-  getAutoWcDumpLimit,
-  getSuggestedDebugDumpDir: debugDumpFeature.getSuggestedDir,
-  writeDebugDumpSnapshotToPath: debugDumpFeature.writeSnapshotToPath,
-  nowCompactStamp: debugDumpFeature.nowCompactStamp,
-  safeString: debugDumpFeature.safeString,
-});
-diagnosticsController.installConsoleCapture();
-
 // ---------------------------------------------------------------------------
 // A–B playback (Issue #21, MVP)
 // ---------------------------------------------------------------------------
-
-function getAutoWcDumpLimit() {
-  const raw = latestSettingsSnapshot && Number.isFinite(Number(latestSettingsSnapshot.autoWcDumpsLimit))
-    ? Number(latestSettingsSnapshot.autoWcDumpsLimit)
-    : 12;
-  return clampInt(raw, 3, 50, 12);
-}
-
-function scheduleAutoDump(reason, extra) {
-  if (diagnosticsController) diagnosticsController.scheduleAutoDump(reason, extra);
-}
-
-function scheduleAutoWcDump(reason, extra) {
-  if (diagnosticsController) diagnosticsController.scheduleAutoWcDump(reason, extra);
-}
-
-// Auto-dumps are cheap when disabled and invaluable when debugging: opt-in via ABCARUS_DEV_AUTO_DUMP=1.
-window.addEventListener("error", (e) => {
-  try {
-    const msg = e && e.message ? String(e.message) : "window.error";
-    scheduleAutoDump("window-error", msg);
-  } catch {}
-});
-window.addEventListener("unhandledrejection", (e) => {
-  try {
-    const reason = e && e.reason ? e.reason : null;
-    const msg = reason && reason.message ? String(reason.message) : String(reason || "unhandledrejection");
-    scheduleAutoDump("unhandledrejection", msg);
-  } catch {}
-});
 
 const MIN_PANE_WIDTH = 220;
 const MIN_RIGHT_PANE_WIDTH = 220;
@@ -3129,9 +3043,7 @@ abcTransformFeature = createAbcTransformFeature({
   alignBarsInText,
 });
 abcTransformFeature.installDevSmoke();
-installDevUiSmokeHook({
-  windowRef: window,
-  devConfig,
+diagnosticsDomain.installDevUiSmoke({
   setEditorText: (text) => {
     suppressDirty = true;
     try {
@@ -4385,10 +4297,6 @@ function computeMeasureStatsAt(editorText, anchorOffset) {
   return computeMeasureStatsAtCore(editorText, anchorOffset, { findMeasureRangeAt });
 }
 
-function isDebugMessagesEnabled() {
-  return Boolean(window.__abcarusDebugMessages);
-}
-
 function isCriticalToast(message) {
   return toastHoverController.isCriticalToast(message);
 }
@@ -4782,7 +4690,7 @@ renderPipelineController = createRenderPipelineController({
   isPlaybackBusy,
   isTransportJumpHighlightActive: () => playbackTransport.transportJumpHighlightActive,
   highlightSvgPracticeBarAtEditorOffset,
-  isDebugMessagesEnabled,
+  isDebugMessagesEnabled: diagnosticsDomain.isDebugMessagesEnabled,
   setTransientBufferStatus,
   isRenderPerfEnabled,
   perfNowMs,
@@ -5421,7 +5329,7 @@ const menuActionsController = createMenuActionsController({
     clearLibraryFilter,
     confirmReloadFromDisk,
     discardAndReloadWorkingCopyFromDisk,
-    dumpDebug: () => debugDumpFeature.dumpToFile().catch(() => {}),
+    dumpDebug: () => diagnosticsDomain.dumpDebugToFile().catch(() => {}),
     enterPayloadMode: () => payloadModeFeature.enter(),
     exitPayloadMode: () => payloadModeFeature.exit(),
     exportMidi: () => importExportFeature.exportMidi(),
@@ -5780,10 +5688,6 @@ function resetPlaybackUiState() {
 
 function normalizeAutoScrollMode(raw) {
   return playbackAutoScrollController.normalizeAutoScrollMode(raw);
-}
-
-function debugAutoScroll(tag, detail) {
-  return playbackAutoScrollController.debugAutoScroll(tag, detail);
 }
 
 function initPlaybackAutoScrollListeners() {
@@ -6525,148 +6429,25 @@ if ($btnToggleGlobals) {
 updatePlayButton();
 updateFollowToggle();
 
-async function maybeRunDevAutoscrollDemo() {
-  if (!window.api || typeof window.api.getDevConfig !== "function") return;
-  const cfg = window.api.getDevConfig() || {};
-  const filePath = String(cfg.ABCARUS_DEV_FILE || "").trim();
-  if (!filePath) return;
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const tuneX = Number(String(cfg.ABCARUS_DEV_TUNE_X || "").trim());
-  const wantFocus = String(cfg.ABCARUS_DEV_FOCUS || "").trim() === "1";
-  const wantPlay = String(cfg.ABCARUS_DEV_AUTOPLAY || "").trim() === "1";
-  const wantDebug = String(cfg.ABCARUS_DEV_AUTOSCROLL_DEBUG || "").trim() === "1";
-  const wantFocusDebug = String(cfg.ABCARUS_DEV_FOCUS_DEBUG || "").trim() === "1";
-  const quitAfter = String(cfg.ABCARUS_DEV_QUIT || "").trim() === "1";
-  const modeSpec = String(cfg.ABCARUS_DEV_AUTOSCROLL_MODE || "").trim();
-  const forcedZoom = Number(String(cfg.ABCARUS_DEV_RENDER_ZOOM || "").trim());
-  const mutateSettings = String(cfg.ABCARUS_DEV_MUTATE_SETTINGS || "").trim() === "1";
-
-  if (wantDebug) window.__abcarusDebugAutoscroll = true;
-  if (wantFocusDebug) window.__abcarusDebugFocus = true;
-
-  let restoreSettingsPatch = null;
-
-  const res = await readFile(filePath);
-  if (!res || !res.ok) {
-    console.error("[abcarus][dev] Unable to read dev file:", res && res.error ? res.error : filePath);
-    return;
-  }
-  const full = String(res.data || "");
-
-  const extractTune = (text, xNumber) => {
-    if (!Number.isFinite(xNumber)) return text;
-    const re = /^\s*X:\s*(\d+)\s*$/gm;
-    let match = null;
-    const starts = [];
-    while ((match = re.exec(text))) {
-      starts.push({ idx: match.index, x: Number(match[1]) });
-    }
-    const start = starts.find((s) => s.x === xNumber);
-    if (!start) return text;
-    const next = starts.find((s) => s.idx > start.idx);
-    const end = next ? next.idx : text.length;
-    return String(text.slice(start.idx, end)).trimEnd() + "\n";
-  };
-
-  const tuneText = extractTune(full, tuneX);
-  suppressDirty = true;
-  try {
-    setEditorValue(tuneText);
-  } finally {
-    suppressDirty = false;
-  }
-  scheduleRenderNow();
-
-  const waitForSvg = async (timeoutMs = 12000) => {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const svg = $out ? $out.querySelector("svg") : null;
-      if (svg) return true;
-      await sleep(100);
-    }
-    return false;
-  };
-  if (!(await waitForSvg())) {
-    console.error("[abcarus][dev] SVG render did not appear in time.");
-    return;
-  }
-
-  if (Number.isFinite(forcedZoom) && forcedZoom > 0) {
-    if (!wantFocus && mutateSettings && window.api && typeof window.api.getSettings === "function" && typeof window.api.updateSettings === "function") {
-      try {
-        const prev = await window.api.getSettings();
-        const prevZoom = prev && Number(prev.renderZoom);
-        if (Number.isFinite(prevZoom) && prevZoom > 0 && prevZoom !== forcedZoom) {
-          restoreSettingsPatch = { renderZoom: prevZoom };
-        }
-        await window.api.updateSettings({ renderZoom: forcedZoom });
-      } catch {}
-    }
-    setRenderZoomCss(forcedZoom);
+diagnosticsDomain.runDevAutoscrollDemo({
+  readFile,
+  setEditorTextClean: (text) => {
+    suppressDirty = true;
     try {
-      const cssZoom = getComputedStyle(document.documentElement).getPropertyValue("--render-zoom");
-      const outZoom = $out ? getComputedStyle($out).zoom : "";
-      console.log(
-        "[abcarus][dev] render zoom =",
-        forcedZoom,
-        "cssVar=",
-        String(cssZoom || "").trim(),
-        "outZoom=",
-        String(outZoom || "").trim(),
-        "getRenderZoomFactor=",
-        getRenderZoomFactor()
-      );
-    } catch {
-      console.log("[abcarus][dev] render zoom =", forcedZoom);
+      setEditorValue(String(text || ""));
+    } finally {
+      suppressDirty = false;
     }
-    await sleep(250);
-  }
-
-  if (wantFocus) {
-    setFocusModeEnabled(true);
-    await sleep(250);
-  }
-
-  const setMode = (m) => {
-    if (!m) return;
-    const mode = playbackAutoScrollController.setModeForDev(m);
-    console.log("[abcarus][dev] autoscroll mode =", mode);
-  };
-
-  const runOnce = async (m) => {
-    setMode(m);
-    await sleep(120);
-    if (!wantPlay) return;
-    await togglePlayPauseEffective();
-    await sleep(25000);
-    stopPlaybackTransport();
-    await sleep(900);
-  };
-
-  try {
-    if (modeSpec.toLowerCase() === "cycle") {
-      for (const m of ["Keep Visible", "Page Turn", "Centered"]) {
-        await runOnce(m);
-      }
-    } else if (modeSpec) {
-      await runOnce(modeSpec);
-    } else {
-      await runOnce(null);
-    }
-  } catch (e) {
-    console.error("[abcarus][dev] Demo failed:", (e && e.stack) ? e.stack : String(e));
-  } finally {
-    if (restoreSettingsPatch && window.api && typeof window.api.updateSettings === "function") {
-      try { await window.api.updateSettings(restoreSettingsPatch); } catch {}
-    }
-    if (quitAfter && window.api && typeof window.api.quitApplication === "function") {
-      try { await window.api.quitApplication(); } catch {}
-    }
-  }
-}
-
-maybeRunDevAutoscrollDemo().catch(() => {});
+  },
+  scheduleRender: () => scheduleRenderNow(),
+  getOutputElement: () => $out,
+  setRenderZoom: setRenderZoomCss,
+  getRenderZoomFactor,
+  setFocusModeEnabled,
+  setAutoscrollModeForDev: (mode) => playbackAutoScrollController.setModeForDev(mode),
+  togglePlayPause: togglePlayPauseEffective,
+  stopPlayback: stopPlaybackTransport,
+}).catch(() => {});
 function createRectSelectionExtension() {
   return rectangularSelection({
     // Linux WMs often reserve Alt+drag for window move/resize.

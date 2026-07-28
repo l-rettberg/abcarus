@@ -209,6 +209,7 @@ import { createLayoutController } from "./app/ui/layout_controller.js";
 import { createDiagnosticsDomain } from "./app/diagnostics/diagnostics_domain.js";
 import { createToolStatusController } from "./app/ui/tool_status_controller.js";
 import { createStatusController } from "./app/ui/status_controller.js";
+import { createStartupController } from "./app/startup/startup_controller.js";
 import { createToastHoverController } from "./app/ui/toast_hover_controller.js";
 import { createFileHeaderController } from "./app/document/file_header_controller.js";
 import { createFileContextController } from "./app/document/file_context_controller.js";
@@ -2404,6 +2405,23 @@ const statusController = createStatusController({
   hasDiskConflictPath,
 });
 
+const startupController = createStartupController({
+  api: window.api,
+  requestAnimationFrameRef: requestAnimationFrame,
+  getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
+  pathsEqual,
+  loadLibraryFromFolder,
+  openRecentTune,
+  openRecentFile,
+  openRecentFolder,
+  applyInitialLayout: () => layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }),
+  centerRenderPane: centerRenderPaneOnCurrentAnchor,
+  reportStartupStatus,
+  markRecentOpenStarted: () => statusController.markStartupRecentOpenStarted(),
+  markUiReady: () => statusController.markStartupUiReady(),
+  renderStatus: () => statusController.renderUnifiedStatus(),
+});
+
 editStateController = createEditStateController({
   elements: {
     dirtyIndicator: $dirtyIndicator,
@@ -2781,7 +2799,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     markActiveTuneButton,
     markHeaderClean,
     markStartupAutoLoadStarted: () => statusController.markStartupAutoLoadStarted(),
-    markStartupUiReady,
+    markStartupUiReady: () => statusController.markStartupUiReady(),
     maybeResetFocusLoopForTune,
     normalizeLibraryPath,
     openChordPro: (filePath, text, options) => chordProFeature.open(filePath, text, options),
@@ -2899,14 +2917,6 @@ function updateWindowTitle() {
 
 function buildTuneMetaLabel(metadata) {
   return statusController.buildTuneMetaLabel(metadata);
-}
-
-function markStartupUiReady() {
-  statusController.markStartupUiReady();
-}
-
-function markStartupSettingsApplied() {
-  statusController.markStartupSettingsApplied();
 }
 
 function renderUnifiedStatus() {
@@ -3438,88 +3448,8 @@ function resetLayout() {
   if (settingsDomain) settingsDomain.resetLayout();
 }
 
-let startupLayoutResetDone = false;
-let startupLayoutResetScheduled = false;
-
-function scheduleStartupLayoutReset() {
-  if (startupLayoutResetDone || startupLayoutResetScheduled) return;
-  startupLayoutResetScheduled = true;
-  requestAnimationFrame(() => {
-    startupLayoutResetScheduled = false;
-    if (startupLayoutResetDone) return;
-    startupLayoutResetDone = true;
-    try {
-      // On startup, respect persisted zoom and split preferences.
-      layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() });
-    } catch {}
-    requestAnimationFrame(() => {
-      try { centerRenderPaneOnCurrentAnchor(); } catch {}
-    });
-  });
-}
-
 function refreshErrorsNow() {
   errorsFeature.refreshNow();
-}
-
-async function loadLastRecentEntry() {
-  if (!window.api) return false;
-  reportStartupStatus("Checking recent files…");
-  let candidates = [];
-  if (typeof window.api.getRecentCandidates === "function") {
-    const list = await window.api.getRecentCandidates();
-    if (Array.isArray(list)) candidates = list;
-  }
-  if (!candidates.length && typeof window.api.getLastRecent === "function") {
-    const res = await window.api.getLastRecent();
-    if (res && res.entry) candidates = [res];
-  }
-
-  const folderCandidate = candidates.find((res) => res && res.type === "folder" && res.entry && res.entry.path);
-  if (folderCandidate && folderCandidate.entry) {
-    reportStartupStatus("Opening recent folder…");
-    try {
-      await loadLibraryFromFolder(folderCandidate.entry.path, { selectInitialTune: false });
-      if (libraryIndex && libraryIndex.root) {
-        statusController.markStartupRecentOpenStarted();
-      }
-    } catch {}
-  }
-
-  for (const res of candidates) {
-    if (!res || !res.entry) continue;
-    if (res.type === "tune") {
-      reportStartupStatus("Opening recent tune…");
-      const opened = await openRecentTune(res.entry);
-      if (opened && opened.ok) {
-        statusController.markStartupRecentOpenStarted();
-        return true;
-      }
-      continue;
-    }
-    if (res.type === "file") {
-      reportStartupStatus("Opening recent file…");
-      const opened = await openRecentFile(res.entry);
-      if (opened && opened.ok) {
-        statusController.markStartupRecentOpenStarted();
-        return true;
-      }
-      continue;
-    }
-    if (res.type === "folder") {
-      if (libraryIndex && libraryIndex.root && pathsEqual(libraryIndex.root, res.entry.path)) {
-        statusController.markStartupRecentOpenStarted();
-        return true;
-      }
-      reportStartupStatus("Opening recent folder…");
-      const opened = await openRecentFolder(res.entry);
-      if (opened && opened.ok) {
-        statusController.markStartupRecentOpenStarted();
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 function setEditorValue(text) {
@@ -4993,7 +4923,7 @@ settingsDomain = createSettingsDomain({
     ensureSoundfontLoaded,
     exitPayloadMode: () => payloadModeFeature.exit(),
     logStartupPerf,
-    markStartupSettingsApplied,
+    markStartupSettingsApplied: () => statusController.markStartupSettingsApplied(),
     reconfigureEditor: reconfigureAbcExtensions,
     refreshChordProPdfButtonState: (options) => chordProFeature.refreshPdfButtonState(options),
     resetPlaybackForSoundfontChange: () => {
@@ -5006,7 +4936,7 @@ settingsDomain = createSettingsDomain({
       playbackTransport.playbackIndexOffset = 0;
     },
     scheduleRender: scheduleRenderNow,
-    scheduleStartupLayoutReset,
+    scheduleStartupLayoutReset: startupController.scheduleLayoutReset,
     setSoundfontStatus,
     showDisclaimerIfNeeded,
     showToast,
@@ -5068,27 +4998,7 @@ async function openTemplatesModal() {
 
 initContextMenu();
 
-requestAnimationFrame(() => {
-  // Do not reset zoom on startup. Persisted zoom is applied via settings.
-  // We only need an initial split size application until settings load.
-  try { layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }); } catch {}
-});
-
-loadLastRecentEntry()
-  .then((didStart) => {
-    // Do not mark Ready here: settings may auto-load a library folder.
-    // If settings are unavailable, fall back to Ready only when there was no recent to open.
-    if (!didStart && !(window.api && typeof window.api.getSettings === "function")) {
-      markStartupUiReady();
-    } else {
-      renderUnifiedStatus();
-    }
-  })
-  .catch(() => {
-    // Keep loading until settings apply decides, unless settings are unavailable.
-    if (!(window.api && typeof window.api.getSettings === "function")) markStartupUiReady();
-    else renderUnifiedStatus();
-  });
+startupController.start();
 
 if ($out) {
   $out.addEventListener("click", (e) => {

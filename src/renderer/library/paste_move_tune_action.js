@@ -89,7 +89,7 @@ export function createPasteMoveTuneAction({
     const nextX = getNextXNumber(res.data || "");
     const prepared = ensureXNumberInAbc(text, nextX);
     const updated = appendTuneToContent(before, prepared);
-    const writeRes = await writeFile(filePath, updated);
+    const writeRes = await writeFile(filePath, updated, { expectedData: before });
     if (!writeRes.ok) throw new Error(writeRes.error || "Unable to append to file.");
     setFileContentInCache(filePath, updated);
     return updated;
@@ -150,17 +150,32 @@ export function createPasteMoveTuneAction({
             && typeof api.insertWorkingCopyTuneAfter === "function"
             && typeof api.commitWorkingCopyToDisk === "function"
           ) {
-            await api.openWorkingCopy(targetPath);
+            const opened = await api.openWorkingCopy(targetPath);
+            if (!opened || !opened.ok) {
+              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for pasting.");
+            }
             const snap = await refreshWorkingCopySnapshot();
             if (!snap || !snap.path || !pathsEqual(snap.path, targetPath)) {
               throw new Error("Unable to open working copy for pasting.");
             }
             const nextX = getNextXNumber(String(snap.text || ""));
             const prepared = ensureXNumberInAbc(String(clipboardTune.text || ""), nextX);
-            const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-            const ins = await api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
+            const ins = await api.insertWorkingCopyTuneAfter({
+              append: true,
+              text: prepared,
+              expectedPath: targetPath,
+              expectedVersion: snap.version,
+            });
             if (!ins || !ins.ok) throw new Error((ins && ins.error) ? ins.error : "Unable to paste.");
-            const saved = await api.commitWorkingCopyToDisk({ force: false });
+            const snapshotToSave = await refreshWorkingCopySnapshot();
+            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
+              throw new Error("Working copy no longer matches the paste target.");
+            }
+            const saved = await api.commitWorkingCopyToDisk({
+              force: false,
+              expectedPath: targetPath,
+              expectedVersion: snapshotToSave.version,
+            });
             if (!saved || !saved.ok) {
               if (saved && saved.conflict) throw new Error("Refusing to paste: file changed on disk. Reload/reopen and try again.");
               throw new Error((saved && saved.error) ? saved.error : "Unable to save file.");
@@ -301,11 +316,32 @@ export function createPasteMoveTuneAction({
         );
 
         if (useWorkingCopyCommit) {
-          const commitViaWorkingCopy = async (filePath, text) => {
-            await api.openWorkingCopy(filePath);
-            const applyRes = await api.applyWorkingCopyFullText(text);
+          const commitViaWorkingCopy = async (filePath, text, expectedCurrentText) => {
+            const opened = await api.openWorkingCopy(filePath);
+            if (!opened || !opened.ok) {
+              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
+            }
+            const snapshotBefore = await refreshWorkingCopySnapshot();
+            if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
+              throw new Error("Working copy no longer matches the file being moved.");
+            }
+            if (String(snapshotBefore.text || "") !== String(expectedCurrentText || "")) {
+              throw new Error("Refusing to move: file content changed. Refresh/reopen and try again.");
+            }
+            const applyRes = await api.applyWorkingCopyFullText(text, {
+              expectedPath: filePath,
+              expectedVersion: snapshotBefore.version,
+            });
             if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy.");
-            let saveRes = await api.commitWorkingCopyToDisk({ force: false });
+            const snapshotToSave = await refreshWorkingCopySnapshot();
+            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
+              throw new Error("Working copy no longer matches the file being moved.");
+            }
+            let saveRes = await api.commitWorkingCopyToDisk({
+              force: false,
+              expectedPath: filePath,
+              expectedVersion: snapshotToSave.version,
+            });
             if (!saveRes || !saveRes.ok) {
               if (saveRes && saveRes.conflict) {
                 markDiskConflictPath(filePath, true);
@@ -322,20 +358,20 @@ export function createPasteMoveTuneAction({
             }
           };
 
-          await commitViaWorkingCopy(targetPath, finalTarget);
+          await commitViaWorkingCopy(targetPath, finalTarget, targetContent);
           try {
-            await commitViaWorkingCopy(sourcePath, finalSource);
+            await commitViaWorkingCopy(sourcePath, finalSource, sourceContent);
           } catch (e) {
-            try { await commitViaWorkingCopy(targetPath, targetContent); } catch {}
+            try { await commitViaWorkingCopy(targetPath, targetContent, finalTarget); } catch {}
             throw e;
           }
         } else {
-          const writeTargetRes = await writeFile(targetPath, finalTarget);
+          const writeTargetRes = await writeFile(targetPath, finalTarget, { expectedData: targetContent });
           if (!writeTargetRes.ok) throw new Error(writeTargetRes.error || "Unable to update target file.");
 
-          const writeSourceRes = await writeFile(sourcePath, finalSource);
+          const writeSourceRes = await writeFile(sourcePath, finalSource, { expectedData: sourceContent });
           if (!writeSourceRes.ok) {
-            const rollback = await writeFile(targetPath, targetContent);
+            const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
             if (rollback && rollback.ok) {
               throw new Error(writeSourceRes.error || "Unable to update source file.");
             }

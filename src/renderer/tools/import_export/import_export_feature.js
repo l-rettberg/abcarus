@@ -236,10 +236,31 @@ function createImportExportFeature({
             && typeof api.commitWorkingCopyToDisk === "function"
           );
           if (shouldUseWorkingCopyCommit) {
-            await api.openWorkingCopy(targetPath);
-            const applyRes = await api.applyWorkingCopyFullText(updated);
+            const opened = await api.openWorkingCopy(targetPath);
+            if (!opened || !opened.ok) {
+              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
+            }
+            const snapshotBefore = await refreshWorkingCopySnapshot();
+            if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, targetPath)) {
+              throw new Error("Working copy no longer matches the import target.");
+            }
+            if (String(snapshotBefore.text || "") !== before) {
+              throw new Error("Refusing to import: target content changed. Refresh/reopen and try again.");
+            }
+            const applyRes = await api.applyWorkingCopyFullText(updated, {
+              expectedPath: targetPath,
+              expectedVersion: snapshotBefore.version,
+            });
             if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy.");
-            const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+            const snapshotToSave = await refreshWorkingCopySnapshot();
+            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
+              throw new Error("Working copy no longer matches the import target.");
+            }
+            const saveRes = await api.commitWorkingCopyToDisk({
+              force: false,
+              expectedPath: targetPath,
+              expectedVersion: snapshotToSave.version,
+            });
             if (!saveRes || !saveRes.ok) {
               if (saveRes && saveRes.conflict) {
                 markDiskConflictPath(targetPath, true);
@@ -257,7 +278,7 @@ function createImportExportFeature({
               setFileContentInCache(targetPath, updated);
             }
           } else {
-            const writeRes = await writeFile(targetPath, updated);
+            const writeRes = await writeFile(targetPath, updated, { expectedData: before });
             if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write imported tunes.");
             setFileContentInCache(targetPath, updated);
           }

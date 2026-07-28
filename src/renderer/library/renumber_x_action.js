@@ -84,7 +84,7 @@ export function createRenumberXAction({
           if (String(verifyRes.data || "") !== before) throw new Error("Refusing to renumber: file changed on disk. Refresh/reopen and try again.");
           const ren = renumberXLinesConsecutive(before);
           if (!ren || !ren.ok) throw new Error((ren && ren.error) ? ren.error : "Unable to renumber X.");
-          const writeRes = await writeFile(filePath, ren.text);
+          const writeRes = await writeFile(filePath, ren.text, { expectedData: before });
           if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write file.");
           setFileContentInCache(filePath, ren.text);
         });
@@ -97,17 +97,28 @@ export function createRenumberXAction({
       }
     }
 
-    try {
-      if (api && typeof api.openWorkingCopy === "function") {
-        await api.openWorkingCopy(filePath);
-        const snapshot = await refreshWorkingCopySnapshot();
-        if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-          attachTuneUidsToLibraryFile(filePath, snapshot);
-        }
-      }
-    } catch {}
+    if (!api || typeof api.openWorkingCopy !== "function") {
+      await showSaveError("Working copy renumber API is unavailable.");
+      return;
+    }
+    const opened = await api.openWorkingCopy(filePath);
+    if (!opened || !opened.ok) {
+      await showSaveError((opened && opened.error) ? opened.error : "Unable to open working copy for renumbering.");
+      return;
+    }
+    let snapshotBefore = await refreshWorkingCopySnapshot();
+    if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
+      await showSaveError("Working copy no longer matches the file being renumbered.");
+      return;
+    }
+    attachTuneUidsToLibraryFile(filePath, snapshotBefore);
 
     try { await flushWorkingCopyTuneSync(); } catch {}
+    snapshotBefore = await refreshWorkingCopySnapshot();
+    if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
+      await showSaveError("Working copy no longer matches the file being renumbered.");
+      return;
+    }
 
     if (!api || typeof api.renumberWorkingCopyXStartingAt1 !== "function") {
       await showSaveError("Working copy renumber API is unavailable.");
@@ -119,7 +130,10 @@ export function createRenumberXAction({
     const prevFileEntry = getActiveFileEntry();
     const prevTuneCount = prevFileEntry && Array.isArray(prevFileEntry.tunes) ? prevFileEntry.tunes.length : 0;
 
-    const res = await api.renumberWorkingCopyXStartingAt1();
+    const res = await api.renumberWorkingCopyXStartingAt1({
+      expectedPath: filePath,
+      expectedVersion: snapshotBefore.version,
+    });
     if (!res || !res.ok) {
       await showSaveError((res && res.error) ? res.error : "Unable to renumber X.");
       return;
@@ -163,7 +177,11 @@ export function createRenumberXAction({
     }
 
     if (api && typeof api.commitWorkingCopyToDisk === "function") {
-      const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+      const saveRes = await api.commitWorkingCopyToDisk({
+        force: false,
+        expectedPath: filePath,
+        expectedVersion: snapshot.version,
+      });
       if (!saveRes || !saveRes.ok) {
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file after renumber.");
         patchCurrentDocument({ dirty: true }, { create: false });

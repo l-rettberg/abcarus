@@ -71,7 +71,11 @@ function createRawModeEnterGuard({
     if (snapshot && snapshot.dirty && snapshot.path && pathsEqual(snapshot.path, p) && String(snapshot.text || "") === fullText) {
       try {
         if (api && typeof api.reloadWorkingCopyFromDisk === "function") {
-          await api.reloadWorkingCopyFromDisk({ force: true });
+          await api.reloadWorkingCopyFromDisk({
+            force: true,
+            expectedPath: p,
+            expectedVersion: snapshot.version,
+          });
           await refreshWorkingCopySnapshot();
           markDiskConflictPath(p, false);
         }

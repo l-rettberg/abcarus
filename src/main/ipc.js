@@ -718,9 +718,9 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle("workingcopy:close", async () => {
+  ipcMain.handle("workingcopy:close", async (_event, payload) => {
     try {
-      await closeWorkingCopy();
+      await closeWorkingCopy(payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -730,7 +730,11 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("workingcopy:reload", async (_event, payload) => {
     try {
       const force = Boolean(payload && payload.force);
-      const meta = await reloadWorkingCopyFromDisk({ force });
+      const meta = await reloadWorkingCopyFromDisk({
+        force,
+        expectedPath: payload && payload.expectedPath,
+        expectedVersion: payload && payload.expectedVersion,
+      });
       return { ok: true, meta };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -740,7 +744,11 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("workingcopy:commit", async (_event, payload) => {
     try {
       const force = Boolean(payload && payload.force);
-      const res = await commitWorkingCopyToDisk({ force });
+      const res = await commitWorkingCopyToDisk({
+        force,
+        expectedPath: payload && payload.expectedPath,
+        expectedVersion: payload && payload.expectedVersion,
+      });
       return res;
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -751,7 +759,7 @@ function registerIpcHandlers(ctx) {
     try {
       const p = payload && payload.filePath ? String(payload.filePath) : "";
       if (!p) return { ok: false, error: "Missing file path." };
-      await writeWorkingCopyToPath(p);
+      await writeWorkingCopyToPath(p, payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -762,7 +770,7 @@ function registerIpcHandlers(ctx) {
     try {
       const p = payload && payload.filePath ? String(payload.filePath) : "";
       if (!p) return { ok: false, error: "Missing file path." };
-      await writeWorkingCopyToPathAndSwitch(p);
+      await writeWorkingCopyToPathAndSwitch(p, payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -772,7 +780,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("workingcopy:apply-header-text", async (_event, payload) => {
     try {
       const text = payload && payload.text != null ? String(payload.text) : "";
-      applyHeaderText(text);
+      applyHeaderText(text, payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -781,7 +789,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("workingcopy:apply-full-text", async (_event, payload) => {
     try {
       const text = payload && payload.text != null ? String(payload.text) : "";
-      applyFullText(text);
+      applyFullText(text, payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -796,9 +804,9 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle("workingcopy:renumber-x", async () => {
+  ipcMain.handle("workingcopy:renumber-x", async (_event, payload) => {
     try {
-      renumberXStartingAt1();
+      renumberXStartingAt1(payload || {});
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -1339,15 +1347,37 @@ function registerIpcHandlers(ctx) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
   });
-  ipcMain.handle("file:write", async (_e, filePath, data) => {
+  ipcMain.handle("file:write", async (_e, filePath, data, options) => {
     try {
       const p = filePath ? String(filePath) : "";
       if (!p) return { ok: false, error: "Missing file path." };
+      const opts = options && typeof options === "object" ? options : {};
+      if (Object.prototype.hasOwnProperty.call(opts, "expectedData")) {
+        let currentText = "";
+        try {
+          const currentBuffer = await fs.promises.readFile(p);
+          currentText = p.toLowerCase().endsWith(".abc")
+            ? decodeAbcTextFromBuffer(currentBuffer).text
+            : currentBuffer.toString("utf8");
+        } catch (e) {
+          return { ok: false, error: e && e.message ? e.message : String(e), code: e && e.code ? e.code : "" };
+        }
+        if (currentText !== String(opts.expectedData == null ? "" : opts.expectedData)) {
+          return { ok: false, conflict: true, error: "File changed on disk." };
+        }
+      }
       if (p.toLowerCase().endsWith(".abc")) {
         const encoded = encodeAbcTextToBuffer(String(data == null ? "" : data));
         await atomicWriteFileWithRetry(fs, path, p, encoded.buffer);
       } else {
         await atomicWriteFileWithRetry(fs, path, p, String(data == null ? "" : data));
+      }
+      const verifyBuffer = await fs.promises.readFile(p);
+      const verifyText = p.toLowerCase().endsWith(".abc")
+        ? decodeAbcTextFromBuffer(verifyBuffer).text
+        : verifyBuffer.toString("utf8");
+      if (verifyText !== String(data == null ? "" : data)) {
+        return { ok: false, error: "Save verification failed: on-disk content does not match the requested text." };
       }
       return { ok: true };
     } catch (e) {
@@ -1355,12 +1385,30 @@ function registerIpcHandlers(ctx) {
     }
   });
   ipcMain.handle("file:rename", async (_e, oldPath, newPath) => {
+    const sourcePath = String(oldPath || "");
+    const targetPath = String(newPath || "");
+    if (!sourcePath || !targetPath) return { ok: false, error: "Missing file path." };
+    if (sourcePath === targetPath) return { ok: true };
     try {
-      await fs.promises.access(newPath, fs.constants.F_OK);
-      return { ok: false, error: "File already exists.", code: "EEXIST" };
-    } catch {}
-    try {
-      await fs.promises.rename(oldPath, newPath);
+      await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+      const [sourceData, targetData] = await Promise.all([
+        fs.promises.readFile(sourcePath),
+        fs.promises.readFile(targetPath),
+      ]);
+      if (!sourceData.equals(targetData)) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return { ok: false, error: "Rename verification failed; source file was preserved." };
+      }
+      try {
+        await fs.promises.unlink(sourcePath);
+      } catch (e) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return {
+          ok: false,
+          error: `Unable to remove source file after verified copy: ${e && e.message ? e.message : String(e)}`,
+          code: e && e.code ? e.code : "",
+        };
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e), code: e && e.code ? e.code : "" };

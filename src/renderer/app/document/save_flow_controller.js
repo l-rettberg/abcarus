@@ -74,7 +74,6 @@ export function createSaveFlowController({
     updateLibraryStatus = () => {},
     updateWindowTitle = () => {},
     withFileLock = async (_path, fn) => fn(),
-    writeFile = async () => ({ ok: false }),
   } = actions;
 
   async function finalizeWorkingCopySave(filePath) {
@@ -108,7 +107,16 @@ export function createSaveFlowController({
 
     const choice = await api.confirmMissingOnDisk(p);
     if (choice === "recreate") {
-      const forced = await api.commitWorkingCopyToDisk({ force: true });
+      const snapshot = await refreshWorkingCopySnapshot();
+      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+        await showSaveError("Unable to recreate: working copy no longer matches the missing file.");
+        return { ok: false };
+      }
+      const forced = await api.commitWorkingCopyToDisk({
+        force: true,
+        expectedPath: p,
+        expectedVersion: snapshot.version,
+      });
       if (forced && forced.ok) {
         await finalizeWorkingCopySave(p);
         return { ok: true, path: p, action: "recreate" };
@@ -218,7 +226,16 @@ export function createSaveFlowController({
         await flushWorkingCopyFullSync();
       } catch {}
       if (api && typeof api.commitWorkingCopyToDisk === "function") {
-        const res = await api.commitWorkingCopyToDisk({ force: false });
+        const snapshotToSave = await refreshWorkingCopySnapshot();
+        if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
+          await showSaveError("Unable to save: working copy no longer matches the active file.");
+          return false;
+        }
+        const res = await api.commitWorkingCopyToDisk({
+          force: false,
+          expectedPath: filePath,
+          expectedVersion: snapshotToSave.version,
+        });
         if (res && res.missingOnDisk) {
           const handled = await handleMissingWorkingCopySave(filePath);
           return Boolean(handled && handled.ok);
@@ -280,26 +297,12 @@ export function createSaveFlowController({
 
     if (session.intent === SAVE_INTENT.FULL_FILE && getCurrentDocumentPath()) {
       const filePath = getCurrentDocumentPath();
-      if (isWorkingCopyOpenForFile(filePath)) {
-        await showSaveError("Internal error: the file is open in the editor. Save via the working copy.");
-        return false;
-      }
-      const content = serializeDocument(getCurrentDocument());
-      return withFileLock(filePath, async () => {
-        const res = await writeFile(filePath, content);
-        if (res.ok) {
-          setFileContentInCache(filePath, content);
-          markCurrentDocumentClean();
-          resetTransposePreviewState();
-          setDirtyIndicator(false);
-          setFileNameMeta(stripFileExtension(safeBasename(filePath)));
-          updateFileHeaderPanel();
-          return true;
-        }
-        if (await handlePermissionDeniedSave(filePath, res.error || "")) return true;
-        await showSaveError(res.error || "Unable to save file.");
-        return false;
-      });
+      await showSaveError(
+        isWorkingCopyOpenForFile(filePath)
+          ? "Internal error: full-file content was not routed through its working copy."
+          : "Unable to save safely: file context is missing. Re-open the file and try again."
+      );
+      return false;
     }
 
     if (session.intent === SAVE_INTENT.REPLACE_TUNE && (!activeTuneMeta || !activeTuneMeta.path)) {
@@ -351,7 +354,15 @@ export function createSaveFlowController({
         return true;
       }
 
-      const out = await api.writeWorkingCopyToPathAndSwitch(filePath);
+      const sourceSnapshot = await refreshWorkingCopySnapshot();
+      if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, currentPath)) {
+        await showSaveError("Unable to save as: working copy no longer matches the active file.");
+        return false;
+      }
+      const out = await api.writeWorkingCopyToPathAndSwitch(filePath, {
+        expectedPath: currentPath,
+        expectedVersion: sourceSnapshot.version,
+      });
       if (!out || !out.ok) {
         await showSaveError((out && out.error) ? out.error : "Unable to save file.");
         return false;
@@ -375,7 +386,14 @@ export function createSaveFlowController({
     } catch {}
     if (getHeaderDirty() && api && typeof api.applyWorkingCopyHeaderText === "function") {
       try {
-        const res = await api.applyWorkingCopyHeaderText(getHeaderEditorValue());
+        const headerSnapshot = await refreshWorkingCopySnapshot();
+        const headerPath = headerSnapshot && headerSnapshot.path ? String(headerSnapshot.path) : "";
+        const res = headerPath
+          ? await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
+            expectedPath: headerPath,
+            expectedVersion: headerSnapshot.version,
+          })
+          : { ok: false };
         if (res && res.ok) {
           markHeaderClean();
           updateHeaderStateUI();
@@ -428,7 +446,10 @@ export function createSaveFlowController({
       return true;
     }
 
-    const out = await api.writeWorkingCopyToPath(filePath);
+    const out = await api.writeWorkingCopyToPath(filePath, {
+      expectedPath: activeTuneMeta.path,
+      expectedVersion: workingCopySnapshot.version,
+    });
     if (!out || !out.ok) {
       await showSaveError((out && out.error) ? out.error : "Unable to save file.");
       return false;
@@ -473,11 +494,29 @@ export function createSaveFlowController({
     }
 
     return withFileLock(p, async () => {
-      await api.openWorkingCopy(p);
-      const applyRes = await api.applyWorkingCopyHeaderText(String(headerText || ""));
+      const opened = await api.openWorkingCopy(p);
+      if (!opened || !opened.ok) {
+        throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
+      }
+      const snapshotBefore = await refreshWorkingCopySnapshot();
+      if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, p)) {
+        throw new Error("Working copy no longer matches the header file.");
+      }
+      const applyRes = await api.applyWorkingCopyHeaderText(String(headerText || ""), {
+        expectedPath: p,
+        expectedVersion: snapshotBefore.version,
+      });
       if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update header.");
 
-      const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+      const snapshotToSave = await refreshWorkingCopySnapshot();
+      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, p)) {
+        throw new Error("Working copy no longer matches the header file.");
+      }
+      const saveRes = await api.commitWorkingCopyToDisk({
+        force: false,
+        expectedPath: p,
+        expectedVersion: snapshotToSave.version,
+      });
       if (saveRes && saveRes.missingOnDisk) {
         const handled = await handleMissingWorkingCopySave(p);
         if (handled && handled.ok) return { ok: true, action: "saved" };

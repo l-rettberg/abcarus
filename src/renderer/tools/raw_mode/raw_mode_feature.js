@@ -148,14 +148,35 @@ function createRawModeFeature({
         return false;
       }
 
-      await api.openWorkingCopy(filePath);
-      const applyRes = await api.applyWorkingCopyFullText(fullText);
+      const opened = await api.openWorkingCopy(filePath);
+      if (!opened || !opened.ok) {
+        await showSaveError((opened && opened.error) ? opened.error : "Unable to open working copy for raw save.");
+        return false;
+      }
+      const snapshotBefore = await refreshWorkingCopySnapshot();
+      if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
+        await showSaveError("Working copy no longer matches the raw file.");
+        return false;
+      }
+      const applyRes = await api.applyWorkingCopyFullText(fullText, {
+        expectedPath: filePath,
+        expectedVersion: snapshotBefore.version,
+      });
       if (!applyRes || !applyRes.ok) {
         await showSaveError((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy for raw save.");
         return false;
       }
 
-      const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+      const snapshotToSave = await refreshWorkingCopySnapshot();
+      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
+        await showSaveError("Working copy no longer matches the raw file.");
+        return false;
+      }
+      const saveRes = await api.commitWorkingCopyToDisk({
+        force: false,
+        expectedPath: filePath,
+        expectedVersion: snapshotToSave.version,
+      });
       if (saveRes && saveRes.missingOnDisk) {
         const handled = await handleMissingWorkingCopySave(filePath);
         if (handled && handled.ok) {
@@ -318,7 +339,17 @@ function createRawModeFeature({
       try {
         await ensureWorkingCopyOpenForPath(filePath);
         if (!usingWorkingCopyText && api && typeof api.reloadWorkingCopyFromDisk === "function") {
-          await api.reloadWorkingCopyFromDisk();
+          const snapshotBeforeReload = await refreshWorkingCopySnapshot();
+          if (
+            snapshotBeforeReload
+            && snapshotBeforeReload.path
+            && pathsEqual(snapshotBeforeReload.path, filePath)
+          ) {
+            await api.reloadWorkingCopyFromDisk({
+              expectedPath: filePath,
+              expectedVersion: snapshotBeforeReload.version,
+            });
+          }
         }
         await refreshWorkingCopySnapshot();
       } catch {}

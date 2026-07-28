@@ -19,6 +19,7 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
   const targetPath = "/tmp/source_Copy.abc";
   const text = "%%abc-charset utf-8\nX:1\nT:Copy\nK:C\nC|\n";
   const calls = [];
+  let snapshot = { path: fromPath, text, version: 7 };
 
   const controller = createWorkingCopyConflictController({
     api: {
@@ -27,8 +28,9 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
         calls.push(["openWorkingCopy", path]);
         return { ok: true };
       },
-      writeWorkingCopyToPathAndSwitch: async (path) => {
-        calls.push(["writeWorkingCopyToPathAndSwitch", path]);
+      writeWorkingCopyToPathAndSwitch: async (path, context) => {
+        calls.push(["writeWorkingCopyToPathAndSwitch", path, context]);
+        snapshot = { path, text, version: snapshot.version + 1 };
         return { ok: true };
       },
     },
@@ -41,7 +43,7 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
         calls.push(["refreshLibraryFile", path]);
         return { path, basename: "source_Copy.abc", headerEndOffset: 18 };
       },
-      refreshWorkingCopySnapshot: async () => ({ path: targetPath, text }),
+      refreshWorkingCopySnapshot: async () => snapshot,
       recordNavFilePath: (path) => calls.push(["recordNavFilePath", path]),
       safeBasename: (path) => String(path || "").split("/").pop() || "",
       safeDirname: () => "/tmp",
@@ -71,6 +73,15 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
 
   assert.equal(result.ok, true);
   assert.equal(result.targetPath, targetPath);
+  assert.deepEqual(
+    calls.find((entry) => entry[0] === "writeWorkingCopyToPathAndSwitch"),
+    [
+      "writeWorkingCopyToPathAndSwitch",
+      targetPath,
+      { expectedPath: fromPath, expectedVersion: 7 },
+    ],
+    "Raw Save Copy As must bind the write to the source working-copy snapshot"
+  );
   assert.deepEqual(
     calls.find((entry) => entry[0] === "switchWorkingCopyFileContext"),
     ["switchWorkingCopyFileContext", targetPath, { rawMode: true, source: "save_copy_as" }],

@@ -608,7 +608,10 @@ export function createLibraryLifecycleController({
             : "";
           if (openedPath && pathsEqual(openedPath, targetPath)) {
             if (typeof api.reloadWorkingCopyFromDisk === "function") {
-              await api.reloadWorkingCopyFromDisk();
+              await api.reloadWorkingCopyFromDisk({
+                expectedPath: targetPath,
+                expectedVersion: metaRes.meta.version,
+              });
               await refreshWorkingCopySnapshot();
             }
           } else if (typeof api.openWorkingCopy === "function") {

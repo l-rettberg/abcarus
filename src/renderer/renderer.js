@@ -4661,93 +4661,16 @@ function countLines(text) {
   return text.split(/\r\n|\n|\r/).length;
 }
 
-function isValidTuneSliceInFullText(fullText, startOffset, endOffset, expectedX = "") {
-  const text = String(fullText || "");
-  const start = Number(startOffset);
-  const end = Number(endOffset);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > text.length) return false;
-  const slice = text.slice(start, end);
-  if (!/^\s*X:/.test(slice)) return false;
-  const x = String(expectedX || "").trim();
-  if (x) {
-    const match = slice.match(/^\s*X:\s*([^\r\n]*)/);
-    if (!match || String(match[1] || "").trim() !== x) return false;
-  }
-  return true;
-}
-
-function getActiveFileTuneEntries(filePath) {
-  const p = String(filePath || "");
-  if (!p || !libraryIndex || !Array.isArray(libraryIndex.files)) return [];
-  const fileEntry = libraryIndex.files.find((f) => pathsEqual(f && f.path, p));
-  return fileEntry && Array.isArray(fileEntry.tunes) ? fileEntry.tunes : [];
-}
-
-function resolveActiveTuneSliceInFullText(filePath, fullText) {
-  const expectedX = activeTuneMeta && activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber || "").trim() : "";
-  const candidates = [];
-  const pushCandidate = (source, startOffset, endOffset, tune = null) => {
-    if (!Number.isFinite(Number(startOffset)) || !Number.isFinite(Number(endOffset))) return;
-    candidates.push({
-      source,
-      startOffset: Number(startOffset),
-      endOffset: Number(endOffset),
-      tune,
-    });
-  };
-
-  if (activeTuneMeta && activeTuneMeta.path && pathsEqual(activeTuneMeta.path, filePath)) {
-    pushCandidate("active_meta", activeTuneMeta.startOffset, activeTuneMeta.endOffset);
-  }
-
-  const tunes = getActiveFileTuneEntries(filePath);
-  if (tunes.length) {
-    if (activeTuneId) {
-      const byId = tunes.find((t) => t && t.id && String(t.id) === String(activeTuneId));
-      if (byId) pushCandidate("library_id", byId.startOffset, byId.endOffset, byId);
-    }
-    if (activeTuneUid) {
-      const byUid = tunes.find((t) => t && t.tuneUid && String(t.tuneUid) === String(activeTuneUid));
-      if (byUid) pushCandidate("library_uid", byUid.startOffset, byUid.endOffset, byUid);
-    }
-    if (Number.isFinite(Number(activeTuneIndex))) {
-      const byIndex = tunes[Number(activeTuneIndex)];
-      if (byIndex) pushCandidate("library_index", byIndex.startOffset, byIndex.endOffset, byIndex);
-    }
-    if (expectedX) {
-      const byX = tunes.find((t) => t && String(t.xNumber || "").trim() === expectedX);
-      if (byX) pushCandidate("library_x", byX.startOffset, byX.endOffset, byX);
-    }
-  }
-
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const key = `${candidate.startOffset}:${candidate.endOffset}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (isValidTuneSliceInFullText(fullText, candidate.startOffset, candidate.endOffset, expectedX)) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-function replaceFileHeaderText(fullText, headerText) {
-  const text = String(fullText || "");
-  let header = String(headerText || "");
-  const body = text.slice(findHeaderEndOffset(text));
-  if (header && !/[\r\n]$/.test(header) && /^[\t ]*X:/.test(body)) header += "\n";
-  return `${header}${body}`;
-}
-
 function updateActiveTuneMetaAfterSimpleSave(filePath, updatedFile) {
   if (!updatedFile || !Array.isArray(updatedFile.tunes) || !updatedFile.tunes.length) return;
   const prevIndex = Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null;
+  const prevUid = activeTuneUid ? String(activeTuneUid) : "";
   const prevX = activeTuneMeta && activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber || "").trim() : "";
   const prevId = activeTuneId ? String(activeTuneId) : "";
   const prevStart = activeTuneMeta && Number.isFinite(Number(activeTuneMeta.startOffset)) ? Number(activeTuneMeta.startOffset) : null;
   let tune = null;
-  if (prevIndex != null) tune = updatedFile.tunes[prevIndex] || null;
+  if (prevUid) tune = updatedFile.tunes.find((t) => t && t.tuneUid && String(t.tuneUid) === prevUid) || null;
+  if (!tune && prevIndex != null) tune = updatedFile.tunes[prevIndex] || null;
   if (!tune && prevX) tune = updatedFile.tunes.find((t) => t && String(t.xNumber || "").trim() === prevX) || null;
   if (!tune && prevId) tune = updatedFile.tunes.find((t) => t && t.id && String(t.id) === prevId) || null;
   if (!tune && prevStart != null) tune = updatedFile.tunes.find((t) => Number(t && t.startOffset) === prevStart) || null;
@@ -4785,17 +4708,6 @@ function updateActiveTuneMetaAfterSimpleSave(filePath, updatedFile) {
   });
 }
 
-async function alignWorkingCopyWithDiskAfterSimpleSave(filePath) {
-  const p = String(filePath || "");
-  if (!p || !isWorkingCopyOpenForFile(p)) return;
-  try {
-    if (window.api && typeof window.api.reloadWorkingCopyFromDisk === "function") {
-      await window.api.reloadWorkingCopyFromDisk({ force: true });
-      await refreshWorkingCopySnapshot();
-    }
-  } catch {}
-}
-
 async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
   const p = String(filePath || "");
   if (!p) {
@@ -4803,66 +4715,75 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
     return false;
   }
   return withFileLock(p, async () => {
-    const cached = getFileContentFromCache(p);
-    let fullText = cached != null ? String(cached) : "";
-    if (cached == null) {
-      const readRes = await readFile(p);
-      if (!readRes || !readRes.ok) {
-        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+    if (!window.api || typeof window.api.commitWorkingCopyToDisk !== "function") {
+      await showSaveError("Internal error: working copy save is unavailable.");
+      return false;
+    }
+    const opened = await ensureWorkingCopyOpenForPath(p);
+    if (!opened) {
+      await showSaveError("Unable to save: working copy could not be opened.");
+      return false;
+    }
+    const syncRes = await flushWorkingCopyTuneSync();
+    if (!syncRes || !syncRes.ok) {
+      await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune.");
+      return false;
+    }
+    let snapshot = await refreshWorkingCopySnapshot();
+    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+      await showSaveError("Unable to save: working copy no longer matches the active file.");
+      return false;
+    }
+    if (includeHeader) {
+      if (typeof window.api.applyWorkingCopyHeaderText !== "function") {
+        await showSaveError("Internal error: working copy header save is unavailable.");
         return false;
       }
-      fullText = String(readRes.data || "");
+      const headerRes = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
+        expectedPath: p,
+        expectedVersion: snapshot.version,
+      });
+      if (!headerRes || !headerRes.ok) {
+        await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to synchronize the file header.");
+        return false;
+      }
+      snapshot = await refreshWorkingCopySnapshot();
+      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+        await showSaveError("Unable to save: working copy no longer matches the active file.");
+        return false;
+      }
     }
-    let slice = resolveActiveTuneSliceInFullText(p, fullText);
-    if (!slice) {
-      const refreshed = await refreshLibraryFile(p, { force: true });
-      if (refreshed) {
-        const readRes = await readFile(p);
-        if (readRes && readRes.ok) {
-          fullText = String(readRes.data || "");
-          slice = resolveActiveTuneSliceInFullText(p, fullText);
+    const saveRes = await window.api.commitWorkingCopyToDisk({
+      force: false,
+      expectedPath: p,
+      expectedVersion: snapshot.version,
+    });
+    if (!saveRes || !saveRes.ok) {
+      if (saveRes && saveRes.conflict) {
+        const resolved = await resolveWorkingCopySaveConflictDefault(p, {
+          restoreTuneId: activeTuneUid || activeTuneId,
+        });
+        if (!resolved || !resolved.ok) {
+          if (resolved && resolved.error) await showSaveError(resolved.error);
+          return false;
         }
+      } else if (saveRes && saveRes.missingOnDisk) {
+        const handled = await handleMissingWorkingCopySave(p);
+        if (!handled || !handled.ok) return false;
+      } else {
+        await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
+        return false;
       }
     }
-    if (!slice && cached != null) {
-      const readRes = await readFile(p);
-      if (readRes && readRes.ok) {
-        fullText = String(readRes.data || "");
-        slice = resolveActiveTuneSliceInFullText(p, fullText);
-      }
-    }
-    if (!slice) {
-      await showSaveError("Unable to save: active tune slice was not found in the file buffer.");
+    snapshot = await refreshWorkingCopySnapshot();
+    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+      await showSaveError("Save completed, but the working copy could not be refreshed.");
       return false;
     }
 
-    const targetX = activeTuneMeta && activeTuneMeta.xNumber != null
-      ? String(activeTuneMeta.xNumber || "").trim()
-      : "";
-    const tuneText = targetX
-      ? ensureXNumberInAbc(getEditorValue(), targetX)
-      : ensureXNumberInAbc(getEditorValue(), "");
-    let updatedText = `${fullText.slice(0, slice.startOffset)}${tuneText}${fullText.slice(slice.endOffset)}`;
-    if (includeHeader) {
-      updatedText = replaceFileHeaderText(updatedText, getHeaderEditorValue());
-    }
-    const writeRes = await writeFile(p, updatedText);
-    if (!writeRes || !writeRes.ok) {
-      await showSaveError((writeRes && writeRes.error) ? writeRes.error : "Unable to save file.");
-      return false;
-    }
-
-    const verifyRes = await readFile(p);
-    if (!verifyRes || !verifyRes.ok) {
-      await showSaveError((verifyRes && verifyRes.error) ? verifyRes.error : "Unable to verify saved file.");
-      return false;
-    }
-    if (String(verifyRes.data || "") !== updatedText) {
-      await showSaveError("Save verification failed: disk file does not match the editor buffer.");
-      return false;
-    }
-
-    setFileContentInCache(p, updatedText);
+    const tuneText = getEditorValue();
+    setFileContentInCache(p, snapshot.text);
+    attachTuneUidsToLibraryFile(p, snapshot);
     patchCurrentDocument({ path: p, content: tuneText, dirty: false }, { create: false });
     if (includeHeader) {
       markHeaderClean();
@@ -4874,7 +4795,6 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
     activeFilePath = p;
     recordNavFilePath(p);
 
-    await alignWorkingCopyWithDiskAfterSimpleSave(p);
     const updatedFile = await refreshLibraryFile(p, { force: true });
     updateActiveTuneMetaAfterSimpleSave(p, updatedFile);
     updateLibraryStatus();

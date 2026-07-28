@@ -73,7 +73,11 @@ export function createAppendCurrentTuneAction({
     }
 
     return withFileLock(p, async () => {
-      await api.openWorkingCopy(p);
+      const opened = await api.openWorkingCopy(p);
+      if (!opened || !opened.ok) {
+        await showSaveError((opened && opened.error) ? opened.error : "Unable to open working copy.");
+        return false;
+      }
       const snap = await refreshWorkingCopySnapshot();
       if (!snap || !snap.path || !pathsEqual(snap.path, p)) {
         await showSaveError("Unable to open working copy.");
@@ -82,15 +86,27 @@ export function createAppendCurrentTuneAction({
 
       const nextX = getNextXNumber(String(snap.text || ""));
       const prepared = ensureXNumberInAbc(raw, nextX);
-      const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-
-      const insertRes = await api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
+      const insertRes = await api.insertWorkingCopyTuneAfter({
+        append: true,
+        text: prepared,
+        expectedPath: p,
+        expectedVersion: snap.version,
+      });
       if (!insertRes || !insertRes.ok) {
         await showSaveError((insertRes && insertRes.error) ? insertRes.error : "Unable to add tune.");
         return false;
       }
 
-      const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+      const snapshotToSave = await refreshWorkingCopySnapshot();
+      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, p)) {
+        await showSaveError("Working copy no longer matches the append target.");
+        return false;
+      }
+      const saveRes = await api.commitWorkingCopyToDisk({
+        force: false,
+        expectedPath: p,
+        expectedVersion: snapshotToSave.version,
+      });
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) {
           const resolved = await resolveWorkingCopySaveConflictDefault(p, { restoreTuneId: null });

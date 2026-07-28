@@ -107,8 +107,11 @@ async function assertSaveIntentGuards() {
   if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (!libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk();")) {
-    throw new Error("openRecentFile() must reload existing working copy from disk.");
+  if (
+    !libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")
+    || !libraryLifecycle.includes("expectedPath: targetPath")
+  ) {
+    throw new Error("openRecentFile() must reload the expected working copy from disk.");
   }
   if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
@@ -128,6 +131,9 @@ async function assertSaveIntentGuards() {
   if (!syncBody.includes("result = { ok: true, path: filePath };")) {
     throw new Error("flushWorkingCopyTuneSync() must report successful tune sync explicitly.");
   }
+  if (!syncBody.includes("Stable active tune identity is missing")) {
+    throw new Error("flushWorkingCopyTuneSync() must fail closed when stable tune identity is missing.");
+  }
   if (!src.includes("async function performSimpleTuneSave(filePath")) {
     throw new Error("Renderer must provide the simple full-file tune save path.");
   }
@@ -138,14 +144,17 @@ async function assertSaveIntentGuards() {
   const simpleSaveEnd = src.indexOf("async function showSaveError(", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
   const simpleSaveBody = src.slice(simpleSaveStart, simpleSaveEnd);
-  if (!simpleSaveBody.includes("const verifyRes = await readFile(p);")) {
-    throw new Error("performSimpleTuneSave() must read back the disk file after writing.");
+  if (!simpleSaveBody.includes("const syncRes = await flushWorkingCopyTuneSync();")) {
+    throw new Error("performSimpleTuneSave() must synchronize the UID-addressed tune through the working copy.");
   }
-  if (!simpleSaveBody.includes("String(verifyRes.data || \"\") !== updatedText")) {
-    throw new Error("performSimpleTuneSave() must verify that disk text matches the saved buffer.");
+  if (
+    !simpleSaveBody.includes("expectedPath: p")
+    || !simpleSaveBody.includes("expectedVersion: snapshot.version")
+  ) {
+    throw new Error("performSimpleTuneSave() must bind commit to the expected working-copy path and version.");
   }
-  if (!simpleSaveBody.includes("await alignWorkingCopyWithDiskAfterSimpleSave(p);")) {
-    throw new Error("performSimpleTuneSave() must keep any open working copy aligned after disk save.");
+  if (simpleSaveBody.includes("writeFile(p,")) {
+    throw new Error("performSimpleTuneSave() must not bypass working-copy identity guards with a direct file write.");
   }
 
   const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");

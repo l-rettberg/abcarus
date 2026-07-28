@@ -44,24 +44,21 @@ export function createDuplicateTuneAction({
         && typeof api.renumberWorkingCopyXStartingAt1 === "function"
         && typeof api.commitWorkingCopyToDisk === "function"
       ) {
-        await api.openWorkingCopy(res.file.path);
+        const opened = await api.openWorkingCopy(res.file.path);
+        if (!opened || !opened.ok) {
+          throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for duplication.");
+        }
         let snapshot = await refreshWorkingCopySnapshot();
         if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, res.file.path) || !Array.isArray(snapshot.tunes)) {
           throw new Error("Unable to access working copy for duplication.");
         }
         attachTuneUidsToLibraryFile(res.file.path, snapshot);
-
-        let tuneIndex = Number.isFinite(Number(res.tune.tuneIndex)) ? Number(res.tune.tuneIndex) : null;
-        if (tuneIndex == null) {
-          const startOff = Number.isFinite(Number(res.tune.startOffset)) ? Number(res.tune.startOffset) : null;
-          if (startOff != null) {
-            const idx = snapshot.tunes.findIndex((t) => t && Number(t.start) === startOff);
-            if (idx >= 0) tuneIndex = idx;
-          }
-        }
-        if (tuneIndex == null || tuneIndex < 0 || tuneIndex >= snapshot.tunes.length) {
-          throw new Error("Unable to duplicate: tune index not found.");
-        }
+        const refreshed = findTuneById(tuneId);
+        const sourceTune = refreshed && refreshed.tune ? refreshed.tune : res.tune;
+        const sourceUid = sourceTune && sourceTune.tuneUid ? String(sourceTune.tuneUid) : "";
+        if (!sourceUid) throw new Error("Refusing to duplicate: stable tune identity is missing.");
+        const tuneIndex = snapshot.tunes.findIndex((t) => t && t.tuneUid === sourceUid);
+        if (tuneIndex < 0) throw new Error("Unable to duplicate: tune UID not found.");
 
         const wcTune = snapshot.tunes[tuneIndex];
         const start = Number(wcTune.start);
@@ -70,7 +67,12 @@ export function createDuplicateTuneAction({
         const slice = String(snapshot.text || "").slice(start, end);
         const prepared = ensureCopyTitleInAbc(slice);
 
-        const insertRes = await api.insertWorkingCopyTuneAfter({ afterTuneIndex: tuneIndex, text: prepared });
+        const insertRes = await api.insertWorkingCopyTuneAfter({
+          afterTuneUid: sourceUid,
+          text: prepared,
+          expectedPath: res.file.path,
+          expectedVersion: snapshot.version,
+        });
         if (!insertRes || !insertRes.ok) throw new Error((insertRes && insertRes.error) ? insertRes.error : "Unable to duplicate tune.");
 
         snapshot = await refreshWorkingCopySnapshot();
@@ -81,7 +83,10 @@ export function createDuplicateTuneAction({
           ? snapshot.tunes[tuneIndex + 1].tuneUid
           : null;
 
-        const renRes = await api.renumberWorkingCopyXStartingAt1();
+        const renRes = await api.renumberWorkingCopyXStartingAt1({
+          expectedPath: res.file.path,
+          expectedVersion: snapshot.version,
+        });
         if (!renRes || !renRes.ok) throw new Error((renRes && renRes.error) ? renRes.error : "Unable to renumber file after duplication.");
 
         snapshot = await refreshWorkingCopySnapshot();
@@ -89,7 +94,11 @@ export function createDuplicateTuneAction({
           throw new Error("Unable to refresh working copy after renumber.");
         }
 
-        let saveRes = await api.commitWorkingCopyToDisk({ force: false });
+        let saveRes = await api.commitWorkingCopyToDisk({
+          force: false,
+          expectedPath: res.file.path,
+          expectedVersion: snapshot.version,
+        });
         if (!saveRes || !saveRes.ok) {
           if (saveRes && saveRes.conflict) {
             markDiskConflictPath(res.file.path, true);
@@ -130,6 +139,12 @@ export function createDuplicateTuneAction({
         if (!/^\s*X:/.test(trimmed)) {
           throw new Error("Refusing to duplicate: tune offsets look stale. Refresh the library and try again.");
         }
+        const expectedX = res.tune && res.tune.xNumber != null ? String(res.tune.xNumber).trim() : "";
+        const sliceXMatch = trimmed.match(/^X:\s*([^\r\n]*)/);
+        const sliceX = sliceXMatch ? String(sliceXMatch[1] || "").trim() : "";
+        if (expectedX && sliceX !== expectedX) {
+          throw new Error(`Refusing to duplicate: expected X:${expectedX}, found X:${sliceX || "?"}.`);
+        }
 
         const newline = content.includes("\r\n") ? "\r\n" : "\n";
         let before = content.slice(0, endOffset);
@@ -146,7 +161,7 @@ export function createDuplicateTuneAction({
           throw new Error("Unable to renumber file after duplicating a tune.");
         }
         const updatedContent = renum.abcText;
-        const writeRes = await writeFile(res.file.path, updatedContent);
+        const writeRes = await writeFile(res.file.path, updatedContent, { expectedData: content });
         if (!writeRes || !writeRes.ok) throw new Error(writeRes && writeRes.error ? writeRes.error : "Unable to duplicate tune.");
         setFileContentInCache(res.file.path, updatedContent);
         const updatedFile = await refreshLibraryFile(res.file.path, { force: true });

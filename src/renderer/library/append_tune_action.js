@@ -68,17 +68,32 @@ function createAppendTuneToActiveFileAction({
           && typeof api.insertWorkingCopyTuneAfter === "function"
           && typeof api.commitWorkingCopyToDisk === "function"
         ) {
-          await api.openWorkingCopy(targetPath);
+          const opened = await api.openWorkingCopy(targetPath);
+          if (!opened || !opened.ok) {
+            throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for appending.");
+          }
           const snap = await refreshWorkingCopySnapshot();
           if (!snap || !snap.path || !pathsEqual(snap.path, targetPath)) {
             throw new Error("Unable to open working copy for appending.");
           }
           const nextX = getNextXNumber(String(snap.text || ""));
           const prepared = ensureXNumberInAbc(tuneText, nextX);
-          const afterTuneIndex = Array.isArray(snap.tunes) ? (snap.tunes.length - 1) : -1;
-          const ins = await api.insertWorkingCopyTuneAfter({ afterTuneIndex, text: prepared });
+          const ins = await api.insertWorkingCopyTuneAfter({
+            append: true,
+            text: prepared,
+            expectedPath: targetPath,
+            expectedVersion: snap.version,
+          });
           if (!ins || !ins.ok) throw new Error((ins && ins.error) ? ins.error : "Unable to append.");
-          let saved = await api.commitWorkingCopyToDisk({ force: false });
+          const snapshotToSave = await refreshWorkingCopySnapshot();
+          if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
+            throw new Error("Working copy no longer matches the append target.");
+          }
+          let saved = await api.commitWorkingCopyToDisk({
+            force: false,
+            expectedPath: targetPath,
+            expectedVersion: snapshotToSave.version,
+          });
           if (!saved || !saved.ok) {
             if (saved && saved.conflict) {
               markDiskConflictPath(targetPath, true);

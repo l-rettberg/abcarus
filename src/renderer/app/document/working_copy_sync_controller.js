@@ -4,12 +4,13 @@ export function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, sta
   let idx = -1;
   if (tuneUid) {
     idx = tunes.findIndex((t) => t && t.tuneUid && t.tuneUid === tuneUid);
+    if (idx < 0) return null;
   }
-  if (idx < 0 && Number.isFinite(Number(tuneIndex))) {
+  if (!tuneUid && idx < 0 && Number.isFinite(Number(tuneIndex))) {
     const candidate = Number(tuneIndex);
     if (candidate >= 0 && candidate < tunes.length) idx = candidate;
   }
-  if (idx < 0 && Number.isFinite(Number(startOffset))) {
+  if (!tuneUid && idx < 0 && Number.isFinite(Number(startOffset))) {
     const target = Number(startOffset);
     if (Number.isFinite(target)) {
       idx = tunes.findIndex((t) => Number.isFinite(Number(t && t.start)) && Number(t.start) === target);
@@ -159,9 +160,7 @@ export function createWorkingCopySyncController({
     if (isPayloadMode()) return { ok: false, skipped: true, reason: "payload_mode" };
     if (isChordProEnabled()) return { ok: false, skipped: true, reason: "chordpro_mode" };
     if (!getActiveTuneUid()) {
-      if (!tryResolveActiveTuneUidFromSnapshot()) {
-        return { ok: false, error: "Unable to resolve active tune in working copy." };
-      }
+      return { ok: false, error: "Stable active tune identity is missing. Re-open the tune and try again." };
     }
     const activeTuneMeta = getActiveTuneMeta();
     if (!activeTuneMeta || !activeTuneMeta.path) return { ok: false, error: "Active tune path is missing." };
@@ -190,6 +189,8 @@ export function createWorkingCopySyncController({
         const res = await api.applyWorkingCopyTuneText({
           tuneUid: getActiveTuneUid(),
           tuneIndex: getActiveTuneIndex(),
+          expectedPath: filePath,
+          expectedVersion: workingCopySnapshot.version,
           text: tuneText,
           expected: {
             xNumber: targetX,
@@ -275,7 +276,10 @@ export function createWorkingCopySyncController({
     fullSyncInFlight = true;
     try {
       const nextText = isChordProFullView() ? getEditorValue() : getChordProFullText();
-      const res = await api.applyWorkingCopyFullText(String(nextText || ""));
+      const res = await api.applyWorkingCopyFullText(String(nextText || ""), {
+        expectedPath: filePath,
+        expectedVersion: workingCopySnapshot.version,
+      });
       if (epoch !== fullSyncEpoch) return;
       if (!res || !res.ok) return;
       const snapshot = await refreshWorkingCopySnapshot();
@@ -313,7 +317,13 @@ export function createWorkingCopySyncController({
     if (!api || typeof api.reloadWorkingCopyFromDisk !== "function") return false;
 
     try {
-      const res = await api.reloadWorkingCopyFromDisk({ force: true });
+      const before = getWorkingCopySnapshot();
+      if (!before || !before.path || !pathsEqual(before.path, activeTuneMeta.path)) return false;
+      const res = await api.reloadWorkingCopyFromDisk({
+        force: true,
+        expectedPath: activeTuneMeta.path,
+        expectedVersion: before.version,
+      });
       if (!res || !res.ok) return false;
       const snapshot = await refreshWorkingCopySnapshot();
       if (snapshot && snapshot.path && pathsEqual(snapshot.path, activeTuneMeta.path)) {

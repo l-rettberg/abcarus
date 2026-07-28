@@ -52,7 +52,16 @@ function createWorkingCopyConflictController({
       markDiskConflictPath(p, true);
       return { ok: false, cancelled: true, action: "cancel" };
     }
-    const forced = await api.commitWorkingCopyToDisk({ force: true });
+    const snapshot = await refreshWorkingCopySnapshot();
+    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+      markDiskConflictPath(p, true);
+      return { ok: false, action: "overwrite", error: "Working copy no longer matches the file being saved." };
+    }
+    const forced = await api.commitWorkingCopyToDisk({
+      force: true,
+      expectedPath: p,
+      expectedVersion: snapshot.version,
+    });
     if (forced && forced.ok) {
       markDiskConflictPath(p, false);
       return { ok: true, action: "overwrite" };
@@ -68,8 +77,19 @@ function createWorkingCopyConflictController({
       return { ok: false, error: "Working copy reload is unavailable." };
     }
 
-    await api.openWorkingCopy(p);
-    const reloaded = await api.reloadWorkingCopyFromDisk({ force: true });
+    const opened = await api.openWorkingCopy(p);
+    if (!opened || !opened.ok) {
+      return { ok: false, error: (opened && opened.error) ? opened.error : "Unable to open working copy." };
+    }
+    const snapshotBefore = await refreshWorkingCopySnapshot();
+    if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, p)) {
+      return { ok: false, error: "Working copy no longer matches the file being reloaded." };
+    }
+    const reloaded = await api.reloadWorkingCopyFromDisk({
+      force: true,
+      expectedPath: p,
+      expectedVersion: snapshotBefore.version,
+    });
     if (!reloaded || !reloaded.ok) return { ok: false, error: "Unable to reload from disk." };
 
     const snapReloaded = await refreshWorkingCopySnapshot();
@@ -113,8 +133,18 @@ function createWorkingCopyConflictController({
     if (!targetPath) return { ok: false, cancelled: true };
 
     await withFileLock(targetPath, async () => {
-      await api.openWorkingCopy(fromPath);
-      const writeRes = await api.writeWorkingCopyToPathAndSwitch(targetPath);
+      const opened = await api.openWorkingCopy(fromPath);
+      if (!opened || !opened.ok) {
+        throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
+      }
+      const sourceSnapshot = await refreshWorkingCopySnapshot();
+      if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, fromPath)) {
+        throw new Error("Working copy no longer matches the file being copied.");
+      }
+      const writeRes = await api.writeWorkingCopyToPathAndSwitch(targetPath, {
+        expectedPath: fromPath,
+        expectedVersion: sourceSnapshot.version,
+      });
       if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to save copy.");
     });
 

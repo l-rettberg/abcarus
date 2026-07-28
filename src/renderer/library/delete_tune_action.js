@@ -67,20 +67,48 @@ export function createDeleteTuneAction({
       }
 
       try {
-        await api.openWorkingCopy(fileMeta.path);
-        const snapshotBefore = await refreshWorkingCopySnapshot();
-        if (snapshotBefore && snapshotBefore.path && pathsEqual(snapshotBefore.path, fileMeta.path)) {
-          attachTuneUidsToLibraryFile(fileMeta.path, snapshotBefore);
-          const refreshed = findTuneById(tuneId);
-          if (refreshed && refreshed.tune) selected = refreshed.tune;
+        const opened = await api.openWorkingCopy(fileMeta.path);
+        if (!opened || !opened.ok) {
+          throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for deletion.");
         }
-      } catch {}
+        const snapshotBefore = await refreshWorkingCopySnapshot();
+        if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, fileMeta.path)) {
+          throw new Error("Working copy no longer matches the file containing the tune.");
+        }
+        attachTuneUidsToLibraryFile(fileMeta.path, snapshotBefore);
+        const refreshed = findTuneById(tuneId);
+        if (refreshed && refreshed.tune) selected = refreshed.tune;
+        if (!selected.tuneUid) {
+          throw new Error("Refusing to delete: stable tune identity is missing. Refresh the library and try again.");
+        }
+        const payload = {
+          tuneUid: selected.tuneUid,
+          tuneIndex: selected.tuneIndex,
+          expectedPath: fileMeta.path,
+          expectedVersion: snapshotBefore.version,
+          expected: {
+            xNumber: selected.xNumber != null ? String(selected.xNumber) : "",
+            title: selected.title ? String(selected.title) : "",
+          },
+        };
+        const deleteRes = await api.deleteWorkingCopyTune({
+          ...payload,
+          expectedPath: fileMeta.path,
+          expectedVersion: snapshotBefore.version,
+        });
+        if (!deleteRes || !deleteRes.ok) {
+          throw new Error((deleteRes && deleteRes.error) ? deleteRes.error : "Unable to delete tune.");
+        }
 
-      try {
-        const payload = { tuneUid: selected.tuneUid || null, tuneIndex: selected.tuneIndex };
-        await api.deleteWorkingCopyTune(payload);
-
-        const saveRes = await api.commitWorkingCopyToDisk({ force: false });
+        const snapshotToSave = await refreshWorkingCopySnapshot();
+        if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, fileMeta.path)) {
+          throw new Error("Working copy no longer matches the file after deletion.");
+        }
+        const saveRes = await api.commitWorkingCopyToDisk({
+          force: false,
+          expectedPath: fileMeta.path,
+          expectedVersion: snapshotToSave.version,
+        });
         if (!saveRes || !saveRes.ok) {
           if (saveRes && saveRes.conflict) {
             await showSaveError("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");

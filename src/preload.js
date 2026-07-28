@@ -46,18 +46,21 @@ contextBridge.exposeInMainWorld("api", {
   saveMakamDnaUser: async (text) => ipcRenderer.invoke("makam-dna:user:save", { text: text == null ? "" : String(text) }),
   clearMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:clear"),
   openWorkingCopy: async (filePath) => ipcRenderer.invoke("workingcopy:open", filePath),
-  closeWorkingCopy: async () => ipcRenderer.invoke("workingcopy:close"),
+  closeWorkingCopy: async (context) => ipcRenderer.invoke("workingcopy:close", context || {}),
   getWorkingCopySnapshot: async () => ipcRenderer.invoke("workingcopy:get"),
   getWorkingCopyMeta: async () => ipcRenderer.invoke("workingcopy:get-meta"),
   reloadWorkingCopyFromDisk: async (payload) => ipcRenderer.invoke("workingcopy:reload", payload || {}),
   commitWorkingCopyToDisk: async (payload) => ipcRenderer.invoke("workingcopy:commit", payload || {}),
-  writeWorkingCopyToPath: async (filePath) => ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "" }),
-  writeWorkingCopyToPathAndSwitch: async (filePath) =>
-    ipcRenderer.invoke("workingcopy:write-to-path-and-switch", { filePath: filePath || "" }),
-  applyWorkingCopyHeaderText: async (text) => ipcRenderer.invoke("workingcopy:apply-header-text", { text: text == null ? "" : String(text) }),
-  applyWorkingCopyFullText: async (text) => ipcRenderer.invoke("workingcopy:apply-full-text", { text: text == null ? "" : String(text) }),
+  writeWorkingCopyToPath: async (filePath, context) =>
+    ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "", ...(context || {}) }),
+  writeWorkingCopyToPathAndSwitch: async (filePath, context) =>
+    ipcRenderer.invoke("workingcopy:write-to-path-and-switch", { filePath: filePath || "", ...(context || {}) }),
+  applyWorkingCopyHeaderText: async (text, context) =>
+    ipcRenderer.invoke("workingcopy:apply-header-text", { text: text == null ? "" : String(text), ...(context || {}) }),
+  applyWorkingCopyFullText: async (text, context) =>
+    ipcRenderer.invoke("workingcopy:apply-full-text", { text: text == null ? "" : String(text), ...(context || {}) }),
   insertWorkingCopyTuneAfter: async (payload) => ipcRenderer.invoke("workingcopy:insert-tune-after", payload || {}),
-  renumberWorkingCopyXStartingAt1: async () => ipcRenderer.invoke("workingcopy:renumber-x"),
+  renumberWorkingCopyXStartingAt1: async (context) => ipcRenderer.invoke("workingcopy:renumber-x", context || {}),
   deleteWorkingCopyTune: async (payload) => ipcRenderer.invoke("workingcopy:delete-tune", payload || {}),
   applyWorkingCopyTuneText: async (payload) => ipcRenderer.invoke("workingcopy:apply-tune-text", payload),
   showSaveError: async (message) =>
@@ -83,7 +86,7 @@ contextBridge.exposeInMainWorld("api", {
   checkChordPro: async () => ipcRenderer.invoke("chordpro:check"),
   checkConversionTools: async () => ipcRenderer.invoke("tools:check"),
   readFile: async (filePath) => ipcRenderer.invoke("file:read", filePath),
-  writeFile: async (filePath, data) => ipcRenderer.invoke("file:write", filePath, data),
+  writeFile: async (filePath, data, options) => ipcRenderer.invoke("file:write", filePath, data, options || {}),
   renameFile: async (oldPath, newPath) => ipcRenderer.invoke("file:rename", oldPath, newPath),
   fileExists: async (filePath) => ipcRenderer.invoke("file:exists", filePath),
   mkdirp: async (dirPath) => ipcRenderer.invoke("file:mkdirp", dirPath),

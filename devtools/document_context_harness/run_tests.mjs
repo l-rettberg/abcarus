@@ -16,11 +16,17 @@ const { createDocumentLifecycleController } = await importRendererModule(
 const { createLibraryMetadataController } = await importRendererModule(
   resolve("src/renderer/library/library_metadata_controller.js")
 );
+const { createLibraryLifecycleController } = await importRendererModule(
+  resolve("src/renderer/library/library_lifecycle_controller.js")
+);
 const { createLibraryDocumentContext } = await importRendererModule(
   resolve("src/renderer/library/library_document_context.js")
 );
 const { createWorkingCopySyncController } = await importRendererModule(
   resolve("src/renderer/app/document/working_copy_sync_controller.js")
+);
+const { createSaveFlowController } = await importRendererModule(
+  resolve("src/renderer/app/document/save_flow_controller.js")
 );
 
 function testBeginCleanFileDocumentClearsStaleSaveContext() {
@@ -330,6 +336,113 @@ function testWorkingCopyUidRecoveryRejectsStaleFirstTuneIndex() {
   assert.equal(activeUid, "", "a stale first-tune position must not acquire the replacement tune UID");
 }
 
+function testLibraryReconcilesSavedTuneByStableIdentity() {
+  let activeId = "/tmp/tunes.abc::10";
+  let activeUid = "uid-second";
+  let activeIndex = 1;
+  let activeMeta = {
+    path: "/tmp/tunes.abc",
+    xNumber: "2",
+    title: "Second",
+  };
+  let saveSession = null;
+  const controller = createLibraryLifecycleController({
+    state: {
+      getActiveTuneId: () => activeId,
+      getActiveTuneIndex: () => activeIndex,
+      getActiveTuneMeta: () => activeMeta,
+      getActiveTuneUid: () => activeUid,
+    },
+    actions: {
+      buildTuneMetaLabel: (meta) => meta.title,
+      markActiveTuneButton: () => {},
+      safeBasename: (p) => String(p).split("/").pop(),
+      setActiveTuneId: (value) => { activeId = value; },
+      setActiveTuneIndex: (value) => { activeIndex = value; },
+      setActiveTuneMeta: (value) => { activeMeta = value; },
+      setActiveTuneUid: (value) => { activeUid = value; },
+      setFileNameMeta: () => {},
+      setSaveSession: (value) => { saveSession = value; },
+      setTuneMetaText: () => {},
+      stripFileExtension: (name) => String(name).replace(/\.[^.]+$/, ""),
+    },
+    constants: {
+      SAVE_INTENT: { REPLACE_TUNE: "replace_tune" },
+    },
+  });
+  const updatedFile = {
+    path: "/tmp/tunes.abc",
+    basename: "tunes.abc",
+    tunes: [
+      { id: "first", tuneUid: "uid-first", tuneIndex: 0, xNumber: "1", title: "First" },
+      { id: "second-new-offset", tuneUid: "uid-second", tuneIndex: 1, xNumber: "2", title: "Second", startOffset: 22, endOffset: 50 },
+    ],
+  };
+
+  assert.equal(controller.reconcileActiveTuneAfterSave(updatedFile.path, updatedFile), true);
+  assert.equal(activeId, "second-new-offset");
+  assert.equal(activeUid, "uid-second");
+  assert.equal(activeIndex, 1);
+  assert.equal(activeMeta.startOffset, 22);
+  assert.equal(saveSession.targetTuneUid, "uid-second");
+}
+
+async function testSimpleTuneSaveIsOwnedBySaveController() {
+  const filePath = "/tmp/tunes.abc";
+  let snapshot = {
+    path: filePath,
+    text: "X:2\nT:Second\nK:C\nD|\n",
+    version: 4,
+  };
+  let commitPayload = null;
+  let reconciled = false;
+  let patched = null;
+  const controller = createSaveFlowController({
+    api: {
+      commitWorkingCopyToDisk: async (payload) => {
+        commitPayload = payload;
+        return { ok: true };
+      },
+    },
+    state: {
+      getActiveTuneId: () => "legacy-id",
+      getActiveTuneUid: () => "uid-second",
+      getHeaderEditorValue: () => "",
+    },
+    actions: {
+      attachTuneUidsToLibraryFile: () => {},
+      ensureWorkingCopyOpenForPath: async () => true,
+      flushWorkingCopyTuneSync: async () => ({ ok: true }),
+      getEditorValue: () => "X:2\nT:Second\nK:C\nD|\n",
+      markDiskConflictPath: () => {},
+      patchCurrentDocument: (value) => { patched = value; },
+      pathsEqual: (a, b) => a === b,
+      reconcileActiveTuneAfterSave: () => { reconciled = true; },
+      refreshLibraryFile: async () => ({ path: filePath, tunes: [] }),
+      refreshWorkingCopySnapshot: async () => snapshot,
+      setActiveFilePath: () => {},
+      setDirtyIndicator: () => {},
+      setFileContentInCache: () => {},
+      tryResolveActiveTuneUid: () => true,
+      updateFileHeaderPanel: () => {},
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+
+  assert.equal(await controller.performSimpleTuneSave(filePath), true);
+  assert.deepEqual(commitPayload, {
+    force: false,
+    expectedPath: filePath,
+    expectedVersion: 4,
+  });
+  assert.deepEqual(patched, {
+    path: filePath,
+    content: snapshot.text,
+    dirty: false,
+  });
+  assert.equal(reconciled, true);
+}
+
 testBeginCleanFileDocumentClearsStaleSaveContext();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
@@ -339,5 +452,7 @@ testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 testWorkingCopyUidRecoveryRequiresTuneIdentity();
 testWorkingCopyUidRecoveryRejectsStaleFirstTuneIndex();
+testLibraryReconcilesSavedTuneByStableIdentity();
+await testSimpleTuneSaveIsOwnedBySaveController();
 
 console.log("[document_context_harness] OK");

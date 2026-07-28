@@ -16,6 +16,8 @@ export function createLibraryLifecycleController({
     getRawMode = () => false,
     getFocusModeEnabled = () => false,
     getActiveTuneMeta = () => null,
+    getActiveTuneId = () => "",
+    getActiveTuneIndex = () => null,
     getActiveTuneUid = () => "",
     getCurrentDocumentPath = () => "",
     getLibraryFilterLabel = () => "",
@@ -115,6 +117,69 @@ export function createLibraryLifecycleController({
     const libraryIndex = getLibraryIndex();
     if (!p || !libraryIndex || !Array.isArray(libraryIndex.files)) return null;
     return libraryIndex.files.find((f) => f && f.path && pathsEqual(f.path, p)) || null;
+  }
+
+  function reconcileActiveTuneAfterSave(filePath, updatedFile) {
+    if (!updatedFile || !Array.isArray(updatedFile.tunes) || !updatedFile.tunes.length) return false;
+    const activeTuneMeta = getActiveTuneMeta();
+    const previousUid = String(getActiveTuneUid() || "");
+    const previousX = activeTuneMeta && activeTuneMeta.xNumber != null
+      ? String(activeTuneMeta.xNumber || "").trim()
+      : "";
+    const previousTitle = activeTuneMeta && activeTuneMeta.title != null
+      ? String(activeTuneMeta.title || "").trim()
+      : "";
+
+    let tune = previousUid
+      ? updatedFile.tunes.find((entry) => entry && entry.tuneUid && String(entry.tuneUid) === previousUid) || null
+      : null;
+    if (!tune && (previousX || previousTitle)) {
+      const matches = updatedFile.tunes.filter((entry) => {
+        if (!entry) return false;
+        if (previousX && String(entry.xNumber || "").trim() !== previousX) return false;
+        if (previousTitle && String(entry.title || "").trim() !== previousTitle) return false;
+        return true;
+      });
+      if (matches.length === 1) tune = matches[0];
+    }
+    if (!tune) return false;
+
+    const nextUid = tune.tuneUid || previousUid || null;
+    const nextId = tune.id || getActiveTuneId() || null;
+    const nextIndex = Number.isFinite(Number(tune.tuneIndex))
+      ? Number(tune.tuneIndex)
+      : updatedFile.tunes.indexOf(tune);
+    const nextMeta = {
+      ...(activeTuneMeta || {}),
+      id: nextId || "",
+      tuneUid: nextUid || "",
+      tuneIndex: Number.isFinite(nextIndex) ? nextIndex : getActiveTuneIndex(),
+      path: updatedFile.path || filePath,
+      basename: updatedFile.basename || safeBasename(filePath),
+      xNumber: tune.xNumber || (activeTuneMeta && activeTuneMeta.xNumber) || "",
+      title: tune.title || (activeTuneMeta && activeTuneMeta.title) || "",
+      composer: tune.composer || (activeTuneMeta && activeTuneMeta.composer) || "",
+      key: tune.key || (activeTuneMeta && activeTuneMeta.key) || "",
+      startLine: tune.startLine,
+      endLine: tune.endLine,
+      startOffset: tune.startOffset,
+      endOffset: tune.endOffset,
+    };
+
+    setActiveTuneId(nextId);
+    setActiveTuneUid(nextUid);
+    setActiveTuneIndex(nextMeta.tuneIndex);
+    setActiveTuneMeta(nextMeta);
+    markActiveTuneButton(nextUid || nextId);
+    setTuneMetaText(buildTuneMetaLabel(nextMeta));
+    setFileNameMeta(stripFileExtension(nextMeta.basename || safeBasename(filePath)));
+    setSaveSession({
+      intent: SAVE_INTENT.REPLACE_TUNE,
+      targetPath: String(filePath || ""),
+      targetTuneUid: String(nextUid || ""),
+      source: "simple_tune_save",
+    });
+    return true;
   }
 
   function findRecentTuneInFileEntry(fileEntry, entry) {
@@ -859,6 +924,7 @@ export function createLibraryLifecycleController({
   }
 
   return {
+    reconcileActiveTuneAfterSave,
     setActiveTuneText,
     selectTune,
     openTuneFromLibrarySelection,

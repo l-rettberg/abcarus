@@ -46,7 +46,7 @@ export function createSaveFlowController({
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     performAppendFlow = async () => false,
     performRawSaveFlow = async () => false,
-    performSimpleTuneSave = async () => false,
+    reconcileActiveTuneAfterSave = () => {},
     recordNavFilePath = () => {},
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
@@ -69,6 +69,7 @@ export function createSaveFlowController({
     showSaveError = async () => {},
     showToastWithAction = () => {},
     stripFileExtension = (name) => String(name || "").replace(/\.[^.]*$/, ""),
+    tryResolveActiveTuneUid = () => false,
     updateFileHeaderPanel = () => {},
     updateHeaderStateUI = () => {},
     updateLibraryStatus = () => {},
@@ -148,6 +149,109 @@ export function createSaveFlowController({
     const choice = await api.confirmSaveAsForPermissionDenied(p, msg);
     if (choice !== "save_as") return false;
     return performSaveAsFlow();
+  }
+
+  async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
+    const p = String(filePath || "");
+    if (!p) {
+      await showSaveError("Unable to save: tune path is missing.");
+      return false;
+    }
+    return withFileLock(p, async () => {
+      if (!api || typeof api.commitWorkingCopyToDisk !== "function") {
+        await showSaveError("Internal error: working copy save is unavailable.");
+        return false;
+      }
+      const opened = await ensureWorkingCopyOpenForPath(p);
+      if (!opened) {
+        await showSaveError("Unable to save: working copy could not be opened.");
+        return false;
+      }
+      tryResolveActiveTuneUid();
+      const syncRes = await flushWorkingCopyTuneSync();
+      if (!syncRes || !syncRes.ok) {
+        await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune.");
+        return false;
+      }
+      let snapshot = await refreshWorkingCopySnapshot();
+      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+        await showSaveError("Unable to save: working copy no longer matches the active file.");
+        return false;
+      }
+      if (includeHeader) {
+        if (typeof api.applyWorkingCopyHeaderText !== "function") {
+          await showSaveError("Internal error: working copy header save is unavailable.");
+          return false;
+        }
+        const headerRes = await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
+          expectedPath: p,
+          expectedVersion: snapshot.version,
+        });
+        if (!headerRes || !headerRes.ok) {
+          await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to synchronize the file header.");
+          return false;
+        }
+        snapshot = await refreshWorkingCopySnapshot();
+        if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+          await showSaveError("Unable to save: working copy no longer matches the active file.");
+          return false;
+        }
+      }
+
+      const saveRes = await api.commitWorkingCopyToDisk({
+        force: false,
+        expectedPath: p,
+        expectedVersion: snapshot.version,
+      });
+      if (!saveRes || !saveRes.ok) {
+        if (saveRes && saveRes.conflict) {
+          const resolved = await resolveWorkingCopySaveConflictDefault(p, {
+            restoreTuneId: getActiveTuneUid() || getActiveTuneId(),
+          });
+          if (!resolved || !resolved.ok) {
+            if (resolved && resolved.error) await showSaveError(resolved.error);
+            return false;
+          }
+          if (resolved.action === "save_copy_as") return true;
+          if (resolved.action === "discard_reload") return false;
+        } else if (saveRes && saveRes.missingOnDisk) {
+          const handled = await handleMissingWorkingCopySave(p);
+          if (!handled || !handled.ok) return false;
+          if (handled.action === "save_as") return true;
+        } else {
+          await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
+          return false;
+        }
+      }
+
+      snapshot = await refreshWorkingCopySnapshot();
+      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
+        await showSaveError("Save completed, but the working copy could not be refreshed.");
+        return false;
+      }
+
+      setFileContentInCache(p, snapshot.text);
+      attachTuneUidsToLibraryFile(p, snapshot);
+      patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
+      if (includeHeader) {
+        markHeaderClean();
+        updateHeaderStateUI();
+      }
+      markDiskConflictPath(p, false);
+      resetTransposePreviewState();
+      setDirtyIndicator(false);
+      setActiveFilePath(p);
+      recordNavFilePath(p);
+
+      const updatedFile = await refreshLibraryFile(p, { force: true });
+      reconcileActiveTuneAfterSave(p, updatedFile);
+      updateLibraryStatus();
+      scheduleRenderLibraryTree();
+      updateFileHeaderPanel();
+      scheduleAutoWcDump("save-simple", safeBasename(p));
+      recordRecentAction("save.simple_tune.ok", { path: p });
+      return true;
+    });
   }
 
   async function performSaveFlow() {
@@ -570,6 +674,7 @@ export function createSaveFlowController({
     performRawSaveFlow,
     performSaveAsFlow,
     performSaveFlow,
+    performSimpleTuneSave,
     saveFileHeaderText,
   };
 }

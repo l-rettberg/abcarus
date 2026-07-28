@@ -2015,6 +2015,7 @@ saveFlowController = createSaveFlowController({
   state: {
     getActiveFilePath: () => activeFilePath,
     getActiveTuneId: () => activeTuneId,
+    getActiveTuneIndex: () => activeTuneIndex,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
     getCurrentDocument,
@@ -2053,7 +2054,8 @@ saveFlowController = createSaveFlowController({
     pathsEqual,
     performAppendFlow,
     performRawSaveFlow,
-    performSimpleTuneSave,
+    reconcileActiveTuneAfterSave: (filePath, updatedFile) =>
+      libraryLifecycleController.reconcileActiveTuneAfterSave(filePath, updatedFile),
     recordNavFilePath,
     recordRecentAction,
     refreshLibraryFile,
@@ -2076,12 +2078,12 @@ saveFlowController = createSaveFlowController({
     showSaveError,
     showToastWithAction,
     stripFileExtension,
+    tryResolveActiveTuneUid: tryResolveActiveTuneUidFromWorkingCopySnapshot,
     updateFileHeaderPanel,
     updateHeaderStateUI,
     updateLibraryStatus,
     updateWindowTitle,
     withFileLock,
-    writeFile,
   },
 });
 
@@ -2721,6 +2723,8 @@ libraryLifecycleController = createLibraryLifecycleController({
     getWorkingCopySnapshot,
     getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: isFocusModeEnabled,
+    getActiveTuneId: () => activeTuneId,
+    getActiveTuneIndex: () => activeTuneIndex,
     getActiveTuneMeta: () => activeTuneMeta,
     getActiveTuneUid: () => activeTuneUid,
     getCurrentDocumentPath,
@@ -4664,152 +4668,6 @@ function countLines(text) {
   return text.split(/\r\n|\n|\r/).length;
 }
 
-function updateActiveTuneMetaAfterSimpleSave(filePath, updatedFile) {
-  if (!updatedFile || !Array.isArray(updatedFile.tunes) || !updatedFile.tunes.length) return;
-  const prevIndex = Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null;
-  const prevUid = activeTuneUid ? String(activeTuneUid) : "";
-  const prevX = activeTuneMeta && activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber || "").trim() : "";
-  const prevId = activeTuneId ? String(activeTuneId) : "";
-  const prevStart = activeTuneMeta && Number.isFinite(Number(activeTuneMeta.startOffset)) ? Number(activeTuneMeta.startOffset) : null;
-  let tune = null;
-  if (prevUid) tune = updatedFile.tunes.find((t) => t && t.tuneUid && String(t.tuneUid) === prevUid) || null;
-  if (!tune && prevIndex != null) tune = updatedFile.tunes[prevIndex] || null;
-  if (!tune && prevX) tune = updatedFile.tunes.find((t) => t && String(t.xNumber || "").trim() === prevX) || null;
-  if (!tune && prevId) tune = updatedFile.tunes.find((t) => t && t.id && String(t.id) === prevId) || null;
-  if (!tune && prevStart != null) tune = updatedFile.tunes.find((t) => Number(t && t.startOffset) === prevStart) || null;
-  if (!tune) return;
-
-  activeTuneId = tune.id || activeTuneId;
-  activeTuneUid = tune.tuneUid || activeTuneUid || null;
-  activeTuneIndex = Number.isFinite(Number(tune.tuneIndex))
-    ? Number(tune.tuneIndex)
-    : (Number.isFinite(Number(updatedFile.tunes.indexOf(tune))) ? updatedFile.tunes.indexOf(tune) : activeTuneIndex);
-  activeTuneMeta = {
-    ...(activeTuneMeta || {}),
-    id: tune.id || (activeTuneMeta && activeTuneMeta.id) || "",
-    tuneUid: tune.tuneUid || (activeTuneMeta && activeTuneMeta.tuneUid) || "",
-    tuneIndex: Number.isFinite(Number(activeTuneIndex)) ? Number(activeTuneIndex) : null,
-    path: updatedFile.path || filePath,
-    basename: updatedFile.basename || safeBasename(filePath),
-    xNumber: tune.xNumber || (activeTuneMeta && activeTuneMeta.xNumber) || "",
-    title: tune.title || (activeTuneMeta && activeTuneMeta.title) || "",
-    composer: tune.composer || (activeTuneMeta && activeTuneMeta.composer) || "",
-    key: tune.key || (activeTuneMeta && activeTuneMeta.key) || "",
-    startLine: tune.startLine,
-    endLine: tune.endLine,
-    startOffset: tune.startOffset,
-    endOffset: tune.endOffset,
-  };
-  markActiveTuneButton(activeTuneUid || activeTuneId);
-  setTuneMetaText(buildTuneMetaLabel(activeTuneMeta));
-  setFileNameMeta(stripFileExtension(activeTuneMeta.basename || safeBasename(filePath)));
-  setSaveSession({
-    intent: SAVE_INTENT.REPLACE_TUNE,
-    targetPath: String(filePath || ""),
-    targetTuneUid: String(activeTuneUid || ""),
-    source: "simple_tune_save",
-  });
-}
-
-async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
-  const p = String(filePath || "");
-  if (!p) {
-    await showSaveError("Unable to save: tune path is missing.");
-    return false;
-  }
-  return withFileLock(p, async () => {
-    if (!window.api || typeof window.api.commitWorkingCopyToDisk !== "function") {
-      await showSaveError("Internal error: working copy save is unavailable.");
-      return false;
-    }
-    const opened = await ensureWorkingCopyOpenForPath(p);
-    if (!opened) {
-      await showSaveError("Unable to save: working copy could not be opened.");
-      return false;
-    }
-    tryResolveActiveTuneUidFromWorkingCopySnapshot();
-    const syncRes = await flushWorkingCopyTuneSync();
-    if (!syncRes || !syncRes.ok) {
-      await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune.");
-      return false;
-    }
-    let snapshot = await refreshWorkingCopySnapshot();
-    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-      await showSaveError("Unable to save: working copy no longer matches the active file.");
-      return false;
-    }
-    if (includeHeader) {
-      if (typeof window.api.applyWorkingCopyHeaderText !== "function") {
-        await showSaveError("Internal error: working copy header save is unavailable.");
-        return false;
-      }
-      const headerRes = await window.api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
-        expectedPath: p,
-        expectedVersion: snapshot.version,
-      });
-      if (!headerRes || !headerRes.ok) {
-        await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to synchronize the file header.");
-        return false;
-      }
-      snapshot = await refreshWorkingCopySnapshot();
-      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-        await showSaveError("Unable to save: working copy no longer matches the active file.");
-        return false;
-      }
-    }
-    const saveRes = await window.api.commitWorkingCopyToDisk({
-      force: false,
-      expectedPath: p,
-      expectedVersion: snapshot.version,
-    });
-    if (!saveRes || !saveRes.ok) {
-      if (saveRes && saveRes.conflict) {
-        const resolved = await resolveWorkingCopySaveConflictDefault(p, {
-          restoreTuneId: activeTuneUid || activeTuneId,
-        });
-        if (!resolved || !resolved.ok) {
-          if (resolved && resolved.error) await showSaveError(resolved.error);
-          return false;
-        }
-      } else if (saveRes && saveRes.missingOnDisk) {
-        const handled = await handleMissingWorkingCopySave(p);
-        if (!handled || !handled.ok) return false;
-      } else {
-        await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-        return false;
-      }
-    }
-    snapshot = await refreshWorkingCopySnapshot();
-    if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-      await showSaveError("Save completed, but the working copy could not be refreshed.");
-      return false;
-    }
-
-    const tuneText = getEditorValue();
-    setFileContentInCache(p, snapshot.text);
-    attachTuneUidsToLibraryFile(p, snapshot);
-    patchCurrentDocument({ path: p, content: tuneText, dirty: false }, { create: false });
-    if (includeHeader) {
-      markHeaderClean();
-      updateHeaderStateUI();
-    }
-    markDiskConflictPath(p, false);
-    resetTransposePreviewState();
-    setDirtyIndicator(false);
-    activeFilePath = p;
-    recordNavFilePath(p);
-
-    const updatedFile = await refreshLibraryFile(p, { force: true });
-    updateActiveTuneMetaAfterSimpleSave(p, updatedFile);
-    updateLibraryStatus();
-    scheduleRenderLibraryTree();
-    updateFileHeaderPanel();
-    scheduleAutoWcDump("save-simple", p ? safeBasename(p) : "");
-    recordRecentAction("save.simple_tune.ok", { path: p });
-    return true;
-  });
-}
-
 async function showSaveError(message) {
   if (!window.api || typeof window.api.showSaveError !== "function") return;
   await window.api.showSaveError(message);
@@ -4870,10 +4728,6 @@ async function ensureSafeToAbandonCurrentDoc(actionLabel) {
   return documentSessionController
     ? documentSessionController.ensureSafeToAbandonCurrentDoc(actionLabel)
     : false;
-}
-
-async function finalizeWorkingCopySave(filePath) {
-  return saveFlowController.finalizeWorkingCopySave(filePath);
 }
 
 async function handleMissingWorkingCopySave(filePath) {

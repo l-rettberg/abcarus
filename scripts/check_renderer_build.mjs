@@ -134,16 +134,16 @@ async function assertSaveIntentGuards() {
   if (!syncBody.includes("Stable active tune identity is missing")) {
     throw new Error("flushWorkingCopyTuneSync() must fail closed when stable tune identity is missing.");
   }
-  if (!src.includes("async function performSimpleTuneSave(filePath")) {
-    throw new Error("Renderer must provide the simple full-file tune save path.");
+  if (!saveFlow.includes("async function performSimpleTuneSave(filePath")) {
+    throw new Error("Save flow controller must own the simple tune save path.");
   }
   if (!saveBody.includes("const ok = await performSimpleTuneSave(activeTuneMeta.path")) {
     throw new Error("performSaveFlow() must use the simple full-file tune save path for active ABC tunes.");
   }
-  const simpleSaveStart = src.indexOf("async function performSimpleTuneSave(filePath");
-  const simpleSaveEnd = src.indexOf("async function showSaveError(", simpleSaveStart);
+  const simpleSaveStart = saveFlow.indexOf("async function performSimpleTuneSave(filePath");
+  const simpleSaveEnd = saveFlow.indexOf("async function performSaveFlow()", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
-  const simpleSaveBody = src.slice(simpleSaveStart, simpleSaveEnd);
+  const simpleSaveBody = saveFlow.slice(simpleSaveStart, simpleSaveEnd);
   if (!simpleSaveBody.includes("const syncRes = await flushWorkingCopyTuneSync();")) {
     throw new Error("performSimpleTuneSave() must synchronize the UID-addressed tune through the working copy.");
   }
@@ -153,7 +153,7 @@ async function assertSaveIntentGuards() {
   ) {
     throw new Error("performSimpleTuneSave() must bind commit to the expected working-copy path and version.");
   }
-  if (simpleSaveBody.includes("writeFile(p,")) {
+  if (simpleSaveBody.includes("writeFile(")) {
     throw new Error("performSimpleTuneSave() must not bypass working-copy identity guards with a direct file write.");
   }
 

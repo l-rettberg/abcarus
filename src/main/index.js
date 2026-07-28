@@ -2886,6 +2886,68 @@ async function runUiSmoke(win) {
     return;
   }
 
+  if (process.env.ABCARUS_DEV_CLOSE_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const closeResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitFor = async (predicate, timeoutMs, stepMs = 100) => {
+          const start = Date.now();
+          let last = null;
+          while (Date.now() - start < timeoutMs) {
+            last = predicate();
+            if (last && last.ok) return last;
+            await wait(stepMs);
+          }
+          return last || { ok: false };
+        };
+        const compactSnapshot = (snap) => ({
+          editorChars: snap && snap.editorText ? String(snap.editorText).length : 0,
+          hasSvg: !!(snap && snap.hasSvg),
+          status: snap ? snap.status : "",
+          toast: snap ? snap.toast : "",
+          closeDisabled: !!(snap && snap.closeDisabled),
+          tuneSelectDisabled: !!(snap && snap.tuneSelectDisabled),
+          tuneSelectValue: snap ? snap.tuneSelectValue : "",
+          tuneSelectText: snap ? snap.tuneSelectText : "",
+        });
+        const hook = window.__abcarusDevUiSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.clickClose !== "function" || typeof hook.snapshot !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-ui-hook" };
+        }
+        let rendered = await waitFor(() => {
+          const snap = hook.snapshot();
+          return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+        }, 2500, 120);
+        if (!rendered.ok) {
+          hook.setCleanDocument("X:1\\nT:Close Smoke\\nM:4/4\\nL:1/4\\nK:C\\nC D E F |]\\n");
+          rendered = await waitFor(() => {
+            const snap = hook.snapshot();
+            return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+          }, 8000, 120);
+        }
+        if (!rendered.ok) return { ok: false, phase: "render", reason: "missing-svg", last: rendered.snap };
+        if (rendered.snap && rendered.snap.closeDisabled) {
+          return { ok: false, phase: "close", reason: "close-button-disabled", last: rendered.snap };
+        }
+        hook.clickClose();
+        const closed = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          return {
+            ok: compact.editorChars === 0 && !compact.hasSvg && compact.tuneSelectDisabled,
+            snap: compact,
+          };
+        }, 4000, 120);
+        if (!closed.ok) return { ok: false, phase: "close", reason: "document-did-not-close", last: closed.snap };
+        return { ok: true, rendered: rendered.snap, closed: closed.snap };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(closeResult && closeResult.ok), "close", closeResult);
+    return;
+  }
+
   if (process.env.ABCARUS_DEV_TRANSFORM_KEYS_SMOKE === "1") {
     await new Promise((resolve) => setTimeout(resolve, 1800));
     const setupResult = await win.webContents.executeJavaScript(

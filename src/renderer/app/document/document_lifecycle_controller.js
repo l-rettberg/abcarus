@@ -36,6 +36,8 @@ function createDocumentLifecycleController({
     setActiveTuneIndex = () => {},
     setActiveTuneMeta = () => {},
     setStatus = () => {},
+    markActiveTuneButton = () => {},
+    updateFileContext = () => {},
     updateFileHeaderPanel = () => {},
     updateHeaderStateUi = () => {},
   } = actions;
@@ -69,6 +71,8 @@ function createDocumentLifecycleController({
     setTuneMetaText(untitledLabel);
     setFileNameMeta(untitledLabel);
     clearErrors();
+    markActiveTuneButton(null);
+    updateFileContext();
     setStatus("Ready");
     updateFileHeaderPanel();
     updateHeaderStateUi();

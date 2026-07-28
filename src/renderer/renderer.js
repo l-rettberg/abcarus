@@ -2532,6 +2532,8 @@ documentLifecycleController = createDocumentLifecycleController({
     setActiveTuneIndex: (value) => { activeTuneIndex = value; },
     setActiveTuneMeta: (value) => { activeTuneMeta = value; },
     setStatus,
+    markActiveTuneButton,
+    updateFileContext,
     updateFileHeaderPanel,
     updateHeaderStateUi: updateHeaderStateUI,
   },
@@ -3024,19 +3026,43 @@ diagnosticsDomain.installDevUiSmoke({
       suppressDirty = false;
     }
   },
+  setCleanDocument: (text) => {
+    const content = String(text || "");
+    suppressDirty = true;
+    try {
+      setEditorValue(content);
+      setCurrentDocument({ path: null, dirty: false, content });
+      activeTuneMeta = null;
+      activeTuneId = null;
+      activeTuneUid = null;
+      activeTuneIndex = null;
+      activeFilePath = null;
+      isNewTuneDraft = false;
+      updateFileContext();
+      markActiveTuneButton(null);
+      setDirtyIndicator(false);
+    } finally {
+      suppressDirty = false;
+    }
+  },
   getEditorText: getEditorValue,
   scheduleRender: () => scheduleRenderNow({ clearOutput: true, source: "ui-smoke" }),
   elements: {
     playButton: $btnPlayPause,
     stopButton: $btnStop,
+    closeButton: $btnFileClose,
     status: $status,
     toast: $toast,
+    tuneSelect: $fileTuneSelect,
   },
   clickPlay: () => {
     if ($btnPlayPause) $btnPlayPause.click();
   },
   clickStop: () => {
     if ($btnStop) $btnStop.click();
+  },
+  clickClose: () => {
+    if ($btnFileClose) $btnFileClose.click();
   },
   getState: () => ({
     isPlaying: playbackTransport.isPlaying,
@@ -5117,6 +5143,7 @@ const appCommandsDomain = createAppCommandsDomain({
     fileOpen,
     fileSave,
     fileSaveAs,
+    fileClose,
     getActiveFileEntry,
     gotoLine: () => { if (editorView) gotoLine(editorView); },
     importMidi: () => importExportFeature.importMidi(),

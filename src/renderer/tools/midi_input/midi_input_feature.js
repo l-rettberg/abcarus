@@ -6,6 +6,7 @@ import {
   parseHeadersNear,
 } from "../../note_preview/abc_note_parse.mjs";
 import { createMidiInputPopoverController } from "./midi_input_popover_controller.js";
+import { createMidiEditorAdapter } from "./midi_editor_adapter.js";
 
 const MIDI_PREVIEW_VOLUME_SYNC_KEYS = ["midiInputBeepVolume", "noteTypingPreviewVolume"];
 
@@ -61,9 +62,9 @@ function createMidiInputFeature({
   api,
   setButtonText,
   showToast = () => {},
-  getActiveEditorView = () => null,
-  insertTextAtCursor = () => false,
-  deleteCharBeforeCursor = () => false,
+  getMainEditorView = () => null,
+  getHeaderEditorView = () => null,
+  EditorSelectionRef = null,
   getDefaultLen = () => 1 / 8,
   gcdInt = (a, b) => {
     let x = Math.abs(Number(a) || 0);
@@ -83,6 +84,15 @@ function createMidiInputFeature({
   windowRef = () => (typeof window !== "undefined" ? window : null),
 } = {}) {
   const resolvedElements = elements || resolveDefaultElements(documentRef);
+  const editorAdapter = createMidiEditorAdapter({
+    documentRef,
+    getMainEditorView,
+    getHeaderEditorView,
+    EditorSelectionRef,
+  });
+  const getActiveEditorView = editorAdapter.getActiveEditorView;
+  const insertTextAtCursor = editorAdapter.insertTextAtCursor;
+  const deleteCharBeforeCursor = editorAdapter.deleteCharBeforeCursor;
   let midiInputEnabled = false;
   let midiInputMuted = false;
   let midiAccess = null;

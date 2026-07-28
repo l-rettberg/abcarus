@@ -3551,62 +3551,14 @@ function getFocusedEditorView() {
   return editorView || headerView || null;
 }
 
-// --- MIDI input / typing preview ---
-
-function getActiveEditorViewForMidi() {
-  const activeEl = document.activeElement;
-  const headerView = fileHeaderController.getEditorView();
-  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
-  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
-  return null;
-}
-
-function insertEditorTextAtCursor(text, userEvent = "input") {
-  const view = getActiveEditorViewForMidi();
-  if (!view || !text) return false;
-  const sel = view.state.selection.main;
-  const from = sel.from;
-  const to = sel.to;
-  const insert = String(text);
-  const cursorPos = from + insert.length;
-  view.dispatch({
-    changes: { from, to, insert },
-    selection: EditorSelection.cursor(cursorPos),
-    userEvent,
-  });
-  return true;
-}
-
-function deleteEditorCharBeforeCursorForMidi() {
-  const view = getActiveEditorViewForMidi();
-  if (!view) return false;
-  const sel = view.state.selection.main;
-  if (!sel.empty) {
-    view.dispatch({
-      changes: { from: sel.from, to: sel.to, insert: "" },
-      selection: EditorSelection.cursor(sel.from),
-      userEvent: "delete",
-    });
-    return true;
-  }
-  if (sel.from <= 0) return false;
-  const from = sel.from - 1;
-  view.dispatch({
-    changes: { from, to: sel.from, insert: "" },
-    selection: EditorSelection.cursor(from),
-    userEvent: "delete",
-  });
-  return true;
-}
-
 const midiInputFeature = createMidiInputFeature({
   documentRef: document,
   api: window.api,
   setButtonText,
   showToast,
-  getActiveEditorView: getActiveEditorViewForMidi,
-  insertTextAtCursor: insertEditorTextAtCursor,
-  deleteCharBeforeCursor: deleteEditorCharBeforeCursorForMidi,
+  getMainEditorView: () => editorView,
+  getHeaderEditorView: () => fileHeaderController.getEditorView(),
+  EditorSelectionRef: EditorSelection,
   getDefaultLen,
   gcdInt,
   isTypingPreviewBlocked: () => Boolean(isRawModeActive() || isPayloadMode() || chordProFeature.isEnabled()),

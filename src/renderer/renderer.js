@@ -1995,7 +1995,10 @@ workingCopySyncController = createWorkingCopySyncController({
       activeTuneMeta.startOffset = Number(start);
       activeTuneMeta.endOffset = Number(end);
     },
-    setActiveTuneUid: (value) => { activeTuneUid = value ? String(value) : null; },
+    setActiveTuneUid: (value) => {
+      activeTuneUid = value ? String(value) : null;
+      if (activeTuneMeta) activeTuneMeta.tuneUid = activeTuneUid || "";
+    },
     setDirtyIndicator,
     setEditorValueClean: (text) => {
       suppressDirty = true;
@@ -4724,6 +4727,7 @@ async function performSimpleTuneSave(filePath, { includeHeader = false } = {}) {
       await showSaveError("Unable to save: working copy could not be opened.");
       return false;
     }
+    tryResolveActiveTuneUidFromWorkingCopySnapshot();
     const syncRes = await flushWorkingCopyTuneSync();
     if (!syncRes || !syncRes.ok) {
       await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune.");

@@ -30,6 +30,16 @@ export function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, sta
   };
 }
 
+function parseTuneIdentity(text) {
+  const source = String(text || "");
+  const xMatch = source.match(/^\s*X:\s*([^\r\n]*)/);
+  const titleMatch = source.match(/^T:\s*(.*)$/m);
+  return {
+    xNumber: xMatch ? String(xMatch[1] || "").trim() : "",
+    title: titleMatch ? String(titleMatch[1] || "").trim() : "",
+  };
+}
+
 export function createWorkingCopySyncController({
   api = null,
   state = {},
@@ -80,13 +90,12 @@ export function createWorkingCopySyncController({
   let fullSyncEpoch = 0;
 
   function scheduleTuneSync() {
-    const activeTuneUid = getActiveTuneUid();
     const activeTuneMeta = getActiveTuneMeta();
     if (getRawMode()) return;
     if (isPayloadMode()) return;
     if (isChordProEnabled()) return;
-    if (!activeTuneUid) return;
     if (!activeTuneMeta || !activeTuneMeta.path) return;
+    if (!getActiveTuneUid() && !tryResolveActiveTuneUidFromSnapshot()) return;
     if (!api || typeof api.applyWorkingCopyTuneText !== "function") return;
     if (tuneSyncTimer) clearTimeout(tuneSyncTimer);
     tuneSyncTimer = setTimeout(() => {
@@ -131,11 +140,31 @@ export function createWorkingCopySyncController({
       }
     }
 
-    const resolved = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
-      tuneUid: null,
-      tuneIndex: getActiveTuneIndex(),
-      startOffset: activeTuneMeta.startOffset,
-    });
+    const expectedX = activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber).trim() : "";
+    const expectedTitle = activeTuneMeta.title != null ? String(activeTuneMeta.title).trim() : "";
+    if (!expectedX && !expectedTitle) return false;
+
+    const candidates = workingCopySnapshot.tunes.map((tune, index) => {
+      const start = Number(tune && tune.start);
+      const end = Number(tune && tune.end);
+      if (!tune || !tune.tuneUid || !Number.isFinite(start) || !Number.isFinite(end)) return null;
+      const identity = parseTuneIdentity(String(workingCopySnapshot.text || "").slice(start, end));
+      const identityMatches = (!expectedX || identity.xNumber === expectedX)
+        && (!expectedTitle || identity.title === expectedTitle);
+      if (!identityMatches) return null;
+      return {
+        tuneUid: tune.tuneUid,
+        tuneIndex: index,
+        start,
+        end,
+      };
+    }).filter(Boolean);
+
+    const expectedStart = Number(activeTuneMeta.startOffset);
+    let resolved = Number.isFinite(expectedStart)
+      ? candidates.find((candidate) => candidate.start === expectedStart) || null
+      : null;
+    if (!resolved && candidates.length === 1) resolved = candidates[0];
     if (!resolved || !resolved.tuneUid) return false;
     setActiveTuneUid(resolved.tuneUid);
     if (Number.isFinite(Number(resolved.tuneIndex))) setActiveTuneIndex(Number(resolved.tuneIndex));
@@ -159,7 +188,7 @@ export function createWorkingCopySyncController({
     if (getRawMode()) return { ok: false, skipped: true, reason: "raw_mode" };
     if (isPayloadMode()) return { ok: false, skipped: true, reason: "payload_mode" };
     if (isChordProEnabled()) return { ok: false, skipped: true, reason: "chordpro_mode" };
-    if (!getActiveTuneUid()) {
+    if (!getActiveTuneUid() && !tryResolveActiveTuneUidFromSnapshot()) {
       return { ok: false, error: "Stable active tune identity is missing. Re-open the tune and try again." };
     }
     const activeTuneMeta = getActiveTuneMeta();

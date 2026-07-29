@@ -3,7 +3,6 @@ import {
   EditorState,
   EditorSelection,
   basicSetup,
-  Compartment,
   keymap,
   ViewPlugin,
   indentUnit,
@@ -11,12 +10,11 @@ import {
   foldService,
   foldGutter,
   lineNumbers,
-  autocompletion,
   acceptCompletion,
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
-import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
+import { createEditorExtensionRuntime } from "./editor/editor_extension_runtime.js";
 import {
   foldBeginTextBlocks,
   indentSelectionLess,
@@ -46,7 +44,6 @@ import {
 import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
-import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
 import {
   buildAbDecorations,
   buildPayloadLayerDecorations,
@@ -369,12 +366,24 @@ const $makamDnaResetBuiltin = document.getElementById("makamDnaResetBuiltin");
 const $makamDnaSave = document.getElementById("makamDnaSave");
 const $makamDnaCancel = document.getElementById("makamDnaCancel");
 
-const abcHighlightCompartment = new Compartment();
-const abcDiagnosticsCompartment = new Compartment();
-const abcCompletionCompartment = new Compartment();
-const abcHoverCompartment = new Compartment();
-const abcTuningModeCompartment = new Compartment();
-const abcPayloadReadOnlyCompartment = new Compartment();
+const editorExtensionRuntime = createEditorExtensionRuntime({
+  getEditorView: () => editorView,
+  getDiagnosticExtensions: () => [
+    measureErrorPlugin,
+    barMismatchPlugin,
+    errorActivationHighlightPlugin,
+    practiceBarHighlightPlugin,
+  ],
+  getInitialDiagnosticExtensions: () => [
+    measureErrorPlugin,
+    barMismatchPlugin,
+    errorActivationHighlightPlugin,
+    practiceBarHighlightPlugin,
+    intonationRendererBridge.plugin,
+    abPlugin,
+    payloadModeDecorations.plugin,
+  ],
+});
 const UNTITLED_UNSAVED_LABEL = "Untitled (unsaved)";
 
 function reconfigureAbcExtensions({
@@ -384,40 +393,12 @@ function reconfigureAbcExtensions({
   hoverEnabled = false,
   tuningModeExtensions = [],
 } = {}) {
-  if (!editorView) return;
-
-  const effects = [];
-  effects.push(
-    abcHighlightCompartment.reconfigure(highlightEnabled ? [abcHighlight] : [])
-  );
-  effects.push(
-    abcDiagnosticsCompartment.reconfigure(
-      diagnosticsEnabled
-        ? [measureErrorPlugin, barMismatchPlugin, errorActivationHighlightPlugin, practiceBarHighlightPlugin]
-        : []
-    )
-  );
-  effects.push(
-    abcCompletionCompartment.reconfigure(
-      completionEnabled
-        ? [autocompletion({ override: [buildAbcCompletionSource()], activateOnTyping: false })]
-        : []
-    )
-  );
-  effects.push(
-    abcHoverCompartment.reconfigure(
-      hoverEnabled
-        ? [buildAbcHoverTooltip()]
-        : []
-    )
-  );
-  effects.push(
-    abcTuningModeCompartment.reconfigure(Array.isArray(tuningModeExtensions) ? tuningModeExtensions : [])
-  );
-
-  editorView.dispatch({
-    effects,
-    scrollIntoView: false,
+  editorExtensionRuntime.reconfigure({
+    highlightEnabled,
+    diagnosticsEnabled,
+    completionEnabled,
+    hoverEnabled,
+    tuningModeExtensions,
   });
 }
 const $setListPrint = document.getElementById("setListPrint");
@@ -639,7 +620,7 @@ const payloadModeEditorAdapter = createPayloadModeEditorAdapter({
   getEditorText: () => getEditorValue(),
   setEditorText: setEditorValue,
   setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
-  readOnlyCompartment: abcPayloadReadOnlyCompartment,
+  readOnlyCompartment: editorExtensionRuntime.payloadReadOnlyCompartment,
   EditorState,
   EditorView,
 });
@@ -3649,22 +3630,7 @@ function initEditor() {
     extensions: [
       basicSetup,
       createRectSelectionExtension(),
-      abcHighlightCompartment.of([abcHighlight]),
-      abcDiagnosticsCompartment.of([
-        measureErrorPlugin,
-        barMismatchPlugin,
-        errorActivationHighlightPlugin,
-        practiceBarHighlightPlugin,
-        intonationRendererBridge.plugin,
-        abPlugin,
-        payloadModeDecorations.plugin,
-      ]),
-      abcCompletionCompartment.of([
-        autocompletion({ override: [buildAbcCompletionSource()], activateOnTyping: false }),
-      ]),
-      abcHoverCompartment.of([]),
-      abcTuningModeCompartment.of([]),
-      abcPayloadReadOnlyCompartment.of([]),
+      ...editorExtensionRuntime.getInitialExtensions(),
       updateListener,
       customKeys,
       foldService.of(foldBeginTextBlocks),

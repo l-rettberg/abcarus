@@ -42,6 +42,25 @@ async function assertSaveIntentGuards() {
   const libraryTreePath = "src/renderer/library/tree_view.js";
   const libraryTree = await readFile(libraryTreePath, "utf8").catch(() => "");
 
+  if (!src.includes("const activeContext = createActiveTuneContextStore();")) {
+    throw new Error("Renderer must construct the active tune context store.");
+  }
+  for (const legacyName of [
+    "activeFilePath",
+    "activeTuneId",
+    "activeTuneUid",
+    "activeTuneIndex",
+    "activeTuneMeta",
+  ]) {
+    const declaration = new RegExp(`\\b(?:let|var)\\s+${legacyName}\\b`);
+    if (declaration.test(src)) {
+      throw new Error(`Active tune context must not return to renderer globals: ${legacyName}`);
+    }
+  }
+  if (/activeContext\.(?:filePath|tuneId|tuneUid|tuneIndex|tuneMeta)\b/.test(src)) {
+    throw new Error("Active tune context must be accessed through its explicit API.");
+  }
+
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
   }

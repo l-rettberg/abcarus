@@ -22,6 +22,9 @@ const { createLibraryLifecycleController } = await importRendererModule(
 const { createLibraryDocumentContext } = await importRendererModule(
   resolve("src/renderer/library/library_document_context.js")
 );
+const { createActiveTuneContextStore } = await importRendererModule(
+  resolve("src/renderer/app/document/active_tune_context_store.js")
+);
 const { createWorkingCopySyncController } = await importRendererModule(
   resolve("src/renderer/app/document/working_copy_sync_controller.js")
 );
@@ -163,6 +166,29 @@ function testLibraryDocumentContextShowsCleanFileDocument() {
     ["setDirtyIndicator", false],
     ["markActiveTuneButton", null],
   ]);
+}
+
+function testLibraryDocumentContextUsesAtomicActiveContextClear() {
+  const activeContext = createActiveTuneContextStore();
+  activeContext.setActiveFilePath("/tmp/active.abc");
+  activeContext.setActiveTuneId("legacy-id");
+  activeContext.setActiveTuneUid("stable-uid");
+  activeContext.setActiveTuneIndex(2);
+  activeContext.setActiveTuneMeta({ path: "/tmp/active.abc", tuneUid: "stable-uid" });
+
+  const context = createLibraryDocumentContext({
+    activeTuneContext: activeContext,
+    setActiveTuneText: () => {},
+    setCurrentDocument: () => {},
+  });
+
+  context.showCleanFileDocument("/tmp/active.abc", "");
+
+  assert.equal(activeContext.getActiveFilePath(), "/tmp/active.abc");
+  assert.equal(activeContext.getActiveTuneId(), null);
+  assert.equal(activeContext.getActiveTuneUid(), null);
+  assert.equal(activeContext.getActiveTuneIndex(), null);
+  assert.equal(activeContext.getActiveTuneMeta(), null);
 }
 
 function testDropActiveLibraryFileClearsSaveSession() {
@@ -448,6 +474,7 @@ testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
 testSetRawActiveTuneContextClearsStaleUidAndIndex();
 testLibraryDocumentContextShowsCleanFileDocument();
+testLibraryDocumentContextUsesAtomicActiveContextClear();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
 testWorkingCopyUidRecoveryRequiresTuneIdentity();

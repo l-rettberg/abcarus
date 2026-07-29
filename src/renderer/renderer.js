@@ -62,6 +62,7 @@ import { createLibraryUiDomain } from "./library/library_ui_domain.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
+import { createActiveTuneContextStore } from "./app/document/active_tune_context_store.js";
 import {
   alignBarsInText,
 } from "./abc/align_bars.js";
@@ -478,6 +479,7 @@ let mainEditorFeature = null;
 let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
+const activeContext = createActiveTuneContextStore();
 
 function isRawModeActive() {
   return rawModeFeature ? rawModeFeature.isEnabled() : false;
@@ -672,7 +674,7 @@ const payloadModeFeature = createPayloadModeFeature({
   setEditorReadOnly: payloadModeEditorAdapter.setEditorReadOnly,
   setEditorCursor: payloadModeEditorAdapter.setEditorCursor,
   restoreEditorSelection: payloadModeEditorAdapter.restoreEditorSelection,
-  getActiveTuneUid: () => activeTuneUid || activeTuneId || (activeTuneMeta && activeTuneMeta.id) || "",
+  getActiveTuneUid: () => activeContext.getActiveTuneUid() || activeContext.getActiveTuneId() || (activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().id) || "",
   isRawMode: () => isRawModeActive(),
   isFocusModeEnabled,
   getHeaderText: () => {
@@ -773,7 +775,7 @@ const chordProFeature = createChordProFeature({
   suppressRecentEntries: () => suppressRecentEntries,
   ensureWorkingCopyOpenForPath,
   refreshWorkingCopySnapshot,
-  getActiveFilePath: () => activeFilePath,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
   setStatus,
   clearRenderOutput,
 });
@@ -796,10 +798,10 @@ fileContextController = createFileContextController({
   },
   state: {
     getActiveFileEntry,
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneId: () => activeTuneId,
-    getActiveTuneUid: () => activeTuneUid,
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getIsNewTuneDraft: () => isNewTuneDraft,
     setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
     getLibraryIndex: () => libraryIndex,
@@ -840,7 +842,7 @@ const printAllFeature = createPrintAllFeature({
   buildHeaderPrefix,
   collectHeaderKeys,
   pathsEqual,
-  getActiveFilePath: () => activeFilePath,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
   renderAbcToSvgMarkup,
   buildSourceLinkMarkup: (abcText) => sourceLinkFeature.buildPrintMarkup(abcText),
   applyPrintDebugMarkup,
@@ -858,8 +860,8 @@ const printAllFeature = createPrintAllFeature({
 });
 const setListRendererAdapter = createSetListRendererAdapter({
   getCurrentDocDirty: isCurrentDocumentDirty,
-  getActiveTuneId: () => activeTuneId,
-  getActiveFilePath: () => activeFilePath,
+  getActiveTuneId: () => activeContext.getActiveTuneId(),
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
   getHeaderText: () => getHeaderEditorValue(),
   confirmUnsavedChanges,
   performSaveFlow,
@@ -996,7 +998,7 @@ const errorsFeature = createErrorsFeature({
   isMeasureCheckEnabled,
   isRawMode: () => isRawModeActive(),
   isPayloadMode,
-  getActiveTuneMeta: () => activeTuneMeta,
+  getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
   getEditorText: () => editorView ? editorView.state.doc.toString() : "",
   getEditorView: () => editorView,
   getRenderPayload,
@@ -1030,8 +1032,8 @@ const errorsFeature = createErrorsFeature({
   getFileContentCached,
   getActiveFileEntry,
   selectTune,
-  getActiveTuneId: () => activeTuneId,
-  getActiveTuneIdForList: () => activeTuneId,
+  getActiveTuneId: () => activeContext.getActiveTuneId(),
+  getActiveTuneIdForList: () => activeContext.getActiveTuneId(),
   getEditorScroll: () => editorView && editorView.scrollDOM ? editorView.scrollDOM.scrollTop : 0,
   setEditorScroll: (value) => { if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = value; },
   getRenderScroll: () => $renderPane ? $renderPane.scrollTop : 0,
@@ -1160,7 +1162,7 @@ diagnosticsDomain = createDiagnosticsDomain({
   getLatestSettings: () => latestSettingsSnapshot,
   clampInt,
   debugDumpHost: {
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDoc: getCurrentDocument,
     getDebugLogBuffer: () => diagnosticsDomain ? diagnosticsDomain.controller.debugLogBuffer : [],
     getRecentActions: () => diagnosticsDomain ? diagnosticsDomain.controller.recentActions : [],
@@ -1622,7 +1624,7 @@ focusModeController = createFocusModeController({
   },
   transport: playbackTransport,
   getSettings: () => latestSettingsSnapshot,
-  getActiveTuneId: () => activeTuneId,
+  getActiveTuneId: () => activeContext.getActiveTuneId(),
   getLibraryVisible: () => isLibraryVisible,
   isRawModeActive: () => isRawModeActive(),
   isPlaybackBusy,
@@ -1676,7 +1678,7 @@ headerLayersController = createHeaderLayersController({
     toggleButton: $btnToggleGlobals,
   },
   readFile,
-  getActiveFilePath: () => activeFilePath,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
   isMeasureCheckEnabled,
   scheduleRender: () => scheduleRenderNow(),
   setButtonText,
@@ -1742,7 +1744,7 @@ function countLinesForPrefix(text) {
 workingCopyRuntimeController = createWorkingCopyRuntimeController({
   api: window.api,
   state: {
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     isCurrentDocumentDirty,
     isFilePerfEnabled,
   },
@@ -1805,7 +1807,7 @@ const workingCopyConflictController = createWorkingCopyConflictController({
         documentLifecycleController.beginRawFullFileContext(filePath, options.source || "working_copy");
         setRawModeFilePath(filePath);
       } else {
-        activeFilePath = filePath || null;
+        activeContext.setActiveFilePath(filePath || null);
       }
     },
     setDirtyIndicator,
@@ -1906,26 +1908,17 @@ function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffse
     ? workingCopySyncController.resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset })
     : null;
 }
-let activeTuneId = null;
-let activeTuneUid = null;
-let activeTuneIndex = null;
-let activeTuneMeta = null;
-let activeFilePath = null;
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
 let isLibraryVisible = true;
 let latestSettingsSnapshot = null;
 
 libraryDocumentContext = createLibraryDocumentContext({
+  activeTuneContext: activeContext,
   clearSaveSession,
   markActiveTuneButton,
   markCurrentDocumentClean,
-  setActiveFilePath: (value) => { activeFilePath = value; },
-  setActiveTuneId: (value) => { activeTuneId = value; },
-  setActiveTuneIndex: (value) => { activeTuneIndex = value; },
-  setActiveTuneMeta: (value) => { activeTuneMeta = value; },
   setActiveTuneText,
-  setActiveTuneUid: (value) => { activeTuneUid = value; },
   setCurrentDocument,
   setDirtyIndicator,
 });
@@ -1933,10 +1926,10 @@ libraryDocumentContext = createLibraryDocumentContext({
 workingCopySyncController = createWorkingCopySyncController({
   api: window.api,
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneIndex: () => activeTuneIndex,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getChordProFullText: () => chordProFeature.getFullText(),
     getCurrentDocumentPath,
     getRawMode: () => isRawModeActive(),
@@ -1952,16 +1945,9 @@ workingCopySyncController = createWorkingCopySyncController({
     patchCurrentDocument,
     pathsEqual,
     refreshWorkingCopySnapshot,
-    setActiveTuneIndex: (value) => { activeTuneIndex = Number.isFinite(Number(value)) ? Number(value) : null; },
-    setActiveTuneMetaOffsets: (start, end) => {
-      if (!activeTuneMeta) return;
-      activeTuneMeta.startOffset = Number(start);
-      activeTuneMeta.endOffset = Number(end);
-    },
-    setActiveTuneUid: (value) => {
-      activeTuneUid = value ? String(value) : null;
-      if (activeTuneMeta) activeTuneMeta.tuneUid = activeTuneUid || "";
-    },
+    setActiveTuneIndex: (value) => { activeContext.setActiveTuneIndex(value); },
+    setActiveTuneMetaOffsets: activeContext.setTuneMetaOffsets,
+    setActiveTuneUid: (value) => { activeContext.setActiveTuneUid(value); },
     setDirtyIndicator,
     setEditorValueClean: (text) => {
       suppressDirty = true;
@@ -1976,11 +1962,11 @@ saveFlowController = createSaveFlowController({
   api: window.api,
   SAVE_INTENT,
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneId: () => activeTuneId,
-    getActiveTuneIndex: () => activeTuneIndex,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentDocument,
     getCurrentDocumentPath,
     getFocusModeEnabled: isFocusModeEnabled,
@@ -2032,7 +2018,7 @@ saveFlowController = createSaveFlowController({
     scheduleRenderLibraryTree,
     selectTune,
     serializeDocument,
-    setActiveFilePath: (value) => { activeFilePath = value; },
+    setActiveFilePath: (value) => { activeContext.setActiveFilePath(value); },
     setDirtyIndicator,
     setFileContentInCache,
     setFileNameMeta,
@@ -2116,11 +2102,11 @@ const libraryUiDomain = createLibraryUiDomain({
     setLibraryVisibleState: (value) => { isLibraryVisible = Boolean(value); },
     isLibraryDisabled: () => chordProFeature.isEnabled(),
     getLibraryIndex: () => libraryIndex,
-    getActiveFilePath: () => activeFilePath,
-    setActiveFilePath: (filePath) => { activeFilePath = filePath || null; },
-    getActiveTuneId: () => activeTuneId,
-    getActiveTuneUid: () => activeTuneUid,
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    setActiveFilePath: (filePath) => { activeContext.setActiveFilePath(filePath || null); },
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDocDirty: isCurrentDocumentDirty,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
@@ -2141,8 +2127,8 @@ const libraryUiDomain = createLibraryUiDomain({
     ensureXNumberInAbc,
     fileExists,
     findTuneById,
-    getActiveEditorFilePath: () => (activeTuneMeta && activeTuneMeta.path)
-      ? String(activeTuneMeta.path || "")
+    getActiveEditorFilePath: () => (activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().path)
+      ? String(activeContext.getActiveTuneMeta().path || "")
       : getCurrentDocumentPath(),
     getActiveEditFilePath,
     getClipboardTune,
@@ -2266,8 +2252,8 @@ function recordNavFilePath(filePath) {
 
 function getCurrentNavFilePath() {
   try {
-    if (activeTuneMeta && activeTuneMeta.path) return String(activeTuneMeta.path);
-    if (activeFilePath) return String(activeFilePath);
+    if (activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().path) return String(activeContext.getActiveTuneMeta().path);
+    if (activeContext.getActiveFilePath()) return String(activeContext.getActiveFilePath());
     {
       const docPath = getCurrentDocumentPath();
       if (docPath) return docPath;
@@ -2338,7 +2324,7 @@ function clearErrorIndexForFile(entry) {
 }
 
 function updateLibraryErrorIndexFromCurrentErrors() {
-  errorsFeature.updateIndexFromCurrentErrors(activeTuneId);
+  errorsFeature.updateIndexFromCurrentErrors(activeContext.getActiveTuneId());
 }
 
 const statusController = createStatusController({
@@ -2354,8 +2340,8 @@ const statusController = createStatusController({
   getCurrentDoc: getCurrentDocument,
   getRawMode: () => isRawModeActive(),
   getRawModeFilePath,
-  getActiveFilePath: () => activeFilePath,
-  getActiveTuneMeta: () => activeTuneMeta,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
+  getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
   getIsNewTuneDraft: () => isNewTuneDraft,
   getHeaderDirty,
   getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
@@ -2386,8 +2372,8 @@ editStateController = createEditStateController({
     libraryTree: $libraryTree,
   },
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDoc: getCurrentDocument,
     getHeaderDirty,
     getIsNewTuneDraft: () => isNewTuneDraft,
@@ -2505,11 +2491,7 @@ documentLifecycleController = createDocumentLifecycleController({
     scheduleRender: scheduleRenderNow,
     setRenderBusy,
     clearActiveTuneState: (filePath = null) => {
-      activeTuneMeta = null;
-      activeTuneId = null;
-      activeTuneUid = null;
-      activeTuneIndex = null;
-      activeFilePath = filePath || null;
+      activeContext.clear({ nextFilePath: filePath });
       isNewTuneDraft = false;
     },
     clearSaveSession,
@@ -2527,9 +2509,9 @@ documentLifecycleController = createDocumentLifecycleController({
     setDirtyIndicator,
     setActiveFilePath: libraryDocumentContext.setActiveFile,
     setActiveTuneId: libraryDocumentContext.setActiveTuneIdOnly,
-    setActiveTuneUid: (value) => { activeTuneUid = value; },
-    setActiveTuneIndex: (value) => { activeTuneIndex = value; },
-    setActiveTuneMeta: (value) => { activeTuneMeta = value; },
+    setActiveTuneUid: (value) => { activeContext.setActiveTuneUid(value); },
+    setActiveTuneIndex: (value) => { activeContext.setActiveTuneIndex(value); },
+    setActiveTuneMeta: (value) => { activeContext.setActiveTuneMeta(value); },
     setStatus,
     markActiveTuneButton,
     updateFileContext,
@@ -2547,14 +2529,14 @@ libraryMetadataController = createLibraryMetadataController({
     getLibraryIndex: () => libraryIndex,
     setLibraryIndex: (next) => { libraryIndex = next; },
     getWorkingCopySnapshot,
-    getActiveFilePath: () => activeFilePath,
-    setActiveFilePath: (next) => { activeFilePath = next; },
-    getActiveTuneMeta: () => activeTuneMeta,
-    setActiveTuneMeta: (next) => { activeTuneMeta = next; },
-    getActiveTuneIndex: () => activeTuneIndex,
-    setActiveTuneId: (next) => { activeTuneId = next; },
-    setActiveTuneUid: (next) => { activeTuneUid = next; },
-    setActiveTuneIndex: (next) => { activeTuneIndex = next; },
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    setActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    setActiveTuneMeta: (next) => { activeContext.setActiveTuneMeta(next); },
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    setActiveTuneId: (next) => { activeContext.setActiveTuneId(next); },
+    setActiveTuneUid: (next) => { activeContext.setActiveTuneUid(next); },
+    setActiveTuneIndex: (next) => { activeContext.setActiveTuneIndex(next); },
     getCurrentDocumentPath,
     getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
     getLibraryTextFilter: () => libraryUiDomain.getLibraryTextFilter(),
@@ -2572,7 +2554,7 @@ libraryMetadataController = createLibraryMetadataController({
     countLines,
     deleteFileContentCacheKey: (key) => fileContentCache.deleteKey(key),
     fileExists,
-    getActiveTuneId: () => activeTuneId,
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
     getFileContentFromCache,
     hasFileContentCacheKey: (key) => fileContentCache.hasKey(key),
     invalidateLibraryView: () => libraryUiDomain.invalidateView(),
@@ -2612,11 +2594,11 @@ libraryCrudDomain = createLibraryCrudDomain({
   api: window.api,
   SAVE_INTENT,
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneId: () => activeTuneId,
-    getActiveTuneIndex: () => activeTuneIndex,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentDocumentPath,
     getCurrentNavFilePath,
     getEditorText: getEditorValue,
@@ -2717,10 +2699,10 @@ libraryLifecycleController = createLibraryLifecycleController({
     getWorkingCopySnapshot,
     getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: isFocusModeEnabled,
-    getActiveTuneId: () => activeTuneId,
-    getActiveTuneIndex: () => activeTuneIndex,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentDocumentPath,
     getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
     getSuppressRecentEntries: () => suppressRecentEntries,
@@ -2787,18 +2769,18 @@ libraryLifecycleController = createLibraryLifecycleController({
     scheduleRenderNow,
     scheduleSaveLibraryUiState,
     selectionPlaybackRuntime,
-    setActiveFilePath: (next) => { activeFilePath = next; },
-    setActiveTuneId: (next) => { activeTuneId = next; },
-    setActiveTuneIndex: (next) => { activeTuneIndex = next; },
-    setActiveTuneMeta: (next) => { activeTuneMeta = next; },
-    setActiveTuneUid: (next) => { activeTuneUid = next; },
+    setActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
+    setActiveTuneId: (next) => { activeContext.setActiveTuneId(next); },
+    setActiveTuneIndex: (next) => { activeContext.setActiveTuneIndex(next); },
+    setActiveTuneMeta: (next) => { activeContext.setActiveTuneMeta(next); },
+    setActiveTuneUid: (next) => { activeContext.setActiveTuneUid(next); },
     setChordProMode: (next) => chordProFeature.setMode(Boolean(next)),
     setDirtyIndicator,
     setEditorValue,
     setFileContentInCache,
     setFileNameMeta,
     setIsNewTuneDraft: (next) => { isNewTuneDraft = Boolean(next); },
-    setLibraryActiveFilePath: (next) => { activeFilePath = next; },
+    setLibraryActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
     setPlaybackRange,
     setSaveSession,
     setScanStatus,
@@ -2824,9 +2806,9 @@ libraryLifecycleController = createLibraryLifecycleController({
 documentSessionController = createDocumentSessionController({
   api: window.api,
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneMeta: () => activeTuneMeta,
-    getActiveTuneUid: () => activeTuneUid,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentNavFilePath,
     getHeaderDirty,
     getLibraryFiles: () => (libraryIndex && Array.isArray(libraryIndex.files)) ? libraryIndex.files : [],
@@ -2919,8 +2901,8 @@ const importExportFeature = createImportExportFeature({
   getEditorText: getEditorValue,
   getSuggestedBaseName,
   getCurrentDoc: getCurrentDocument,
-  getActiveFilePath: () => activeFilePath,
-  getActiveTuneMeta: () => activeTuneMeta,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
+  getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
   getPlaybackPayload,
   ensureSafeToAbandonCurrentDoc,
   requireCleanForFileOp,
@@ -2956,8 +2938,8 @@ const importExportFeature = createImportExportFeature({
   setActiveTuneText,
   setImportedTuneActive: ({ tune, tuneText, file }) => {
     if (!tune || !file) return;
-    activeTuneId = tune.id;
-    markActiveTuneButton(activeTuneId);
+    activeContext.setActiveTuneId(tune.id);
+    markActiveTuneButton(activeContext.getActiveTuneId());
     setActiveTuneText(tuneText, {
       id: tune.id,
       path: file.path,
@@ -3025,11 +3007,7 @@ diagnosticsDomain.installDevUiSmoke({
     try {
       setEditorValue(content);
       setCurrentDocument({ path: null, dirty: false, content });
-      activeTuneMeta = null;
-      activeTuneId = null;
-      activeTuneUid = null;
-      activeTuneIndex = null;
-      activeFilePath = null;
+      activeContext.clear();
       isNewTuneDraft = false;
       updateFileContext();
       markActiveTuneButton(null);
@@ -3059,8 +3037,8 @@ diagnosticsDomain.installDevUiSmoke({
     if ($btnFileClose) $btnFileClose.click();
   },
   setPayloadTuneIdentity: () => {
-    activeTuneId = "payload-smoke-tune";
-    activeTuneUid = null;
+    activeContext.setActiveTuneId("payload-smoke-tune");
+    activeContext.setActiveTuneUid(null);
   },
   dispatchAction: (action) => appCommandsDomain
     ? appCommandsDomain.dispatch(action)
@@ -3085,8 +3063,8 @@ diagnosticsDomain.installDevUiSmoke({
 const rawModeEnterGuard = createRawModeEnterGuard({
   api: window.api,
   state: {
-    getActiveFilePath: () => activeFilePath,
-    getActiveTuneMeta: () => activeTuneMeta,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDocument,
     getCurrentDocumentPath,
     getHeaderDirty,
@@ -3129,10 +3107,10 @@ rawModeFeature = createRawModeFeature({
   patchCurrentDoc: (patch = {}) => {
     patchCurrentDocument(patch);
   },
-  getActiveFilePath: () => activeFilePath,
+  getActiveFilePath: () => activeContext.getActiveFilePath(),
   beginRawFullFileContext: (filePath, source) => documentLifecycleController.beginRawFullFileContext(filePath, source),
-  getActiveTuneId: () => activeTuneId,
-  getActiveTuneMeta: () => activeTuneMeta,
+  getActiveTuneId: () => activeContext.getActiveTuneId(),
+  getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
   setRawActiveTuneContext: (tuneId, meta) => documentLifecycleController.setRawActiveTuneContext(tuneId, meta),
   clearUnsavedDiscardState: () => {
     resetHeaderEditorFilePath();
@@ -3331,9 +3309,9 @@ intonationExplorerFeature = createIntonationExplorerFeature({
     nowMs: perfNowMs,
     refreshWorkingCopySnapshot,
     resolveActiveTune: (snapshot) => resolveTuneEntryFromSnapshot(snapshot, {
-      tuneUid: activeTuneUid,
-      tuneIndex: activeTuneIndex,
-      startOffset: activeTuneMeta && activeTuneMeta.startOffset,
+      tuneUid: activeContext.getActiveTuneUid(),
+      tuneIndex: activeContext.getActiveTuneIndex(),
+      startOffset: activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().startOffset,
     }),
     scrollToCurrentHighlight: intonationRendererBridge.scrollToCurrentHighlight,
     setHighlightRanges: intonationRendererBridge.setHighlightRanges,
@@ -3385,8 +3363,8 @@ function clearLibraryFilter() {
 
 function getActiveFileEntry() {
   if (chordProFeature.isEnabled()) return null;
-  if (!libraryIndex || !libraryIndex.files || !activeFilePath) return null;
-  return libraryIndex.files.find((file) => pathsEqual(file.path, activeFilePath)) || null;
+  if (!libraryIndex || !libraryIndex.files || !activeContext.getActiveFilePath()) return null;
+  return libraryIndex.files.find((file) => pathsEqual(file.path, activeContext.getActiveFilePath())) || null;
 }
 
 function updateFileHeaderPanel() {
@@ -3538,7 +3516,7 @@ function initEditor() {
       isChordProFullView: () => chordProFeature.isFullView(),
       handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
       handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
-      getActiveTuneUid: () => activeTuneUid,
+      getActiveTuneUid: () => activeContext.getActiveTuneUid(),
       scheduleWorkingCopyFullSync,
       scheduleWorkingCopyTuneSync,
       isRawMode: () => isRawModeActive(),
@@ -3983,7 +3961,7 @@ function setEditorSelectionAtLineCol(line, col) {
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
   return buildSuggestedTuneBaseNameCore({
     editorText: getEditorValue(),
-    activeTuneMeta,
+    activeTuneMeta: activeContext.getActiveTuneMeta(),
     includeKey,
   });
 }
@@ -4002,7 +3980,7 @@ function getPlaybackText() {
 }
 
 function getDefaultSaveDir() {
-  if (activeFilePath) return safeDirname(activeFilePath);
+  if (activeContext.getActiveFilePath()) return safeDirname(activeContext.getActiveFilePath());
   if (libraryIndex && libraryIndex.root) return libraryIndex.root;
   {
     const docPath = getCurrentDocumentPath();
@@ -4023,7 +4001,7 @@ function applyPrintDebugMarkup(markup) {
 
 function getSongbookSuggestedBaseName() {
   return buildSongbookSuggestedBaseNameCore({
-    activeFilePath,
+    activeFilePath: activeContext.getActiveFilePath(),
     fallbackBaseName: getSuggestedBaseName(),
     safeBasename,
   });
@@ -4417,7 +4395,7 @@ appCommandsDomain = createAppCommandsDomain({
     getEditorView: () => editorView,
     getFollowPlayback: () => followPlayback,
     getLatestSettings: () => latestSettingsSnapshot,
-    getActiveTuneId: () => activeTuneId,
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
     isErrorsEnabled,

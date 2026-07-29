@@ -1,4 +1,5 @@
 function createLibraryDocumentContext({
+  activeTuneContext = null,
   clearSaveSession = () => {},
   markActiveTuneButton = () => {},
   markCurrentDocumentClean = () => {},
@@ -12,10 +13,18 @@ function createLibraryDocumentContext({
   setDirtyIndicator = () => {},
 } = {}) {
   function setActiveFile(filePath) {
+    if (activeTuneContext && typeof activeTuneContext.setActiveFilePath === "function") {
+      activeTuneContext.setActiveFilePath(filePath);
+      return;
+    }
     setActiveFilePath(filePath || null);
   }
 
   function clearActiveTune() {
+    if (activeTuneContext && typeof activeTuneContext.clearTune === "function") {
+      activeTuneContext.clearTune();
+      return;
+    }
     setActiveTuneId(null);
     setActiveTuneUid(null);
     setActiveTuneIndex(null);
@@ -23,6 +32,10 @@ function createLibraryDocumentContext({
   }
 
   function setActiveTuneIdOnly(tuneId) {
+    if (activeTuneContext && typeof activeTuneContext.setActiveTuneId === "function") {
+      activeTuneContext.setActiveTuneId(tuneId);
+      return;
+    }
     setActiveTuneId(tuneId || null);
   }
 

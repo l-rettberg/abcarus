@@ -10,17 +10,13 @@ import {
   foldService,
   foldGutter,
   lineNumbers,
-  acceptCompletion,
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import { createEditorExtensionRuntime } from "./editor/editor_extension_runtime.js";
 import {
   foldBeginTextBlocks,
-  indentSelectionLess,
-  indentSelectionMore,
   initSearchPanelShortcuts,
-  moveLineSelection,
   openFindPanel,
   openReplacePanel,
   scrollEditorToPos,
@@ -30,6 +26,7 @@ import {
   setEditorSelectionRange as setEditorSelectionRangeCore,
   toggleLineComments as toggleLineCommentsCore,
 } from "./editor/editor_commands.js";
+import { createMainEditorKeymap } from "./editor/main_editor_keymap.js";
 import {
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
@@ -3505,61 +3502,32 @@ midiInputFeature.exposeDebugApi();
 
 function initEditor() {
   if (editorView || !$editorHost) return;
-  const completionTooltipOpen = (view) => {
-    if (!view || !view.hasFocus) return false;
-    const el = document.querySelector(".cm-tooltip-autocomplete");
-    return Boolean(el);
-  };
-  const customKeys = keymap.of([
-    { key: "Ctrl-s", run: () => { fileSave(); return true; } },
-    { key: "Mod-s", run: () => { fileSave(); return true; } },
-    { key: "Ctrl-f", run: openFindPanel },
-    { key: "Mod-f", run: openFindPanel },
-    { key: "Ctrl-h", run: openReplacePanel },
-    { key: "Mod-h", run: openReplacePanel },
-    { key: "Ctrl-Alt-i", run: () => { midiInputFeature.toggleInputSetting(); return true; } },
-    { key: "Mod-Alt-i", run: () => { midiInputFeature.toggleInputSetting(); return true; } },
-    { key: "Ctrl-Alt-m", run: () => { midiInputFeature.toggleMuteSetting(); return true; } },
-    { key: "Mod-Alt-m", run: () => { midiInputFeature.toggleMuteSetting(); return true; } },
-    { key: "Ctrl-Alt-g", run: gotoLine },
-    { key: "Mod-Alt-g", run: gotoLine },
-    { key: "Ctrl-g", run: () => { goToMeasureCommand().catch(() => {}); return true; } },
-    { key: "Mod-g", run: () => { goToMeasureCommand().catch(() => {}); return true; } },
-    { key: "Ctrl-F7", run: (view) => moveLineSelection(view, 1) },
-    { key: "Mod-F7", run: (view) => moveLineSelection(view, 1) },
-		    { key: "Ctrl-F5", run: (view) => moveLineSelection(view, -1) },
-		    { key: "Mod-F5", run: (view) => moveLineSelection(view, -1) },
-		    {
-		      key: "Ctrl-F2",
-		      run: (view) => openAbcHelperAtCursor({
-		        view,
-		        EditorSelection,
-		        enableDraggableFixedPopover,
-		        showToast,
-		        drumVelocityMap,
-		        isInlineFieldOnlyLine,
-		        renderAbcToSvgMarkup,
-		        loadDecorationCatalogEnrichment,
-		      }),
-		    },
-		    {
-		      key: "Enter",
-		      run: (view) => (completionTooltipOpen(view) ? acceptCompletion(view) : false),
-		    },
-		    {
-		      key: "Tab",
-		      run: (view) => (completionTooltipOpen(view) ? acceptCompletion(view) : indentSelectionMore(view)),
-		    },
-		    {
-		      key: "Shift-Tab",
-		      run: (view) => (completionTooltipOpen(view) ? false : indentSelectionLess(view)),
-		    },
-		    { key: "Mod-/", run: toggleLineComments },
-		    { key: "F5", run: () => { if (isRawModeActive()) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } togglePlayPauseEffective().catch(() => {}); return true; } },
-		    { key: "F4", run: () => { if (isRawModeActive()) { showToast("Raw mode: switch to tune mode to play.", 2200); return true; } startPlaybackAtIndex(0); return true; } },
-		    { key: "F8", run: () => { resetLayout(); return true; } },
-	    { key: "F9", run: () => { refreshErrorsNow(); return true; } },
-	  ]);
+  const editorKeymap = createMainEditorKeymap({
+    documentRef: document,
+    windowRef: window,
+    isRawMode: () => isRawModeActive(),
+    showToast,
+    fileSave,
+    toggleMidiInput: () => midiInputFeature.toggleInputSetting(),
+    toggleMidiMute: () => midiInputFeature.toggleMuteSetting(),
+    goToMeasure: goToMeasureCommand,
+    openAbcHelper: (view) => openAbcHelperAtCursor({
+      view,
+      EditorSelection,
+      enableDraggableFixedPopover,
+      showToast,
+      drumVelocityMap,
+      isInlineFieldOnlyLine,
+      renderAbcToSvgMarkup,
+      loadDecorationCatalogEnrichment,
+    }),
+    toggleLineComments,
+    togglePlayPause: togglePlayPauseEffective,
+    startPlayback: startPlaybackAtIndex,
+    resetLayout,
+    refreshErrors: refreshErrorsNow,
+    getFocusedEditorView,
+  });
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
       if (!suppressDirty && !isPayloadMode() && !hasCurrentDocument()) {
@@ -3632,7 +3600,7 @@ function initEditor() {
       createRectSelectionExtension(),
       ...editorExtensionRuntime.getInitialExtensions(),
       updateListener,
-      customKeys,
+      editorKeymap.extension,
       foldService.of(foldBeginTextBlocks),
       EditorState.tabSize.of(2),
       indentUnit.of("  "),
@@ -3644,30 +3612,7 @@ function initEditor() {
   });
   updateAbUi();
 
-  // Completion acceptance should be reliable even when other keymaps also bind Enter/Tab.
-  // Use a capturing document handler so it works consistently and for whichever editor is focused.
-  try {
-    if (!window.__abcarusCompletionKeyHandlerInstalled) {
-      window.__abcarusCompletionKeyHandlerInstalled = true;
-      document.addEventListener("keydown", (e) => {
-        try {
-          if (!e || e.defaultPrevented) return;
-          if (e.ctrlKey || e.metaKey || e.altKey) return;
-          if (e.shiftKey) return;
-          const key = String(e.key || "");
-          if (key !== "Enter" && key !== "Tab") return;
-          const tooltip = document.querySelector(".cm-tooltip-autocomplete");
-          if (!tooltip) return;
-          const view = getFocusedEditorView();
-          if (!view) return;
-          const accepted = acceptCompletion(view);
-          if (!accepted) return;
-          e.preventDefault();
-          e.stopPropagation();
-        } catch {}
-      }, true);
-    }
-  } catch {}
+  editorKeymap.installCompletionAcceptance();
 
   // Clear the active error highlight only on an explicit user click outside the highlight range.
   // This avoids accidental clearing from programmatic selection changes (follow playback, jump, etc.).

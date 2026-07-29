@@ -27,6 +27,7 @@ import {
   toggleLineComments as toggleLineCommentsCore,
 } from "./editor/editor_commands.js";
 import { createMainEditorKeymap } from "./editor/main_editor_keymap.js";
+import { createMainEditorUpdateRuntime } from "./editor/main_editor_update_runtime.js";
 import {
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
@@ -479,6 +480,7 @@ let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
+let editorUpdateRuntime = null;
 let newFileAction = null;
 let abcTransformFeature = null;
 
@@ -1011,8 +1013,12 @@ const errorsFeature = createErrorsFeature({
   isPaused: () => playbackTransport.isPaused,
   getPlaybackRange: () => playbackTransport.playbackRange,
   setPlaybackRange,
-  setPendingPlaybackRangeOrigin: (origin) => { pendingPlaybackRangeOrigin = origin; },
-  setSuppressPlaybackRangeSelectionSync: (value) => { suppressPlaybackRangeSelectionSync = Boolean(value); },
+  setPendingPlaybackRangeOrigin: (origin) => {
+    if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin(origin);
+  },
+  setSuppressPlaybackRangeSelectionSync: (value) => {
+    if (editorUpdateRuntime) editorUpdateRuntime.setSuppressPlaybackRangeSelectionSync(value);
+  },
   isDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
   performSaveFlow,
@@ -1031,10 +1037,7 @@ const errorsFeature = createErrorsFeature({
   updateFileContext,
   updateLibraryStatus,
   clearPendingRenderTimer: () => {
-    if (t) {
-      clearTimeout(t);
-      t = null;
-    }
+    if (editorUpdateRuntime) editorUpdateRuntime.clearPendingRender();
   },
   scheduleRenderNow,
   openTuneFromLibrarySelection: (selection) => {
@@ -1431,7 +1434,9 @@ const playbackPlayerController = createPlaybackPlayerController({
   getFocusModeEnabled: isFocusModeEnabled,
   getFollowPlaybackEnabled: () => followPlayback,
   getSoundfontSource: () => soundfontController.getSource(),
-  setSuppressPlaybackRangeSelectionSync: (next) => { suppressPlaybackRangeSelectionSync = Boolean(next); },
+  setSuppressPlaybackRangeSelectionSync: (next) => {
+    if (editorUpdateRuntime) editorUpdateRuntime.setSuppressPlaybackRangeSelectionSync(next);
+  },
   applyPlaybackPlanSpeed,
   startPlaybackFromRange,
   updatePracticeUi,
@@ -1463,8 +1468,6 @@ const drumPreviewController = createDrumPreviewController({
   logErr,
   windowRef: window,
 });
-var pendingPlaybackRangeOrigin = null;
-let suppressPlaybackRangeSelectionSync = false;
 function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
 }
@@ -1632,7 +1635,7 @@ focusModeController = createFocusModeController({
   resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
   syncPendingPlaybackPlan,
   clearNormalPlaybackPlan: () => {
-    pendingPlaybackRangeOrigin = null;
+    if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin(null);
     playbackTransport.pendingPlaybackPlan = null;
     playbackTransport.currentPlaybackPlan = null;
   },
@@ -3528,70 +3531,45 @@ function initEditor() {
     refreshErrors: refreshErrorsNow,
     getFocusedEditorView,
   });
-  const updateListener = EditorView.updateListener.of((update) => {
-    if (update.docChanged) {
-      if (!suppressDirty && !isPayloadMode() && !hasCurrentDocument()) {
-        ensureCurrentDocument();
-      }
-      midiInputFeature.handleTypingPreviewChange(update);
-      abLoopRuntime.incrementRevision();
-      if (abLoopRuntime.hasPlan()) clearAbPlan({ toast: true });
-      if (!suppressDirty && hasCurrentDocument() && !isPayloadMode()) {
-        patchCurrentDocument({ content: update.state.doc.toString(), dirty: true }, { create: false });
-        setDirtyIndicator(true);
-      }
-      if (!suppressDirty && hasCurrentDocument() && !isPayloadMode()) {
-        if (chordProFeature.isEnabled()) {
-          chordProFeature.handleEditorDocChanged(update.state.doc.toString());
-          scheduleWorkingCopyFullSync();
-        } else if (activeTuneUid) scheduleWorkingCopyTuneSync();
-      }
-      if (!suppressDirty && !isRawModeActive() && !chordProFeature.isFullView()) {
-        if (t) clearTimeout(t);
-        t = setTimeout(() => scheduleRenderNow(), 400);
-        sourceLinkFeature.scheduleUpdate();
-      }
-    }
-	    if (!isRawModeActive() && update.selectionSet && !playbackTransport.isPlaying) {
-	      const idx = update.state.selection.main.anchor;
-        chordProFeature.handleSelectionOffset(idx);
-	      if (followPlayback) {
-	        scheduleCursorNoteHighlight(idx);
-	      } else {
-        clearNoteSelection();
-      }
-      if (!suppressPlaybackRangeSelectionSync) {
-        const origin = pendingPlaybackRangeOrigin || "cursor";
-        pendingPlaybackRangeOrigin = null;
-        playbackTransportController.updatePlaybackRangeFromSelection(
-          update.state.selection,
-          origin,
-          errorsFeature.getActiveHighlight()
-        );
-      } else {
-        pendingPlaybackRangeOrigin = null;
-      }
-	      if (playbackTransport.transportJumpHighlightActive) {
-	        if (playbackTransport.suppressTransportJumpClearOnce) {
-	          playbackTransport.suppressTransportJumpClearOnce = false;
-	        } else {
-	          playbackTransport.transportJumpHighlightActive = false;
-	          setPracticeBarHighlight(null);
-	          clearSvgPracticeBarHighlight();
-	        }
-	      }
-	    }
-    if (update.selectionSet || update.docChanged) {
-      const pos = update.state.selection.main.head;
-      const lineInfo = update.state.doc.lineAt(pos);
-      setCursorStatus(
-        lineInfo.number,
-        pos - lineInfo.from + 1,
-        pos + 1,
-        update.state.doc.lines,
-        update.state.doc.length
+  editorUpdateRuntime = createMainEditorUpdateRuntime({
+    isDirtySuppressed: () => suppressDirty,
+    isPayloadMode,
+    hasCurrentDocument,
+    ensureCurrentDocument,
+    patchCurrentDocument,
+    setDirtyIndicator,
+    handleTypingPreviewChange: (update) => midiInputFeature.handleTypingPreviewChange(update),
+    incrementAbRevision: () => abLoopRuntime.incrementRevision(),
+    hasAbPlan: () => abLoopRuntime.hasPlan(),
+    clearAbPlan,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+    isChordProFullView: () => chordProFeature.isFullView(),
+    handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
+    handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
+    getActiveTuneUid: () => activeTuneUid,
+    scheduleWorkingCopyFullSync,
+    scheduleWorkingCopyTuneSync,
+    isRawMode: () => isRawModeActive(),
+    scheduleRender: () => scheduleRenderNow(),
+    scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),
+    isPlaying: () => playbackTransport.isPlaying,
+    getFollowPlayback: () => followPlayback,
+    scheduleCursorNoteHighlight,
+    clearNoteSelection,
+    updatePlaybackRangeFromSelection: (selection, origin, activeHighlight) => {
+      playbackTransportController.updatePlaybackRangeFromSelection(
+        selection,
+        origin,
+        activeHighlight
       );
-    }
+    },
+    getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
+    transport: playbackTransport,
+    clearPracticeHighlight: () => {
+      setPracticeBarHighlight(null);
+      clearSvgPracticeBarHighlight();
+    },
+    setCursorStatus,
   });
   const state = EditorState.create({
     doc: DEFAULT_ABC,
@@ -3599,7 +3577,7 @@ function initEditor() {
       basicSetup,
       createRectSelectionExtension(),
       ...editorExtensionRuntime.getInitialExtensions(),
-      updateListener,
+      editorUpdateRuntime.extension,
       editorKeymap.extension,
       foldService.of(foldBeginTextBlocks),
       EditorState.tabSize.of(2),
@@ -3778,9 +3756,6 @@ function createBlankDocument() {
     ? editStateController.createBlankDocument(DEFAULT_ABC)
     : { path: null, dirty: false, content: DEFAULT_ABC };
 }
-
-// debounce
-let t = null;
 
 function setStatus(s) {
   statusController.setStatus(s);
@@ -4751,7 +4726,7 @@ if ($out) {
       const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
       const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
       const editorEnd = Math.max(editorStart, mapRenderIdxToEditorOffset(editorEndRaw));
-      pendingPlaybackRangeOrigin = "svg";
+      if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin("svg");
       setEditorSelectionRange(editorStart, editorEnd);
       setPlaybackRange({
         startOffset: editorStart,

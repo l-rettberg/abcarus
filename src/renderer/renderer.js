@@ -1377,6 +1377,11 @@ const scoreHighlightController = createScoreHighlightController({
   getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
+  requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
+  getFollowEnabled: () => followPlayback,
+  isRawMode: () => isRawModeActive(),
+  isPlaying: () => playbackTransport.isPlaying,
+  scrollToNote: (element) => maybeScrollRenderToNote(element),
 });
 const practiceBarHighlightController = createPracticeBarHighlightController({
   getOutElement: () => $out,
@@ -3813,9 +3818,6 @@ function alignBarsInEditor() {
   abcTransformFeature.alignBars();
 }
 
-let pendingCursorNoteHighlightRaf = null;
-let pendingCursorNoteHighlightIdx = null;
-
 function showErrorsVisible(visible) {
   // Errors are surfaced via the always-visible "Errors: N" indicator + popover.
   // Keep the legacy sidebar errors pane inactive to avoid duplicate UX.
@@ -3973,18 +3975,7 @@ function highlightNoteAtIndex(idx) {
 }
 
 function scheduleCursorNoteHighlight(idx) {
-  // Hot path: selection changes can fire frequently while typing/moving cursor.
-  // Avoid synchronous SVG-wide querySelectorAll on every change; throttle to RAF and keep it opt-in via Follow.
-  pendingCursorNoteHighlightIdx = idx;
-  if (pendingCursorNoteHighlightRaf != null) return;
-  pendingCursorNoteHighlightRaf = requestAnimationFrame(() => {
-    pendingCursorNoteHighlightRaf = null;
-    const next = pendingCursorNoteHighlightIdx;
-    pendingCursorNoteHighlightIdx = null;
-    if (!followPlayback) return;
-    if (isRawModeActive() || playbackTransport.isPlaying) return;
-    highlightNoteAtIndex(next);
-  });
+  scoreHighlightController.scheduleCursorNoteHighlight(idx);
 }
 
 function highlightRenderNoteAtIndex(renderIdx) {

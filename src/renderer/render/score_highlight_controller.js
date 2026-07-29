@@ -9,6 +9,11 @@ function createScoreHighlightController({
   getFollowPlayheadShift,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
+  requestAnimationFrameRef = (callback) => requestAnimationFrame(callback),
+  getFollowEnabled = () => false,
+  isRawMode = () => false,
+  isPlaying = () => false,
+  scrollToNote = () => {},
 } = {}) {
   let lastSvgFollowBarEls = [];
   let lastSvgFollowMeasureEls = [];
@@ -16,6 +21,8 @@ function createScoreHighlightController({
   let lastSvgPlayheadSvg = null;
   let lastNoteSelection = [];
   let noteHighlightIndexCache = null;
+  let pendingCursorNoteHighlightRaf = null;
+  let pendingCursorNoteHighlightIdx = null;
 
   function clearSvgFollowBarHighlight() {
     for (const el of lastSvgFollowBarEls) {
@@ -426,6 +433,18 @@ function createScoreHighlightController({
     highlightRenderNoteAtIndex(renderIdx, { scrollToNote });
   }
 
+  function scheduleCursorNoteHighlight(editorIdx) {
+    pendingCursorNoteHighlightIdx = editorIdx;
+    if (pendingCursorNoteHighlightRaf != null) return;
+    pendingCursorNoteHighlightRaf = requestAnimationFrameRef(() => {
+      pendingCursorNoteHighlightRaf = null;
+      const next = pendingCursorNoteHighlightIdx;
+      pendingCursorNoteHighlightIdx = null;
+      if (!getFollowEnabled() || isRawMode() || isPlaying()) return;
+      highlightEditorNoteAtIndex(next, { scrollToNote });
+    });
+  }
+
   return {
     clearNoteSelection,
     clearSvgFollowBarHighlight,
@@ -442,6 +461,7 @@ function createScoreHighlightController({
     invalidateNoteHighlightIndexCache,
     pickClosestNoteElement,
     queryNoteHighlightElementsByRenderIdx,
+    scheduleCursorNoteHighlight,
     setSvgPlayheadFromElements,
   };
 }

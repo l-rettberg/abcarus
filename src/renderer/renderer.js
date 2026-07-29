@@ -1410,7 +1410,6 @@ const playbackFollowController = createPlaybackFollowController({
   getRenderPane: () => $renderPane,
   getFollowPlaybackEnabled: () => followPlayback,
   getFocusModeEnabled: isFocusModeEnabled,
-  getSuppressFollowScrollUntilMs: () => suppressFollowScrollUntilMs,
   clearSvgPlayhead,
   clearSvgFollowBarHighlight,
   clearSvgFollowMeasureHighlight,
@@ -1674,8 +1673,6 @@ async function loadDecorationCatalogEnrichment() {
     return null;
   }
 }
-
-let suppressFollowScrollUntilMs = 0;
 
 function isNormalModeForSplitToggle() {
   return !isRawModeActive() && !isFocusModeEnabled();
@@ -4933,9 +4930,7 @@ function setSplitOrientation(nextOrientation, { persist = true, userAction = fal
   const before = layoutController.getRightSplitOrientation();
   const ok = layoutController.setSplitOrientation(nextOrientation, { persist, userAction });
   if (ok && before !== layoutController.getRightSplitOrientation()) {
-    // Avoid follow-scroll fighting layout reflow right after a toggle.
-    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    suppressFollowScrollUntilMs = now + 250;
+    playbackFollowController.suppressFollowScroll();
   }
   return ok;
 }
@@ -4944,8 +4939,7 @@ function toggleSplitOrientation({ userAction = false } = {}) {
   const before = layoutController.getRightSplitOrientation();
   const ok = layoutController.toggleSplitOrientation({ userAction });
   if (ok && before !== layoutController.getRightSplitOrientation()) {
-    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    suppressFollowScrollUntilMs = now + 250;
+    playbackFollowController.suppressFollowScroll();
   }
   return ok;
 }

@@ -6,7 +6,6 @@ function createPlaybackFollowController({
   getRenderPane,
   getFollowPlaybackEnabled,
   getFocusModeEnabled,
-  getSuppressFollowScrollUntilMs,
   clearSvgPlayhead,
   clearSvgFollowBarHighlight,
   clearSvgFollowMeasureHighlight,
@@ -34,6 +33,17 @@ function createPlaybackFollowController({
   let lastPlaybackUiRenderIdx = null;
   let lastPlaybackUiEditorIdx = null;
   let lastPlaybackUiScrollAt = 0;
+  let suppressFollowScrollUntilMs = 0;
+
+  function nowMs() {
+    const perf = windowRef && windowRef.performance;
+    return perf && typeof perf.now === "function" ? perf.now() : Date.now();
+  }
+
+  function suppressFollowScroll(durationMs = 250) {
+    const duration = Math.max(0, Number(durationMs) || 0);
+    suppressFollowScrollUntilMs = nowMs() + duration;
+  }
 
   function clearPlaybackNoteOnEls() {
     for (const el of lastPlaybackNoteOnEls) {
@@ -219,9 +229,9 @@ function createPlaybackFollowController({
         const nearestBar = findNearestBarElForNote(chosen);
         setSvgPlayheadFromElements(chosen, nearestBar);
         highlightSvgFollowMeasureForNote(chosen, nearestBar);
-        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const now = nowMs();
         if (now - lastPlaybackUiScrollAt > 90) {
-          const suppressUntil = Number(getSuppressFollowScrollUntilMs()) || 0;
+          const suppressUntil = Number(suppressFollowScrollUntilMs) || 0;
           if (!suppressUntil || now >= suppressUntil) {
             maybeScrollRenderToNote(chosen);
             lastPlaybackUiScrollAt = now;
@@ -261,6 +271,7 @@ function createPlaybackFollowController({
     resetPlaybackUiState,
     schedulePlaybackUiUpdate,
     setFollowVoiceFromPlayback,
+    suppressFollowScroll,
   };
 }
 

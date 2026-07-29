@@ -72,7 +72,7 @@ function toggleLineComments(view, {
   const isCommented = (lineText) => {
     const match = /^[\t ]*/.exec(lineText);
     const index = match ? match[0].length : 0;
-    return lineText[index] === "%";
+    return lineText[index] === "%" && lineText[index + 1] !== "%";
   };
   const allCommented = lineInfo.every((line) => isCommented(line.text));
 

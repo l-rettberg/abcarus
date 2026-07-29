@@ -477,6 +477,7 @@ let appendCurrentTuneAction = null;
 let mainEditorFeature = null;
 let newFileAction = null;
 let abcTransformFeature = null;
+let appCommandsDomain = null;
 
 function isRawModeActive() {
   return rawModeFeature ? rawModeFeature.isEnabled() : false;
@@ -671,7 +672,7 @@ const payloadModeFeature = createPayloadModeFeature({
   setEditorReadOnly: payloadModeEditorAdapter.setEditorReadOnly,
   setEditorCursor: payloadModeEditorAdapter.setEditorCursor,
   restoreEditorSelection: payloadModeEditorAdapter.restoreEditorSelection,
-  getActiveTuneUid: () => activeTuneUid,
+  getActiveTuneUid: () => activeTuneUid || activeTuneId || (activeTuneMeta && activeTuneMeta.id) || "",
   isRawMode: () => isRawModeActive(),
   isFocusModeEnabled,
   getHeaderText: () => {
@@ -3046,6 +3047,7 @@ diagnosticsDomain.installDevUiSmoke({
     status: $status,
     toast: $toast,
     tuneSelect: $fileTuneSelect,
+    payloadBar: $payloadModeBar,
   },
   clickPlay: () => {
     if ($btnPlayPause) $btnPlayPause.click();
@@ -3056,11 +3058,25 @@ diagnosticsDomain.installDevUiSmoke({
   clickClose: () => {
     if ($btnFileClose) $btnFileClose.click();
   },
+  setPayloadTuneIdentity: () => {
+    activeTuneId = "payload-smoke-tune";
+    activeTuneUid = null;
+  },
+  dispatchAction: (action) => appCommandsDomain
+    ? appCommandsDomain.dispatch(action)
+    : Promise.resolve(),
+  setPayloadModeSettingEnabled: (enabled) => {
+    latestSettingsSnapshot = {
+      ...(latestSettingsSnapshot || {}),
+      payloadModeEnabled: Boolean(enabled),
+    };
+  },
   getState: () => ({
     isPlaying: playbackTransport.isPlaying,
     isPaused: playbackTransport.isPaused,
     waitingForFirstNote: playbackTransport.waitingForFirstNote,
     playbackStartArmed: playbackTransport.playbackStartArmed,
+    payloadMode: isPayloadMode(),
   }),
   getHasSvg: () => Boolean($out && $out.querySelector("svg")),
   getPlaybackDebug: () => window.__abcarusPlaybackDebug || null,
@@ -4362,7 +4378,7 @@ async function renumberXInActiveFile(explicitFilePath) {
   await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
 
-const appCommandsDomain = createAppCommandsDomain({
+appCommandsDomain = createAppCommandsDomain({
   api: window.api,
   windowRef: window,
   documentRef: document,

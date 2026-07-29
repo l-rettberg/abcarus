@@ -12,6 +12,9 @@ function installDevUiSmokeHook({
   clickPlay = () => {},
   clickStop = () => {},
   clickClose = () => {},
+  setPayloadTuneIdentity = () => {},
+  dispatchAction = async () => {},
+  setPayloadModeSettingEnabled = () => {},
 } = {}) {
   if (!windowRef || !devConfig || devConfig.ABCARUS_DEV_UI_SMOKE !== "1") return false;
   windowRef.__abcarusDevUiSmoke = {
@@ -29,6 +32,14 @@ function installDevUiSmokeHook({
     clickPlay,
     clickStop,
     clickClose,
+    preparePayloadTune: (text) => {
+      const content = String(text || "");
+      if (typeof setCleanDocument === "function") setCleanDocument(content);
+      else setEditorText(content);
+      setPayloadTuneIdentity();
+    },
+    dispatchAction,
+    setPayloadModeSettingEnabled,
     snapshot: () => {
       const state = getState() || {};
       const playButton = elements.playButton || null;
@@ -55,6 +66,10 @@ function installDevUiSmokeHook({
         tuneSelectValue: tuneSelect ? String(tuneSelect.value || "") : "",
         tuneSelectText: tuneSelect ? String(tuneSelect.textContent || "").trim() : "",
         playbackDebug: getPlaybackDebug(),
+        payloadMode: Boolean(state.payloadMode),
+        payloadBarHidden: elements.payloadBar
+          ? elements.payloadBar.classList.contains("hidden")
+          : true,
       };
     },
   };

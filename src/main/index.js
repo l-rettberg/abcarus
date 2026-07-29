@@ -2781,6 +2781,59 @@ async function runUiSmoke(win) {
     try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
   };
 
+  if (process.env.ABCARUS_DEV_PAYLOAD_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const payloadResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const hook = window.__abcarusDevUiSmoke;
+        if (
+          !hook
+          || typeof hook.preparePayloadTune !== "function"
+          || typeof hook.dispatchAction !== "function"
+          || typeof hook.snapshot !== "function"
+        ) {
+          return { ok: false, reason: "payload smoke hook unavailable" };
+        }
+        const source = "X:1\\nT:Payload Smoke\\nK:C\\nC D E F|\\n";
+        hook.setPayloadModeSettingEnabled(true);
+        hook.preparePayloadTune(source);
+        await hook.dispatchAction({ type: "openPayloadMode" });
+        await wait(120);
+        const entered = hook.snapshot();
+        await hook.dispatchAction({ type: "openPayloadMode" });
+        await wait(120);
+        const exited = hook.snapshot();
+        return {
+          ok: Boolean(
+            entered
+            && entered.payloadMode
+            && entered.payloadBarHidden === false
+            && exited
+            && !exited.payloadMode
+            && exited.payloadBarHidden === true
+            && exited.editorText === source
+          ),
+          entered: {
+            payloadMode: Boolean(entered && entered.payloadMode),
+            payloadBarHidden: Boolean(entered && entered.payloadBarHidden),
+            editorChars: entered && entered.editorText ? entered.editorText.length : 0,
+            toast: entered ? entered.toast : "",
+          },
+          exited: {
+            payloadMode: Boolean(exited && exited.payloadMode),
+            payloadBarHidden: Boolean(exited && exited.payloadBarHidden),
+            restored: Boolean(exited && exited.editorText === source),
+            toast: exited ? exited.toast : "",
+          },
+        };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(payloadResult && payloadResult.ok), "payload", payloadResult);
+    return;
+  }
+
   if (process.env.ABCARUS_DEV_PLAYBACK_SMOKE === "1") {
     await new Promise((resolve) => setTimeout(resolve, 1800));
     const playbackResult = await win.webContents.executeJavaScript(

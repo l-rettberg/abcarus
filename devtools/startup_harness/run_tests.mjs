@@ -55,6 +55,56 @@ const { createStartupController } = await importRendererModule(
 }
 
 {
+  const events = [];
+  let root = "";
+  const controller = createStartupController({
+    api: {
+      getRecentCandidates: async () => [
+        { type: "tune", entry: { path: "/home/music/current/various.abc" } },
+        { type: "file", entry: { path: "/home/music/current/various.abc" } },
+        { type: "folder", entry: { path: "/media/old-library" } },
+        { type: "folder", entry: { path: "/home/music" } },
+        { type: "folder", entry: { path: "/home/music/current" } },
+      ],
+      getSettings: async () => ({}),
+    },
+    getLibraryRoot: () => root,
+    loadLibraryFromFolder: async (path) => {
+      events.push(["load-folder", path]);
+      root = path;
+    },
+    openRecentTune: async () => {
+      events.push(["open-tune"]);
+      return { ok: true };
+    },
+  });
+
+  assert.equal(await controller.start(), true);
+  assert.deepEqual(events, [
+    ["load-folder", "/home/music/current"],
+    ["open-tune"],
+  ]);
+}
+
+{
+  const events = [];
+  const controller = createStartupController({
+    api: {
+      getRecentCandidates: async () => [
+        { type: "tune", entry: { path: "/music-archive/a.abc" } },
+        { type: "folder", entry: { path: "/music" } },
+      ],
+      getSettings: async () => ({}),
+    },
+    loadLibraryFromFolder: async (path) => events.push(path),
+    openRecentTune: async () => ({ ok: true }),
+  });
+
+  assert.equal(await controller.start(), true);
+  assert.deepEqual(events, ["/music"], "folder matching must respect path boundaries");
+}
+
+{
   let legacyCalls = 0;
   let readyCalls = 0;
   const controller = createStartupController({

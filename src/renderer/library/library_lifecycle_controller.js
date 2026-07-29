@@ -807,11 +807,27 @@ export function createLibraryLifecycleController({
       const res = await api.parseLibraryFile(p, { force: Boolean(options.force) });
       if (!res || !Array.isArray(res.files) || !res.files.length) return null;
       const fileEntry = res.files[0];
-      setLibraryIndex({
-        root: res.root || safeDirname(p),
-        files: [fileEntry],
-        indexMode: "single",
-      });
+      const parsedRoot = res.root || safeDirname(p);
+      const currentIndex = getLibraryIndex();
+      if (
+        currentIndex
+        && currentIndex.root
+        && pathsEqual(currentIndex.root, parsedRoot)
+        && Array.isArray(currentIndex.files)
+      ) {
+        const existingIndex = currentIndex.files.findIndex((file) => (
+          file && file.path && pathsEqual(file.path, fileEntry.path)
+        ));
+        if (existingIndex >= 0) currentIndex.files[existingIndex] = fileEntry;
+        else currentIndex.files.push(fileEntry);
+        setLibraryIndex(currentIndex);
+      } else {
+        setLibraryIndex({
+          root: parsedRoot,
+          files: [fileEntry],
+          indexMode: "single",
+        });
+      }
       invalidateLibraryView();
       updateLibraryRootUI();
       clearLibraryFilter();

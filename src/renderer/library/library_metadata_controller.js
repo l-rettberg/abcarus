@@ -55,8 +55,7 @@ export function createLibraryMetadataController({
     updateLibraryRootUI = () => {},
   } = actions;
 
-  let fullScanInFlight = false;
-  let fullScanToken = "";
+  let fullScanInFlight = null;
 
   function hasFullLibraryIndex() {
     const libraryIndex = getLibraryIndex();
@@ -94,44 +93,65 @@ export function createLibraryMetadataController({
     const currentIndex = getLibraryIndex();
     if (!currentIndex || !currentIndex.root) return false;
     if (hasFullLibraryIndex()) return true;
-    if (fullScanInFlight) return false;
-
-    fullScanInFlight = true;
-    const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    fullScanToken = scanToken;
     const root = currentIndex.root;
-    setScanStatus(reason ? `Indexing… (${reason})` : "Indexing…");
-    try {
-      const result = await api.scanLibrary(root, { token: scanToken });
-      if (!result || !result.root || result.root !== root) return false;
-      if (fullScanToken !== scanToken) return false;
-      setLibraryIndex({ ...result, indexMode: "full" });
-      invalidateLibraryView();
-      updateLibraryRootUI();
-      scheduleRenderLibraryTree();
-      updateLibraryStatus();
-      updateLibraryModalRows();
-      return true;
-    } catch (e) {
-      logErr(e && e.message ? e.message : String(e));
-      setScanStatus("Indexing failed.");
-      return false;
-    } finally {
-      if (perfOn) {
-        const libraryIndex = getLibraryIndex();
-        logStartupPerf("ensureFullLibraryIndex()", {
-          reason: String(reason || ""),
-          ms: Math.round(perfNowMs() - t0),
-          root: root ? safeBasename(root) : "",
-          ok: hasFullLibraryIndex(),
-          files: libraryIndex && libraryIndex.files ? libraryIndex.files.length : 0,
-        });
-      }
-      if (fullScanToken === scanToken) {
-        fullScanToken = "";
-        fullScanInFlight = false;
-      }
+    if (
+      fullScanInFlight
+      && pathsEqual(fullScanInFlight.root, root)
+    ) {
+      return fullScanInFlight.promise;
     }
+
+    const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setScanStatus(reason ? `Indexing… (${reason})` : "Indexing…");
+    const operation = (async () => {
+      try {
+        const result = await api.scanLibrary(root, { token: scanToken });
+        const latestIndex = getLibraryIndex();
+        if (
+          !result
+          || result.cancelled
+          || !result.root
+          || !pathsEqual(result.root, root)
+          || !latestIndex
+          || !pathsEqual(latestIndex.root, root)
+          || !fullScanInFlight
+          || fullScanInFlight.token !== scanToken
+        ) {
+          return false;
+        }
+        setLibraryIndex({ ...result, indexMode: "full" });
+        invalidateLibraryView();
+        updateLibraryRootUI();
+        scheduleRenderLibraryTree();
+        updateLibraryStatus();
+        updateLibraryModalRows();
+        return true;
+      } catch (e) {
+        logErr(e && e.message ? e.message : String(e));
+        setScanStatus("Indexing failed.");
+        return false;
+      } finally {
+        if (perfOn) {
+          const libraryIndex = getLibraryIndex();
+          logStartupPerf("ensureFullLibraryIndex()", {
+            reason: String(reason || ""),
+            ms: Math.round(perfNowMs() - t0),
+            root: root ? safeBasename(root) : "",
+            ok: Boolean(
+              libraryIndex
+              && pathsEqual(libraryIndex.root, root)
+              && libraryIndex.indexMode === "full"
+            ),
+            files: libraryIndex && libraryIndex.files ? libraryIndex.files.length : 0,
+          });
+        }
+        if (fullScanInFlight && fullScanInFlight.token === scanToken) {
+          fullScanInFlight = null;
+        }
+      }
+    })();
+    fullScanInFlight = { root, token: scanToken, promise: operation };
+    return operation;
   }
 
   function attachTuneUidsToLibraryFile(filePath, snapshot) {

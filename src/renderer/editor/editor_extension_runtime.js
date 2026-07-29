@@ -22,7 +22,6 @@ export function createEditorExtensionRuntime({
     autocompletion({
       override: [buildAbcCompletionSource()],
       activateOnTyping: false,
-      interactionDelay: 0,
     }),
   ];
 

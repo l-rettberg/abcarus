@@ -66,18 +66,18 @@ function buildAbcCompletionSource() {
     if (beforeTrim.startsWith("%%") || /^(\s*)$/.test(before)) {
       const m = context.matchBefore(/^\s*%%[A-Za-z]*$/);
       if (m) {
-        return { from: line.from + m.from, options: midiDirectives, validFor: /^\s*%%[A-Za-z]*$/ };
+        return { from: m.from, options: midiDirectives, validFor: /^\s*%%[A-Za-z]*$/ };
       }
       const m2 = context.matchBefore(/^\s*%%MIDI\s+[A-Za-z]*$/);
       if (m2) {
-        return { from: line.from + m2.from, options: midiDirectives, validFor: /^\s*%%MIDI\s+[A-Za-z]*$/ };
+        return { from: m2.from, options: midiDirectives, validFor: /^\s*%%MIDI\s+[A-Za-z]*$/ };
       }
     }
 
     // %%MIDI temperamentequal <N>
     if (/^\s*%%\s*MIDI\s+temperamentequal\b/i.test(lineText)) {
       const m = context.matchBefore(/\d*$/);
-      if (m) return { from: line.from + m.from, options: edoOptions };
+      if (m) return { from: m.from, options: edoOptions };
     }
 
     // Header field values.
@@ -88,19 +88,19 @@ function buildAbcCompletionSource() {
     }
     if (/^\s*M:/.test(lineText)) {
       const m = context.matchBefore(/[0-9C|/nobe]*$/i);
-      if (m) return { from: line.from + m.from, options: meterOptions };
+      if (m) return { from: m.from, options: meterOptions };
     }
     if (/^\s*L:/.test(lineText)) {
       const m = context.matchBefore(/[0-9/]*$/);
-      if (m) return { from: line.from + m.from, options: unitOptions };
+      if (m) return { from: m.from, options: unitOptions };
     }
     if (/^\s*Q:/.test(lineText)) {
       const m = context.matchBefore(/[0-9=/]*$/);
-      if (m) return { from: line.from + m.from, options: tempoOptions };
+      if (m) return { from: m.from, options: tempoOptions };
     }
     if (/^\s*V:/.test(lineText)) {
       const m = context.matchBefore(/[A-Za-z0-9_-]*$/);
-      if (m) return { from: line.from + m.from, options: voiceOptions };
+      if (m) return { from: m.from, options: voiceOptions };
     }
 
     return null;

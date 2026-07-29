@@ -26,6 +26,7 @@ export function createRectSelectionExtension() {
 
 export function createMainEditorFeature({
   host,
+  cursorStatusElement = null,
   initialDoc = "",
   extensionRuntime,
   keymapOptions = {},
@@ -38,11 +39,27 @@ export function createMainEditorFeature({
   updateAbUi = () => {},
 } = {}) {
   let view = null;
+  let lastCursorStatus = null;
   const keymapRuntime = createMainEditorKeymap(keymapOptions);
-  const updateRuntime = createMainEditorUpdateRuntime(updateOptions);
-  const setCursorStatus = typeof updateOptions.setCursorStatus === "function"
-    ? updateOptions.setCursorStatus
-    : () => {};
+
+  function setCursorStatus(line, col, offset, totalLines, totalChars) {
+    if (!cursorStatusElement) return;
+    lastCursorStatus = { line, col, offset, totalLines, totalChars };
+    const text = `Ln ${line}/${totalLines}, Col ${col}  •  Ch ${offset}/${totalChars}`;
+    cursorStatusElement.textContent = text;
+    cursorStatusElement.title = text;
+  }
+
+  function refreshCursorStatus() {
+    if (!lastCursorStatus) return;
+    const { line, col, offset, totalLines, totalChars } = lastCursorStatus;
+    setCursorStatus(line, col, offset, totalLines, totalChars);
+  }
+
+  const updateRuntime = createMainEditorUpdateRuntime({
+    ...updateOptions,
+    setCursorStatus,
+  });
 
   function installDomHooks() {
     view.dom.addEventListener("mousedown", (event) => {
@@ -108,6 +125,7 @@ export function createMainEditorFeature({
     clearPendingRender: updateRuntime.clearPendingRender,
     getView: () => view,
     init,
+    refreshCursorStatus,
     setPendingPlaybackRangeOrigin: updateRuntime.setPendingPlaybackRangeOrigin,
     setSuppressPlaybackRangeSelectionSync: updateRuntime.setSuppressPlaybackRangeSelectionSync,
   };

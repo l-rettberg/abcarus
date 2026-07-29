@@ -3497,8 +3497,10 @@ const midiInputFeature = createMidiInputFeature({
   gcdInt,
   isTypingPreviewBlocked: () => Boolean(isRawModeActive() || isPayloadMode() || chordProFeature.isEnabled()),
   isMainEditorUpdate: (update) => Boolean(editorView && update && update.view === editorView),
-  refreshCursorStatus,
-  hasCursorStatus: () => Boolean(lastCursorStatus),
+  refreshCursorStatus: () => {
+    if (mainEditorFeature) mainEditorFeature.refreshCursorStatus();
+  },
+  hasCursorStatus: () => Boolean(mainEditorFeature),
 });
 midiInputFeature.exposeDebugApi();
 
@@ -3506,6 +3508,7 @@ function initEditor() {
   if (editorView || !$editorHost) return;
   mainEditorFeature = createMainEditorFeature({
     host: $editorHost,
+    cursorStatusElement: $cursorStatus,
     initialDoc: DEFAULT_ABC,
     extensionRuntime: editorExtensionRuntime,
     keymapOptions: {
@@ -3572,7 +3575,6 @@ function initEditor() {
         setPracticeBarHighlight(null);
         clearSvgPracticeBarHighlight();
       },
-      setCursorStatus,
     },
     isPayloadMode,
     shouldSuppressErrorHighlightClear: () => errorsFeature.isHighlightSuppressingClear(),
@@ -3790,22 +3792,6 @@ function setSoundfontStatus(text, autoClearMs) {
 
 function setSoundfontCaption(text) {
   soundfontController.setCaption(text);
-}
-
-let lastCursorStatus = null;
-
-function setCursorStatus(line, col, offset, totalLines, totalChars) {
-  if (!$cursorStatus) return;
-  lastCursorStatus = { line, col, offset, totalLines, totalChars };
-  const base = `Ln ${line}/${totalLines}, Col ${col}  •  Ch ${offset}/${totalChars}`;
-  $cursorStatus.textContent = base;
-  $cursorStatus.title = base;
-}
-
-function refreshCursorStatus() {
-  if (!lastCursorStatus) return;
-  const { line, col, offset, totalLines, totalChars } = lastCursorStatus;
-  setCursorStatus(line, col, offset, totalLines, totalChars);
 }
 
 function applyTransformedText(text, options = {}) {

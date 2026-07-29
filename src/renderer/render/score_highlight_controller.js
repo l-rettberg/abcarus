@@ -413,7 +413,7 @@ function createScoreHighlightController({
     return Array.isArray(hit) ? hit : [];
   }
 
-  function highlightRenderNoteAtIndex(renderIdx, { scrollToNote = () => {} } = {}) {
+  function highlightRenderNoteAtIndex(renderIdx, { scrollToNote: scroll = scrollToNote } = {}) {
     const out = getOutElement();
     if (!out) return;
     clearNoteSelection();
@@ -425,12 +425,12 @@ function createScoreHighlightController({
       try { el.classList.add("note-select"); } catch {}
     }
     const chosen = pickClosestNoteElement(lastNoteSelection);
-    if (chosen) scrollToNote(chosen);
+    if (chosen) scroll(chosen);
   }
 
-  function highlightEditorNoteAtIndex(editorIdx, { scrollToNote = () => {} } = {}) {
+  function highlightEditorNoteAtIndex(editorIdx, { scrollToNote: scroll = scrollToNote } = {}) {
     const renderIdx = Number.isFinite(editorIdx) ? mapEditorOffsetToRenderIdx(editorIdx) : editorIdx;
-    highlightRenderNoteAtIndex(renderIdx, { scrollToNote });
+    highlightRenderNoteAtIndex(renderIdx, { scrollToNote: scroll });
   }
 
   function scheduleCursorNoteHighlight(editorIdx) {

@@ -41,6 +41,10 @@ async function assertSaveIntentGuards() {
   const fileContext = await readFile(fileContextPath, "utf8").catch(() => "");
   const libraryTreePath = "src/renderer/library/tree_view.js";
   const libraryTree = await readFile(libraryTreePath, "utf8").catch(() => "");
+  const renderRuntimePath = "src/renderer/render/render_runtime.js";
+  const renderRuntime = await readFile(renderRuntimePath, "utf8").catch(() => "");
+  const scoreInteractionPath = "src/renderer/render/score_interaction_controller.js";
+  const scoreInteraction = await readFile(scoreInteractionPath, "utf8").catch(() => "");
 
   if (!src.includes("const activeContext = createActiveTuneContextStore();")) {
     throw new Error("Renderer must construct the active tune context store.");
@@ -59,6 +63,42 @@ async function assertSaveIntentGuards() {
   }
   if (/activeContext\.(?:filePath|tuneId|tuneUid|tuneIndex|tuneMeta)\b/.test(src)) {
     throw new Error("Active tune context must be accessed through its explicit API.");
+  }
+  if (!src.includes("const renderRuntime = createRenderRuntime(")) {
+    throw new Error("Renderer must construct the render runtime facade.");
+  }
+  if (
+    src.includes('from "./render/render_payload_controller.js"')
+    || src.includes('from "./render/render_pipeline_controller.js"')
+    || src.includes('from "./render/render_payload_model.js"')
+  ) {
+    throw new Error("Renderer must access payload, pipeline, and offset mapping through render_runtime.");
+  }
+  for (const legacyRenderFunction of [
+    "assertCleanAbcText",
+    "centerRenderPaneOnCurrentAnchor",
+    "getRenderCompatMap",
+    "getLastRenderPayload",
+    "getRenderPayload",
+    "mapEditorOffsetToRenderIdx",
+    "mapRenderIdxToEditorOffset",
+    "normalizeAccThreeQuarterToneForAbc2svg",
+    "scheduleRenderNow",
+  ]) {
+    const declaration = new RegExp(`\\bfunction\\s+${legacyRenderFunction}\\s*\\(`);
+    if (declaration.test(src)) {
+      throw new Error(`Render domain logic must not return to renderer.js: ${legacyRenderFunction}`);
+    }
+  }
+  if (!renderRuntime.includes("function initializePipeline(") || !renderRuntime.includes("function getRenderCompatMap(")) {
+    throw new Error("Render runtime must own pipeline initialization and offset compatibility mapping.");
+  }
+  if (
+    !scoreInteraction.includes("function centerCurrentAnchor(")
+    || !scoreInteraction.includes("function wireOutputSelection(")
+    || !src.includes("scoreInteractionController.wireOutputSelection();")
+  ) {
+    throw new Error("Score interaction controller must own render centering and SVG selection wiring.");
   }
 
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {

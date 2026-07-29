@@ -160,20 +160,11 @@ import {
 import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
-import {
-  getRenderCompatMapFromPayload,
-  mapEditorOffsetToRenderIdx as mapEditorOffsetToRenderIdxCore,
-  mapRenderIdxToEditorOffset as mapRenderIdxToEditorOffsetCore,
-  mapRenderOffsetToSourceOffset as mapRenderOffsetToSourceOffsetCore,
-  mapSourceOffsetToRenderOffset as mapSourceOffsetToRenderOffsetCore,
-  normalizeHeaderNoneSpacing,
-  stripSepForRender,
-} from "./render/render_payload_model.js";
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
 import { createAbcToSvgMarkupRenderer } from "./render/abc_to_svg_markup.js";
-import { createRenderPayloadController } from "./render/render_payload_controller.js";
-import { createRenderPipelineController } from "./render/render_pipeline_controller.js";
+import { createRenderRuntime } from "./render/render_runtime.js";
 import { createScoreHighlightController } from "./render/score_highlight_controller.js";
+import { createScoreInteractionController } from "./render/score_interaction_controller.js";
 import { createPracticeBarHighlightController } from "./render/practice_bar_highlight_controller.js";
 import { createHeaderLayersController } from "./render/header_layers_controller.js";
 import {
@@ -480,6 +471,20 @@ let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
 const activeContext = createActiveTuneContextStore();
+const renderRuntime = createRenderRuntime({ consoleRef: console });
+const {
+  assertCleanAbcText,
+  clearOutput: clearRenderOutput,
+  getLastRenderPayload,
+  getRenderCompatMap,
+  getRenderPayload,
+  mapEditorOffsetToRenderIdx,
+  mapRenderIdxToEditorOffset,
+  normalizeAccThreeQuarterToneForAbc2svg,
+  normalizeHeaderNoneSpacing,
+  scheduleRender: scheduleRenderNow,
+  stripSepForRender,
+} = renderRuntime;
 
 function isRawModeActive() {
   return rawModeFeature ? rawModeFeature.isEnabled() : false;
@@ -975,6 +980,72 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   buildSelectionPlaybackToast,
   globalObject: window,
 });
+const followHighlightSettings = createFollowHighlightSettings({
+  documentRef: document,
+  clampNumber,
+});
+const scoreHighlightController = createScoreHighlightController({
+  documentRef: document,
+  getOutElement: () => $out,
+  getRenderPane: () => $renderPane,
+  getEditorView: () => editorView,
+  clampNumber,
+  getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
+  getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
+  getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
+  findMeasureRangeAt,
+  mapEditorOffsetToRenderIdx,
+  requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
+  getFollowEnabled: () => followPlayback,
+  isRawMode: () => isRawModeActive(),
+  isPlaying: () => playbackTransport.isPlaying,
+  scrollToNote: (element) => maybeScrollRenderToNote(element),
+});
+const practiceBarHighlightController = createPracticeBarHighlightController({
+  getOutElement: () => $out,
+  getRenderPane: () => $renderPane,
+  getEditorView: () => editorView,
+  findMeasureRangeAt,
+  mapEditorOffsetToRenderIdx,
+});
+const practiceBarHighlightPlugin = practiceBarHighlightController.plugin;
+const {
+  clearNoteSelection,
+  clearSvgFollowBarHighlight,
+  clearSvgFollowMeasureHighlight,
+  clearSvgPlayhead,
+  extractRenderIdxFromElementClass,
+  findNearestBarElForNote,
+  findNearestNoteHighlightElements,
+  highlightEditorNoteAtIndex: highlightNoteAtIndex,
+  highlightRenderNoteAtIndex,
+  highlightSvgFollowMeasureForNote,
+  invalidateNoteHighlightIndexCache,
+  pickClosestNoteElement,
+  scheduleCursorNoteHighlight,
+  setSvgPlayheadFromElements,
+} = scoreHighlightController;
+const {
+  clearSvgPracticeBarHighlight,
+  highlightSvgPracticeBarAtEditorOffset,
+  setPracticeBarHighlight,
+} = practiceBarHighlightController;
+const scoreInteractionController = createScoreInteractionController({
+  outputElement: $out,
+  renderPane: $renderPane,
+  getEditorView: () => editorView,
+  getActiveHighlight: () => errorsFeature.getActiveHighlight(),
+  mapEditorOffsetToRenderIdx,
+  mapRenderIdxToEditorOffset,
+  pickClosestNoteElement,
+  setEditorSelectionRange,
+  setPendingPlaybackRangeOrigin: (origin) => {
+    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(origin);
+  },
+  getPlaybackRange: () => playbackTransport.playbackRange,
+  setPlaybackRange,
+});
+const centerRenderPaneOnCurrentAnchor = scoreInteractionController.centerCurrentAnchor;
 const errorsFeature = createErrorsFeature({
   elements: {
     toggleButton: $btnToggleErrors,
@@ -1370,35 +1441,6 @@ const playbackTransportController = createPlaybackTransportController({
   setSoundfontCaption,
   showToast,
 });
-const followHighlightSettings = createFollowHighlightSettings({
-  documentRef: document,
-  clampNumber,
-});
-const scoreHighlightController = createScoreHighlightController({
-  documentRef: document,
-  getOutElement: () => $out,
-  getRenderPane: () => $renderPane,
-  getEditorView: () => editorView,
-  clampNumber,
-  getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
-  getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
-  getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
-  findMeasureRangeAt,
-  mapEditorOffsetToRenderIdx,
-  requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
-  getFollowEnabled: () => followPlayback,
-  isRawMode: () => isRawModeActive(),
-  isPlaying: () => playbackTransport.isPlaying,
-  scrollToNote: (element) => maybeScrollRenderToNote(element),
-});
-const practiceBarHighlightController = createPracticeBarHighlightController({
-  getOutElement: () => $out,
-  getRenderPane: () => $renderPane,
-  getEditorView: () => editorView,
-  findMeasureRangeAt,
-  mapEditorOffsetToRenderIdx,
-});
-const practiceBarHighlightPlugin = practiceBarHighlightController.plugin;
 const playbackAutoScrollController = createPlaybackAutoScrollController({
   windowRef: window,
   consoleRef: console,
@@ -1517,38 +1559,6 @@ function clearSvgErrorActivationHighlight() {
   errorsFeature.clearSvgHighlight();
 }
 
-function clearSvgPracticeBarHighlight() {
-  return practiceBarHighlightController.clearSvgPracticeBarHighlight();
-}
-
-function clearSvgFollowBarHighlight() {
-  return scoreHighlightController.clearSvgFollowBarHighlight();
-}
-
-function clearSvgFollowMeasureHighlight() {
-  return scoreHighlightController.clearSvgFollowMeasureHighlight();
-}
-
-function clearSvgPlayhead() {
-  return scoreHighlightController.clearSvgPlayhead();
-}
-
-function findNearestBarElForNote(noteEl) {
-  return scoreHighlightController.findNearestBarElForNote(noteEl);
-}
-
-	function highlightSvgFollowMeasureForNote(noteEl, barEl) {
-	  return scoreHighlightController.highlightSvgFollowMeasureForNote(noteEl, barEl);
-}
-
-function highlightSvgFollowBarAtEditorOffset(editorOffset) {
-  return scoreHighlightController.highlightSvgFollowBarAtEditorOffset(editorOffset);
-}
-
-	function setSvgPlayheadFromElements(noteEl, preferredBarEl) {
-	  return scoreHighlightController.setSvgPlayheadFromElements(noteEl, preferredBarEl);
-}
-
 function highlightSvgAtEditorOffset(editorOffset) {
   return errorsFeature.highlightSvgAtEditorOffset(editorOffset);
 }
@@ -1660,8 +1670,6 @@ function isNormalModeForSplitToggle() {
 
 let libraryIndex = null;
 let suppressRecentEntries = false;
-let renderPayloadController = null;
-let renderPipelineController = null;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let headerLayersController = null;
 const fileContentCache = createFileContentCache({
@@ -1684,7 +1692,7 @@ headerLayersController = createHeaderLayersController({
   setButtonText,
 });
 
-renderPayloadController = createRenderPayloadController({
+renderRuntime.initializePayload({
   getEditorText: getEditorValue,
   getActiveFileEntry,
   getHeaderText: getHeaderEditorValue,
@@ -1695,32 +1703,7 @@ renderPayloadController = createRenderPayloadController({
   countLinesForPrefix,
   sanitizeHeaderText: sanitizeFileHeaderForInteractiveRender,
   buildHeaderPrefix,
-  assertCleanAbcText,
 });
-
-function getRenderCompatMap() {
-  return getRenderCompatMapFromPayload(getLastRenderPayload());
-}
-
-function getLastRenderPayload() {
-  return renderPipelineController ? renderPipelineController.getLastPayload() : null;
-}
-
-function mapSourceOffsetToRenderOffset(offset, compatMap = getRenderCompatMap()) {
-  return mapSourceOffsetToRenderOffsetCore(offset, compatMap);
-}
-
-function mapRenderOffsetToSourceOffset(offset, compatMap = getRenderCompatMap()) {
-  return mapRenderOffsetToSourceOffsetCore(offset, compatMap);
-}
-
-function mapEditorOffsetToRenderIdx(editorOffset, payload = getLastRenderPayload()) {
-  return mapEditorOffsetToRenderIdxCore(editorOffset, payload);
-}
-
-function mapRenderIdxToEditorOffset(renderIdx, payload = getLastRenderPayload()) {
-  return mapRenderIdxToEditorOffsetCore(renderIdx, payload);
-}
 
 function normalizeFileContentCacheKey(filePath) {
   return fileContentCache.normalizeKey(filePath);
@@ -3384,14 +3367,6 @@ function updateLibraryStatus() {
   return libraryMetadataController.updateLibraryStatus();
 }
 
-function highlightSvgPracticeBarAtEditorOffset(editorOffset) {
-  return practiceBarHighlightController.highlightSvgPracticeBarAtEditorOffset(editorOffset);
-}
-
-function setPracticeBarHighlight(range) {
-  return practiceBarHighlightController.setPracticeBarHighlight(range);
-}
-
 function getEditorValue() {
   if (!editorView) return "";
   return editorView.state.doc.toString();
@@ -3875,42 +3850,6 @@ function logErr(m, loc, context) {
   return errorsFeature.log(m, loc, context);
 }
 
-function clearNoteSelection() {
-  return scoreHighlightController.clearNoteSelection();
-}
-
-function pickClosestNoteElement(els) {
-  return scoreHighlightController.pickClosestNoteElement(els);
-}
-
-function invalidateNoteHighlightIndexCache() {
-  return scoreHighlightController.invalidateNoteHighlightIndexCache();
-}
-
-function extractRenderIdxFromElementClass(el) {
-  return scoreHighlightController.extractRenderIdxFromElementClass(el);
-}
-
-function queryNoteHighlightElementsByRenderIdx(renderIdx) {
-  return scoreHighlightController.queryNoteHighlightElementsByRenderIdx(renderIdx);
-}
-
-function findNearestNoteHighlightElements(renderIdx, maxDelta = 240) {
-  return scoreHighlightController.findNearestNoteHighlightElements(renderIdx, maxDelta);
-}
-
-function highlightNoteAtIndex(idx) {
-  scoreHighlightController.highlightEditorNoteAtIndex(idx, { scrollToNote: maybeScrollRenderToNote });
-}
-
-function scheduleCursorNoteHighlight(idx) {
-  scoreHighlightController.scheduleCursorNoteHighlight(idx);
-}
-
-function highlightRenderNoteAtIndex(renderIdx) {
-  scoreHighlightController.highlightRenderNoteAtIndex(renderIdx, { scrollToNote: maybeScrollRenderToNote });
-}
-
 function setEditorSelectionAt(idx) {
   return setEditorSelectionAtCore(editorView, idx, { onSelect: highlightNoteAtIndex });
 }
@@ -3981,23 +3920,7 @@ async function getFileContentCached(filePath) {
   return fileContentCache.getCached(filePath, readFile);
 }
 
-function normalizeAccThreeQuarterToneForAbc2svg(text) {
-  // abc2svg has built-in glyphs for quarter-tones as 1/2 semitone (acc-1_2) and 3/2 semitones (acc-3_2),
-  // but some real-world ABC uses 3/4 tone accidentals written as "_3/4" or "^3/4".
-  // For tolerant playback, normalize to the abc2svg-supported 3/2 semitone form (same musical intent).
-  return String(text || "").replace(/([_^])3\/4/g, "$13/2");
-}
-
-function assertCleanAbcText(text, originLabel) {
-  const src = String(text || "");
-  if (src.includes("[object Object]")) {
-    console.error(`[abcarus] ABC text corruption detected (${originLabel || "unknown"}): contains "[object Object]"`);
-    return false;
-  }
-  return true;
-}
-
-renderPipelineController = createRenderPipelineController({
+renderRuntime.initializePipeline({
   windowRef: window,
   outputElement: $out,
   getRawMode: () => isRawModeActive(),
@@ -4007,9 +3930,6 @@ renderPipelineController = createRenderPipelineController({
   getEditorText: getEditorValue,
   getEditorView: () => editorView,
   getRenderPayload,
-  normalizeHeaderText: normalizeHeaderNoneSpacing,
-  stripSepForRender,
-  assertCleanAbcText,
   ensureAbc2svgLoader,
   ensureAbc2svgModules,
   getAbcCtor,
@@ -4047,18 +3967,6 @@ renderPipelineController = createRenderPipelineController({
 
 function setRenderBusy(next) {
   if (playbackUiController) playbackUiController.setRenderBusy(next);
-}
-
-function clearRenderOutput(statusText = "Ready") {
-  if (renderPipelineController) renderPipelineController.clearOutput(statusText);
-}
-
-function scheduleRenderNow(options = {}) {
-  if (renderPipelineController) renderPipelineController.scheduleRenderNow(options);
-}
-
-function renderNow() {
-  if (renderPipelineController) renderPipelineController.renderNow();
 }
 
 initEditor();
@@ -4522,38 +4430,6 @@ settingsDomain = createSettingsDomain({
 logStartupPerf("settings domain init done");
 settingsDomain.start();
 
-function centerRenderPaneOnCurrentAnchor() {
-  if (!$out || !$renderPane || !editorView) return;
-  const activeErrorHighlight = errorsFeature.getActiveHighlight();
-  const editorOffset = (activeErrorHighlight && Number.isFinite(activeErrorHighlight.from))
-    ? activeErrorHighlight.from
-    : editorView.state.selection.main.anchor;
-  const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-    ? getLastRenderPayload().offset
-    : 0;
-  const renderIdx = mapEditorOffsetToRenderIdx(Number(editorOffset));
-  if (!Number.isFinite(renderIdx)) return;
-  let els = $out.querySelectorAll("._" + renderIdx + "_");
-  if ((!els || !els.length) && Number.isFinite(renderIdx)) {
-    const maxBack = 200;
-    for (let d = 1; d <= maxBack; d += 1) {
-      const probe = renderIdx - d;
-      if (probe < 0) break;
-      els = $out.querySelectorAll("._" + probe + "_");
-      if (els && els.length) break;
-    }
-  }
-  if (!els || !els.length) return;
-  const chosen = pickClosestNoteElement(Array.from(els));
-  if (!chosen) return;
-  const containerRect = $renderPane.getBoundingClientRect();
-  const targetRect = chosen.getBoundingClientRect();
-  const centerTop = targetRect.top - containerRect.top + $renderPane.scrollTop - ($renderPane.clientHeight / 2) + (targetRect.height / 2);
-  const centerLeft = targetRect.left - containerRect.left + $renderPane.scrollLeft - ($renderPane.clientWidth / 2) + (targetRect.width / 2);
-  $renderPane.scrollTop = Math.max(0, centerTop);
-  $renderPane.scrollLeft = Math.max(0, centerLeft);
-}
-
 document.addEventListener("keydown", (e) => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
   if (String(e.key || "").toLowerCase() !== "h") return;
@@ -4568,32 +4444,7 @@ async function openTemplatesModal() {
 initContextMenu();
 
 startupController.start();
-
-if ($out) {
-  $out.addEventListener("click", (e) => {
-    const target = e.target;
-    if (!target || !target.classList) return;
-    if (!target.classList.contains("note-hl")) return;
-    const start = Number(target.dataset && target.dataset.start);
-    const end = Number(target.dataset && target.dataset.end);
-    if (Number.isFinite(start)) {
-      const renderOffset = (getLastRenderPayload() && Number.isFinite(getLastRenderPayload().offset))
-        ? getLastRenderPayload().offset
-        : 0;
-      const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
-      const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
-      const editorEnd = Math.max(editorStart, mapRenderIdxToEditorOffset(editorEndRaw));
-      if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin("svg");
-      setEditorSelectionRange(editorStart, editorEnd);
-      setPlaybackRange({
-        startOffset: editorStart,
-        endOffset: editorEnd,
-        origin: "svg",
-        loop: playbackTransport.playbackRange.loop,
-      });
-    }
-  });
-}
+scoreInteractionController.wireOutputSelection();
 
 if ($disclaimerOk) {
   $disclaimerOk.addEventListener("click", () => {
@@ -4885,10 +4736,6 @@ function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText
 
 function getPlaybackPayload() {
   return playbackPayloadController.getPlaybackPayload();
-}
-
-function getRenderPayload() {
-  return renderPayloadController.getRenderPayload();
 }
 
 async function preparePlayback() {

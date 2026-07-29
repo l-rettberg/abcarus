@@ -27,12 +27,7 @@ import {
   createMainEditorFeature,
   createRectSelectionExtension,
 } from "./editor/main_editor_feature.js";
-import {
-  parseDecorationCatalogEnrichment,
-} from "./editor/abc_helpers_model.js";
-import {
-  openAbcHelperAtCursor,
-} from "./editor/abc_helpers_controller.js";
+import { createAbcHelpersFeature } from "./editor/abc_helpers_feature.js";
 import { createErrorsFeature } from "./editor/errors_feature.js";
 import {
   detectMeterMismatchInBarlines,
@@ -561,6 +556,16 @@ const abcToSvgMarkupRenderer = createAbcToSvgMarkupRenderer({
   logError: logErr,
 });
 const { renderAbcToSvgMarkup } = abcToSvgMarkupRenderer;
+const abcHelpersFeature = createAbcHelpersFeature({
+  windowRef: window,
+  api: window.api,
+  readFile,
+  EditorSelection,
+  enableDraggableFixedPopover,
+  showToast,
+  isInlineFieldOnlyLine,
+  renderAbcToSvgMarkup,
+});
 
 const soundfontController = createSoundfontController({
   windowRef: window,
@@ -1645,34 +1650,6 @@ focusModeController = createFocusModeController({
   persistLoopSettingsPatch,
   showToast,
 });
-
-let decorationCatalogEnrichment = null;
-let decorationCatalogEnrichmentTried = false;
-
-async function loadDecorationCatalogEnrichment() {
-  if (decorationCatalogEnrichmentTried) return decorationCatalogEnrichment;
-  decorationCatalogEnrichmentTried = true;
-
-  try {
-    if (!window.api || typeof window.api.pathJoin !== "function" || typeof window.api.pathDirname !== "function") return null;
-    const href = String(window.location && window.location.href ? window.location.href : "");
-    if (!href.startsWith("file://")) return null;
-    const p = decodeURIComponent(new URL(href).pathname || "");
-    if (!p.includes("/src/renderer/")) return null;
-    const rendererDir = window.api.pathDirname(p);
-    const srcDir = window.api.pathDirname(rendererDir);
-    const rootDir = window.api.pathDirname(srcDir);
-    const jsonPath = window.api.pathJoin(rootDir, "kitchen", "derived", "abc2svg-decorations-catalog.json");
-
-    const res = await readFile(jsonPath);
-    if (!res || !res.ok || !res.data) return null;
-    const map = parseDecorationCatalogEnrichment(res.data);
-    decorationCatalogEnrichment = map;
-    return map;
-  } catch {
-    return null;
-  }
-}
 
 function isNormalModeForSplitToggle() {
   return !isRawModeActive() && !isFocusModeEnabled();
@@ -3522,16 +3499,7 @@ function initEditor() {
       toggleMidiInput: () => midiInputFeature.toggleInputSetting(),
       toggleMidiMute: () => midiInputFeature.toggleMuteSetting(),
       goToMeasure: goToMeasureCommand,
-      openAbcHelper: (view) => openAbcHelperAtCursor({
-        view,
-        EditorSelection,
-        enableDraggableFixedPopover,
-        showToast,
-        drumVelocityMap,
-        isInlineFieldOnlyLine,
-        renderAbcToSvgMarkup,
-        loadDecorationCatalogEnrichment,
-      }),
+      openAbcHelper: (view) => abcHelpersFeature.openAtCursor(view),
       toggleLineComments,
       togglePlayPause: togglePlayPauseEffective,
       startPlayback: startPlaybackAtIndex,
@@ -4532,7 +4500,7 @@ settingsDomain = createSettingsDomain({
     getLatestSettings: () => latestSettingsSnapshot,
     setLatestSettings: (settings) => { latestSettingsSnapshot = settings || null; },
     setFollowPlayback: (next) => { followPlayback = Boolean(next); },
-    setDrumVelocityMap: (next) => { drumVelocityMap = next; },
+    setDrumVelocityMap: (next) => abcHelpersFeature.setDrumVelocityMap(next),
     getEditorDom: () => editorView ? editorView.dom : null,
     isPayloadMode,
     isMicrotonalNotationSupported,
@@ -4684,7 +4652,6 @@ if ($disclaimerModal) {
 // ---------- AUDIO ----------
 
 let followPlayback = true;
-let drumVelocityMap = buildDefaultDrumVelocityMap();
 
 function setRenderZoomCss(zoom) {
   layoutController.setRenderZoom(zoom);

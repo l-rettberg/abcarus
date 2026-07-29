@@ -2361,6 +2361,8 @@ const startupController = createStartupController({
   applyInitialLayout: () => layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }),
   centerRenderPane: centerRenderPaneOnCurrentAnchor,
   reportStartupStatus,
+  setScanStatus,
+  updateLibraryStatus,
   markRecentOpenStarted: () => statusController.markStartupRecentOpenStarted(),
   markUiReady: () => statusController.markStartupUiReady(),
   renderStatus: () => statusController.renderUnifiedStatus(),
@@ -3634,39 +3636,7 @@ async function requestLoadLibraryFile(filePath) {
 libraryUiDomain.wireControls();
 libraryUiDomain.wireSearch({ clearButton: $btnLibraryClearFilter });
 libraryUiDomain.wireCatalogBridge();
-
-if (window.api && typeof window.api.onLibraryProgress === "function") {
-  let scanStatusClearTimer = null;
-  window.api.onLibraryProgress((payload) => {
-    if (!payload) return;
-    if (payload.phase === "discover") {
-      if (scanStatusClearTimer) {
-        clearTimeout(scanStatusClearTimer);
-        scanStatusClearTimer = null;
-      }
-      setScanStatus(`Scanning… ${payload.filesFound || 0} files`);
-    } else if (payload.phase === "parse") {
-      const total = payload.total || 0;
-      const index = payload.index || 0;
-      setScanStatus(`Indexing… ${index}/${total}`);
-      if (total > 0 && index >= total) {
-        if (scanStatusClearTimer) clearTimeout(scanStatusClearTimer);
-        scanStatusClearTimer = setTimeout(() => {
-          scanStatusClearTimer = null;
-          updateLibraryStatus();
-        }, 600);
-      }
-    } else if (payload.phase === "done") {
-      const filesFound = payload.filesFound || 0;
-      setScanStatus("Ready", `Ready (${filesFound} files)`);
-      if (scanStatusClearTimer) clearTimeout(scanStatusClearTimer);
-      scanStatusClearTimer = setTimeout(() => {
-        scanStatusClearTimer = null;
-        updateLibraryStatus();
-      }, 900);
-    }
-  });
-}
+startupController.wireLibraryProgress();
 
 function createBlankDocument() {
   return editStateController

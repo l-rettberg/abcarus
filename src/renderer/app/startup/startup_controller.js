@@ -10,12 +10,18 @@ export function createStartupController({
   applyInitialLayout = () => {},
   centerRenderPane = () => {},
   reportStartupStatus = () => {},
+  setScanStatus = () => {},
+  updateLibraryStatus = () => {},
   markRecentOpenStarted = () => {},
   markUiReady = () => {},
   renderStatus = () => {},
+  setTimeoutRef = setTimeout,
+  clearTimeoutRef = clearTimeout,
 } = {}) {
   let layoutResetDone = false;
   let layoutResetScheduled = false;
+  let libraryProgressWired = false;
+  let scanStatusClearTimer = null;
 
   function normalizePathForContainment(value) {
     let normalized = String(value || "").trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/");
@@ -88,6 +94,47 @@ export function createStartupController({
     return [];
   }
 
+  function handleLibraryProgress(payload) {
+    if (!payload) return;
+    if (payload.phase === "discover") {
+      if (scanStatusClearTimer) {
+        clearTimeoutRef(scanStatusClearTimer);
+        scanStatusClearTimer = null;
+      }
+      setScanStatus(`Scanning… ${payload.filesFound || 0} files`);
+      return;
+    }
+    if (payload.phase === "parse") {
+      const total = payload.total || 0;
+      const index = payload.index || 0;
+      setScanStatus(`Indexing… ${index}/${total}`);
+      if (total > 0 && index >= total) {
+        if (scanStatusClearTimer) clearTimeoutRef(scanStatusClearTimer);
+        scanStatusClearTimer = setTimeoutRef(() => {
+          scanStatusClearTimer = null;
+          updateLibraryStatus();
+        }, 600);
+      }
+      return;
+    }
+    if (payload.phase === "done") {
+      const filesFound = payload.filesFound || 0;
+      setScanStatus("Ready", `Ready (${filesFound} files)`);
+      if (scanStatusClearTimer) clearTimeoutRef(scanStatusClearTimer);
+      scanStatusClearTimer = setTimeoutRef(() => {
+        scanStatusClearTimer = null;
+        updateLibraryStatus();
+      }, 900);
+    }
+  }
+
+  function wireLibraryProgress() {
+    if (libraryProgressWired || !api || typeof api.onLibraryProgress !== "function") return false;
+    libraryProgressWired = true;
+    api.onLibraryProgress(handleLibraryProgress);
+    return true;
+  }
+
   async function restoreRecentEntry() {
     if (!api) return false;
     reportStartupStatus("Checking recent files…");
@@ -156,8 +203,10 @@ export function createStartupController({
   }
 
   return {
+    handleLibraryProgress,
     restoreRecentEntry,
     scheduleLayoutReset,
     start,
+    wireLibraryProgress,
   };
 }

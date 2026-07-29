@@ -144,4 +144,43 @@ const { createStartupController } = await importRendererModule(
   assert.equal(frames.length, 0);
 }
 
+{
+  let progressHandler = null;
+  const statuses = [];
+  const timers = [];
+  let statusRefreshes = 0;
+  const controller = createStartupController({
+    api: {
+      onLibraryProgress: (handler) => { progressHandler = handler; },
+    },
+    setScanStatus: (...args) => statuses.push(args),
+    updateLibraryStatus: () => { statusRefreshes += 1; },
+    setTimeoutRef: (callback, delay) => {
+      const timer = { callback, delay, cleared: false };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeoutRef: (timer) => { timer.cleared = true; },
+  });
+
+  assert.equal(controller.wireLibraryProgress(), true);
+  assert.equal(controller.wireLibraryProgress(), false);
+  assert.equal(typeof progressHandler, "function");
+
+  progressHandler({ phase: "discover", filesFound: 12 });
+  progressHandler({ phase: "parse", index: 4, total: 4 });
+  progressHandler({ phase: "done", filesFound: 12 });
+  assert.deepEqual(statuses, [
+    ["Scanning… 12 files"],
+    ["Indexing… 4/4"],
+    ["Ready", "Ready (12 files)"],
+  ]);
+  assert.equal(timers.length, 2);
+  assert.equal(timers[0].delay, 600);
+  assert.equal(timers[0].cleared, true);
+  assert.equal(timers[1].delay, 900);
+  timers[1].callback();
+  assert.equal(statusRefreshes, 1);
+}
+
 console.log("startup harness: all tests passed");

@@ -4613,10 +4613,6 @@ async function appendTuneTextToFileNow(filePath, tuneText, { toastOk = "" } = {}
   return appendCurrentTuneAction.appendTextToFileNow(filePath, tuneText, { toastOk });
 }
 
-async function fileNewTuneAndAppendNow() {
-  await appendCurrentTuneAction.fileNewTuneAndAppendNow();
-}
-
 async function fileOpen() {
   if (documentSessionController) await documentSessionController.fileOpen();
 }

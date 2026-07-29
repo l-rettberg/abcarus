@@ -274,7 +274,7 @@ function createAppCommandsDomain({
       newTuneButton.addEventListener("click", () => guardedRun(async () => {
         if (call(state.isPayloadMode)) { call(actions.showToast, "Exit Payload Mode to create/append tunes.", 2400); return; }
         if (!(await ensureRawCanLeave("creating a new tune"))) return;
-        await callAsync(actions.fileNewTuneAndAppendNow);
+        await callAsync(actions.fileNewTune);
       }));
     }
 

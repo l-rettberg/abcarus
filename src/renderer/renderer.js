@@ -7,15 +7,12 @@ import {
   ViewPlugin,
   indentUnit,
   gotoLine,
-  foldService,
   foldGutter,
   lineNumbers,
-  rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import { createEditorExtensionRuntime } from "./editor/editor_extension_runtime.js";
 import {
-  foldBeginTextBlocks,
   initSearchPanelShortcuts,
   openFindPanel,
   openReplacePanel,
@@ -26,8 +23,10 @@ import {
   setEditorSelectionRange as setEditorSelectionRangeCore,
   toggleLineComments as toggleLineCommentsCore,
 } from "./editor/editor_commands.js";
-import { createMainEditorKeymap } from "./editor/main_editor_keymap.js";
-import { createMainEditorUpdateRuntime } from "./editor/main_editor_update_runtime.js";
+import {
+  createMainEditorFeature,
+  createRectSelectionExtension,
+} from "./editor/main_editor_feature.js";
 import {
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
@@ -480,7 +479,7 @@ let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
-let editorUpdateRuntime = null;
+let mainEditorFeature = null;
 let newFileAction = null;
 let abcTransformFeature = null;
 
@@ -1014,10 +1013,10 @@ const errorsFeature = createErrorsFeature({
   getPlaybackRange: () => playbackTransport.playbackRange,
   setPlaybackRange,
   setPendingPlaybackRangeOrigin: (origin) => {
-    if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin(origin);
+    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(origin);
   },
   setSuppressPlaybackRangeSelectionSync: (value) => {
-    if (editorUpdateRuntime) editorUpdateRuntime.setSuppressPlaybackRangeSelectionSync(value);
+    if (mainEditorFeature) mainEditorFeature.setSuppressPlaybackRangeSelectionSync(value);
   },
   isDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
@@ -1037,7 +1036,7 @@ const errorsFeature = createErrorsFeature({
   updateFileContext,
   updateLibraryStatus,
   clearPendingRenderTimer: () => {
-    if (editorUpdateRuntime) editorUpdateRuntime.clearPendingRender();
+    if (mainEditorFeature) mainEditorFeature.clearPendingRender();
   },
   scheduleRenderNow,
   openTuneFromLibrarySelection: (selection) => {
@@ -1435,7 +1434,7 @@ const playbackPlayerController = createPlaybackPlayerController({
   getFollowPlaybackEnabled: () => followPlayback,
   getSoundfontSource: () => soundfontController.getSource(),
   setSuppressPlaybackRangeSelectionSync: (next) => {
-    if (editorUpdateRuntime) editorUpdateRuntime.setSuppressPlaybackRangeSelectionSync(next);
+    if (mainEditorFeature) mainEditorFeature.setSuppressPlaybackRangeSelectionSync(next);
   },
   applyPlaybackPlanSpeed,
   startPlaybackFromRange,
@@ -1635,7 +1634,7 @@ focusModeController = createFocusModeController({
   resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
   syncPendingPlaybackPlan,
   clearNormalPlaybackPlan: () => {
-    if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin(null);
+    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(null);
     playbackTransport.pendingPlaybackPlan = null;
     playbackTransport.currentPlaybackPlan = null;
   },
@@ -3505,132 +3504,84 @@ midiInputFeature.exposeDebugApi();
 
 function initEditor() {
   if (editorView || !$editorHost) return;
-  const editorKeymap = createMainEditorKeymap({
-    documentRef: document,
-    windowRef: window,
-    isRawMode: () => isRawModeActive(),
-    showToast,
-    fileSave,
-    toggleMidiInput: () => midiInputFeature.toggleInputSetting(),
-    toggleMidiMute: () => midiInputFeature.toggleMuteSetting(),
-    goToMeasure: goToMeasureCommand,
-    openAbcHelper: (view) => openAbcHelperAtCursor({
-      view,
-      EditorSelection,
-      enableDraggableFixedPopover,
+  mainEditorFeature = createMainEditorFeature({
+    host: $editorHost,
+    initialDoc: DEFAULT_ABC,
+    extensionRuntime: editorExtensionRuntime,
+    keymapOptions: {
+      documentRef: document,
+      windowRef: window,
+      isRawMode: () => isRawModeActive(),
       showToast,
-      drumVelocityMap,
-      isInlineFieldOnlyLine,
-      renderAbcToSvgMarkup,
-      loadDecorationCatalogEnrichment,
-    }),
-    toggleLineComments,
-    togglePlayPause: togglePlayPauseEffective,
-    startPlayback: startPlaybackAtIndex,
-    resetLayout,
-    refreshErrors: refreshErrorsNow,
-    getFocusedEditorView,
-  });
-  editorUpdateRuntime = createMainEditorUpdateRuntime({
-    isDirtySuppressed: () => suppressDirty,
+      fileSave,
+      toggleMidiInput: () => midiInputFeature.toggleInputSetting(),
+      toggleMidiMute: () => midiInputFeature.toggleMuteSetting(),
+      goToMeasure: goToMeasureCommand,
+      openAbcHelper: (view) => openAbcHelperAtCursor({
+        view,
+        EditorSelection,
+        enableDraggableFixedPopover,
+        showToast,
+        drumVelocityMap,
+        isInlineFieldOnlyLine,
+        renderAbcToSvgMarkup,
+        loadDecorationCatalogEnrichment,
+      }),
+      toggleLineComments,
+      togglePlayPause: togglePlayPauseEffective,
+      startPlayback: startPlaybackAtIndex,
+      resetLayout,
+      refreshErrors: refreshErrorsNow,
+      getFocusedEditorView,
+    },
+    updateOptions: {
+      isDirtySuppressed: () => suppressDirty,
+      isPayloadMode,
+      hasCurrentDocument,
+      ensureCurrentDocument,
+      patchCurrentDocument,
+      setDirtyIndicator,
+      handleTypingPreviewChange: (update) => midiInputFeature.handleTypingPreviewChange(update),
+      incrementAbRevision: () => abLoopRuntime.incrementRevision(),
+      hasAbPlan: () => abLoopRuntime.hasPlan(),
+      clearAbPlan,
+      isChordProEnabled: () => chordProFeature.isEnabled(),
+      isChordProFullView: () => chordProFeature.isFullView(),
+      handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
+      handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
+      getActiveTuneUid: () => activeTuneUid,
+      scheduleWorkingCopyFullSync,
+      scheduleWorkingCopyTuneSync,
+      isRawMode: () => isRawModeActive(),
+      scheduleRender: () => scheduleRenderNow(),
+      scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),
+      isPlaying: () => playbackTransport.isPlaying,
+      getFollowPlayback: () => followPlayback,
+      scheduleCursorNoteHighlight,
+      clearNoteSelection,
+      updatePlaybackRangeFromSelection: (selection, origin, activeHighlight) => {
+        playbackTransportController.updatePlaybackRangeFromSelection(
+          selection,
+          origin,
+          activeHighlight
+        );
+      },
+      getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
+      transport: playbackTransport,
+      clearPracticeHighlight: () => {
+        setPracticeBarHighlight(null);
+        clearSvgPracticeBarHighlight();
+      },
+      setCursorStatus,
+    },
     isPayloadMode,
-    hasCurrentDocument,
-    ensureCurrentDocument,
-    patchCurrentDocument,
-    setDirtyIndicator,
-    handleTypingPreviewChange: (update) => midiInputFeature.handleTypingPreviewChange(update),
-    incrementAbRevision: () => abLoopRuntime.incrementRevision(),
-    hasAbPlan: () => abLoopRuntime.hasPlan(),
-    clearAbPlan,
-    isChordProEnabled: () => chordProFeature.isEnabled(),
-    isChordProFullView: () => chordProFeature.isFullView(),
-    handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
-    handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
-    getActiveTuneUid: () => activeTuneUid,
-    scheduleWorkingCopyFullSync,
-    scheduleWorkingCopyTuneSync,
-    isRawMode: () => isRawModeActive(),
-    scheduleRender: () => scheduleRenderNow(),
-    scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),
-    isPlaying: () => playbackTransport.isPlaying,
-    getFollowPlayback: () => followPlayback,
-    scheduleCursorNoteHighlight,
-    clearNoteSelection,
-    updatePlaybackRangeFromSelection: (selection, origin, activeHighlight) => {
-      playbackTransportController.updatePlaybackRangeFromSelection(
-        selection,
-        origin,
-        activeHighlight
-      );
-    },
+    shouldSuppressErrorHighlightClear: () => errorsFeature.isHighlightSuppressingClear(),
     getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
-    transport: playbackTransport,
-    clearPracticeHighlight: () => {
-      setPracticeBarHighlight(null);
-      clearSvgPracticeBarHighlight();
-    },
-    setCursorStatus,
+    clearActiveErrorHighlight,
+    showContextMenuAt,
+    updateAbUi,
   });
-  const state = EditorState.create({
-    doc: DEFAULT_ABC,
-    extensions: [
-      basicSetup,
-      createRectSelectionExtension(),
-      ...editorExtensionRuntime.getInitialExtensions(),
-      editorUpdateRuntime.extension,
-      editorKeymap.extension,
-      foldService.of(foldBeginTextBlocks),
-      EditorState.tabSize.of(2),
-      indentUnit.of("  "),
-    ],
-  });
-  editorView = new EditorView({
-    state,
-    parent: $editorHost,
-  });
-  updateAbUi();
-
-  editorKeymap.installCompletionAcceptance();
-
-  // Clear the active error highlight only on an explicit user click outside the highlight range.
-  // This avoids accidental clearing from programmatic selection changes (follow playback, jump, etc.).
-  editorView.dom.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    if (errorsFeature.isHighlightSuppressingClear()) return;
-    const activeErrorHighlight = errorsFeature.getActiveHighlight();
-    if (!activeErrorHighlight) return;
-    if (!Number.isFinite(activeErrorHighlight.from) || !Number.isFinite(activeErrorHighlight.to)) return;
-    const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY });
-    if (pos == null) return;
-    const inside = pos >= activeErrorHighlight.from && pos <= activeErrorHighlight.to;
-    if (!inside) clearActiveErrorHighlight("abandon");
-  }, true);
-
-  editorView.dom.addEventListener("copy", (e) => {
-    try {
-      if (!isPayloadMode() || !editorView) return;
-      const selection = editorView.state.selection;
-      if (!selection || selection.empty) return;
-      const doc = editorView.state.doc;
-      const parts = [];
-      for (const range of selection.ranges || []) {
-        if (!range || range.from === range.to) continue;
-        parts.push(doc.sliceString(range.from, range.to));
-      }
-      if (!parts.length) return;
-      const text = parts.join("\n");
-      if (e.clipboardData && typeof e.clipboardData.setData === "function") {
-        e.clipboardData.setData("text/plain", text);
-        e.preventDefault();
-      }
-    } catch {}
-  });
-
-  editorView.dom.addEventListener("contextmenu", (ev) => {
-    ev.preventDefault();
-    showContextMenuAt(ev.clientX, ev.clientY, { type: "editor" });
-  });
-  setCursorStatus(1, 1, 1, state.doc.lines, state.doc.length);
+  editorView = mainEditorFeature.init();
 }
 
 function initHeaderEditor() {
@@ -4726,7 +4677,7 @@ if ($out) {
       const editorStart = Math.max(0, mapRenderIdxToEditorOffset(start));
       const editorEndRaw = Number.isFinite(end) && end > start ? end : start + 1;
       const editorEnd = Math.max(editorStart, mapRenderIdxToEditorOffset(editorEndRaw));
-      if (editorUpdateRuntime) editorUpdateRuntime.setPendingPlaybackRangeOrigin("svg");
+      if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin("svg");
       setEditorSelectionRange(editorStart, editorEnd);
       setPlaybackRange({
         startOffset: editorStart,
@@ -5104,17 +5055,3 @@ diagnosticsDomain.runDevAutoscrollDemo({
   togglePlayPause: togglePlayPauseEffective,
   stopPlayback: stopPlaybackTransport,
 }).catch(() => {});
-function createRectSelectionExtension() {
-  return rectangularSelection({
-    // Linux WMs often reserve Alt+drag for window move/resize.
-    // Keep Alt+drag where available, and provide Ctrl+Shift+drag as a reliable fallback.
-    eventFilter: (event) => Boolean(
-      event
-      && event.button === 0
-      && (
-        event.altKey
-        || (event.ctrlKey && event.shiftKey)
-      )
-    ),
-  });
-}

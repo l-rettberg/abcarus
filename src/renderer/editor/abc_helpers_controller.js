@@ -10,6 +10,83 @@ import {
   getMidiProgramCommand,
 } from "./abc_helpers_model.js";
 import { BUILTIN_MAKAM_K_SIGNATURES } from "../makam_dna/makam_k_signatures.mjs";
+import { ABC2SVG_DECORATIONS } from "../abc_decorations_abc2svg.js";
+import { isInBeginTextBlockAtLine } from "./editor_commands.js";
+import { GM_PROGRAM_NAMES } from "./gm_programs.js";
+import { openDrumHelperAtCursor } from "../tools/drum_helper/drum_helper_controller.js";
+import { openGchordHelperAtCursor } from "../tools/gchord_helper/gchord_helper_controller.js";
+
+function openAbcHelperAtCursor({
+  view,
+  EditorSelection,
+  enableDraggableFixedPopover,
+  showToast = () => {},
+  drumVelocityMap = null,
+  isInlineFieldOnlyLine = () => false,
+  renderAbcToSvgMarkup = null,
+  loadDecorationCatalogEnrichment = null,
+} = {}) {
+  if (!view || !view.state) return true;
+  try {
+    const pos = view.state.selection.main.head;
+    const lineInfo = view.state.doc.lineAt(pos);
+    const lineText = String(lineInfo.text || "");
+    if (isInBeginTextBlockAtLine(view.state, lineInfo.number)) {
+      showToast("Decoration picker: not available in %%begintext blocks.", 2200);
+      return true;
+    }
+    if (openKeySignaturePickerAtCursor({
+      view,
+      pos,
+      lineInfo,
+      lineText,
+      EditorSelection,
+      enableDraggableFixedPopover,
+    })) return true;
+    if (openMidiProgramPickerAtCursor({
+      view,
+      pos,
+      lineInfo,
+      lineText,
+      programNames: GM_PROGRAM_NAMES,
+      EditorSelection,
+      enableDraggableFixedPopover,
+      showToast,
+    })) return true;
+    if (openDrumHelperAtCursor({
+      view,
+      pos,
+      lineInfo,
+      lineText,
+      EditorSelection,
+      enableDraggableFixedPopover,
+      showToast,
+      drumVelocityMap,
+    })) return true;
+    if (openGchordHelperAtCursor({
+      view,
+      pos,
+      lineInfo,
+      lineText,
+      EditorSelection,
+      enableDraggableFixedPopover,
+      showToast,
+      isInlineFieldOnlyLine,
+    })) return true;
+    openDecorationPickerAtCursor({
+      view,
+      pos,
+      lineText,
+      catalog: ABC2SVG_DECORATIONS,
+      EditorSelection,
+      enableDraggableFixedPopover,
+      renderAbcToSvgMarkup,
+      loadDecorationCatalogEnrichment,
+      showToast,
+    });
+  } catch {}
+  return true;
+}
 
 function openMidiProgramPickerAtCursor({
   view,
@@ -1222,6 +1299,7 @@ function openDecorationPickerAtCursor({
 }
 
 export {
+  openAbcHelperAtCursor,
   openDecorationPickerAtCursor,
   openKeySignaturePickerAtCursor,
   openMidiProgramPickerAtCursor,

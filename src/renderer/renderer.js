@@ -15,7 +15,6 @@ import {
   acceptCompletion,
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
-import { ABC2SVG_DECORATIONS } from "./abc_decorations_abc2svg.js";
 import { buildAbcCompletionSource } from "./editor/abc_completion.js";
 import { abcHighlight } from "./editor/abc_decorations.js";
 import {
@@ -23,7 +22,6 @@ import {
   indentSelectionLess,
   indentSelectionMore,
   initSearchPanelShortcuts,
-  isInBeginTextBlockAtLine,
   moveLineSelection,
   openFindPanel,
   openReplacePanel,
@@ -38,9 +36,7 @@ import {
   parseDecorationCatalogEnrichment,
 } from "./editor/abc_helpers_model.js";
 import {
-  openDecorationPickerAtCursor,
-  openKeySignaturePickerAtCursor,
-  openMidiProgramPickerAtCursor,
+  openAbcHelperAtCursor,
 } from "./editor/abc_helpers_controller.js";
 import { createErrorsFeature } from "./editor/errors_feature.js";
 import {
@@ -51,7 +47,6 @@ import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import { buildAbcHoverTooltip } from "./editor/abc_hover.js";
-import { GM_PROGRAM_NAMES } from "./editor/gm_programs.js";
 import {
   buildAbDecorations,
   buildPayloadLayerDecorations,
@@ -114,8 +109,6 @@ import {
 } from "./tools/chordpro/chordpro_model.js";
 import { createChordProFeature } from "./tools/chordpro/chordpro_feature.js";
 import { createImportExportFeature } from "./tools/import_export/import_export_feature.js";
-import { openDrumHelperAtCursor } from "./tools/drum_helper/drum_helper_controller.js";
-import { openGchordHelperAtCursor } from "./tools/gchord_helper/gchord_helper_controller.js";
 import { createRawModeEnterGuard } from "./tools/raw_mode/raw_mode_enter_guard.js";
 import { createRawModeFeature } from "./tools/raw_mode/raw_mode_feature.js";
 import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feature.js";
@@ -3557,67 +3550,16 @@ function initEditor() {
 		    { key: "Mod-F5", run: (view) => moveLineSelection(view, -1) },
 		    {
 		      key: "Ctrl-F2",
-		      run: (view) => {
-		        try {
-		          const pos = view.state.selection.main.head;
-		          const lineInfo = view.state.doc.lineAt(pos);
-		          const lineText = String(lineInfo.text || "");
-		          if (isInBeginTextBlockAtLine(view.state, lineInfo.number)) {
-		            try { showToast("Decoration picker: not available in %%begintext blocks.", 2200); } catch {}
-		            return true;
-		          }
-		          if (openKeySignaturePickerAtCursor({
-		            view,
-		            pos,
-		            lineInfo,
-		            lineText,
-		            EditorSelection,
-		            enableDraggableFixedPopover,
-		          })) return true;
-		          if (openMidiProgramPickerAtCursor({
-		            view,
-		            pos,
-		            lineInfo,
-		            lineText,
-		            programNames: GM_PROGRAM_NAMES,
-		            EditorSelection,
-		            enableDraggableFixedPopover,
-		            showToast,
-		          })) return true;
-		          if (openDrumHelperAtCursor({
-		            view,
-		            pos,
-		            lineInfo,
-		            lineText,
-		            EditorSelection,
-		            enableDraggableFixedPopover,
-		            showToast,
-		            drumVelocityMap,
-		          })) return true;
-		          if (openGchordHelperAtCursor({
-		            view,
-		            pos,
-		            lineInfo,
-		            lineText,
-		            EditorSelection,
-		            enableDraggableFixedPopover,
-		            showToast,
-		            isInlineFieldOnlyLine,
-		          })) return true;
-		          if (openDecorationPickerAtCursor({
-		            view,
-		            pos,
-		            lineText,
-		            catalog: ABC2SVG_DECORATIONS,
-		            EditorSelection,
-		            enableDraggableFixedPopover,
-		            renderAbcToSvgMarkup,
-		            loadDecorationCatalogEnrichment,
-		            showToast,
-		          })) return true;
-		        } catch {}
-		        return true;
-		      },
+		      run: (view) => openAbcHelperAtCursor({
+		        view,
+		        EditorSelection,
+		        enableDraggableFixedPopover,
+		        showToast,
+		        drumVelocityMap,
+		        isInlineFieldOnlyLine,
+		        renderAbcToSvgMarkup,
+		        loadDecorationCatalogEnrichment,
+		      }),
 		    },
 		    {
 		      key: "Enter",

@@ -1558,24 +1558,12 @@ function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
 }
 
-function syncActiveErrorNavIndex(sortedItemsArg) {
-  errorsFeature.syncActiveNavIndex(sortedItemsArg);
-}
-
 async function activateErrorByNav(delta) {
   await errorsFeature.activateByNav(delta);
 }
 
 function clearActiveErrorHighlight(reason) {
   errorsFeature.clearActiveHighlight(reason);
-}
-
-function setActiveErrorHighlight(entry, from, to) {
-  errorsFeature.setActiveHighlight(entry, from, to);
-}
-
-function clearErrorsFeatureState() {
-  errorsFeature.clearFeatureState();
 }
 
 function updateErrorsFeatureUI() {
@@ -1587,10 +1575,6 @@ function setErrorsEnabled(next, { triggerRefresh = false } = {}) {
 }
 
 const errorActivationHighlightPlugin = errorsFeature.plugins.activationHighlight;
-
-function clearSvgErrorActivationHighlight() {
-  errorsFeature.clearSvgHighlight();
-}
 
 function highlightSvgAtEditorOffset(editorOffset) {
   return errorsFeature.highlightSvgAtEditorOffset(editorOffset);
@@ -1882,12 +1866,6 @@ async function flushWorkingCopyFullSync() {
 async function discardWorkingCopyChangesForActiveFile() {
   return workingCopySyncController
     ? workingCopySyncController.discardChangesForActiveFile()
-    : false;
-}
-
-function reloadActiveTuneTextFromWorkingCopySnapshot() {
-  return workingCopySyncController
-    ? workingCopySyncController.reloadActiveTuneTextFromSnapshot()
     : false;
 }
 
@@ -2296,10 +2274,6 @@ function setScanStatus(text, title) {
 
 function setLibraryErrorIndexForTune(tuneId, count) {
   errorsFeature.setTuneErrorCount(tuneId, count);
-}
-
-function clearErrorIndexForFile(entry) {
-  errorsFeature.clearIndexForFile(entry);
 }
 
 function updateLibraryErrorIndexFromCurrentErrors() {
@@ -3170,10 +3144,6 @@ async function navigateTuneByDelta(delta) {
   if (fileContextController) await fileContextController.navigateTuneByDelta(delta);
 }
 
-function setHeaderEditorValue(text) {
-  fileHeaderController.setEditorValue(text);
-}
-
 const measureErrorPlugin = errorsFeature.plugins.measure;
 
 const abPlugin = createAbMarkerExtension({
@@ -3612,14 +3582,6 @@ function alignBarsInEditor() {
   abcTransformFeature.alignBars();
 }
 
-function showErrorsVisible(visible) {
-  // Errors are surfaced via the always-visible "Errors: N" indicator + popover.
-  // Keep the legacy sidebar errors pane inactive to avoid duplicate UX.
-  if ($sidebar) $sidebar.classList.remove("has-errors");
-  if ($sidebarBody) $sidebarBody.classList.remove("errors-visible");
-  void visible;
-}
-
 function clearErrors() {
   errorsFeature.clear();
 }
@@ -3656,10 +3618,6 @@ function showContextMenuAt(x, y, target) {
   libraryContextMenu.show(x, y, target);
 }
 
-function hideContextMenu() {
-  libraryContextMenu.hide();
-}
-
 function setErrorLineOffsetFromHeader(headerText) {
   errorsFeature.setLineOffsetFromHeader(headerText);
 }
@@ -3690,10 +3648,6 @@ function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber) {
 
 function getRenderMeasureIndex() {
   return measureNavigationController.getRenderMeasureIndex();
-}
-
-async function promptGoToMeasureNumber() {
-  return goToMeasureModalController.prompt();
 }
 
 async function goToMeasureCommand() {
@@ -3746,12 +3700,6 @@ function getDefaultSaveDir() {
     if (docPath) return safeDirname(docPath);
   }
   return null;
-}
-
-function getCurrentNotationMarkup() {
-  if (!$out) return "";
-  const markup = $out.innerHTML.trim();
-  return markup;
 }
 
 function applyPrintDebugMarkup(markup) {

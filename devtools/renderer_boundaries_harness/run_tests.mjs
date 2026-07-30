@@ -66,6 +66,9 @@ for (const forbidden of [
   /function\s+persistLoopSettingsPatch\s*\(/,
   /\brecordNavFilePath\b/,
   /\bnavFileHistory\b/,
+  /function\s+clearErrorsFeatureState\s*\(/,
+  /function\s+reloadActiveTuneTextFromWorkingCopySnapshot\s*\(/,
+  /function\s+showErrorsVisible\s*\(/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }

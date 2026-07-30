@@ -502,6 +502,7 @@ function registerIpcHandlers(ctx) {
 	    getLastRecent,
       getRecentCandidates,
       reportStartupStatus,
+      soundfontProtocol,
 	  } = ctx;
 
   function readXdgTemplatesDir() {
@@ -973,6 +974,30 @@ function registerIpcHandlers(ctx) {
     } catch {
       return null;
     }
+  });
+  ipcMain.handle("sf2:stream-url", async (_e, name) => {
+    if (!soundfontProtocol || typeof soundfontProtocol.exposeFile !== "function") {
+      throw new Error("External soundfont streaming is unavailable.");
+    }
+    const raw = String(name || "").trim();
+    const candidate = raw.startsWith("file://") ? fileURLToPath(raw) : raw;
+    if (!path.isAbsolute(candidate) || !candidate.toLowerCase().endsWith(".sf2")) {
+      throw new Error("Invalid external soundfont path.");
+    }
+    const requested = await fs.promises.realpath(candidate);
+    const settings = ctx && typeof ctx.getSettings === "function" ? ctx.getSettings() : {};
+    const configured = Array.isArray(settings.soundfontPaths) ? settings.soundfontPaths : [];
+    let allowed = false;
+    for (const configuredPath of configured) {
+      try {
+        if (await fs.promises.realpath(String(configuredPath || "")) === requested) {
+          allowed = true;
+          break;
+        }
+      } catch {}
+    }
+    if (!allowed) throw new Error("Soundfont is not registered in ABCarus settings.");
+    return soundfontProtocol.exposeFile(requested);
   });
 	  ipcMain.handle("import:musicxml", async (event) => {
 	    const parent = getParentForDialog(event, "import:musicxml");

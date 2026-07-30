@@ -2,17 +2,6 @@ const DEFAULT_SOUNDFONT_NAME = "TimGM6mb.sf2";
 const DEFAULT_SOUNDFONT_SOURCE = "abc2svg.sf2";
 const STREAMING_SF2 = new Set();
 
-function toFileUrl(windowRef, filePath) {
-  const raw = String(filePath || "");
-  if (!raw) return "";
-  if (raw.startsWith("file://")) return raw;
-  if (/^[a-zA-Z]:\\/.test(raw)) {
-    return `file:///${raw.replace(/\\/g, "/")}`;
-  }
-  if (raw.startsWith("/")) return new URL(raw, windowRef.location.href).href;
-  return raw;
-}
-
 function withTimeout(promise, ms, label) {
   const timeoutMs = Number(ms) > 0 ? Number(ms) : 0;
   if (!timeoutMs) return promise;
@@ -93,9 +82,22 @@ function createSoundfontController({
     const w = windowRef;
     if (!w) throw new Error("window is unavailable.");
     const isPath = name.startsWith("/") || /^[a-zA-Z]:\\/.test(name) || name.startsWith("file://");
-    const sf2Url = isPath
-      ? toFileUrl(w, name)
-      : new URL(`../../third_party/sf2/${name}`, w.location.href).href;
+    let sf2Url = "";
+    if (isPath) {
+      if (!api || typeof api.getSoundfontStreamUrl !== "function") {
+        throw new Error("preload API missing: window.api.getSoundfontStreamUrl");
+      }
+      sf2Url = await withTimeout(
+        api.getSoundfontStreamUrl(name),
+        15000,
+        "External soundfont registration",
+      );
+      if (!String(sf2Url || "").startsWith("abcarus-sf2://")) {
+        throw new Error("External soundfont URL is invalid.");
+      }
+    } else {
+      sf2Url = new URL(`../../third_party/sf2/${name}`, w.location.href).href;
+    }
     if (!w.abc2svg) w.abc2svg = {};
     if (isPath || STREAMING_SF2.has(name)) {
       w.abc2svg.sf2 = null;

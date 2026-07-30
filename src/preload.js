@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld("api", {
   listSoundfonts: async () => ipcRenderer.invoke("sf2:list"),
   pickSoundfont: async () => ipcRenderer.invoke("sf2:pick"),
   getSoundfontInfo: async (name) => ipcRenderer.invoke("sf2:info", name),
+  getSoundfontStreamUrl: async (name) => ipcRenderer.invoke("sf2:stream-url", name),
   quitApplication: async () => ipcRenderer.invoke("app:quit"),
   getSettings: async () => ipcRenderer.invoke("settings:get"),
   getSettingsSchema: async () => ipcRenderer.invoke("settings:schema"),

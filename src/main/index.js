@@ -3,14 +3,18 @@ const fs = require("fs");
 const path = require("path");
 const { fileURLToPath, pathToFileURL } = require("url");
 const childProcess = require("child_process");
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen, protocol } = require("electron");
 const { applyMenu } = require("./menu");
 const { registerIpcHandlers } = require("./ipc");
+const { createSoundfontProtocol, registerSoundfontScheme } = require("./soundfontProtocol");
 const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
 const { normalizeMicrotonalSettings } = require("./settings_normalize");
 const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
+
+registerSoundfontScheme(protocol);
+const soundfontProtocol = createSoundfontProtocol({ protocol, fs, path });
 
 let mainWindow = null;
 let splashWindow = null;
@@ -3177,6 +3181,7 @@ app.whenReady().then(async () => {
     return;
   }
   if (!singleInstanceLock) return;
+  soundfontProtocol.register();
   logStartupPerf("app.whenReady()");
   if (CLI_OPTIONS.enableLog) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -3306,4 +3311,5 @@ registerIpcHandlers({
   reportStartupStatus: (text) => {
     updateSplashStatus(text);
   },
+  soundfontProtocol,
 });

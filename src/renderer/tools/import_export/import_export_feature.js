@@ -1,3 +1,5 @@
+import { NEW_FILE_MINIMAL_ABC } from "../../abc/default_documents.js";
+
 function formatConversionError(res) {
   if (!res) return "Unknown error.";
   const parts = [];
@@ -42,7 +44,6 @@ function createImportExportFeature({
   safeDirname = () => "",
   stripFileExtension = (name) => String(name || ""),
   pathsEqual = (a, b) => String(a || "") === String(b || ""),
-  newFileMinimalAbc = "",
   initializeNewImportFile = async () => {},
   createBlankDocument = () => ({ path: null, dirty: false, content: "" }),
   setCurrentDocument = () => {},
@@ -191,7 +192,7 @@ function createImportExportFeature({
       if (readRes && readRes.ok) {
         const before = String(readRes.data || "");
         const looksEmpty = !before.trim();
-        const looksLikeNewFile = before.trim() === String(newFileMinimalAbc || "").trim();
+        const looksLikeNewFile = before.trim() === NEW_FILE_MINIMAL_ABC.trim();
         if (looksLikeNewFile) dropPlaceholderTune = true;
         if (!looksEmpty && !looksLikeNewFile) {
           const confirm = await confirmAppendToFile(targetPath);
@@ -218,7 +219,7 @@ function createImportExportFeature({
 
           const beforeTrimmed = before.trim();
           const isEmpty = !beforeTrimmed;
-          const isPlaceholder = beforeTrimmed === String(newFileMinimalAbc || "").trim();
+          const isPlaceholder = beforeTrimmed === NEW_FILE_MINIMAL_ABC.trim();
           const beforeTuneCount = (isEmpty || (dropPlaceholderTune && isPlaceholder)) ? 0 : countTunesByX(before);
           let updated = (dropPlaceholderTune && isPlaceholder) ? "" : before;
           let lastWithX = "";

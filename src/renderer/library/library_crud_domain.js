@@ -11,7 +11,6 @@ function createLibraryCrudDomain({
   SAVE_INTENT = {},
   state = {},
   actions = {},
-  constants = {},
 } = {}) {
   let tuneClipboardController = null;
 
@@ -91,10 +90,6 @@ function createLibraryCrudDomain({
 
   const newFileAction = createNewFileAction({
     api,
-    constants: {
-      newFileMinimalAbc: constants.newFileMinimalAbc,
-      templateAbc: constants.templateAbc,
-    },
     actions: {
       confirmOverwrite: actions.confirmOverwrite,
       ensureSafeToAbandonCurrentDoc: actions.ensureSafeToAbandonCurrentDoc,

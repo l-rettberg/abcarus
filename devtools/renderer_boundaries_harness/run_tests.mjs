@@ -69,9 +69,17 @@ for (const forbidden of [
   /function\s+clearErrorsFeatureState\s*\(/,
   /function\s+reloadActiveTuneTextFromWorkingCopySnapshot\s*\(/,
   /function\s+showErrorsVisible\s*\(/,
+  /\bconst\s+(?:NEW_FILE_MINIMAL_ABC|TEMPLATE_ABC)\b/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }
+
+const defaultDocuments = await importBundledModule(
+  "src/renderer/abc/default_documents.js",
+);
+assert.match(defaultDocuments.NEW_FILE_MINIMAL_ABC, /^X:1\nT:Untitled\nK:none\n$/);
+assert.match(defaultDocuments.NEW_FILE_TEMPLATE_ABC, /^X:1\n/);
+assert.match(defaultDocuments.NEW_FILE_TEMPLATE_ABC, /T:Humoresque Dance/);
 
 const { createLibraryRuntimeStore } = await importBundledModule(
   "src/renderer/library/library_runtime_store.js",

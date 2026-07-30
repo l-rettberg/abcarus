@@ -1,12 +1,12 @@
+import {
+  NEW_FILE_MINIMAL_ABC,
+  NEW_FILE_TEMPLATE_ABC,
+} from "../abc/default_documents.js";
+
 export function createNewFileAction({
   api = null,
-  constants = {},
   actions = {},
 } = {}) {
-  const {
-    newFileMinimalAbc = "X:1\nT:\nK:C\n",
-    templateAbc = "X:1\nT:\nK:C\n",
-  } = constants;
   const {
     confirmOverwrite = async () => false,
     ensureSafeToAbandonCurrentDoc = async () => false,
@@ -43,7 +43,7 @@ export function createNewFileAction({
     const suggestedDir = getDefaultSaveDir();
     const filePath = await showSaveDialog(suggestedName, suggestedDir);
     if (!filePath) return;
-    const created = await createNewFileAtPath(filePath, newFileMinimalAbc, { confirmOverwrite: false });
+    const created = await createNewFileAtPath(filePath, NEW_FILE_MINIMAL_ABC, { confirmOverwrite: false });
     if (created) showToast("New file created.", 2200);
   }
 
@@ -97,7 +97,7 @@ export function createNewFileAction({
     const filePath = await showSaveDialog(suggestedName, suggestedDir);
     if (!filePath) return;
 
-    const content = ensureXNumberInAbc(templateAbc, 1);
+    const content = ensureXNumberInAbc(NEW_FILE_TEMPLATE_ABC, 1);
     const created = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
     if (created) showToast("New file from template created.", 2200);
   }

@@ -55,6 +55,15 @@ for (const forbidden of [
   /\blet\s+latestSettingsSnapshot\b/,
   /\blet\s+suppressRecentEntries\b/,
   /\blet\s+followPlayback\b/,
+  /ViewPlugin\.fromClass\s*\(\s*class\s*\{[\s\S]*?getMarkerVersion/,
+  /\bFOLLOW_PIPELINE_VERSION\b/,
+  /function\s+computeFocusPlaybackPlanFromCurrentState\s*\(/,
+  /function\s+normalizeFocusLoopBoundsForPlayback\s*\(/,
+  /function\s+setFocusModeEnabled\s*\(/,
+  /function\s+toggleFocusMode\s*\(/,
+  /function\s+stopPlaybackFromGuard\s*\(/,
+  /function\s+setSoundfont(?:Status|Caption)\s*\(/,
+  /function\s+persistLoopSettingsPatch\s*\(/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }
@@ -76,7 +85,10 @@ assert.equal(libraryRuntime.areRecentEntriesSuppressed(), true);
 const { createSettingsSnapshotStore } = await importBundledModule(
   "src/renderer/app/ui/settings_snapshot_store.js",
 );
-const settingsSnapshot = createSettingsSnapshotStore();
+const settingsUpdates = [];
+const settingsSnapshot = createSettingsSnapshotStore({
+  api: { updateSettings: async (patch) => settingsUpdates.push(patch) },
+});
 assert.equal(settingsSnapshot.get(), null);
 settingsSnapshot.set({ followPlayback: true });
 settingsSnapshot.patch({ payloadModeEnabled: false });
@@ -84,6 +96,8 @@ assert.deepEqual(settingsSnapshot.get(), {
   followPlayback: true,
   payloadModeEnabled: false,
 });
+await settingsSnapshot.persistPatch({ playbackLoopEnabled: true });
+assert.deepEqual(settingsUpdates, [{ playbackLoopEnabled: true }]);
 
 const headerModel = await importBundledModule(
   "src/renderer/app/document/file_header_model.js",

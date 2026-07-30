@@ -7,6 +7,8 @@ import {
   upperBoundTime,
 } from "./playback_state_model.js";
 
+const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
+
 export function createPlaybackDomain({
   transport,
   selectionRuntime,
@@ -116,6 +118,7 @@ export function createPlaybackDomain({
     findMeasureIndex: (index) => findPlaybackMeasureIndex(transport.playbackState, index),
     findSymbolAtOrAfter: (index) => findPlaybackSymbolAtOrAfter(transport.playbackState, index),
     findSymbolAtOrBefore: (index) => findPlaybackSymbolAtOrBefore(transport.playbackState, index),
+    getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
     getPayload: () => requireController("payload").getPlaybackPayload(),
     getActiveRange: () => transport.activePlaybackRange,
     getFollowVoiceId: () => requireController("follow").getFollowVoiceId(),
@@ -143,6 +146,30 @@ export function createPlaybackDomain({
     isTransportJumpHighlightActive: () => Boolean(transport.transportJumpHighlightActive),
     isWaitingForFirstNote: () => Boolean(transport.waitingForFirstNote),
     isFocusBoundedScope,
+    setFocusEnabled(value) {
+      const controller = getFocusModeController();
+      if (controller) controller.setEnabled(value);
+    },
+    toggleFocus() {
+      const controller = getFocusModeController();
+      if (controller) controller.toggle();
+    },
+    computeFocusPlan: () => {
+      const controller = getFocusModeController();
+      return controller
+        ? controller.computePlaybackPlan()
+        : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
+    },
+    normalizeFocusLoopBounds: (fromMeasure, toMeasure) => {
+      const controller = getFocusModeController();
+      return controller
+        ? controller.normalizeLoopBounds(fromMeasure, toMeasure)
+        : { from: 0, to: 0 };
+    },
+    normalizeFocusLoopBoundsForPlayback: () => {
+      const controller = getFocusModeController();
+      return controller ? controller.normalizeLoopBoundsForPlayback() : false;
+    },
     maybeScrollEditorToOffset: (offset) => (
       requireController("follow").maybeScrollEditorToOffset(offset)
     ),
@@ -173,6 +200,10 @@ export function createPlaybackDomain({
     resetUiState: () => {
       requireController("autoScroll").resetManualPause();
       return requireController("follow").resetPlaybackUiState();
+    },
+    resetFocusLoopForTune(tuneId, options) {
+      const controller = getFocusModeController();
+      if (controller) controller.maybeResetLoopForTune(tuneId, options);
     },
     resolveEndSymbol: (range, startSymbol) => (
       requireController("start").resolvePlaybackEndSymbol(range, startSymbol)
@@ -208,6 +239,10 @@ export function createPlaybackDomain({
     startFromPrepared: (index) => requireController("start").startPlaybackFromPrepared(index),
     startFromRange: (range) => requireController("start").startPlaybackFromRange(range),
     stopForRestart: () => requireController("transport").stopPlaybackForRestart(),
+    stopFromGuard(message) {
+      const controller = getUiController();
+      if (controller) controller.handlePlaybackGuardStop(message);
+    },
     stopTransport: () => requireController("transport").stopPlaybackTransport(),
     suppressFollowScroll: () => requireController("follow").suppressFollowScroll(),
     syncPendingPlan: () => requireController("transport").syncPendingPlaybackPlan(),

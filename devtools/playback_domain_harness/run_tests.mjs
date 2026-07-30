@@ -38,17 +38,45 @@ const transport = {
   appendTrace: (event) => trace.push(event),
 };
 let focusEnabled = true;
+const focusCalls = [];
+const focusController = {
+  computePlaybackPlan: () => ({ ok: true, start: 4 }),
+  normalizeLoopBounds: (from, to) => ({ from, to }),
+  normalizeLoopBoundsForPlayback: () => true,
+  maybeResetLoopForTune: (...args) => focusCalls.push(args),
+  setEnabled: (...args) => focusCalls.push(["setEnabled", ...args]),
+  toggle: () => focusCalls.push(["toggle"]),
+};
+const uiCalls = [];
 const domain = createPlaybackDomain({
   transport,
   selectionRuntime: {},
   getEditorLength: () => 100,
   getFocusModeEnabled: () => focusEnabled,
+  getFocusModeController: () => focusController,
+  getPlaybackUiController: () => ({
+    handlePlaybackGuardStop: (message) => uiCalls.push(message),
+    isPlaybackBusy: () => Boolean(
+      transport.isPlaying || transport.isPaused || transport.waitingForFirstNote
+    ),
+  }),
 });
 
 assert.equal(domain.isBusy(), false);
 assert.equal(domain.isFollowEnabled(), true);
 domain.setFollowEnabled(false);
 assert.equal(domain.isFollowEnabled(), false);
+assert.deepEqual(domain.computeFocusPlan(), { ok: true, start: 4 });
+assert.deepEqual(domain.normalizeFocusLoopBounds(2, 7), { from: 2, to: 7 });
+assert.equal(domain.normalizeFocusLoopBoundsForPlayback(), true);
+domain.resetFocusLoopForTune("tune-1", { updateUi: false });
+assert.deepEqual(focusCalls, [["tune-1", { updateUi: false }]]);
+domain.setFocusEnabled(true);
+domain.toggleFocus();
+domain.stopFromGuard("guard");
+assert.deepEqual(focusCalls.slice(1), [["setEnabled", true], ["toggle"]]);
+assert.deepEqual(uiCalls, ["guard"]);
+assert.match(domain.getFollowPipelineVersion(), /^follow-/);
 transport.waitingForFirstNote = true;
 assert.equal(domain.isBusy(), true);
 transport.waitingForFirstNote = false;

@@ -1,4 +1,4 @@
-export function createSettingsSnapshotStore() {
+export function createSettingsSnapshotStore({ api = null } = {}) {
   let settings = null;
 
   return {
@@ -14,6 +14,12 @@ export function createSettingsSnapshotStore() {
         ...(patch && typeof patch === "object" ? patch : {}),
       };
       return settings;
+    },
+    async persistPatch(patch) {
+      if (!api || typeof api.updateSettings !== "function") return;
+      try {
+        await api.updateSettings(patch);
+      } catch {}
     },
   };
 }

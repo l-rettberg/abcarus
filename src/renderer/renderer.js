@@ -32,7 +32,6 @@ import {
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import {
-  buildAbDecorations,
   buildPayloadLayerDecorations,
 } from "./editor/range_decorations.js";
 import {
@@ -121,6 +120,7 @@ import {
   parseMutedVoiceSetting,
 } from "./playback/selection_playback_model.js";
 import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
+import { createAbMarkerExtension } from "./playback/ab_marker_extension.js";
 import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
@@ -473,7 +473,7 @@ let abcTransformFeature = null;
 let appCommandsDomain = null;
 const activeContext = createActiveTuneContextStore();
 const libraryRuntime = createLibraryRuntimeStore();
-const settingsSnapshot = createSettingsSnapshotStore();
+const settingsSnapshot = createSettingsSnapshotStore({ api: window.api });
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const playbackTransport = createPlaybackTransportState();
@@ -502,6 +502,7 @@ const {
   findMeasureIndex,
   findSymbolAtOrAfter,
   findSymbolAtOrBefore,
+  getFollowPipelineVersion,
   getPayload: getPlaybackPayload,
   getActiveRange: getActivePlaybackRange,
   getFollowVoiceId,
@@ -521,6 +522,9 @@ const {
   isPlaying,
   isTransportJumpHighlightActive,
   isWaitingForFirstNote,
+  computeFocusPlan: computeFocusPlaybackPlanFromCurrentState,
+  normalizeFocusLoopBounds: normalizeLoopBounds,
+  normalizeFocusLoopBoundsForPlayback,
   maybeAutoScrollRenderToCursor,
   maybeScrollEditorToOffset,
   maybeScrollRenderToNote,
@@ -531,6 +535,7 @@ const {
   prepare: preparePlayback,
   refreshAbOptionsUi,
   resetState: resetPlaybackState,
+  resetFocusLoopForTune: maybeResetFocusLoopForTune,
   resetPlayerForSoundfontChange,
   resetUiState: resetPlaybackUiState,
   resolveEndSymbol: resolvePlaybackEndSymbol,
@@ -550,12 +555,15 @@ const {
   startAtMeasureOffset: startPlaybackAtMeasureOffset,
   startFromPrepared: startPlaybackFromPrepared,
   startFromRange: startPlaybackFromRange,
+  setFocusEnabled: setFocusModeEnabled,
   stopForRestart: stopPlaybackForRestart,
+  stopFromGuard: stopPlaybackFromGuard,
   stopTransport: stopPlaybackTransport,
   suppressFollowScroll,
   syncPendingPlan: syncPendingPlaybackPlan,
   toDerivedOffset,
   toEditorOffset,
+  toggleFocus: toggleFocusMode,
   toggleAbOptionsPopover,
   togglePlayPauseEffective,
   transportPause,
@@ -1069,7 +1077,7 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   setPlaybackRange,
   startPlaybackFromRange,
   stopPlayback: stopPlaybackTransport,
-  refreshMarkers: refreshAbMarkers,
+  refreshMarkers: editorRuntime.refresh,
   showToast,
   parseMutedVoiceSetting,
   hasIntentionalSelectionPlaybackSpan,
@@ -1262,7 +1270,7 @@ diagnosticsDomain = createDiagnosticsDomain({
     getWorkingCopySnapshot,
     getPlaybackPayload,
     getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
-    getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
+    getFollowPipelineVersion,
     getIsPlaying: isPlaying,
     getIsPaused: isPlaybackPaused,
     getWaitingForFirstNote: isWaitingForFirstNote,
@@ -1416,7 +1424,7 @@ const playbackStartController = createPlaybackStartController({
   updatePlayButton,
   clearNoteSelection,
   resetPlaybackUiState,
-  setSoundfontCaption,
+  setSoundfontCaption: soundfontController.setCaption,
   showToast,
   updatePracticeUi,
   getScopedPlaybackSettingsForOrigin,
@@ -1453,7 +1461,7 @@ const playbackTransportController = createPlaybackTransportController({
   updatePlayButton,
   clearNoteSelection,
   resetPlaybackUiState,
-  setSoundfontCaption,
+  setSoundfontCaption: soundfontController.setCaption,
   showToast,
 });
 const playbackAutoScrollController = createPlaybackAutoScrollController({
@@ -1516,7 +1524,7 @@ const playbackPlayerController = createPlaybackPlayerController({
   clearSvgFollowBarHighlight,
   clearSvgFollowMeasureHighlight,
   resetPlaybackUiState,
-  setSoundfontCaption,
+  setSoundfontCaption: soundfontController.setCaption,
   findSymbolAtOrBefore,
   toEditorOffset,
   appendPlaybackTrace,
@@ -1684,7 +1692,7 @@ focusModeController = createFocusModeController({
     editorRuntime.setPendingPlaybackRangeOrigin(null);
     clearPlaybackPlans();
   },
-  persistLoopSettingsPatch,
+  persistLoopSettingsPatch: settingsSnapshot.persistPatch,
   showToast,
 });
 
@@ -1692,7 +1700,6 @@ function isNormalModeForSplitToggle() {
   return !isRawModeActive() && !isFocusModeEnabled();
 }
 
-const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let headerLayersController = null;
 const fileContentCache = createFileContentCache({
   maxEntries: 12,
@@ -3187,29 +3194,10 @@ function setHeaderEditorValue(text) {
 
 const measureErrorPlugin = errorsFeature.plugins.measure;
 
-const abPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.version = abLoopRuntime.getMarkerVersion();
-    this.decorations = buildAbDecorations(view.state, abLoopRuntime.getMarkers());
-  }
-  update(update) {
-    if (update.docChanged || update.selectionSet || this.version !== abLoopRuntime.getMarkerVersion()) {
-      this.version = abLoopRuntime.getMarkerVersion();
-      this.decorations = buildAbDecorations(update.state, abLoopRuntime.getMarkers());
-    } else if (update.docChanged && abLoopRuntime.getMarkers()) {
-      // map markers to new positions
-      try {
-        abLoopRuntime.mapMarkers(update.changes, update.state.doc.length);
-      } catch {}
-    }
-  }
-}, {
-  decorations: (v) => v.decorations,
+const abPlugin = createAbMarkerExtension({
+  ViewPlugin,
+  runtime: abLoopRuntime,
 });
-
-function refreshAbMarkers() {
-  editorRuntime.refresh();
-}
 
 const barMismatchPlugin = errorsFeature.plugins.barMismatch;
 
@@ -3625,14 +3613,6 @@ async function checkExternalTools() {
   await toolStatusController.check();
 }
 
-function setSoundfontStatus(text, autoClearMs) {
-  soundfontController.setStatus(text, autoClearMs);
-}
-
-function setSoundfontCaption(text) {
-  soundfontController.setCaption(text);
-}
-
 function applyTransformedText(text, options = {}) {
   ensureCurrentDocument();
   if (options.resetTransposePreview !== false) resetTransposePreviewState();
@@ -3774,11 +3754,6 @@ function getSuggestedBaseName() {
 
 function getSuggestedPrintBaseName() {
   return buildSuggestedTuneBaseName({ includeKey: true });
-}
-
-function getPlaybackText() {
-  const payload = getPlaybackPayload();
-  return payload.text;
 }
 
 function getDefaultSaveDir() {
@@ -4281,7 +4256,7 @@ settingsDomain = createSettingsDomain({
     resetPlaybackForSoundfontChange: resetPlayerForSoundfontChange,
     scheduleRender: scheduleRenderNow,
     scheduleStartupLayoutReset: startupController.scheduleLayoutReset,
-    setSoundfontStatus,
+    setSoundfontStatus: soundfontController.setStatus,
     showDisclaimerIfNeeded: disclaimerController.showIfNeeded,
     showToast,
     updateErrorsFeatureUi: updateErrorsFeatureUI,
@@ -4334,24 +4309,8 @@ function isFocusModeEnabled() {
   return focusModeController ? focusModeController.isEnabled() : false;
 }
 
-function updateFocusModeUi() {
-  if (focusModeController) focusModeController.updateUi();
-}
-
-function setFocusModeEnabled(nextEnabled) {
-  if (focusModeController) focusModeController.setEnabled(nextEnabled);
-}
-
-function toggleFocusMode() {
-  if (focusModeController) focusModeController.toggle();
-}
-
 function getRenderZoomFactor() {
   return layoutController ? layoutController.getRenderZoomFactor() : 1;
-}
-
-function stopPlaybackFromGuard(message) {
-  if (playbackUiController) playbackUiController.handlePlaybackGuardStop(message);
 }
 
 function updateGlobalHeaderToggle() {
@@ -4369,24 +4328,6 @@ function clampInt(value, min, max, fallback) {
   if (!Number.isFinite(v)) return fallback;
   const n = Math.floor(v);
   return Math.max(min, Math.min(max, n));
-}
-
-function computeFocusPlaybackPlanFromCurrentState() {
-  return focusModeController
-    ? focusModeController.computePlaybackPlan()
-    : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
-}
-
-function normalizeLoopBounds(fromMeasure, toMeasure) {
-  return focusModeController ? focusModeController.normalizeLoopBounds(fromMeasure, toMeasure) : { from: 0, to: 0 };
-}
-
-function normalizeFocusLoopBoundsForPlayback() {
-  return focusModeController ? focusModeController.normalizeLoopBoundsForPlayback() : false;
-}
-
-function maybeResetFocusLoopForTune(tuneId, { updateUi = true } = {}) {
-  if (focusModeController) focusModeController.maybeResetLoopForTune(tuneId, { updateUi });
 }
 
 function setSplitOrientation(nextOrientation, { persist = true, userAction = false } = {}) {
@@ -4413,11 +4354,6 @@ function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
 
 function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText) {
   return headerLayersController.buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText);
-}
-
-async function persistLoopSettingsPatch(patch) {
-  if (!window.api || typeof window.api.updateSettings !== "function") return;
-  try { await window.api.updateSettings(patch); } catch {}
 }
 
 if (focusModeController) focusModeController.wireControls();

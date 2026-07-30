@@ -66,6 +66,7 @@ function installDevUiSmokeHook({
         tuneSelectValue: tuneSelect ? String(tuneSelect.value || "") : "",
         tuneSelectText: tuneSelect ? String(tuneSelect.textContent || "").trim() : "",
         playbackDebug: getPlaybackDebug(),
+        soundfont: state.soundfont || null,
         payloadMode: Boolean(state.payloadMode),
         payloadBarHidden: elements.payloadBar
           ? elements.payloadBar.classList.contains("hidden")

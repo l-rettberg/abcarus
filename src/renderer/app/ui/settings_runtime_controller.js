@@ -85,6 +85,7 @@ function createSettingsRuntimeController({
       const settings = await api.getSettings();
       call("logStartupPerf", "getSettings() done", { hasSettings: Boolean(settings) });
       if (settings) {
+        const prevSoundfont = getSoundfontName();
         setLatestSettings(settings);
         call("logStartupPerf", "apply settings: begin");
         applyCommonSettings(settings);
@@ -92,6 +93,13 @@ function createSettingsRuntimeController({
         call("showDisclaimerIfNeeded", settings);
         call("scheduleStartupLayoutReset");
         call("logStartupPerf", "apply settings: end");
+        if (prevSoundfont !== getSoundfontName()) {
+          maybeReloadSoundfont(prevSoundfont);
+        } else {
+          Promise.resolve(call("ensureSoundfontLoaded")).catch(() => {
+            call("setSoundfontStatus", "Soundfont load failed", 5000);
+          });
+        }
         call("markStartupSettingsApplied");
       }
       call("setLibraryPrefsWriteSuppressed", false);

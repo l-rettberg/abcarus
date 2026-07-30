@@ -85,6 +85,58 @@ assert.deepEqual(applied, ["abcarus-sf2://local/test.sf2"]);
 assert.equal(windowRef.abc2svg.sf2, null);
 assert.doesNotMatch(controller.getSource(), /^file:/);
 
+let releaseBundledRead;
+const bundledRead = new Promise((resolve) => {
+  releaseBundledRead = resolve;
+});
+const raceWindow = {
+  location: { href: "file:///app/src/renderer/index.html" },
+  abc2svg: {},
+};
+const raceController = createSoundfontController({
+  windowRef: raceWindow,
+  api: {
+    readFileBase64: async () => bundledRead,
+    getSoundfontStreamUrl: async () => "abcarus-sf2://local/current.sf2",
+  },
+});
+const staleLoad = raceController.ensureLoaded();
+raceController.setFromSettings({ soundfontName: "/tmp/current.sf2" });
+raceController.resetCache();
+const currentLoad = raceController.ensureLoaded();
+releaseBundledRead("c3RhbGU=");
+await Promise.all([staleLoad, currentLoad]);
+assert.equal(raceController.getReadyName(), "/tmp/current.sf2");
+assert.equal(raceController.getSource(), "abcarus-sf2://local/current.sf2");
+assert.equal(raceWindow.abc2svg.sf2, null);
+
+const { createSettingsRuntimeController } = await importBundledModule(
+  "src/renderer/app/ui/settings_runtime_controller.js",
+);
+let activeName = "TimGM6mb.sf2";
+const initialCalls = [];
+const settingsRuntime = createSettingsRuntimeController({
+  api: {
+    getSettings: async () => ({ soundfontName: "/tmp/initial.sf2" }),
+  },
+  state: {
+    getSoundfontName: () => activeName,
+    setLatestSettings: () => {},
+  },
+  actions: {
+    applySoundfont: (settings) => {
+      activeName = settings.soundfontName;
+      initialCalls.push("apply");
+    },
+    resetSoundfontCache: () => initialCalls.push("reset-cache"),
+    resetPlaybackForSoundfontChange: () => initialCalls.push("reset-player"),
+    ensureSoundfontLoaded: () => initialCalls.push("load"),
+  },
+});
+await settingsRuntime.loadInitialSettings();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(initialCalls, ["apply", "reset-cache", "reset-player", "load"]);
+
 const rendererHtml = await readFile("src/renderer/index.html", "utf8");
 assert.match(rendererHtml, /connect-src[^;]*\babcarus-sf2:/);
 

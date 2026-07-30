@@ -52,6 +52,8 @@ function createSoundfontController({
   let soundfontLoadTarget = null;
   let soundfontStatusTimer = null;
   let lastSoundfontApplied = null;
+  let lastLoadError = null;
+  let loadGeneration = 0;
 
   function setStatusText(text, autoClearMs) {
     setBufferStatus(text || "");
@@ -78,7 +80,7 @@ function createSoundfontController({
     setCaption("Loading...");
   }
 
-  async function loadSoundfont(name) {
+  async function loadSoundfont(name, generation) {
     const w = windowRef;
     if (!w) throw new Error("window is unavailable.");
     const isPath = name.startsWith("/") || /^[a-zA-Z]:\\/.test(name) || name.startsWith("file://");
@@ -98,12 +100,13 @@ function createSoundfontController({
     } else {
       sf2Url = new URL(`../../third_party/sf2/${name}`, w.location.href).href;
     }
+    if (generation !== loadGeneration) return false;
     if (!w.abc2svg) w.abc2svg = {};
     if (isPath || STREAMING_SF2.has(name)) {
       w.abc2svg.sf2 = null;
       soundfontSource = sf2Url;
       soundfontReadyName = name;
-      return;
+      return true;
     }
     if (!api || typeof api.readFileBase64 !== "function") {
       throw new Error("preload API missing: window.api.readFileBase64");
@@ -112,15 +115,18 @@ function createSoundfontController({
     try {
       b64 = await withTimeout(api.readFileBase64(sf2Url), 15000, "Soundfont load");
     } catch {
+      if (generation !== loadGeneration) return false;
       w.abc2svg.sf2 = null;
       soundfontSource = sf2Url;
       soundfontReadyName = name;
-      return;
+      return true;
     }
+    if (generation !== loadGeneration) return false;
     if (!b64 || !b64.length) throw new Error("SF2 base64 is empty");
     w.abc2svg.sf2 = b64;
     soundfontSource = DEFAULT_SOUNDFONT_SOURCE;
     soundfontReadyName = name;
+    return true;
   }
 
   async function ensureLoaded() {
@@ -134,27 +140,37 @@ function createSoundfontController({
     if (soundfontLoadPromise && soundfontLoadTarget === desired) return soundfontLoadPromise;
 
     if (!w.abc2svg) w.abc2svg = {};
+    const generation = ++loadGeneration;
     soundfontLoadTarget = desired;
     setCaption("Loading...");
     updateLoadingStatus(desired);
-    soundfontLoadPromise = (async () => {
+    const currentPromise = (async () => {
       let ok = false;
       try {
-        await loadSoundfont(desired);
-        ok = true;
+        ok = await loadSoundfont(desired, generation);
+        if (!ok) return;
+        lastLoadError = null;
       } catch (e) {
+        if (generation !== loadGeneration) return;
+        lastLoadError = {
+          name: desired,
+          message: e && e.message ? String(e.message) : String(e),
+        };
         if (desired === DEFAULT_SOUNDFONT_NAME) throw e;
-        await loadSoundfont(DEFAULT_SOUNDFONT_NAME);
-        ok = true;
+        ok = await loadSoundfont(DEFAULT_SOUNDFONT_NAME, generation);
       } finally {
-        soundfontLoadPromise = null;
-        soundfontLoadTarget = null;
+        if (soundfontLoadPromise === currentPromise) {
+          soundfontLoadPromise = null;
+          soundfontLoadTarget = null;
+        }
+        if (generation !== loadGeneration) return;
         if (ok) setStatusText("", 0);
         if (!isWaitingForFirstNote()) setCaption();
         if (ok && !isPlaying() && !isPaused() && !isWaitingForFirstNote()) setStatus("OK");
       }
     })();
-    return soundfontLoadPromise;
+    soundfontLoadPromise = currentPromise;
+    return currentPromise;
   }
 
   async function ensureReady() {
@@ -174,6 +190,7 @@ function createSoundfontController({
   }
 
   function resetCache() {
+    loadGeneration += 1;
     const w = windowRef;
     if (w && w.abc2svg) w.abc2svg.sf2 = null;
     if (w && w.abcsf2 && Array.isArray(w.abcsf2)) w.abcsf2.length = 0;
@@ -182,6 +199,7 @@ function createSoundfontController({
     soundfontLoadPromise = null;
     soundfontLoadTarget = null;
     lastSoundfontApplied = null;
+    lastLoadError = null;
   }
 
   return {
@@ -195,6 +213,7 @@ function createSoundfontController({
     getSource: () => soundfontSource,
     getReadyName: () => soundfontReadyName,
     getLastApplied: () => lastSoundfontApplied,
+    getLastLoadError: () => lastLoadError,
   };
 }
 

@@ -210,6 +210,18 @@ export function createPlaybackDomain({
       playbackState: transport.playbackState,
       practiceTempoMultiplier: transport.practiceTempoMultiplier,
       resumeStartIdx: transport.resumeStartIdx,
+      soundfont: (() => {
+        const controller = getSoundfont();
+        return controller ? {
+          name: controller.getName(),
+          source: controller.getSource(),
+          readyName: controller.getReadyName(),
+          lastApplied: controller.getLastApplied(),
+          lastLoadError: typeof controller.getLastLoadError === "function"
+            ? controller.getLastLoadError()
+            : null,
+        } : null;
+      })(),
     }),
     getSoundfontName: () => {
       const controller = getSoundfont();

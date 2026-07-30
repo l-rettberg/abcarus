@@ -2604,6 +2604,7 @@ diagnosticsDomain.installDevUiSmoke({
   },
   getState: () => ({
     ...playbackDomain.getUiState(),
+    soundfont: playbackDomain.getDiagnosticsSnapshot().soundfont,
     payloadMode: isPayloadMode(),
   }),
   getHasSvg: () => Boolean($out && $out.querySelector("svg")),
@@ -3356,9 +3357,6 @@ layoutController.initPaneResizer();
 layoutController.initRightPaneResizer({ isRawMode: () => isRawModeActive() });
 layoutController.initSidebarResizer();
 setLibraryVisible(false);
-
-// Preload soundfont in background to avoid first-play delay.
-playbackDomain.preloadSoundfont({ setStatus, logErr });
 
 checkExternalTools().catch(() => {});
 

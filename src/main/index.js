@@ -33,6 +33,20 @@ const DEFAULT_MAIN_WINDOW_BOUNDS = {
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
 const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
 const DEV_NO_CACHE_ENABLED = process.env.ABCARUS_DEV_NO_CACHE !== "0";
+const DEV_SOUNDFONT_PATH = UI_SMOKE_ENABLED
+  ? String(process.env.ABCARUS_DEV_SOUNDFONT_PATH || "").trim()
+  : "";
+function withDevSoundfont(settings) {
+  if (!DEV_SOUNDFONT_PATH) return settings;
+  return {
+    ...settings,
+    soundfontName: DEV_SOUNDFONT_PATH,
+    soundfontPaths: Array.from(new Set([
+      ...(Array.isArray(settings.soundfontPaths) ? settings.soundfontPaths : []),
+      DEV_SOUNDFONT_PATH,
+    ])),
+  };
+}
 const STARTUP_T0_MS = Date.now();
 function logStartupPerf(label, data) {
   if (!STARTUP_PERF_ENABLED) return;
@@ -1551,7 +1565,7 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   saveState();
   if (persistToSettingsFile) schedulePersistAttachedSettingsFile();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("settings:changed", next);
+    mainWindow.webContents.send("settings:changed", withDevSoundfont(next));
   }
   if (patch && (
     Object.prototype.hasOwnProperty.call(patch, "supportMicrotonalNotation")
@@ -2840,8 +2854,10 @@ async function runUiSmoke(win) {
 
   if (process.env.ABCARUS_DEV_PLAYBACK_SMOKE === "1") {
     await new Promise((resolve) => setTimeout(resolve, 1800));
+    const requireFirstNote = process.env.ABCARUS_DEV_SOUNDFONT_SMOKE === "1";
     const playbackResult = await win.webContents.executeJavaScript(
       `(async () => {
+        const requireFirstNote = ${requireFirstNote ? "true" : "false"};
         const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const waitFor = async (predicate, timeoutMs, stepMs = 100) => {
           const start = Date.now();
@@ -2867,6 +2883,7 @@ async function runUiSmoke(win) {
           hasSvg: !!(snap && snap.hasSvg),
           debugSymbols: snap && snap.playbackDebug ? snap.playbackDebug.symbols : undefined,
           debugMeasures: snap && snap.playbackDebug ? snap.playbackDebug.measures : undefined,
+          soundfont: snap ? snap.soundfont : null,
         });
         const hook = window.__abcarusDevUiSmoke;
         if (!hook || typeof hook.setText !== "function" || typeof hook.snapshot !== "function") {
@@ -2912,8 +2929,11 @@ async function runUiSmoke(win) {
             || compact.playActive
             || /Pause|Resume/i.test(String(compact.playText || ""))
           );
-          return { ok: active, snap: compact };
-        }, 7000, 120);
+          const firstNoteStarted = compact.isPlaying
+            && !compact.waitingForFirstNote
+            && /Playing/i.test(String(compact.status || ""));
+          return { ok: requireFirstNote ? firstNoteStarted : active, snap: compact };
+        }, requireFirstNote ? 90000 : 7000, 120);
         if (!started.ok) {
           return {
             ok: false,
@@ -2935,7 +2955,35 @@ async function runUiSmoke(win) {
         if (!stopped.ok) {
           return { ok: false, phase: "stop", reason: "playback-did-not-stop", last: stopped.snap };
         }
-        return { ok: true, rendered: rendered.snap, started: started.snap, stopped: stopped.snap };
+        const soundfontSource = window.p && typeof window.p.set_sfu === "function"
+          ? window.p.set_sfu()
+          : "";
+        const runtimeSettings = window.api && typeof window.api.getSettings === "function"
+          ? await window.api.getSettings()
+          : null;
+        const configuredSoundfont = runtimeSettings ? String(runtimeSettings.soundfontName || "") : "";
+        if (
+          requireFirstNote
+          && (/^[/]|^[A-Za-z]:\\\\/.test(configuredSoundfont))
+          && !String(soundfontSource || "").startsWith("abcarus-sf2://")
+        ) {
+          return {
+            ok: false,
+            phase: "soundfont",
+            reason: "external-soundfont-was-not-applied",
+            configuredSoundfont,
+            soundfontSource,
+            soundfont: stopped.snap ? stopped.snap.soundfont : null,
+          };
+        }
+        return {
+          ok: true,
+          rendered: rendered.snap,
+          started: started.snap,
+          stopped: stopped.snap,
+          soundfontSource,
+          configuredSoundfont,
+        };
       })()`,
       true
     );
@@ -3279,7 +3327,10 @@ registerIpcHandlers({
     appState.settingsFile = next;
     await saveState();
   },
-  getSettings: () => appState.settings || getDefaultSettings(),
+  getSettings: () => {
+    const settings = appState.settings || getDefaultSettings();
+    return withDevSoundfont(settings);
+  },
   updateSettings,
   showTransformError,
   getLastRecent: () => {

@@ -1,7 +1,7 @@
 # ADR-0016 — Microtonal Tools Boundary
 
 Date: 2026-07-03
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -55,7 +55,8 @@ Use a microtonal domain boundary:
 - `src/renderer/microtonal/` for shared domain logic, datasets, and services.
 - `src/renderer/tools/microtonal/` or focused submodules for UI feature glue.
 
-`renderer.js` may keep only host adapters and global routing:
+`renderer.js` may keep only construction of `microtonalDomain`, host adapters,
+the editor extension reference, and global routing:
 
 - menu/settings gate,
 - current editor text/selection,
@@ -93,7 +94,10 @@ Use a microtonal domain boundary:
 rg -n "intonationExplorer|makamDna|perde|supportMicrotonal|makamToolsEnabled|studyToolsEnabled" src/renderer/renderer.js
 ```
 
-Remaining renderer matches must be menu/settings routing or host adapters only.
+Remaining renderer matches must be the `microtonalDomain` import/construction,
+its editor extension, menu/settings routing, or host adapters only. Direct
+construction of Intonation Explorer, Makam DNA, Perde, and their DOM references
+is forbidden by `test:renderer-boundaries`.
 
 ## Known Concerns: Intonation Explorer
 

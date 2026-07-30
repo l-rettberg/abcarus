@@ -108,6 +108,11 @@ for (const forbidden of [
   /function\s+reloadActiveTuneTextFromWorkingCopySnapshot\s*\(/,
   /function\s+showErrorsVisible\s*\(/,
   /\bconst\s+(?:NEW_FILE_MINIMAL_ABC|TEMPLATE_ABC)\b/,
+  /\b(?:intonationExplorerFeature|microtonalToolsFeature|intonationRendererBridge|perdeService)\b/,
+  /function\s+isMicrotonalNotationSupported\s*\(/,
+  /getElementById\s*\(\s*["']makamDna/,
+  /from\s+["']\.\/tools\/(?:microtonal|intonation_explorer)\//,
+  /from\s+["']\.\/microtonal\/perde_service\.js["']/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }

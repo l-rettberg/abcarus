@@ -77,16 +77,6 @@ function createAppCommandsDomain({
     try { call(actions.showToast, next ? "Typing note preview enabled." : "Typing note preview disabled.", 1800); } catch {}
   }
 
-  function openIntonationExplorerCommand() {
-    const latestSettings = call(state.getLatestSettings);
-    const enabled = latestSettings == null ? true : Boolean(call(state.isMicrotonalNotationSupported, latestSettings));
-    if (!enabled) {
-      call(actions.showToast, "Microtonal notation support is disabled. Enable Settings → Options → Tools → Microtonal notation.", 4800);
-      return;
-    }
-    call(actions.toggleIntonationExplorer);
-  }
-
   const menuActionsController = createMenuActionsController({
     api,
     windowRef,
@@ -149,7 +139,7 @@ function createAppCommandsDomain({
         const settings = getSettingsDomain();
         if (settings && typeof settings.openFontsSettings === "function") settings.openFontsSettings();
       },
-      openIntonationExplorer: openIntonationExplorerCommand,
+      openIntonationExplorer: actions.toggleIntonationExplorer,
       openLibraryCatalog: actions.openLibraryCatalog,
       openRecentFile: actions.openRecentFile,
       openRecentFolder: actions.openRecentFolder,

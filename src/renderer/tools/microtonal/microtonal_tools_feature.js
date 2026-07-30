@@ -1,14 +1,6 @@
 import { createMakamDnaController } from "../makam_dna/makam_dna_controller.js";
 import { createMakamDnaStore } from "../makam_dna/makam_dna_store.js";
 
-function isMicrotonalNotationSupported(settings) {
-  return Boolean(settings && (
-    settings.supportMicrotonalNotation
-    || settings.makamToolsEnabled
-    || settings.studyToolsEnabled
-  ));
-}
-
 function createMicrotonalToolsFeature({
   makamDna = {},
   api = null,
@@ -68,6 +60,7 @@ function createMicrotonalToolsFeature({
   });
 
   return {
+    closeMakamDnaModal: () => makamDnaController.close(),
     detectMakamFromTuneText: (tuneText) => makamDnaStore.detectFromTuneText(tuneText),
     ensureMakamDnaLoaded: () => makamDnaStore.ensureLoaded(),
     getMakamDnaEntries: () => makamDnaStore.getEntries(),
@@ -78,5 +71,4 @@ function createMicrotonalToolsFeature({
 
 export {
   createMicrotonalToolsFeature,
-  isMicrotonalNotationSupported,
 };

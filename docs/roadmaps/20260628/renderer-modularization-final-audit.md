@@ -35,7 +35,7 @@ ownership.
 | Playback, Focus, Follow | `src/renderer/playback/` and `playback_domain.js` | Controller construction and transport/UI wiring | Complete |
 | Editor and errors | `src/renderer/editor/` | Editor host construction and callbacks into render/library | Complete |
 | Settings and app commands | `src/renderer/app/ui/` and `src/renderer/app/commands/` | DOM element map and facade wiring | Complete |
-| Microtonal tools | `src/renderer/microtonal/` and `src/renderer/tools/` | Feature construction and Settings gate callbacks | Complete |
+| Microtonal tools | `src/renderer/microtonal/microtonal_domain.js` | Domain construction, editor extension, and generic host adapters | Complete |
 | Print, Set List, import/export | `src/renderer/print/` and `src/renderer/tools/` | Command dispatch and shared file/render adapters | Complete |
 | Templates, Drum/GChord, MIDI input, ChordPro, Raw, Payload | respective `src/renderer/tools/` folders | Feature construction and global command routing | Complete |
 | Diagnostics and status UI | `src/renderer/app/diagnostics/` and `src/renderer/app/ui/` | Startup calls and status callback wiring | Complete |

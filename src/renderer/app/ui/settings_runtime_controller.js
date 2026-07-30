@@ -39,6 +39,7 @@ function createSettingsRuntimeController({
     call("applyPlaybackAutoScroll", settings);
     call("applyPrintAll", settings);
     call("applyLibraryPrefs", settings);
+    call("applyMicrotonalSettings", settings);
     call("updateGlobalHeaderToggle");
     call("updateErrorsFeatureUi");
     Promise.resolve(call("refreshHeaderLayers")).catch(() => {});
@@ -50,17 +51,6 @@ function createSettingsRuntimeController({
       if (enabled) call("wirePayloadMode");
       if (allowExit && !enabled && state.isPayloadMode && state.isPayloadMode()) {
         Promise.resolve(call("exitPayloadMode")).catch(() => {});
-      }
-    } catch {}
-  }
-
-  function applyMicrotonalSettings(settings) {
-    try {
-      const enabled = state.isMicrotonalNotationSupported
-        ? Boolean(state.isMicrotonalNotationSupported(settings))
-        : false;
-      if (!enabled && state.isIntonationExplorerVisible && state.isIntonationExplorerVisible()) {
-        call("closeIntonationExplorer");
       }
     } catch {}
   }
@@ -128,7 +118,6 @@ function createSettingsRuntimeController({
       const prevSoundfont = getSoundfontName();
       applyCommonSettings(settings);
       applyPayloadModeSettings(settings, { allowExit: true });
-      applyMicrotonalSettings(settings);
       call("showDisclaimerIfNeeded", settings);
       if (settings && prevHeader !== getHeaderSignature()) call("scheduleRender");
       maybeReloadSoundfont(prevSoundfont);

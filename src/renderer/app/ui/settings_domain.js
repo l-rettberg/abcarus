@@ -81,6 +81,10 @@ function createSettingsDomain({
     if (controllers.libraryUiDomain) controllers.libraryUiDomain.applyLibraryPrefsFromSettings(settings);
   }
 
+  function setMicrotonalFromSettings(settings) {
+    if (controllers.microtonal) controllers.microtonal.applySettings(settings);
+  }
+
   function setSoundfontFromSettings(settings) {
     if (controllers.soundfont) controllers.soundfont.setFromSettings(settings);
   }
@@ -119,8 +123,6 @@ function createSettingsDomain({
         getHeaderSignature: () => controllers.headerLayers ? controllers.headerLayers.getSettingsSignature() : "",
         getSoundfontName: () => controllers.soundfont ? controllers.soundfont.getName() : "",
         isPayloadMode: state.isPayloadMode,
-        isMicrotonalNotationSupported: state.isMicrotonalNotationSupported,
-        isIntonationExplorerVisible: state.isIntonationExplorerVisible,
         isChordProEnabled: state.isChordProEnabled,
       },
       actions: {
@@ -138,7 +140,7 @@ function createSettingsDomain({
         applyPlaybackAutoScroll: setPlaybackAutoScrollFromSettings,
         applyPrintAll: setPrintAllFromSettings,
         applyLibraryPrefs: setLibraryPrefsFromSettings,
-        closeIntonationExplorer: actions.closeIntonationExplorer,
+        applyMicrotonalSettings: setMicrotonalFromSettings,
         ensureSoundfontLoaded: actions.ensureSoundfontLoaded,
         exitPayloadMode: actions.exitPayloadMode,
         logStartupPerf: actions.logStartupPerf,

@@ -87,7 +87,7 @@ import {
   renumberXInTextKeepingFirst,
   renumberXLinesConsecutive,
 } from "./abc/text_transforms.js";
-import { createPerdeService } from "./microtonal/perde_service.js";
+import { createMicrotonalDomain } from "./microtonal/microtonal_domain.js";
 import {
   isChordProFilePath,
   isChordProText,
@@ -100,12 +100,6 @@ import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feat
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer_adapter.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
-import {
-  createMicrotonalToolsFeature,
-  isMicrotonalNotationSupported as isMicrotonalNotationSupportedForSettings,
-} from "./tools/microtonal/microtonal_tools_feature.js";
-import { createIntonationExplorerFeature } from "./tools/intonation_explorer/intonation_explorer_feature.js";
-import { createIntonationRendererBridge } from "./tools/intonation_explorer/intonation_renderer_bridge.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
 import { createMidiInputFeature } from "./tools/midi_input/midi_input_feature.js";
 import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feature.js";
@@ -344,14 +338,6 @@ const $setListHeader = document.getElementById("setListHeader");
 const $setListClear = document.getElementById("setListClear");
 const $setListSaveAbc = document.getElementById("setListSaveAbc");
 const $setListExportPdf = document.getElementById("setListExportPdf");
-const $makamDnaModal = document.getElementById("makamDnaModal");
-const $makamDnaClose = document.getElementById("makamDnaClose");
-const $makamDnaEditor = document.getElementById("makamDnaEditor");
-const $makamDnaStatus = document.getElementById("makamDnaStatus");
-const $makamDnaResetBuiltin = document.getElementById("makamDnaResetBuiltin");
-const $makamDnaSave = document.getElementById("makamDnaSave");
-const $makamDnaCancel = document.getElementById("makamDnaCancel");
-
 const editorRuntime = createEditorRuntime({
   logError: (...args) => console.error(...args),
 });
@@ -368,7 +354,7 @@ const editorExtensionRuntime = createEditorExtensionRuntime({
     barMismatchPlugin,
     errorActivationHighlightPlugin,
     practiceBarHighlightPlugin,
-    intonationRendererBridge.plugin,
+    microtonalDomain.editorExtension,
     abPlugin,
     payloadModeDecorations.plugin,
   ],
@@ -428,6 +414,7 @@ let appendCurrentTuneAction = null;
 let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
+let microtonalDomain = null;
 const activeContext = createActiveTuneContextStore();
 const libraryRuntime = createLibraryRuntimeStore();
 const settingsSnapshot = createSettingsSnapshotStore({ api: window.api });
@@ -989,10 +976,6 @@ function isPayloadMode() {
   return payloadModeFeature.isEnabled();
 }
 
-function isMicrotonalNotationSupported(settings = settingsSnapshot.get()) {
-  return isMicrotonalNotationSupportedForSettings(settings);
-}
-
 function safeReadJsonLocalStorage(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -1288,8 +1271,6 @@ const devConfig = diagnosticsDomain.devConfig;
 const recordDebugLog = diagnosticsDomain.recordDebugLog;
 const recordRecentAction = diagnosticsDomain.recordRecentAction;
 const perfNowMs = diagnosticsDomain.perfNowMs;
-const isIntonationPerfEnabled = diagnosticsDomain.isIntonationPerfEnabled;
-const logIntonationPerf = diagnosticsDomain.logIntonationPerf;
 const isStartupPerfEnabled = diagnosticsDomain.isStartupPerfEnabled;
 const logStartupPerf = diagnosticsDomain.logStartupPerf;
 const isFilePerfEnabled = diagnosticsDomain.isFilePerfEnabled;
@@ -3109,77 +3090,37 @@ function setBarMismatchMarkers(markers) {
   errorsFeature.setBarMismatchMarkers(markers);
 }
 
-let intonationExplorerFeature = null;
-
-const microtonalToolsFeature = createMicrotonalToolsFeature({
-  makamDna: {
-    modal: $makamDnaModal,
-    closeButton: $makamDnaClose,
-    cancelButton: $makamDnaCancel,
-    editor: $makamDnaEditor,
-    status: $makamDnaStatus,
-    resetBuiltinButton: $makamDnaResetBuiltin,
-    saveButton: $makamDnaSave,
-  },
+microtonalDomain = createMicrotonalDomain({
   api: window.api,
-  enableDraggable: enableDraggableModal,
-  logError: (e) => logErr(e && e.message ? e.message : String(e)),
-  showToast: (message, timeout) => showToast(message, timeout),
-  onMakamDnaChanged: async () => {
-    if (intonationExplorerFeature) {
-      intonationExplorerFeature.populateMakams();
-      if (intonationExplorerFeature.isVisible()) {
-        try { await intonationExplorerFeature.refresh(); } catch {}
-      }
-    }
-  },
-});
-
-const perdeService = createPerdeService();
-const intonationRendererBridge = createIntonationRendererBridge({
+  documentRef: document,
+  navigatorRef: navigator,
   ViewPlugin,
-  getEditorView: editorRuntime.getView,
-  getOutputElement: () => $out,
-  findMeasureRangeAt,
-  mapEditorOffsetToRenderIdx,
-  maybeScrollRenderToNote,
-  isRawMode: () => isRawModeActive(),
-  isPayloadMode,
-});
-
-intonationExplorerFeature = createIntonationExplorerFeature({
-  elements: {
-    document,
+  state: {
+    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
+    getSettings: settingsSnapshot.get,
+    isPayloadMode,
+    isRawMode: () => isRawModeActive(),
   },
   host: {
-    clearSvgBarHighlight: intonationRendererBridge.clearSvgBarHighlight,
-    clearSvgNoteHighlight: intonationRendererBridge.clearSvgNoteHighlight,
+    enableDraggableModal,
     enableDraggableToolPanel,
     ensureToolPanelDefaultLeftPosition,
-    focusEditorAt: intonationRendererBridge.focusEditorAt,
-    getSelectionScope: intonationRendererBridge.getSelectionScope,
-    highlightBarsAtOffsets: intonationRendererBridge.highlightBarsAtOffsets,
-    highlightNotesAtOffsets: intonationRendererBridge.highlightNotesAtOffsets,
-    isPerfEnabled: isIntonationPerfEnabled,
-    isRawMode: () => isRawModeActive(),
+    findMeasureRangeAt,
+    getEditorView: editorRuntime.getView,
+    getOutputElement: () => $out,
+    isPerfEnabled: diagnosticsDomain.isIntonationPerfEnabled,
     logError: (e) => logErr(e && e.message ? e.message : String(e)),
-    logPerf: logIntonationPerf,
+    logPerf: diagnosticsDomain.logIntonationPerf,
+    mapEditorOffsetToRenderIdx,
+    maybeScrollRenderToNote,
     nowMs: perfNowMs,
     refreshWorkingCopySnapshot,
-    resolveActiveTune: (snapshot) => resolveTuneEntryFromSnapshot(snapshot, {
-      tuneUid: activeContext.getActiveTuneUid(),
-      tuneIndex: activeContext.getActiveTuneIndex(),
-      startOffset: activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().startOffset,
-    }),
-    scrollToCurrentHighlight: intonationRendererBridge.scrollToCurrentHighlight,
-    setHighlightRanges: intonationRendererBridge.setHighlightRanges,
+    resolveTuneEntryFromSnapshot,
     showToast: (message, timeout) => showToast(message, timeout),
   },
-  microtonalTools: microtonalToolsFeature,
-  perdeService,
-  clipboard: navigator && navigator.clipboard ? navigator.clipboard : null,
 });
-intonationExplorerFeature.wire();
 
 function getHeaderEditorValue() {
   return fileHeaderController.getEditorValue();
@@ -4004,13 +3945,11 @@ appCommandsDomain = createAppCommandsDomain({
   state: {
     getEditorView: editorRuntime.getView,
     getFollowPlayback: playbackDomain.isFollowEnabled,
-    getLatestSettings: settingsSnapshot.get,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
     isErrorsEnabled,
     isGlobalHeaderEnabled: () => headerLayersController.isGlobalHeaderEnabled(),
-    isMicrotonalNotationSupported,
     isPayloadMode,
     isPayloadModeSettingEnabled: () => Boolean(settingsSnapshot.get() && settingsSnapshot.get().payloadModeEnabled),
     isPlaybackActive,
@@ -4074,7 +4013,7 @@ appCommandsDomain = createAppCommandsDomain({
     showToast,
     toggleFileHeader: toggleHeaderCollapsed,
     toggleFocusMode,
-    toggleIntonationExplorer: () => intonationExplorerFeature.toggle(),
+    toggleIntonationExplorer: microtonalDomain.toggleExplorer,
     toggleLibrary,
     togglePlayPauseEffective,
     transportPlay,
@@ -4107,8 +4046,6 @@ settingsDomain = createSettingsDomain({
     setDrumVelocityMap: (next) => abcHelpersFeature.setDrumVelocityMap(next),
     getEditorDom: editorRuntime.getDom,
     isPayloadMode,
-    isMicrotonalNotationSupported,
-    isIntonationExplorerVisible: () => Boolean(intonationExplorerFeature && intonationExplorerFeature.isVisible()),
     isChordProEnabled: () => chordProFeature.isEnabled(),
   },
   elements: {
@@ -4125,10 +4062,10 @@ settingsDomain = createSettingsDomain({
     printAll: printAllFeature,
     libraryUiDomain,
     midiInput: midiInputFeature,
+    microtonal: microtonalDomain,
   },
   actions: {
     centerRenderPaneOnCurrentAnchor,
-    closeIntonationExplorer: () => intonationExplorerFeature.close(),
     ensureSoundfontLoaded,
     exitPayloadMode: () => payloadModeFeature.exit(),
     logStartupPerf,

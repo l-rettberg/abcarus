@@ -47,7 +47,6 @@ export function createSaveFlowController({
     performAppendFlow = async () => false,
     performRawSaveFlow = async () => false,
     reconcileActiveTuneAfterSave = () => {},
-    recordNavFilePath = () => {},
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
@@ -241,8 +240,6 @@ export function createSaveFlowController({
       resetTransposePreviewState();
       setDirtyIndicator(false);
       setActiveFilePath(p);
-      recordNavFilePath(p);
-
       const updatedFile = await refreshLibraryFile(p, { force: true });
       reconcileActiveTuneAfterSave(p, updatedFile);
       updateLibraryStatus();
@@ -452,7 +449,6 @@ export function createSaveFlowController({
         patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
         resetTransposePreviewState();
         setActiveFilePath(filePath);
-        recordNavFilePath(filePath);
         setFileNameMeta(stripFileExtension(safeBasename(filePath)));
         updateWindowTitle();
         return true;
@@ -478,7 +474,6 @@ export function createSaveFlowController({
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
       resetTransposePreviewState();
       setActiveFilePath(filePath);
-      recordNavFilePath(filePath);
       setDirtyIndicator(false);
       setFileNameMeta(stripFileExtension(safeBasename(filePath)));
       updateWindowTitle();

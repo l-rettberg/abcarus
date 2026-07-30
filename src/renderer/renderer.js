@@ -879,7 +879,6 @@ const chordProFeature = createChordProFeature({
   resetPlaybackState,
   clearErrors,
   beginFullFileModeContext: (filePath, source) => documentLifecycleController.beginFullFileModeContext(filePath, source),
-  recordNavFilePath,
   setDirtyIndicator,
   setFileContentInCache,
   updateFileHeaderPanel,
@@ -1803,7 +1802,6 @@ const workingCopyConflictController = createWorkingCopyConflictController({
     attachTuneUidsToLibraryFile,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
-    recordNavFilePath,
     safeBasename,
     safeDirname,
     selectTune,
@@ -1906,8 +1904,6 @@ function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffse
     ? workingCopySyncController.resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset })
     : null;
 }
-const MAX_NAV_FILE_HISTORY = 20;
-const navFileHistory = [];
 libraryDocumentContext = createLibraryDocumentContext({
   activeTuneContext: activeContext,
   clearSaveSession,
@@ -1996,7 +1992,6 @@ saveFlowController = createSaveFlowController({
     performRawSaveFlow,
     reconcileActiveTuneAfterSave: (filePath, updatedFile) =>
       libraryLifecycleController.reconcileActiveTuneAfterSave(filePath, updatedFile),
-    recordNavFilePath,
     recordRecentAction,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
@@ -2232,17 +2227,6 @@ function formatPathTail(filePath, segments = 3) {
   if (!parts.length) return normalized;
   const tail = parts.slice(Math.max(0, parts.length - Math.max(1, segments))).join("/");
   return parts.length > segments ? `…/${tail}` : tail;
-}
-
-function recordNavFilePath(filePath) {
-  const normalized = normalizeLibraryPath(filePath);
-  if (!normalized) return;
-  const last = navFileHistory.length ? navFileHistory[navFileHistory.length - 1] : "";
-  if (last && pathsEqual(last, normalized)) return;
-  const existingIdx = navFileHistory.findIndex((p) => pathsEqual(p, normalized));
-  if (existingIdx >= 0) navFileHistory.splice(existingIdx, 1);
-  navFileHistory.push(normalized);
-  while (navFileHistory.length > MAX_NAV_FILE_HISTORY) navFileHistory.shift();
 }
 
 function getCurrentNavFilePath() {
@@ -2637,7 +2621,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     patchCurrentDocument,
     pathsEqual,
     readFile,
-    recordNavFilePath,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
     removeTuneFromContent,
@@ -2743,7 +2726,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     pathsEqual,
     perfNowMs,
     readFile,
-    recordNavFilePath,
     recordRecentAction,
     refreshHeaderLayers: () => headerLayersController.refreshHeaderLayers(),
     refreshLibraryFile,

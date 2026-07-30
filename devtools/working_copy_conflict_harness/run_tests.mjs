@@ -44,7 +44,6 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
         return { path, basename: "source_Copy.abc", headerEndOffset: 18 };
       },
       refreshWorkingCopySnapshot: async () => snapshot,
-      recordNavFilePath: (path) => calls.push(["recordNavFilePath", path]),
       safeBasename: (path) => String(path || "").split("/").pop() || "",
       safeDirname: () => "/tmp",
       switchWorkingCopyFileContext: (path, options) => calls.push(["switchWorkingCopyFileContext", path, options]),

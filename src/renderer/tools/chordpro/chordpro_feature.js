@@ -367,8 +367,6 @@ function createChordProFeature(host) {
     call(h.resetPlaybackState);
     call(h.clearErrors);
     call(h.beginFullFileModeContext, p, "chordpro_open");
-    call(h.recordNavFilePath, p);
-
     activeIndex = 0;
     fullText = String(text || "");
     updateStateFromFullText(fullText);

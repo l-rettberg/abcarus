@@ -64,6 +64,8 @@ for (const forbidden of [
   /function\s+stopPlaybackFromGuard\s*\(/,
   /function\s+setSoundfont(?:Status|Caption)\s*\(/,
   /function\s+persistLoopSettingsPatch\s*\(/,
+  /\brecordNavFilePath\b/,
+  /\bnavFileHistory\b/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }

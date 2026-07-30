@@ -10,7 +10,6 @@ function createWorkingCopyConflictController({
     attachTuneUidsToLibraryFile = () => {},
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
-    recordNavFilePath = () => {},
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
     selectTune = async () => {},
@@ -157,8 +156,6 @@ function createWorkingCopyConflictController({
     if (updatedFile && updatedFile.basename) setFileNameMeta(stripFileExtension(updatedFile.basename || ""));
     if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
     switchWorkingCopyFileContext(targetPath, { rawMode: getRawMode(), source: "save_copy_as" });
-    recordNavFilePath(targetPath);
-
     if (getRawMode()) {
       const parts = splitFileIntoHeaderAndBody((snap && snap.text) ? snap.text : "");
       setHeaderEditorValueClean(parts.headerText);

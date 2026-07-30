@@ -55,7 +55,6 @@ export function createLibraryLifecycleController({
     patchCurrentDocument = () => {},
     perfNowMs = () => 0,
     readFile = async () => ({ ok: false }),
-    recordNavFilePath = () => {},
     recordRecentAction = () => {},
     refreshHeaderLayers = async () => {},
     refreshLibraryFile = async () => null,
@@ -881,7 +880,6 @@ export function createLibraryLifecycleController({
     }
     setChordProMode(false);
     setLibraryActiveFilePath(filePath);
-    recordNavFilePath(filePath);
     const resolveFromIndex = async () => {
       const libraryIndex = getLibraryIndex();
       if (!libraryIndex || !libraryIndex.files) return { ok: false };

@@ -17,7 +17,6 @@ export function createNewFileAction({
     loadLibraryFileIntoEditor = async () => ({ ok: false }),
     mkdirp = async () => {},
     patchCurrentDocument = () => {},
-    recordNavFilePath = () => {},
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
     safeBasename = (path) => String(path || "").split("/").pop() || "",
@@ -70,7 +69,6 @@ export function createNewFileAction({
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
     const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
     setActiveFilePath(filePath);
-    recordNavFilePath(filePath);
     try {
       if (api && typeof api.openWorkingCopy === "function") {
         await api.openWorkingCopy(filePath);

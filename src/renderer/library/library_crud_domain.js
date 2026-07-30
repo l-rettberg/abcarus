@@ -105,7 +105,6 @@ function createLibraryCrudDomain({
       loadLibraryFileIntoEditor: actions.loadLibraryFileIntoEditor,
       mkdirp: actions.mkdirp,
       patchCurrentDocument: actions.patchCurrentDocument,
-      recordNavFilePath: actions.recordNavFilePath,
       refreshLibraryFile: actions.refreshLibraryFile,
       refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
       safeBasename: actions.safeBasename,

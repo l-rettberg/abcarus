@@ -6,7 +6,7 @@ Branch: `renderer-modularization`
 
 Baseline: approximately 32,000 lines in `src/renderer/renderer.js`
 
-Audited state: 3,866 physical lines in `src/renderer/renderer.js`
+Audited state: 3,865 physical lines in `src/renderer/renderer.js`
 
 ## Result
 
@@ -86,7 +86,7 @@ without receiving mutable playback runtime objects.
    forbidden patterns.
 4. Core domain facades remain present in the composition root.
 
-The 5,000-line ceiling is intentionally above the current 4,262 lines. It
+The 5,000-line ceiling is intentionally above the current 3,865 lines. It
 allows honest wiring changes while preventing a return to unbounded growth.
 The 2,000-line module ceiling prevents solving the problem by moving the old
 monolith into a differently named file. The existing

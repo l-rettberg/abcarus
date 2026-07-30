@@ -2,8 +2,28 @@
 /* eslint-disable no-console */
 import assert from "node:assert/strict";
 import { build } from "esbuild";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+
+const RENDERER_COMPOSITION_ROOT_MAX_LINES = 5000;
+const RENDERER_MODULE_MAX_LINES = 2000;
+const LEGACY_RENDERER_MODULE_MAX_LINES = new Map([
+  ["src/renderer/transpose.mjs", 2568],
+]);
+
+async function collectRendererModules(dirPath) {
+  const entries = await readdir(dirPath, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectRendererModules(fullPath));
+    } else if (entry.isFile() && /\.(?:m?js)$/.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
 
 async function importBundledModule(filePath) {
   const result = await build({
@@ -21,8 +41,26 @@ async function importBundledModule(filePath) {
 const rendererSource = await readFile("src/renderer/renderer.js", "utf8");
 const rendererLines = rendererSource.split(/\r\n|\n|\r/).length;
 assert.ok(
-  rendererLines <= 5000,
-  `renderer.js exceeds the 5000-line composition-root ceiling: ${rendererLines}`,
+  rendererLines <= RENDERER_COMPOSITION_ROOT_MAX_LINES,
+  `renderer.js exceeds the ${RENDERER_COMPOSITION_ROOT_MAX_LINES}-line composition-root ceiling: ${rendererLines}`,
+);
+
+const oversizedRendererModules = [];
+for (const filePath of await collectRendererModules("src/renderer")) {
+  if (resolve(filePath) === resolve("src/renderer/renderer.js")) continue;
+  const source = await readFile(filePath, "utf8");
+  const lines = source.split(/\r\n|\n|\r/).length;
+  const projectPath = relative(".", filePath);
+  const maxLines = LEGACY_RENDERER_MODULE_MAX_LINES.get(projectPath)
+    || RENDERER_MODULE_MAX_LINES;
+  if (lines > maxLines) {
+    oversizedRendererModules.push(`${projectPath} (${lines} lines; max ${maxLines})`);
+  }
+}
+assert.deepEqual(
+  oversizedRendererModules,
+  [],
+  `renderer modules exceed their anti-monolith ceilings:\n${oversizedRendererModules.join("\n")}`,
 );
 
 for (const required of [

@@ -276,9 +276,11 @@ npm run -s test:quick
 git diff --check
 ```
 
-`test:renderer-boundaries` enforces the 5000-line composition-root ceiling and
-prevents already-extracted editor, playback, header, error-location, and
-disclaimer internals from returning to `renderer.js`.
+`test:renderer-boundaries` enforces the 5000-line composition-root ceiling,
+prevents a new renderer-side JavaScript module from growing beyond 2000 lines,
+caps the legacy `transpose.mjs` exception at its existing size, and prevents
+already-extracted editor, playback, header, error-location, and disclaimer
+internals from returning to `renderer.js`.
 
 Run UI smoke when the local UI environment supports it:
 

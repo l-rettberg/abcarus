@@ -4,6 +4,7 @@ import {
   findPlaybackSymbolAtOrAfter,
   findPlaybackSymbolAtOrBefore,
   snapIstartToPlayable,
+  upperBoundTime,
 } from "./playback_state_model.js";
 
 export function createPlaybackDomain({
@@ -241,6 +242,7 @@ export function createPlaybackDomain({
       const controller = getFocusModeController();
       if (controller) controller.updatePracticeUi();
     },
+    upperBoundTime,
     withScopedOrigin,
     withTempFlags: (flags, action) => (
       requireController("abSelection").withTempPlaybackFlags(flags, action)

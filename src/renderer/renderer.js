@@ -27,6 +27,8 @@ import {
   detectRepeatMarkerAfterShortBar,
 } from "./editor/errors_bar_mismatch_model.js";
 import {
+  getClampedTextIndexFromLoc as getTextIndexFromLoc,
+  isMeasureCheckEnabledForText,
   parseErrorLocation,
 } from "./editor/errors_model.js";
 import {
@@ -98,7 +100,10 @@ import { createAbcTransformFeature } from "./tools/transforms/abc_transform_feat
 import { createSetListFeature } from "./tools/set_list/set_list_feature.js";
 import { createSetListRendererAdapter } from "./tools/set_list/set_list_renderer_adapter.js";
 import { createSourceLinkFeature } from "./tools/source_link/source_link_feature.js";
-import { createMicrotonalToolsFeature } from "./tools/microtonal/microtonal_tools_feature.js";
+import {
+  createMicrotonalToolsFeature,
+  isMicrotonalNotationSupported as isMicrotonalNotationSupportedForSettings,
+} from "./tools/microtonal/microtonal_tools_feature.js";
 import { createIntonationExplorerFeature } from "./tools/intonation_explorer/intonation_explorer_feature.js";
 import { createIntonationRendererBridge } from "./tools/intonation_explorer/intonation_renderer_bridge.js";
 import { createTemplatesFeature } from "./tools/templates/templates_feature.js";
@@ -143,7 +148,6 @@ import {
   normalizeReadableMidiDrumsForPlayback,
   sanitizeAbcForPlayback,
 } from "./playback/playback_payload_model.js";
-import { upperBoundTime } from "./playback/playback_state_model.js";
 import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
@@ -170,7 +174,11 @@ import { createAboutModalController } from "./app/ui/about_modal_controller.js";
 import { createGoToMeasureModalController } from "./app/ui/go_to_measure_modal_controller.js";
 import { enableDraggableModal } from "./app/ui/draggable_modal.js";
 import { enableDraggableFixedPopover } from "./app/ui/draggable_fixed_popover.js";
-import { enableDraggableToolPanel } from "./app/ui/draggable_tool_panel.js";
+import {
+  enableDraggableToolPanel,
+  ensureToolPanelDefaultLeftPosition,
+} from "./app/ui/draggable_tool_panel.js";
+import { createDisclaimerController } from "./app/ui/disclaimer_controller.js";
 import { createLayoutController } from "./app/ui/layout_controller.js";
 import { createDiagnosticsDomain } from "./app/diagnostics/diagnostics_domain.js";
 import { createToolStatusController } from "./app/ui/tool_status_controller.js";
@@ -178,6 +186,11 @@ import { createStatusController } from "./app/ui/status_controller.js";
 import { createStartupController } from "./app/startup/startup_controller.js";
 import { createToastHoverController } from "./app/ui/toast_hover_controller.js";
 import { createFileHeaderController } from "./app/document/file_header_controller.js";
+import {
+  countLinesForPrefix,
+  findHeaderEndOffset,
+  splitFileIntoHeaderAndBody,
+} from "./app/document/file_header_model.js";
 import { createFileContextController } from "./app/document/file_context_controller.js";
 import { createEditStateController } from "./app/document/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
@@ -552,6 +565,7 @@ const {
   updateRangeFromSelection: updatePlaybackRangeFromSelection,
   updatePlayButton,
   updatePracticeUi,
+  upperBoundTime,
   withScopedOrigin: withScopedPlaybackOrigin,
   withTempFlags: withTempPlaybackFlags,
 } = playbackDomain;
@@ -1009,7 +1023,7 @@ function isPayloadMode() {
 }
 
 function isMicrotonalNotationSupported(settings = latestSettingsSnapshot) {
-  return Boolean(settings && (settings.supportMicrotonalNotation || settings.makamToolsEnabled || settings.studyToolsEnabled));
+  return isMicrotonalNotationSupportedForSettings(settings);
 }
 
 function safeReadJsonLocalStorage(key) {
@@ -1582,7 +1596,6 @@ const MIN_RIGHT_PANE_HEIGHT = 180;
 const MIN_ERROR_PANE_HEIGHT = 120;
 const USE_ERROR_OVERLAY = true;
 let settingsDomain = null;
-let disclaimerShown = false;
 let libraryUiStateController = null;
 const layoutController = createLayoutController({
   main: $main,
@@ -1723,13 +1736,6 @@ function getFileContentFromCache(filePath) {
 
 function setFileContentInCache(filePath, content) {
   fileContentCache.set(filePath, content);
-}
-
-function countLinesForPrefix(text) {
-  const src = String(text || "");
-  if (!src.trim()) return 0;
-  const trimmed = src.replace(/[\r\n]+$/, "");
-  return trimmed ? trimmed.split(/\r\n|\n|\r/).length : 0;
 }
 
 workingCopyRuntimeController = createWorkingCopyRuntimeController({
@@ -2180,6 +2186,13 @@ const aboutModalController = createAboutModalController({
   setStatus,
   logError: logErr,
 });
+const disclaimerController = createDisclaimerController({
+  modal: $disclaimerModal,
+  confirmButton: $disclaimerOk,
+  api: window.api,
+  enableDraggableModal,
+});
+disclaimerController.wire();
 const goToMeasureModalController = createGoToMeasureModalController();
 const measureNavigationController = createMeasureNavigationController({
   getEditorView: editorRuntime.getView,
@@ -3283,28 +3296,6 @@ intonationExplorerFeature = createIntonationExplorerFeature({
 });
 intonationExplorerFeature.wire();
 
-function ensureToolPanelDefaultLeftPosition(panelEl) {
-  if (!panelEl) return;
-  const hasInlinePos = Boolean(panelEl.style.left || panelEl.style.top || panelEl.style.right || panelEl.style.bottom);
-  requestAnimationFrame(() => {
-    try {
-      const rect = panelEl.getBoundingClientRect();
-      const margin = 24;
-      const defaultTop = 72;
-      const maxLeft = Math.max(0, window.innerWidth - rect.width);
-      const maxTop = Math.max(0, window.innerHeight - rect.height);
-      const currentLeft = hasInlinePos && Number.isFinite(rect.left) ? rect.left : margin;
-      const currentTop = hasInlinePos && Number.isFinite(rect.top) ? rect.top : defaultTop;
-      const left = Math.max(0, Math.min(maxLeft, currentLeft));
-      const top = Math.max(0, Math.min(maxTop, currentTop));
-      panelEl.style.left = `${left}px`;
-      panelEl.style.top = `${top}px`;
-      panelEl.style.right = "auto";
-      panelEl.style.bottom = "auto";
-    } catch {}
-  });
-}
-
 function getHeaderEditorValue() {
   return fileHeaderController.getEditorValue();
 }
@@ -3329,13 +3320,6 @@ function getActiveFileEntry() {
 
 function updateFileHeaderPanel() {
   fileHeaderController.updatePanel();
-}
-
-function findHeaderEndOffset(content) {
-  // Avoid `\s*` which can consume newlines and shift the boundary into blank lines.
-  const match = String(content || "").match(/^[\t ]*X:/m);
-  if (!match) return String(content || "").length;
-  return Number.isFinite(match.index) ? match.index : 0;
 }
 
 function updateLibraryStatus() {
@@ -3712,14 +3696,6 @@ function isWorkingCopyOpenForFile(filePath) {
   return fileOperationGuard ? fileOperationGuard.isWorkingCopyOpenForFile(filePath) : false;
 }
 
-function splitFileIntoHeaderAndBody(fullText) {
-  const text = String(fullText || "");
-  const headerEnd = findHeaderEndOffset(text);
-  const header = text.slice(0, headerEnd);
-  const body = text.slice(headerEnd);
-  return { headerText: header, bodyText: body };
-}
-
 function showContextMenuAt(x, y, target) {
   libraryContextMenu.show(x, y, target);
 }
@@ -3737,29 +3713,11 @@ function applyMeasureHighlights(renderOffset) {
 }
 
 function isMeasureCheckEnabled() {
-  const text = getEditorValue();
-  const match = String(text || "").match(/^M:\s*(.+)$/m);
-  if (!match) return false;
-  const value = String(match[1] || "").trim().toLowerCase();
-  return value !== "none";
+  return isMeasureCheckEnabledForText(getEditorValue());
 }
 
 function getEditorIndexFromLoc(loc) {
   return editorRuntime.getIndexFromLoc(loc);
-}
-
-function getTextIndexFromLoc(text, loc) {
-  if (!loc) return null;
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  if (!lines.length) return 0;
-  const line = Math.max(1, Math.min(loc.line || 1, lines.length));
-  const col = Math.max(1, loc.col || 1);
-  let idx = 0;
-  for (let i = 0; i < line - 1; i += 1) {
-    idx += lines[i].length + 1;
-  }
-  idx += Math.min(col - 1, lines[line - 1].length);
-  return idx;
 }
 
 function findMeasureRangeAt(text, pos) {
@@ -4015,24 +3973,6 @@ async function openExternal(url) {
 
 async function openAbout() {
   await aboutModalController.open();
-}
-
-function showDisclaimerIfNeeded(settings) {
-  if (disclaimerShown) return;
-  if (!$disclaimerModal || !$disclaimerOk) return;
-  if (!settings || settings.disclaimerSeen) return;
-  disclaimerShown = true;
-  $disclaimerModal.classList.add("open");
-  $disclaimerModal.setAttribute("aria-hidden", "false");
-}
-
-async function dismissDisclaimer() {
-  if (!$disclaimerModal) return;
-  $disclaimerModal.classList.remove("open");
-  $disclaimerModal.setAttribute("aria-hidden", "true");
-  if (window.api && typeof window.api.updateSettings === "function") {
-    await window.api.updateSettings({ disclaimerSeen: true });
-  }
 }
 
 async function applyAbc2abcTransform(options) {
@@ -4348,7 +4288,7 @@ settingsDomain = createSettingsDomain({
     scheduleRender: scheduleRenderNow,
     scheduleStartupLayoutReset: startupController.scheduleLayoutReset,
     setSoundfontStatus,
-    showDisclaimerIfNeeded,
+    showDisclaimerIfNeeded: disclaimerController.showIfNeeded,
     showToast,
     updateErrorsFeatureUi: updateErrorsFeatureUI,
     updateFollowToggle,
@@ -4378,24 +4318,6 @@ initContextMenu();
 
 startupController.start();
 scoreInteractionController.wireOutputSelection();
-
-if ($disclaimerOk) {
-  $disclaimerOk.addEventListener("click", () => {
-    dismissDisclaimer();
-  });
-}
-
-if ($disclaimerModal) {
-  $disclaimerModal.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.key === "Escape" || e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      dismissDisclaimer();
-    }
-  });
-  enableDraggableModal($disclaimerModal);
-}
 
 // ---------- AUDIO ----------
 

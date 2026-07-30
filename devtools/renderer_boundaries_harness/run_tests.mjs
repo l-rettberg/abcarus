@@ -1,0 +1,107 @@
+#!/usr/bin/env node
+/* eslint-disable no-console */
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+async function importBundledModule(filePath) {
+  const result = await build({
+    entryPoints: [resolve(filePath)],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    write: false,
+  });
+  const source = result.outputFiles[0].text;
+  const encoded = Buffer.from(source, "utf8").toString("base64");
+  return import(`data:text/javascript;base64,${encoded}`);
+}
+
+const rendererSource = await readFile("src/renderer/renderer.js", "utf8");
+const rendererLines = rendererSource.split(/\r\n|\n|\r/).length;
+assert.ok(
+  rendererLines <= 5000,
+  `renderer.js exceeds the 5000-line composition-root ceiling: ${rendererLines}`,
+);
+
+for (const required of [
+  /createEditorRuntime\s*\(/,
+  /createRenderRuntime\s*\(/,
+  /createPlaybackDomain\s*\(/,
+  /createLibraryUiDomain\s*\(/,
+  /createDisclaimerController\s*\(/,
+]) {
+  assert.match(rendererSource, required);
+}
+
+for (const forbidden of [
+  /\blet\s+editorView\b/,
+  /\blet\s+suppressDirty\b/,
+  /\bcreateMainEditorFeature\s*\(/,
+  /function\s+getPlaybackPayload\s*\(/,
+  /function\s+startPlaybackFromRange\s*\(/,
+  /function\s+getScopedPlaybackSettingsForOrigin\s*\(/,
+  /playbackTransport\.[A-Za-z_$][A-Za-z0-9_$]*\s*=/,
+  /from\s+["']\.\/playback\/playback_state_model\.js["']/,
+  /function\s+findHeaderEndOffset\s*\(/,
+  /function\s+splitFileIntoHeaderAndBody\s*\(/,
+  /function\s+getTextIndexFromLoc\s*\(/,
+  /function\s+ensureToolPanelDefaultLeftPosition\s*\(/,
+  /function\s+showDisclaimerIfNeeded\s*\(/,
+]) {
+  assert.doesNotMatch(rendererSource, forbidden);
+}
+
+const headerModel = await importBundledModule(
+  "src/renderer/app/document/file_header_model.js",
+);
+assert.equal(headerModel.findHeaderEndOffset("%%abc\n\nX:1\nK:C\n"), 7);
+assert.deepEqual(
+  headerModel.splitFileIntoHeaderAndBody("%%abc\n\nX:1\nK:C\n"),
+  { headerText: "%%abc\n\n", bodyText: "X:1\nK:C\n" },
+);
+assert.equal(headerModel.countLinesForPrefix("a\nb\n"), 2);
+assert.equal(headerModel.countLinesForPrefix(" \n "), 0);
+
+const errorsModel = await importBundledModule(
+  "src/renderer/editor/errors_model.js",
+);
+assert.equal(errorsModel.isMeasureCheckEnabledForText("M:4/4\nK:C\n"), true);
+assert.equal(errorsModel.isMeasureCheckEnabledForText("M:none\nK:C\n"), false);
+assert.equal(
+  errorsModel.getClampedTextIndexFromLoc("abc\ndef", { line: 9, col: 9 }),
+  7,
+);
+
+const { createDisclaimerController } = await importBundledModule(
+  "src/renderer/app/ui/disclaimer_controller.js",
+);
+const classes = new Set();
+const listeners = new Map();
+const updates = [];
+const modal = {
+  classList: {
+    add: (name) => classes.add(name),
+    remove: (name) => classes.delete(name),
+  },
+  setAttribute: () => {},
+  addEventListener: (type, handler) => listeners.set(type, handler),
+};
+const confirmButton = {
+  addEventListener: (type, handler) => listeners.set(`confirm:${type}`, handler),
+};
+const disclaimer = createDisclaimerController({
+  modal,
+  confirmButton,
+  api: { updateSettings: async (patch) => updates.push(patch) },
+});
+disclaimer.wire();
+assert.equal(disclaimer.showIfNeeded({ disclaimerSeen: false }), true);
+assert.equal(disclaimer.showIfNeeded({ disclaimerSeen: false }), false);
+assert.equal(classes.has("open"), true);
+await disclaimer.dismiss();
+assert.equal(classes.has("open"), false);
+assert.deepEqual(updates, [{ disclaimerSeen: true }]);
+
+console.log(`renderer boundaries harness: all tests passed (${rendererLines} lines)`);

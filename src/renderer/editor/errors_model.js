@@ -110,6 +110,25 @@ function getTextIndexFromLoc(text, loc) {
   return Math.max(lineStart, Math.min(lineEnd, lineStart + colTarget - 1));
 }
 
+function getClampedTextIndexFromLoc(text, loc) {
+  if (!loc) return null;
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  if (!lines.length) return 0;
+  const line = Math.max(1, Math.min(loc.line || 1, lines.length));
+  const col = Math.max(1, loc.col || 1);
+  let index = 0;
+  for (let i = 0; i < line - 1; i += 1) {
+    index += lines[i].length + 1;
+  }
+  return index + Math.min(col - 1, lines[line - 1].length);
+}
+
+function isMeasureCheckEnabledForText(text) {
+  const match = String(text || "").match(/^M:\s*(.+)$/m);
+  if (!match) return false;
+  return String(match[1] || "").trim().toLowerCase() !== "none";
+}
+
 function getLineRangeAt(text, idx) {
   if (!text || !Number.isFinite(idx)) return null;
   const pos = Math.max(0, Math.min(text.length, Number(idx)));
@@ -301,7 +320,9 @@ export {
   computeErrorId,
   countErrorLineOffsetFromHeader,
   findErrorSourceRangeForMessage,
+  getClampedTextIndexFromLoc,
   getTextIndexFromLoc,
+  isMeasureCheckEnabledForText,
   getErrorGroupKey,
   getErrorGroupLabel,
   normalizeErrors,

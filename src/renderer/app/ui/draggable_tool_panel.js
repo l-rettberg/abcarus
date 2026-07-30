@@ -72,6 +72,38 @@ function enableDraggableToolPanel(panelEl) {
   });
 }
 
+function ensureToolPanelDefaultLeftPosition(
+  panelEl,
+  {
+    windowRef = typeof window !== "undefined" ? window : null,
+    requestAnimationFrameRef = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback) => setTimeout(callback, 0),
+  } = {},
+) {
+  if (!panelEl || !windowRef) return;
+  const hasInlinePosition = Boolean(
+    panelEl.style.left
+    || panelEl.style.top
+    || panelEl.style.right
+    || panelEl.style.bottom
+  );
+  requestAnimationFrameRef(() => {
+    try {
+      const rect = panelEl.getBoundingClientRect();
+      const maxLeft = Math.max(0, windowRef.innerWidth - rect.width);
+      const maxTop = Math.max(0, windowRef.innerHeight - rect.height);
+      const currentLeft = hasInlinePosition && Number.isFinite(rect.left) ? rect.left : 24;
+      const currentTop = hasInlinePosition && Number.isFinite(rect.top) ? rect.top : 72;
+      panelEl.style.left = `${Math.max(0, Math.min(maxLeft, currentLeft))}px`;
+      panelEl.style.top = `${Math.max(0, Math.min(maxTop, currentTop))}px`;
+      panelEl.style.right = "auto";
+      panelEl.style.bottom = "auto";
+    } catch {}
+  });
+}
+
 export {
   enableDraggableToolPanel,
+  ensureToolPanelDefaultLeftPosition,
 };

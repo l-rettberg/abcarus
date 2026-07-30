@@ -1,6 +1,14 @@
 import { createMakamDnaController } from "../makam_dna/makam_dna_controller.js";
 import { createMakamDnaStore } from "../makam_dna/makam_dna_store.js";
 
+function isMicrotonalNotationSupported(settings) {
+  return Boolean(settings && (
+    settings.supportMicrotonalNotation
+    || settings.makamToolsEnabled
+    || settings.studyToolsEnabled
+  ));
+}
+
 function createMicrotonalToolsFeature({
   makamDna = {},
   api = null,
@@ -70,4 +78,5 @@ function createMicrotonalToolsFeature({
 
 export {
   createMicrotonalToolsFeature,
+  isMicrotonalNotationSupported,
 };

@@ -271,9 +271,14 @@ Run these checks after each milestone:
 
 ```sh
 npm run -s test:renderer-build
+npm run -s test:renderer-boundaries
 npm run -s test:quick
 git diff --check
 ```
+
+`test:renderer-boundaries` enforces the 5000-line composition-root ceiling and
+prevents already-extracted editor, playback, header, error-location, and
+disclaimer internals from returning to `renderer.js`.
 
 Run UI smoke when the local UI environment supports it:
 

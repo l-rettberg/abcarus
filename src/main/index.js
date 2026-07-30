@@ -47,9 +47,12 @@ const DEV_USER_DATA_PATH = UI_SMOKE_ENABLED
   : "";
 if (DEV_USER_DATA_PATH) app.setPath("userData", path.resolve(DEV_USER_DATA_PATH));
 function withDevSoundfont(settings) {
-  if (!DEV_SOUNDFONT_PATH) return settings;
+  const smokeSettings = UI_SMOKE_ENABLED
+    ? { ...settings, disclaimerSeen: true }
+    : settings;
+  if (!DEV_SOUNDFONT_PATH) return smokeSettings;
   return {
-    ...settings,
+    ...smokeSettings,
     soundfontName: DEV_SOUNDFONT_PATH,
     soundfontPaths: Array.from(new Set([
       ...(Array.isArray(settings.soundfontPaths) ? settings.soundfontPaths : []),

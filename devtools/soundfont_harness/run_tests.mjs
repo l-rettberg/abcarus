@@ -110,6 +110,34 @@ assert.equal(raceController.getReadyName(), "/tmp/current.sf2");
 assert.equal(raceController.getSource(), "abcarus-sf2://local/current.sf2");
 assert.equal(raceWindow.abc2svg.sf2, null);
 
+const runtimeListeners = new Map();
+const runtimeNotices = [];
+const runtimeStops = [];
+const runtimeWindow = {
+  location: { href: "file:///app/src/renderer/index.html" },
+  abc2svg: {},
+  addEventListener: (type, handler) => runtimeListeners.set(type, handler),
+};
+const runtimeController = createSoundfontController({
+  windowRef: runtimeWindow,
+  api: {
+    getSoundfontStreamUrl: async () => "abcarus-sf2://local/incompatible.sf2",
+  },
+  actions: {
+    showToast: (message) => runtimeNotices.push(message),
+    stopPlayback: (message) => runtimeStops.push(message),
+  },
+});
+runtimeController.setFromSettings({ soundfontName: "/tmp/incompatible.sf2" });
+runtimeController.installRuntimeErrorHandler();
+runtimeListeners.get("error")({
+  message: "Failed to set the 'loopStart' property on 'AudioBufferSourceNode': The provided double value is non-finite.",
+});
+assert.equal(runtimeNotices.length, 1);
+assert.match(runtimeNotices[0], /incompatible with abc2svg/);
+assert.deepEqual(runtimeStops, runtimeNotices);
+assert.match(runtimeController.getLastLoadError().message, /loopStart/);
+
 const { createSettingsRuntimeController } = await importBundledModule(
   "src/renderer/app/ui/settings_runtime_controller.js",
 );

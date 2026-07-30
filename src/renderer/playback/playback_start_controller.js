@@ -30,6 +30,17 @@ function createPlaybackStartController({
   isFollowPlaybackEnabled,
   getDebugParts,
 } = {}) {
+  function playbackStartFailureMessage(error) {
+    const message = error && error.message ? String(error.message) : String(error || "");
+    if (
+      /AudioBufferSourceNode/i.test(message)
+      && /loop(?:Start|End)/i.test(message)
+      && /non-finite/i.test(message)
+    ) {
+      return "Selected SoundFont is incompatible with abc2svg (invalid sample loop points). Choose another SF2.";
+    }
+    return "Playback failed to start. Try again.";
+  }
   function getEditorSelectionSignature() {
     const editorView = getEditorView();
     if (!editorView) return "";
@@ -268,7 +279,7 @@ function createPlaybackStartController({
       if (selectionMode) {
         showToast("Selected range cannot be played safely.", 3200);
       } else {
-        showToast("Playback failed to start. Try again.", 3200);
+        showToast(playbackStartFailureMessage(e), 8000);
       }
       return;
     } finally {
@@ -355,7 +366,7 @@ function createPlaybackStartController({
         stack: (e && e.stack) ? String(e.stack) : null,
       };
       stopPlaybackFromGuard(`Playback start failed: ${(e && e.message) ? e.message : String(e)}`);
-      showToast("Playback failed to start. Try again.", 3200);
+      showToast(playbackStartFailureMessage(e), 8000);
       return;
     }
     transport.finishStartAttempt();

@@ -43,6 +43,8 @@ function createSoundfontController({
     ensurePlayer = () => null,
     setBufferStatus = () => {},
     setStatus = () => {},
+    showToast = () => {},
+    stopPlayback = () => {},
   } = actions;
 
   let soundfontName = DEFAULT_SOUNDFONT_NAME;
@@ -54,6 +56,34 @@ function createSoundfontController({
   let lastSoundfontApplied = null;
   let lastLoadError = null;
   let loadGeneration = 0;
+  let runtimeErrorHandlerInstalled = false;
+
+  function isIncompatibleLoopPointError(message) {
+    const text = String(message || "");
+    return /AudioBufferSourceNode/i.test(text)
+      && /loop(?:Start|End)/i.test(text)
+      && /non-finite/i.test(text);
+  }
+
+  function installRuntimeErrorHandler() {
+    if (
+      runtimeErrorHandlerInstalled
+      || !windowRef
+      || typeof windowRef.addEventListener !== "function"
+    ) return;
+    runtimeErrorHandlerInstalled = true;
+    windowRef.addEventListener("error", (event) => {
+      const message = event && event.message ? String(event.message) : "";
+      const isExternal = /^(?:file:\/\/|\/|[A-Za-z]:\\)/.test(soundfontName);
+      if (!isExternal || !isIncompatibleLoopPointError(message)) return;
+      const notice = "Selected SoundFont is incompatible with abc2svg (invalid sample loop points). Choose another SF2.";
+      lastLoadError = { name: soundfontName, message };
+      setStatus("Soundfont error");
+      setStatusText("Soundfont incompatible", 8000);
+      stopPlayback(notice);
+      showToast(notice, 8000);
+    });
+  }
 
   function setStatusText(text, autoClearMs) {
     setBufferStatus(text || "");
@@ -205,6 +235,7 @@ function createSoundfontController({
   return {
     ensureLoaded,
     ensureReady,
+    installRuntimeErrorHandler,
     resetCache,
     setCaption,
     setFromSettings,

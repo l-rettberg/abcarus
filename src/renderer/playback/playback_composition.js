@@ -43,8 +43,11 @@ export function createPlaybackComposition({
       ensurePlayer: domain.ensurePlayer,
       setBufferStatus: host.setBufferStatus,
       setStatus: host.setStatus,
+      showToast: host.showToast,
+      stopPlayback: domain.stopFromGuard,
     },
   });
+  soundfontController.installRuntimeErrorHandler();
 
   const abSelectionController = createAbSelectionPlaybackController({
     abLoopRuntime,

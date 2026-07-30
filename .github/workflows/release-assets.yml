@@ -108,10 +108,36 @@ jobs:
           if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
           gh release create "${tag}" -R "${repo}" --title "${tag}" "${args[@]}"
 
+  verify-release:
+    name: Release verification
+    runs-on: ubuntu-22.04
+    needs: init-release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release checks
+        run: |
+          npm run -s test:quick
+          npm audit --omit=dev --audit-level=high
+          npm run -s thirdparty:review
+          npm run -s pbs:check
+
   linux-appimage:
     name: Linux AppImage (x86_64)
     runs-on: ubuntu-22.04
-    needs: init-release
+    needs: [init-release, verify-release]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -188,7 +214,7 @@ jobs:
   macos-arm64:
     name: macOS (arm64)
     runs-on: macos-latest
-    needs: init-release
+    needs: [init-release, verify-release]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -243,7 +269,7 @@ jobs:
   macos-x64:
     name: macOS (x64)
     runs-on: macos-14
-    needs: init-release
+    needs: [init-release, verify-release]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -298,7 +324,7 @@ jobs:
   windows-x64:
     name: Windows (x64)
     runs-on: windows-latest
-    needs: init-release
+    needs: [init-release, verify-release]
     defaults:
       run:
         shell: pwsh

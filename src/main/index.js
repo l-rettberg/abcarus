@@ -12,6 +12,12 @@ const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = 
 const { normalizeMicrotonalSettings } = require("./settings_normalize");
 const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
+const {
+  composeStateDocument,
+  loadStateDocument,
+  saveStateDocument,
+  splitStateDocument,
+} = require("./state_store");
 
 registerSoundfontScheme(protocol);
 const soundfontProtocol = createSoundfontProtocol({ protocol, fs, path });
@@ -36,6 +42,10 @@ const DEV_NO_CACHE_ENABLED = process.env.ABCARUS_DEV_NO_CACHE !== "0";
 const DEV_SOUNDFONT_PATH = UI_SMOKE_ENABLED
   ? String(process.env.ABCARUS_DEV_SOUNDFONT_PATH || "").trim()
   : "";
+const DEV_USER_DATA_PATH = UI_SMOKE_ENABLED
+  ? String(process.env.ABCARUS_DEV_USER_DATA || "").trim()
+  : "";
+if (DEV_USER_DATA_PATH) app.setPath("userData", path.resolve(DEV_USER_DATA_PATH));
 function withDevSoundfont(settings) {
   if (!DEV_SOUNDFONT_PATH) return settings;
   return {
@@ -78,6 +88,9 @@ const appState = {
     isFullScreen: false,
   },
 };
+let stateDocumentExtras = {};
+let stateRecoveredFromBackup = false;
+let stateSaveQueue = Promise.resolve();
 
 function parseCliOptions(argv) {
   let args = Array.isArray(argv) ? argv.slice(1) : [];
@@ -521,57 +534,62 @@ async function loadSettingsFromAttachedFile() {
 }
 
 async function loadState() {
-  try {
-    const raw = await fs.promises.readFile(getStatePath(), "utf8");
-    const data = JSON.parse(raw);
-    if (data && typeof data === "object") {
-      appState.lastFolder = data.lastFolder || null;
-      appState.lastDialogDir = data.lastDialogDir || data.lastDialogPath || null;
-      appState.recentTunes = Array.isArray(data.recentTunes) ? data.recentTunes : [];
-      appState.recentFiles = Array.isArray(data.recentFiles) ? data.recentFiles : [];
-      appState.recentFolders = Array.isArray(data.recentFolders) ? data.recentFolders : [];
-      if (data.settingsFile && typeof data.settingsFile === "object") {
-        const mode = data.settingsFile.mode === "file" ? "file" : "internal";
-        const p = data.settingsFile.path ? String(data.settingsFile.path) : null;
-        appState.settingsFile = {
-          mode,
-          path: p,
-          lastKnownMtimeMs: Number(data.settingsFile.lastKnownMtimeMs) || 0,
-        };
-      }
-      if (data.settings && typeof data.settings === "object") {
-        const merged = { ...getDefaultSettings(), ...data.settings };
-        if (data.settings.zoomFactor && !data.settings.renderZoom && !data.settings.editorZoom) {
-          merged.renderZoom = data.settings.zoomFactor;
-          merged.editorZoom = data.settings.zoomFactor;
-        }
-        // Default portal dialogs ON for Linux unless explicitly set by the user.
-        if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
-          merged.usePortalFileDialogs = true;
-        }
-        // Errors feature is intentionally session-only and defaults to off.
-        merged.errorsEnabled = false;
-        // Per-split zoom migration: keep old single zoom for both orientations.
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "layoutRenderZoomVertical")) {
-          merged.layoutRenderZoomVertical = merged.renderZoom;
-        }
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "layoutRenderZoomHorizontal")) {
-          merged.layoutRenderZoomHorizontal = merged.renderZoom;
-        }
-        // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
-        // If the backend was never explicitly chosen, move to auto mode.
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "midiImportBackendSetByUser")) {
-          if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
-            merged.midiImportBackend = "auto";
-          }
-        }
-        appState.settings = merged;
-      } else {
-        appState.settings = getDefaultSettings();
-      }
-      appState.windowState = normalizeWindowState(data.windowState);
+  const loaded = await loadStateDocument({ fs, filePath: getStatePath() });
+  const data = loaded.data;
+  if (data) {
+    const { known, extras } = splitStateDocument(data);
+    stateDocumentExtras = extras;
+    stateRecoveredFromBackup = loaded.recovered;
+    if (loaded.recovered) {
+      console.warn("Recovered application state from backup after the primary state file could not be read.");
     }
-  } catch {}
+    const state = known;
+    appState.lastFolder = state.lastFolder || null;
+    appState.lastDialogDir = state.lastDialogDir || state.lastDialogPath || null;
+    appState.recentTunes = Array.isArray(state.recentTunes) ? state.recentTunes : [];
+    appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
+    appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
+    if (state.settingsFile && typeof state.settingsFile === "object") {
+      const mode = state.settingsFile.mode === "file" ? "file" : "internal";
+      const p = state.settingsFile.path ? String(state.settingsFile.path) : null;
+      appState.settingsFile = {
+        mode,
+        path: p,
+        lastKnownMtimeMs: Number(state.settingsFile.lastKnownMtimeMs) || 0,
+      };
+    }
+    if (state.settings && typeof state.settings === "object") {
+      const merged = { ...getDefaultSettings(), ...state.settings };
+      if (state.settings.zoomFactor && !state.settings.renderZoom && !state.settings.editorZoom) {
+        merged.renderZoom = state.settings.zoomFactor;
+        merged.editorZoom = state.settings.zoomFactor;
+      }
+      // Default portal dialogs ON for Linux unless explicitly set by the user.
+      if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
+        merged.usePortalFileDialogs = true;
+      }
+      // Errors feature is intentionally session-only and defaults to off.
+      merged.errorsEnabled = false;
+      // Per-split zoom migration: keep old single zoom for both orientations.
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomVertical")) {
+        merged.layoutRenderZoomVertical = merged.renderZoom;
+      }
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomHorizontal")) {
+        merged.layoutRenderZoomHorizontal = merged.renderZoom;
+      }
+      // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
+      // If the backend was never explicitly chosen, move to auto mode.
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "midiImportBackendSetByUser")) {
+        if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
+          merged.midiImportBackend = "auto";
+        }
+      }
+      appState.settings = merged;
+    } else {
+      appState.settings = getDefaultSettings();
+    }
+    appState.windowState = normalizeWindowState(state.windowState);
+  }
   if (!appState.settings) appState.settings = getDefaultSettings();
   if (!appState.windowState) appState.windowState = normalizeWindowState(null);
   // If the user explicitly attached a properties file, prefer it as the source of truth.
@@ -641,9 +659,9 @@ async function migrateStatePaths() {
   await saveState();
 }
 
-async function saveState() {
+async function persistState() {
   try {
-    const payload = JSON.stringify(
+    const payload = composeStateDocument(
       {
         lastFolder: appState.lastFolder,
         lastDialogDir: appState.lastDialogDir,
@@ -654,11 +672,30 @@ async function saveState() {
         settingsFile: appState.settingsFile,
         windowState: appState.windowState,
       },
-      null,
-      2
+      stateDocumentExtras,
     );
-    await fs.promises.writeFile(getStatePath(), payload, "utf8");
-  } catch {}
+    await saveStateDocument({
+      fs,
+      path,
+      filePath: getStatePath(),
+      data: payload,
+      skipBackup: stateRecoveredFromBackup,
+    });
+    stateRecoveredFromBackup = false;
+  } catch (error) {
+    console.error("Unable to persist application state:", error && error.message ? error.message : error);
+    return false;
+  }
+  return true;
+}
+
+function saveState() {
+  const next = stateSaveQueue.then(() => persistState());
+  stateSaveQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 function captureWindowState(win) {
@@ -2910,6 +2947,36 @@ async function runUiSmoke(win) {
         if (typeof hook.clickPlay !== "function") {
           return { ok: false, phase: "setup", reason: "missing-click-play" };
         }
+        const audioProbe = {
+          starts: 0,
+          bufferedStarts: 0,
+          nonZeroStarts: 0,
+          lastBufferLength: 0,
+        };
+        if (requireFirstNote && window.AudioBufferSourceNode && window.AudioBufferSourceNode.prototype) {
+          const proto = window.AudioBufferSourceNode.prototype;
+          const originalStart = proto.start;
+          proto.start = function (...args) {
+            audioProbe.starts += 1;
+            const buffer = this.buffer;
+            const length = buffer && Number(buffer.length) > 1 ? Number(buffer.length) : 0;
+            if (length > 0) {
+              audioProbe.bufferedStarts += 1;
+              audioProbe.lastBufferLength = length;
+              try {
+                const data = buffer.getChannelData(0);
+                const step = Math.max(1, Math.floor(data.length / 256));
+                for (let i = 0; i < data.length; i += step) {
+                  if (Math.abs(Number(data[i]) || 0) > 1e-8) {
+                    audioProbe.nonZeroStarts += 1;
+                    break;
+                  }
+                }
+              } catch {}
+            }
+            return originalStart.apply(this, args);
+          };
+        }
         hook.clickPlay();
         const failurePattern = /Playback failed|Playback parse error|failed to start|not mappable|invalid/i;
         const startSamples = [];
@@ -2942,6 +3009,20 @@ async function runUiSmoke(win) {
             last: started.snap,
             samples: startSamples,
           };
+        }
+        if (requireFirstNote) {
+          const audible = await waitFor(() => ({
+            ok: audioProbe.bufferedStarts > 0 && audioProbe.nonZeroStarts > 0,
+          }), 90000, 150);
+          if (!audible.ok) {
+            return {
+              ok: false,
+              phase: "audio",
+              reason: "no-nonzero-audio-buffer-started",
+              audioProbe,
+              started: started.snap,
+            };
+          }
         }
         if (typeof hook.clickStop === "function") hook.clickStop();
         const stopped = await waitFor(() => {
@@ -2983,6 +3064,7 @@ async function runUiSmoke(win) {
           stopped: stopped.snap,
           soundfontSource,
           configuredSoundfont,
+          audioProbe: requireFirstNote ? audioProbe : null,
         };
       })()`,
       true

@@ -10,8 +10,9 @@ Versioning details live in [docs/VERSIONING.md](VERSIONING.md) (to avoid duplica
 
 ## Release process
 1) Ensure `master` is green and the working tree is clean.
-2) Decide version bump (patch/minor/major).
-3) Run one of:
+2) Run `npm run test:release-preflight`.
+3) Decide version bump (patch/minor/major).
+4) Run one of:
    - `npm run release:patch`
    - `npm run release:minor`
    - `npm run release:major`

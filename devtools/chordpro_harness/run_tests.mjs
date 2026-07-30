@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
-import {
+import { build } from "esbuild";
+
+async function importBundledModule(filePath) {
+  const result = await build({ entryPoints: [filePath], bundle: true, format: "esm", platform: "node", write: false });
+  const encoded = Buffer.from(result.outputFiles[0].text, "utf8").toString("base64");
+  return import(`data:text/javascript;base64,${encoded}`);
+}
+
+const {
   isChordProFilePath,
   isChordProText,
   parseChordProBlocks,
-} from "../../src/renderer/tools/chordpro/chordpro_model.js";
+} = await importBundledModule("src/renderer/tools/chordpro/chordpro_model.js");
 
 function test(name, fn) {
   fn();

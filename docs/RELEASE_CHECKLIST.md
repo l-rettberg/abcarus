@@ -5,11 +5,12 @@ This is a step-by-step guide for making a release build and pushing it to GitHub
 ## TL;DR (3–5 commands)
 
 1) Update [CHANGELOG.md](../CHANGELOG.md) under `## [Unreleased]`.
-2) Run one:
+2) Run `npm run test:release-preflight` and resolve every failure.
+3) Run one:
    - `npm run release:patch`
    - `npm run release:minor`
    - `npm run release:major`
-3) Push commit + tag:
+4) Push commit + tag:
    - `git push`
    - `git push origin vX.Y.Z`
 4) Verify the GitHub Actions run for tag `vX.Y.Z` is green (all jobs), then do a quick sanity check.
@@ -60,6 +61,7 @@ The repository release flow is driven by `scripts/release.mjs` (via `npm run rel
 - moves the current [CHANGELOG.md](../CHANGELOG.md) `## [Unreleased]` section into a dated `## [X.Y.Z] - YYYY-MM-DD` entry
 - creates an annotated git tag `vX.Y.Z`
 - requires a clean git working tree (no uncommitted changes)
+- runs the release preflight before changing the version or creating a tag
 
 Manual (optional):
 - Append local devlog entry:
@@ -73,7 +75,8 @@ Manual (optional):
 This flow bumps the version, updates release docs, commits, and creates a tag:
 
 1) Ensure the working tree is clean.
-2) Run one of:
+2) Run `npm run test:release-preflight`.
+3) Run one of:
    - `npm run release:patch`
    - `npm run release:minor`
    - `npm run release:major`

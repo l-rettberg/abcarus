@@ -6,7 +6,6 @@ import {
   keymap,
   ViewPlugin,
   indentUnit,
-  gotoLine,
   foldGutter,
   lineNumbers,
 } from "../../third_party/codemirror/cm.js";
@@ -14,19 +13,13 @@ import { abcHighlight } from "./editor/abc_decorations.js";
 import { createEditorExtensionRuntime } from "./editor/editor_extension_runtime.js";
 import {
   initSearchPanelShortcuts,
-  openFindPanel,
-  openReplacePanel,
   scrollEditorToPos,
-  insertTextAtEditorSelection as insertTextAtEditorSelectionCore,
-  setEditorSelectionAt as setEditorSelectionAtCore,
-  setEditorSelectionAtLineCol as setEditorSelectionAtLineColCore,
-  setEditorSelectionRange as setEditorSelectionRangeCore,
   toggleLineComments as toggleLineCommentsCore,
 } from "./editor/editor_commands.js";
 import {
-  createMainEditorFeature,
   createRectSelectionExtension,
 } from "./editor/main_editor_feature.js";
+import { createEditorRuntime } from "./editor/editor_runtime.js";
 import { createAbcHelpersFeature } from "./editor/abc_helpers_feature.js";
 import { createErrorsFeature } from "./editor/errors_feature.js";
 import {
@@ -350,8 +343,11 @@ const $makamDnaResetBuiltin = document.getElementById("makamDnaResetBuiltin");
 const $makamDnaSave = document.getElementById("makamDnaSave");
 const $makamDnaCancel = document.getElementById("makamDnaCancel");
 
+const editorRuntime = createEditorRuntime({
+  logError: (...args) => console.error(...args),
+});
 const editorExtensionRuntime = createEditorExtensionRuntime({
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getDiagnosticExtensions: () => [
     measureErrorPlugin,
     barMismatchPlugin,
@@ -441,8 +437,6 @@ ee2e2d c2dcBA             | "E"  B2cBAG   "A"   ABGA3  :|
 "E7"   EEE2FG "A" ABcde2  | "E"  e2dc2B   "A"   AGBA3  :|
 %--------------------------------------------------------
 `;
-let suppressDirty = false;
-let editorView = null;
 let isNewTuneDraft = false;
 let rawModeFeature = null;
 let payloadModeDecorations = null;
@@ -466,7 +460,6 @@ let duplicateTuneAction = null;
 let pasteMoveTuneAction = null;
 let renumberXAction = null;
 let appendCurrentTuneAction = null;
-let mainEditorFeature = null;
 let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
@@ -627,10 +620,10 @@ const fileHeaderController = createFileHeaderController({
 });
 
 const payloadModeEditorAdapter = createPayloadModeEditorAdapter({
-  getEditorView: () => editorView,
-  getEditorText: () => getEditorValue(),
-  setEditorText: setEditorValue,
-  setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+  getEditorView: editorRuntime.getView,
+  getEditorText: editorRuntime.getText,
+  setEditorText: editorRuntime.setText,
+  setSuppressDirty: editorRuntime.setDirtySuppressed,
   readOnlyCompartment: editorExtensionRuntime.payloadReadOnlyCompartment,
   EditorState,
   EditorView,
@@ -672,9 +665,9 @@ const payloadModeFeature = createPayloadModeFeature({
     $xIssuesCopy,
   ],
   getCopyText: payloadModeEditorAdapter.getCopyText,
-  hasEditor: () => Boolean(editorView),
-  getEditorText: () => getEditorValue(),
-  getEditorSelection: () => editorView ? editorView.state.selection : null,
+  hasEditor: editorRuntime.hasView,
+  getEditorText: editorRuntime.getText,
+  getEditorSelection: editorRuntime.getSelection,
   setEditorText: payloadModeEditorAdapter.setEditorValue,
   setEditorReadOnly: payloadModeEditorAdapter.setEditorReadOnly,
   setEditorCursor: payloadModeEditorAdapter.setEditorCursor,
@@ -713,9 +706,7 @@ payloadModeDecorations = createPayloadModeDecorations({
   ViewPlugin,
   buildPayloadLayerDecorations,
   getOptions: () => payloadModeFeature.getLayerDecorationOptions(),
-  refreshEditor: () => {
-    if (editorView) editorView.dispatch({ selection: editorView.state.selection, scrollIntoView: false });
-  },
+  refreshEditor: editorRuntime.refresh,
 });
 
 const chordProFeature = createChordProFeature({
@@ -740,10 +731,10 @@ const chordProFeature = createChordProFeature({
     $sortTunesBy,
     $librarySearch,
   ],
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getEditorValue,
   setEditorValue,
-  setSuppressDirty: (next) => { suppressDirty = Boolean(next); },
+  setSuppressDirty: editorRuntime.setDirtySuppressed,
   getCurrentDoc: getCurrentDocument,
   setCurrentDoc: (doc) => { setCurrentDocument(doc || null); },
   setCurrentDocContent: (content) => patchCurrentDocument({ content }, { create: false }),
@@ -963,7 +954,7 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
     selectionDrumsElement: $selectionDrumsEnabled,
     selectionMutedVoicesElement: $selectionMutedVoices,
   }),
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getEditorText: getEditorValue,
   isRawMode: () => isRawModeActive(),
   isPayloadMode,
@@ -988,7 +979,7 @@ const scoreHighlightController = createScoreHighlightController({
   documentRef: document,
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   clampNumber,
   getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
   getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
@@ -1004,7 +995,7 @@ const scoreHighlightController = createScoreHighlightController({
 const practiceBarHighlightController = createPracticeBarHighlightController({
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
 });
@@ -1033,14 +1024,14 @@ const {
 const scoreInteractionController = createScoreInteractionController({
   outputElement: $out,
   renderPane: $renderPane,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getActiveHighlight: () => errorsFeature.getActiveHighlight(),
   mapEditorOffsetToRenderIdx,
   mapRenderIdxToEditorOffset,
   pickClosestNoteElement,
   setEditorSelectionRange,
   setPendingPlaybackRangeOrigin: (origin) => {
-    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(origin);
+    editorRuntime.setPendingPlaybackRangeOrigin(origin);
   },
   getPlaybackRange: () => playbackTransport.playbackRange,
   setPlaybackRange,
@@ -1070,8 +1061,8 @@ const errorsFeature = createErrorsFeature({
   isRawMode: () => isRawModeActive(),
   isPayloadMode,
   getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-  getEditorText: () => editorView ? editorView.state.doc.toString() : "",
-  getEditorView: () => editorView,
+  getEditorText: editorRuntime.getText,
+  getEditorView: editorRuntime.getView,
   getRenderPayload,
   getLastRenderPayload: () => getLastRenderPayload(),
   getOutputElement: () => $out,
@@ -1092,10 +1083,10 @@ const errorsFeature = createErrorsFeature({
   getPlaybackRange: () => playbackTransport.playbackRange,
   setPlaybackRange,
   setPendingPlaybackRangeOrigin: (origin) => {
-    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(origin);
+    editorRuntime.setPendingPlaybackRangeOrigin(origin);
   },
   setSuppressPlaybackRangeSelectionSync: (value) => {
-    if (mainEditorFeature) mainEditorFeature.setSuppressPlaybackRangeSelectionSync(value);
+    editorRuntime.setSuppressPlaybackRangeSelectionSync(value);
   },
   isDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
@@ -1105,8 +1096,8 @@ const errorsFeature = createErrorsFeature({
   selectTune,
   getActiveTuneId: () => activeContext.getActiveTuneId(),
   getActiveTuneIdForList: () => activeContext.getActiveTuneId(),
-  getEditorScroll: () => editorView && editorView.scrollDOM ? editorView.scrollDOM.scrollTop : 0,
-  setEditorScroll: (value) => { if (editorView && editorView.scrollDOM) editorView.scrollDOM.scrollTop = value; },
+  getEditorScroll: editorRuntime.getScroll,
+  setEditorScroll: editorRuntime.setScroll,
   getRenderScroll: () => $renderPane ? $renderPane.scrollTop : 0,
   setRenderScroll: (value) => { if ($renderPane) $renderPane.scrollTop = value; },
   setSuppressRecentEntries: (value) => { suppressRecentEntries = Boolean(value); },
@@ -1115,7 +1106,7 @@ const errorsFeature = createErrorsFeature({
   updateFileContext,
   updateLibraryStatus,
   clearPendingRenderTimer: () => {
-    if (mainEditorFeature) mainEditorFeature.clearPendingRender();
+    editorRuntime.clearPendingRender();
   },
   scheduleRenderNow,
   openTuneFromLibrarySelection: (selection) => {
@@ -1237,7 +1228,7 @@ diagnosticsDomain = createDiagnosticsDomain({
     getCurrentDoc: getCurrentDocument,
     getDebugLogBuffer: () => diagnosticsDomain ? diagnosticsDomain.controller.debugLogBuffer : [],
     getRecentActions: () => diagnosticsDomain ? diagnosticsDomain.controller.recentActions : [],
-    getEditorView: () => editorView,
+    getEditorView: editorRuntime.getView,
     getHeaderDirty,
     getHeaderCollapsed,
     getEditorValue,
@@ -1386,7 +1377,7 @@ const playbackPrepareController = createPlaybackPrepareController({
 const playbackStartController = createPlaybackStartController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getPlaybackRange: () => playbackTransport.playbackRange,
   setPlaybackRange,
   clonePlaybackRange,
@@ -1418,7 +1409,7 @@ const playbackStartController = createPlaybackStartController({
 const playbackTransportController = createPlaybackTransportController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getEditorText: getEditorValue,
   findMeasureStartOffsetByNumber,
   getFocusModeEnabled: isFocusModeEnabled,
@@ -1455,7 +1446,7 @@ const playbackAutoScrollController = createPlaybackAutoScrollController({
 const playbackFollowController = createPlaybackFollowController({
   windowRef: window,
   transport: playbackTransport,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
   getFollowPlaybackEnabled: () => followPlayback,
@@ -1483,12 +1474,12 @@ const playbackPlayerController = createPlaybackPlayerController({
   windowRef: window,
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getFocusModeEnabled: isFocusModeEnabled,
   getFollowPlaybackEnabled: () => followPlayback,
   getSoundfontSource: () => soundfontController.getSource(),
   setSuppressPlaybackRangeSelectionSync: (next) => {
-    if (mainEditorFeature) mainEditorFeature.setSuppressPlaybackRangeSelectionSync(next);
+    editorRuntime.setSuppressPlaybackRangeSelectionSync(next);
   },
   applyPlaybackPlanSpeed,
   startPlaybackFromRange,
@@ -1639,7 +1630,7 @@ focusModeController = createFocusModeController({
   isRawModeActive: () => isRawModeActive(),
   isPlaybackBusy,
   isFocusBoundedPlaybackScope,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getEditorText: getEditorValue,
   getRenderMeasureIndex,
   getRenderCompatMap,
@@ -1656,7 +1647,7 @@ focusModeController = createFocusModeController({
   resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
   syncPendingPlaybackPlan,
   clearNormalPlaybackPlan: () => {
-    if (mainEditorFeature) mainEditorFeature.setPendingPlaybackRangeOrigin(null);
+    editorRuntime.setPendingPlaybackRangeOrigin(null);
     playbackTransport.pendingPlaybackPlan = null;
     playbackTransport.currentPlaybackPlan = null;
   },
@@ -1794,14 +1785,7 @@ const workingCopyConflictController = createWorkingCopyConflictController({
       }
     },
     setDirtyIndicator,
-    setEditorValueClean: (text) => {
-      suppressDirty = true;
-      try {
-        setEditorValue(text);
-      } finally {
-        suppressDirty = false;
-      }
-    },
+    setEditorValueClean: editorRuntime.setTextClean,
     setFileContentInCache,
     setFileNameMeta,
     setHeaderClean: markHeaderClean,
@@ -1932,11 +1916,7 @@ workingCopySyncController = createWorkingCopySyncController({
     setActiveTuneMetaOffsets: activeContext.setTuneMetaOffsets,
     setActiveTuneUid: (value) => { activeContext.setActiveTuneUid(value); },
     setDirtyIndicator,
-    setEditorValueClean: (text) => {
-      suppressDirty = true;
-      setEditorValue(text);
-      suppressDirty = false;
-    },
+    setEditorValueClean: editorRuntime.setTextClean,
     setFileContentInCache,
   },
 });
@@ -2115,7 +2095,7 @@ const libraryUiDomain = createLibraryUiDomain({
       : getCurrentDocumentPath(),
     getActiveEditFilePath,
     getClipboardTune,
-    getEditorView: () => editorView,
+    getEditorView: editorRuntime.getView,
     getNextXNumber,
     getTuneText,
     hasDiskConflictPath,
@@ -2185,7 +2165,7 @@ const aboutModalController = createAboutModalController({
 });
 const goToMeasureModalController = createGoToMeasureModalController();
 const measureNavigationController = createMeasureNavigationController({
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getEditorText: getEditorValue,
   getRenderPayload,
   getAbcCtor,
@@ -2433,7 +2413,7 @@ playbackUiController = createPlaybackUiController({
   state: {
     transport: playbackTransport,
     selectionRuntime: selectionPlaybackRuntime,
-    getEditorView: () => editorView,
+    getEditorView: editorRuntime.getView,
     getIsPlaying: () => playbackTransport.isPlaying,
     getIsPaused: () => playbackTransport.isPaused,
     getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
@@ -2471,7 +2451,7 @@ documentLifecycleController = createDocumentLifecycleController({
     setChordProMode: (enabled) => chordProFeature.setMode(Boolean(enabled)),
     resetChordProState: () => chordProFeature.resetState(),
     resetRawModeState,
-    setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+    setSuppressDirty: editorRuntime.setDirtySuppressed,
     setEditorText: setEditorValue,
     scheduleRender: scheduleRenderNow,
     setRenderBusy,
@@ -2738,10 +2718,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
     reportStartupStatus,
-    resetEditorSelectionToStart: () => {
-      if (!editorView) return;
-      try { editorView.dispatch({ selection: { anchor: 0, head: 0 }, scrollIntoView: false }); } catch {}
-    },
+    resetEditorSelectionToStart: editorRuntime.resetSelectionToStart,
     resetPlaybackState,
     resetTransposePreviewState,
     resolveTuneEntryFromSnapshot,
@@ -2769,7 +2746,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     setPlaybackRange,
     setSaveSession,
     setScanStatus,
-    setSuppressDirty: (next) => { suppressDirty = Boolean(next); },
+    setSuppressDirty: editorRuntime.setDirtySuppressed,
     setTuneMetaText,
     showEmptyState,
     showToast,
@@ -2862,7 +2839,7 @@ const sourceLinkFeature = createSourceLinkFeature({
   parseAbcHeaderFields,
   showToast,
   getEditorText: getEditorValue,
-  hasEditor: () => Boolean(editorView),
+  hasEditor: editorRuntime.hasView,
   isDisabled: () => Boolean(isRawModeActive() || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
 });
@@ -2965,11 +2942,7 @@ abcTransformFeature = createAbcTransformFeature({
   getEditorText: getEditorValue,
   getHeaderText: getHeaderEditorValue,
   getSettings: () => latestSettingsSnapshot,
-  setEditorTextForSmoke: (text) => {
-    suppressDirty = true;
-    setEditorValue(String(text || ""));
-    suppressDirty = false;
-  },
+  setEditorTextForSmoke: (text) => editorRuntime.setTextClean(String(text || "")),
   applyTransformedText,
   showTransformError,
   setStatus,
@@ -2978,18 +2951,10 @@ abcTransformFeature = createAbcTransformFeature({
 });
 abcTransformFeature.installDevSmoke();
 diagnosticsDomain.installDevUiSmoke({
-  setEditorText: (text) => {
-    suppressDirty = true;
-    try {
-      setEditorValue(String(text || ""));
-    } finally {
-      suppressDirty = false;
-    }
-  },
+  setEditorText: (text) => editorRuntime.setTextClean(String(text || "")),
   setCleanDocument: (text) => {
     const content = String(text || "");
-    suppressDirty = true;
-    try {
+    editorRuntime.withDirtySuppressed(() => {
       setEditorValue(content);
       setCurrentDocument({ path: null, dirty: false, content });
       activeContext.clear();
@@ -2997,9 +2962,7 @@ diagnosticsDomain.installDevUiSmoke({
       updateFileContext();
       markActiveTuneButton(null);
       setDirtyIndicator(false);
-    } finally {
-      suppressDirty = false;
-    }
+    });
   },
   getEditorText: getEditorValue,
   scheduleRender: () => scheduleRenderNow({ clearOutput: true, source: "ui-smoke" }),
@@ -3106,10 +3069,10 @@ rawModeFeature = createRawModeFeature({
   setHeaderClean: markHeaderClean,
   getHeaderText: getHeaderEditorValue,
   getEditorText: getEditorValue,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   scrollEditor: scrollEditorToPos,
   setEditorText: setEditorValue,
-  setSuppressDirty: (value) => { suppressDirty = Boolean(value); },
+  setSuppressDirty: editorRuntime.setDirtySuppressed,
   setFocusModeEnabled,
   setBarMismatchMarkers,
   applyRightSplitSizesFromRatio: () => layoutController.applyRightSplitSizesFromRatio({ rawMode: isRawModeActive() }),
@@ -3225,9 +3188,7 @@ const abPlugin = ViewPlugin.fromClass(class {
 });
 
 function refreshAbMarkers() {
-  if (editorView) {
-    editorView.dispatch({ selection: editorView.state.selection, scrollIntoView: false });
-  }
+  editorRuntime.refresh();
 }
 
 const barMismatchPlugin = errorsFeature.plugins.barMismatch;
@@ -3265,7 +3226,7 @@ const microtonalToolsFeature = createMicrotonalToolsFeature({
 const perdeService = createPerdeService();
 const intonationRendererBridge = createIntonationRendererBridge({
   ViewPlugin,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getOutputElement: () => $out,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
@@ -3368,8 +3329,7 @@ function updateLibraryStatus() {
 }
 
 function getEditorValue() {
-  if (!editorView) return "";
-  return editorView.state.doc.toString();
+  return editorRuntime.getText();
 }
 
 function resetLayout() {
@@ -3381,15 +3341,7 @@ function refreshErrorsNow() {
 }
 
 function setEditorValue(text) {
-  if (!editorView) return;
-  if (text != null && typeof text !== "string") {
-    console.error("[abcarus] setEditorValue received non-string; dropped:", Object.prototype.toString.call(text));
-    return;
-  }
-  const doc = editorView.state.doc;
-  editorView.dispatch({
-    changes: { from: 0, to: doc.length, insert: text || "" },
-  });
+  return editorRuntime.setText(text);
 }
 
 async function performRawSaveFlow() {
@@ -3397,7 +3349,7 @@ async function performRawSaveFlow() {
 }
 
 function scrollToPosInEditor(pos, options = {}) {
-  return scrollEditorToPos(editorView, pos, options);
+  return editorRuntime.scrollToPos(pos, options);
 }
 
 function setRawModeUI(enabled) {
@@ -3428,11 +3380,10 @@ function toggleLineComments(view) {
 }
 
 function getFocusedEditorView() {
-  const activeEl = document.activeElement;
-  const headerView = fileHeaderController.getEditorView();
-  if (headerView && headerView.dom && activeEl && headerView.dom.contains(activeEl)) return headerView;
-  if (editorView && editorView.dom && activeEl && editorView.dom.contains(activeEl)) return editorView;
-  return editorView || headerView || null;
+  return editorRuntime.getFocusedView(
+    fileHeaderController.getEditorView(),
+    document.activeElement,
+  );
 }
 
 const midiInputFeature = createMidiInputFeature({
@@ -3440,23 +3391,21 @@ const midiInputFeature = createMidiInputFeature({
   api: window.api,
   setButtonText,
   showToast,
-  getMainEditorView: () => editorView,
+  getMainEditorView: editorRuntime.getView,
   getHeaderEditorView: () => fileHeaderController.getEditorView(),
   EditorSelectionRef: EditorSelection,
   getDefaultLen,
   gcdInt,
   isTypingPreviewBlocked: () => Boolean(isRawModeActive() || isPayloadMode() || chordProFeature.isEnabled()),
-  isMainEditorUpdate: (update) => Boolean(editorView && update && update.view === editorView),
-  refreshCursorStatus: () => {
-    if (mainEditorFeature) mainEditorFeature.refreshCursorStatus();
-  },
-  hasCursorStatus: () => Boolean(mainEditorFeature),
+  isMainEditorUpdate: (update) => Boolean(update && update.view === editorRuntime.getView()),
+  refreshCursorStatus: editorRuntime.refreshCursorStatus,
+  hasCursorStatus: editorRuntime.hasView,
 });
 midiInputFeature.exposeDebugApi();
 
 function initEditor() {
-  if (editorView || !$editorHost) return;
-  mainEditorFeature = createMainEditorFeature({
+  if (editorRuntime.hasView() || !$editorHost) return;
+  editorRuntime.init({
     host: $editorHost,
     cursorStatusElement: $cursorStatus,
     initialDoc: DEFAULT_ABC,
@@ -3479,7 +3428,7 @@ function initEditor() {
       getFocusedEditorView,
     },
     updateOptions: {
-      isDirtySuppressed: () => suppressDirty,
+      isDirtySuppressed: editorRuntime.isDirtySuppressed,
       isPayloadMode,
       hasCurrentDocument,
       ensureCurrentDocument,
@@ -3524,7 +3473,6 @@ function initEditor() {
     showContextMenuAt,
     updateAbUi,
   });
-  editorView = mainEditorFeature.init();
 }
 
 function initHeaderEditor() {
@@ -3536,7 +3484,7 @@ function setActiveTuneText(text, metadata, options = {}) {
 }
 
 function insertTextAtEditorSelection(text) {
-  return insertTextAtEditorSelectionCore(editorView, text);
+  return editorRuntime.insertTextAtSelection(text);
 }
 
 function setLibraryVisible(visible, { persist = true } = {}) {
@@ -3708,9 +3656,7 @@ function applyTransformedText(text, options = {}) {
   if (options.resetTransposePreview !== false) resetTransposePreviewState();
   let nextText = text || "";
   nextText = chordProFeature.applyTransformedText(nextText);
-  suppressDirty = true;
-  setEditorValue(nextText);
-  suppressDirty = false;
+  editorRuntime.setTextClean(nextText);
   patchCurrentDocument({ content: nextText, dirty: true }, { create: false });
   if (chordProFeature.isEnabled()) {
     scheduleWorkingCopyFullSync();
@@ -3795,11 +3741,7 @@ function isMeasureCheckEnabled() {
 }
 
 function getEditorIndexFromLoc(loc) {
-  if (!editorView || !loc) return null;
-  const line = Math.max(1, Math.min(loc.line, editorView.state.doc.lines));
-  const lineInfo = editorView.state.doc.line(line);
-  const col = Math.max(1, loc.col || 1);
-  return Math.min(lineInfo.to, lineInfo.from + col - 1);
+  return editorRuntime.getIndexFromLoc(loc);
 }
 
 function getTextIndexFromLoc(text, loc) {
@@ -3851,20 +3793,15 @@ function logErr(m, loc, context) {
 }
 
 function setEditorSelectionAt(idx) {
-  return setEditorSelectionAtCore(editorView, idx, { onSelect: highlightNoteAtIndex });
+  return editorRuntime.setSelectionAt(idx, { onSelect: highlightNoteAtIndex });
 }
 
 function setEditorSelectionRange(start, end) {
-  return setEditorSelectionRangeCore(editorView, start, end, { onSelect: highlightNoteAtIndex });
+  return editorRuntime.setSelectionRange(start, end, { onSelect: highlightNoteAtIndex });
 }
 
 function setEditorSelectionAtLineCol(line, col) {
-  return setEditorSelectionAtLineColCore(
-    editorView,
-    line,
-    col,
-    { onSelect: highlightNoteAtIndex },
-  );
+  return editorRuntime.setSelectionAtLineCol(line, col, { onSelect: highlightNoteAtIndex });
 }
 
 function buildSuggestedTuneBaseName({ includeKey = false } = {}) {
@@ -3928,7 +3865,7 @@ renderRuntime.initializePipeline({
   isChordProEnabled: () => chordProFeature.isEnabled(),
   chordProHasBlocks: () => chordProFeature.hasBlocks(),
   getEditorText: getEditorValue,
-  getEditorView: () => editorView,
+  getEditorView: editorRuntime.getView,
   getRenderPayload,
   ensureAbc2svgLoader,
   ensureAbc2svgModules,
@@ -4270,7 +4207,7 @@ appCommandsDomain = createAppCommandsDomain({
     toggleGlobalsButton: $btnToggleGlobals,
   },
   state: {
-    getEditorView: () => editorView,
+    getEditorView: editorRuntime.getView,
     getFollowPlayback: () => followPlayback,
     getLatestSettings: () => latestSettingsSnapshot,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -4305,7 +4242,7 @@ appCommandsDomain = createAppCommandsDomain({
     fileSaveAs,
     fileClose,
     getActiveFileEntry,
-    gotoLine: () => { if (editorView) gotoLine(editorView); },
+    gotoLine: editorRuntime.gotoLine,
     importMidi: () => importExportFeature.importMidi(),
     importMusicXml: () => importExportFeature.importMusicXml(),
     leaveRawModeForAction,
@@ -4317,12 +4254,12 @@ appCommandsDomain = createAppCommandsDomain({
     exportChordProPdf: () => chordProFeature.exportPdf(),
     openAbout,
     openExternal,
-    openFind: () => { if (editorView) openFindPanel(editorView); },
+    openFind: editorRuntime.openFind,
     openLibraryCatalog: () => libraryUiDomain.openCatalogFromCurrentIndex(),
     openRecentFile,
     openRecentFolder,
     openRecentTune,
-    openReplace: () => { if (editorView) openReplacePanel(editorView); },
+    openReplace: editorRuntime.openReplace,
     openSetList: () => setListFeature.open(),
     openTemplatesModal,
     renumberXInActiveFile,
@@ -4373,7 +4310,7 @@ settingsDomain = createSettingsDomain({
     setLatestSettings: (settings) => { latestSettingsSnapshot = settings || null; },
     setFollowPlayback: (next) => { followPlayback = Boolean(next); },
     setDrumVelocityMap: (next) => abcHelpersFeature.setDrumVelocityMap(next),
-    getEditorDom: () => editorView ? editorView.dom : null,
+    getEditorDom: editorRuntime.getDom,
     isPayloadMode,
     isMicrotonalNotationSupported,
     isIntonationExplorerVisible: () => Boolean(intonationExplorerFeature && intonationExplorerFeature.isVisible()),
@@ -4625,7 +4562,7 @@ function setFollowVoiceFromPlayback() {
 }
 
 function buildPlaybackState(firstSymbol) {
-  const editorLength = editorView ? editorView.state.doc.length : 0;
+  const editorLength = editorRuntime.getLength();
   return buildPlaybackStateModel(firstSymbol, { editorLength, playbackIndexOffset: playbackTransport.playbackIndexOffset });
 }
 
@@ -4787,14 +4724,7 @@ updateFollowToggle();
 
 diagnosticsDomain.runDevAutoscrollDemo({
   readFile,
-  setEditorTextClean: (text) => {
-    suppressDirty = true;
-    try {
-      setEditorValue(String(text || ""));
-    } finally {
-      suppressDirty = false;
-    }
-  },
+  setEditorTextClean: (text) => editorRuntime.setTextClean(String(text || "")),
   scheduleRender: () => scheduleRenderNow(),
   getOutputElement: () => $out,
   setRenderZoom: setRenderZoomCss,

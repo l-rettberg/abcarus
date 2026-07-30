@@ -82,6 +82,9 @@ for (const forbidden of [
   /function\s+getScopedPlaybackSettingsForOrigin\s*\(/,
   /playbackTransport\.[A-Za-z_$][A-Za-z0-9_$]*\s*=/,
   /from\s+["']\.\/playback\/playback_state_model\.js["']/,
+  /from\s+["']\.\/playback\/(?:ab_loop_runtime|ab_marker_extension|ab_selection_playback_controller|drum_preview_controller|focus_mode_controller|follow_highlight_settings|playback_autoscroll_controller|playback_follow_controller|playback_payload_controller|playback_player_controller|playback_prepare_controller|playback_start_controller|playback_transport_controller|playback_transport_state|selection_playback_runtime|soundfont_controller)\.js["']/,
+  /\b(?:playbackTransport|selectionPlaybackRuntime|abLoopRuntime|soundfontController|focusModeController|playbackUiController)\b/,
+  /createPlaybackDomain\s*\([^)]*\)[\s\S]*?\.attach\s*\(/,
   /function\s+findHeaderEndOffset\s*\(/,
   /function\s+splitFileIntoHeaderAndBody\s*\(/,
   /function\s+getTextIndexFromLoc\s*\(/,
@@ -116,6 +119,7 @@ for (const forbidden of [
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }
+assert.match(rendererSource, /playbackDomain\.initialize\s*\(/);
 
 const defaultDocuments = await importBundledModule(
   "src/renderer/abc/default_documents.js",

@@ -27,7 +27,7 @@ export function createMainEditorUpdateRuntime({
   clearNoteSelection = () => {},
   updatePlaybackRangeFromSelection = () => {},
   getActiveErrorHighlight = () => null,
-  transport = null,
+  handlePlaybackSelectionTransportState = () => {},
   clearPracticeHighlight = () => {},
   setCursorStatus = () => {},
 } = {}) {
@@ -94,14 +94,7 @@ export function createMainEditorUpdateRuntime({
       } else {
         pendingPlaybackRangeOrigin = null;
       }
-      if (transport && transport.transportJumpHighlightActive) {
-        if (transport.suppressTransportJumpClearOnce) {
-          transport.suppressTransportJumpClearOnce = false;
-        } else {
-          transport.transportJumpHighlightActive = false;
-          clearPracticeHighlight();
-        }
-      }
+      handlePlaybackSelectionTransportState(clearPracticeHighlight);
     }
 
     if (update.selectionSet || update.docChanged) {

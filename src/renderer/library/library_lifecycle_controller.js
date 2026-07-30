@@ -70,7 +70,7 @@ export function createLibraryLifecycleController({
     scheduleRenderLibraryTree = () => {},
     scheduleRenderNow = () => {},
     scheduleSaveLibraryUiState = () => {},
-    selectionPlaybackRuntime = null,
+    clearPlaybackSelectionCapture = () => {},
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
     setActiveTuneIndex = () => {},
@@ -499,9 +499,7 @@ export function createLibraryLifecycleController({
     }, { suppressRecent: options.suppressRecent || false });
     logStep("set active text", { tuneChars: String(tuneText || "").length });
     if (needsLazyWorkingCopyOpen) scheduleLazyWorkingCopyOpenForActiveFile(fileMeta.path, "selectTune");
-    if (selectionPlaybackRuntime && typeof selectionPlaybackRuntime.clearSelectionCapture === "function") {
-      selectionPlaybackRuntime.clearSelectionCapture();
-    }
+    clearPlaybackSelectionCapture();
     resetPlaybackState();
     setPlaybackRange({ startOffset: 0, endOffset: null, origin: "cursor", loop: false });
     if (typeof actions.resetEditorSelectionToStart === "function") actions.resetEditorSelectionToStart();

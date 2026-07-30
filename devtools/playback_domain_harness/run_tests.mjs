@@ -144,6 +144,15 @@ assert.doesNotMatch(
   rendererSource,
   /playbackTransport\.[A-Za-z_$][A-Za-z0-9_$]*\s*=/,
 );
+assert.doesNotMatch(
+  rendererSource,
+  /from\s+["']\.\/playback\/(?:ab_loop_runtime|ab_marker_extension|ab_selection_playback_controller|drum_preview_controller|focus_mode_controller|follow_highlight_settings|playback_autoscroll_controller|playback_follow_controller|playback_payload_controller|playback_player_controller|playback_prepare_controller|playback_start_controller|playback_transport_controller|playback_transport_state|selection_playback_runtime|soundfont_controller)\.js["']/,
+);
+assert.doesNotMatch(
+  rendererSource,
+  /\b(?:playbackTransport|selectionPlaybackRuntime|abLoopRuntime|soundfontController|focusModeController|playbackUiController)\b/,
+);
 assert.match(rendererSource, /createPlaybackDomain\s*\(/);
+assert.match(rendererSource, /playbackDomain\.initialize\s*\(/);
 
 console.log("playback domain harness: all tests passed");

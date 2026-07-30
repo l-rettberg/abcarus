@@ -110,7 +110,15 @@ function findMeasureStartOffsetByNumber(text, measureNumber) {
   return null;
 }
 
-function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber, { normalizeVoiceIdToken = (value) => String(value || "").trim() } = {}) {
+function normalizeVoiceIdToken(value) {
+  const raw = String(value || "").trim().replace(/^\[+|\]+$/g, "");
+  if (!raw) return "";
+  const withPrefix = raw.match(/^V\s*:\s*(.+)$/i);
+  const token = withPrefix ? withPrefix[1].trim() : raw;
+  return token ? String(token.split(/\s+/)[0] || "").trim() : "";
+}
+
+function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber) {
   const target = Number(measureNumber);
   if (!Number.isFinite(target) || target < 1) return null;
   const src = String(text || "");

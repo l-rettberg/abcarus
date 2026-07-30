@@ -106,44 +106,11 @@ import { createPayloadModeFeature } from "./tools/payload_mode/payload_mode_feat
 import { createPayloadModeDecorations } from "./tools/payload_mode/payload_mode_decorations.js";
 import { createPayloadModeEditorAdapter } from "./tools/payload_mode/payload_mode_editor_adapter.js";
 import { computePayloadTuneOffset } from "./tools/payload_mode/payload_mode_model.mjs";
-import {
-  buildSelectionPlaybackToast,
-  hasIntentionalSelectionPlaybackSpan,
-  hasRepeatTokensInSlice,
-  normalizeVoiceIdToken,
-  parseMutedVoiceSetting,
-} from "./playback/selection_playback_model.js";
-import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
-import { createAbMarkerExtension } from "./playback/ab_marker_extension.js";
-import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
-import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
-import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
 import { createPlaybackDomain } from "./playback/playback_domain.js";
-import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
-import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
-import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
-import { createPlaybackStartController } from "./playback/playback_start_controller.js";
-import { createPlaybackTransportController } from "./playback/playback_transport_controller.js";
-import { createPlaybackPlayerController } from "./playback/playback_player_controller.js";
-import { createPlaybackFollowController } from "./playback/playback_follow_controller.js";
-import { createPlaybackAutoScrollController } from "./playback/playback_autoscroll_controller.js";
-import { createFocusModeController } from "./playback/focus_mode_controller.js";
-import { createFollowHighlightSettings } from "./playback/follow_highlight_settings.js";
-import {
-  expandRepeatsForPlayback,
-  shouldForceRepeatExpansionForPlayback,
-} from "./playback/repeat_expansion_model.js";
 import {
   detectKeyFieldNotLastBeforeBody,
-  injectGchordOn,
   isInlineFieldOnlyLine,
-  normalizeBlankLinesForPlayback,
-  normalizeDollarLineBreaksForPlayback,
-  normalizeLeadingInlineDirectivesForPlayback,
-  normalizeReadableMidiDrumsForPlayback,
-  sanitizeAbcForPlayback,
-} from "./playback/playback_payload_model.js";
-import { createSoundfontController } from "./playback/soundfont_controller.js";
+} from "./abc/abc_structure_model.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
 import { createAbc2svgLoader } from "./render/abc2svg_loader.js";
@@ -189,7 +156,6 @@ import {
 import { createFileContextController } from "./app/document/file_context_controller.js";
 import { createEditStateController } from "./app/document/edit_state_controller.js";
 import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
-import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
 import { createSettingsDomain } from "./app/ui/settings_domain.js";
 import { createSettingsSnapshotStore } from "./app/ui/settings_snapshot_store.js";
 import { createMeasureNavigationController } from "./app/navigation/measure_navigation_controller.js";
@@ -394,11 +360,9 @@ let payloadModeDecorations = null;
 let fileContextController = null;
 let editStateController = null;
 let fileOperationGuard = null;
-let playbackUiController = null;
 let documentLifecycleController = null;
 let documentSessionController = null;
 let saveFlowController = null;
-let focusModeController = null;
 let workingCopyRuntimeController = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
@@ -418,111 +382,53 @@ let microtonalDomain = null;
 const activeContext = createActiveTuneContextStore();
 const libraryRuntime = createLibraryRuntimeStore();
 const settingsSnapshot = createSettingsSnapshotStore({ api: window.api });
-const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
-const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
-const playbackTransport = createPlaybackTransportState();
 const playbackDomain = createPlaybackDomain({
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
+  documentRef: document,
+  clampNumber,
   getEditorLength: editorRuntime.getLength,
   getFocusModeEnabled: isFocusModeEnabled,
-  getPlaybackUiController: () => playbackUiController,
-  getFocusModeController: () => focusModeController,
-  getSoundfontController: () => soundfontController,
 });
+const playbackPayloadTransforms = playbackDomain.getPayloadTransforms();
 const {
-  appendTrace: appendPlaybackTrace,
-  applyPlanSpeed: applyPlaybackPlanSpeed,
-  buildState: buildPlaybackState,
-  buildTransportPlan: buildTransportPlaybackPlan,
-  cancelAutoScroll: cancelPlaybackAutoScroll,
   clearAbPlan,
   clearPlans: clearPlaybackPlans,
-  clearNoteOnElements: clearPlaybackNoteOnEls,
   cloneRange: clonePlaybackRange,
-  ensurePlayer,
   ensureSoundfontLoaded,
-  ensureSoundfontReady,
-  findMeasureIndex,
-  findSymbolAtOrAfter,
-  findSymbolAtOrBefore,
   getFollowPipelineVersion,
   getPayload: getPlaybackPayload,
   getActiveRange: getActivePlaybackRange,
   getFollowVoiceId,
   getFollowVoiceIndex,
   getRange: getPlaybackRange,
-  getScopedSettingsForOrigin: getScopedPlaybackSettingsForOrigin,
-  getSelectionRange: getSelectionPlaybackRange,
-  getSelectionSettings: getSelectionPlaybackSettings,
-  getSourceKey: getPlaybackSourceKey,
-  highlightSourceAt,
-  initAutoScrollListeners: initPlaybackAutoScrollListeners,
-  isAbPlanValid,
   isActive: isPlaybackActive,
   isBusy: isPlaybackBusy,
-  isFocusBoundedScope: isFocusBoundedPlaybackScope,
   isPaused: isPlaybackPaused,
   isPlaying,
   isTransportJumpHighlightActive,
   isWaitingForFirstNote,
-  computeFocusPlan: computeFocusPlaybackPlanFromCurrentState,
-  normalizeFocusLoopBounds: normalizeLoopBounds,
-  normalizeFocusLoopBoundsForPlayback,
-  maybeAutoScrollRenderToCursor,
-  maybeScrollEditorToOffset,
   maybeScrollRenderToNote,
-  pause: pausePlayback,
-  playAbLoop,
-  playDrumPreview,
-  playSelectionOnce,
-  prepare: preparePlayback,
-  refreshAbOptionsUi,
   resetState: resetPlaybackState,
   resetFocusLoopForTune: maybeResetFocusLoopForTune,
   resetPlayerForSoundfontChange,
-  resetUiState: resetPlaybackUiState,
-  resolveEndSymbol: resolvePlaybackEndSymbol,
-  scheduleUiUpdate: schedulePlaybackUiUpdate,
-  setAbFromSelection,
-  setAbOptions: setAbPlanOptions,
-  setAbPoint,
-  setAbRange: setAbPlanRange,
-  setFollowVoiceFromPlayback,
   setRange: setPlaybackRange,
   setAutoScrollModeForDev,
-  setAutoScrollFromSettings,
   setTransportJumpHighlightActive,
   setTransportPlayheadOffset,
-  snapIstartToPlayable,
   startAtIndex: startPlaybackAtIndex,
-  startAtMeasureOffset: startPlaybackAtMeasureOffset,
-  startFromPrepared: startPlaybackFromPrepared,
-  startFromRange: startPlaybackFromRange,
   setFocusEnabled: setFocusModeEnabled,
-  stopForRestart: stopPlaybackForRestart,
-  stopFromGuard: stopPlaybackFromGuard,
   stopTransport: stopPlaybackTransport,
   suppressFollowScroll,
   syncPendingPlan: syncPendingPlaybackPlan,
-  toDerivedOffset,
-  toEditorOffset,
   toggleFocus: toggleFocusMode,
-  toggleAbOptionsPopover,
   togglePlayPauseEffective,
   transportPause,
   transportPlay,
   transportStartOver,
-  transportTogglePlayPause,
   updateAbUi,
   updateFollowToggle,
   updateInteractionLock: updatePlaybackInteractionLock,
   updateRangeFromSelection: updatePlaybackRangeFromSelection,
   updatePlayButton,
-  updatePracticeUi,
-  upperBoundTime,
-  withScopedOrigin: withScopedPlaybackOrigin,
-  withTempFlags: withTempPlaybackFlags,
 } = playbackDomain;
 const renderRuntime = createRenderRuntime({ consoleRef: console });
 const {
@@ -628,24 +534,6 @@ const abcHelpersFeature = createAbcHelpersFeature({
   renderAbcToSvgMarkup,
 });
 
-const soundfontController = createSoundfontController({
-  windowRef: window,
-  api: window.api,
-  elements: {
-    label: $soundfontLabel,
-  },
-  state: {
-    isPlaying: () => playbackDomain.isPlaying(),
-    isPaused: () => playbackDomain.isPaused(),
-    isWaitingForFirstNote: () => playbackDomain.isWaitingForFirstNote(),
-  },
-  actions: {
-    ensurePlayer: () => ensurePlayer(),
-    setBufferStatus: (text) => setBufferStatus(text),
-    setStatus: (text) => setStatus(text),
-  },
-});
-
 const fileHeaderController = createFileHeaderController({
   elements: {
     panel: $fileHeaderPanel,
@@ -742,12 +630,12 @@ const payloadModeFeature = createPayloadModeFeature({
   sanitizeHeaderText: sanitizeFileHeaderForInteractiveRender,
   buildHeaderPrefixWithLayerSpans,
   playbackPayloadTransforms: {
-    injectGchordOn,
-    normalizeDollarLineBreaksForPlayback,
-    normalizeBlankLinesForPlayback,
-    normalizeReadableMidiDrumsForPlayback,
-    sanitizeAbcForPlayback,
-    expandRepeatsForPlayback,
+    injectGchordOn: playbackPayloadTransforms.injectGchordOn,
+    normalizeDollarLineBreaksForPlayback: playbackPayloadTransforms.normalizeDollarLineBreaksForPlayback,
+    normalizeBlankLinesForPlayback: playbackPayloadTransforms.normalizeBlankLinesForPlayback,
+    normalizeReadableMidiDrumsForPlayback: playbackPayloadTransforms.normalizeReadableMidiDrumsForPlayback,
+    sanitizeAbcForPlayback: playbackPayloadTransforms.sanitizeAbcForPlayback,
+    expandRepeatsForPlayback: playbackPayloadTransforms.expandRepeatsForPlayback,
     expandRepeats: () => window.__abcarusPlaybackExpandRepeats === true,
   },
   stopPlayback: stopPlaybackTransport,
@@ -996,47 +884,15 @@ function safeWriteJsonLocalStorage(key, value) {
 }
 
 printAllFeature.loadOptionsFromStorage();
-const abSelectionPlaybackController = createAbSelectionPlaybackController({
-  abLoopRuntime,
-  selectionPlaybackRuntime,
-  getSettings: () => ({
-    ...(settingsSnapshot.get() || {}),
-    selectionLoopElement: $selectionLoopEnabled,
-    selectionSuppressElement: $selectionSuppressEnabled,
-    selectionGchordsElement: $selectionGchordsEnabled,
-    selectionDrumsElement: $selectionDrumsEnabled,
-    selectionMutedVoicesElement: $selectionMutedVoices,
-  }),
-  getEditorView: editorRuntime.getView,
-  getEditorText: getEditorValue,
-  isRawMode: () => isRawModeActive(),
-  isPayloadMode,
-  isPlaying,
-  getActivePlaybackRange,
-  setPlaybackRange,
-  startPlaybackFromRange,
-  stopPlayback: stopPlaybackTransport,
-  refreshMarkers: editorRuntime.refresh,
-  showToast,
-  parseMutedVoiceSetting,
-  hasIntentionalSelectionPlaybackSpan,
-  hasRepeatTokensInSlice,
-  buildSelectionPlaybackToast,
-  globalObject: window,
-});
-const followHighlightSettings = createFollowHighlightSettings({
-  documentRef: document,
-  clampNumber,
-});
 const scoreHighlightController = createScoreHighlightController({
   documentRef: document,
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
   getEditorView: editorRuntime.getView,
   clampNumber,
-  getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
-  getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
-  getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
+  getFollowPlayheadPad: playbackDomain.getFollowPlayheadPad,
+  getFollowPlayheadWidth: playbackDomain.getFollowPlayheadWidth,
+  getFollowPlayheadShift: playbackDomain.getFollowPlayheadShift,
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
   requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
@@ -1208,7 +1064,7 @@ diagnosticsDomain = createDiagnosticsDomain({
     getHeaderEditorValue,
     getWorkingCopySnapshot,
     getPlaybackPayload,
-    getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
+    getLastPlaybackPayloadCache: () => playbackDomain.getDiagnosticsSnapshot().lastPlaybackPayloadCache,
     getFollowPipelineVersion,
     getIsPlaying: isPlaying,
     getIsPaused: isPlaybackPaused,
@@ -1216,30 +1072,30 @@ diagnosticsDomain = createDiagnosticsDomain({
     getFollowPlayback: playbackDomain.isFollowEnabled,
     getFollowVoiceId,
     getFollowVoiceIndex,
-    getPlaybackState: () => playbackTransport.playbackState,
-    getPracticeTempoMultiplier: () => playbackTransport.practiceTempoMultiplier,
-    getPlaybackLoopEnabled: () => playbackTransport.playbackLoopEnabled,
-    getPlaybackLoopFromMeasure: () => playbackTransport.playbackLoopFromMeasure,
-    getPlaybackLoopToMeasure: () => playbackTransport.playbackLoopToMeasure,
-    getSoundfontName: () => soundfontController.getName(),
-    getSoundfontSource: () => soundfontController.getSource(),
-    getSoundfontReadyName: () => soundfontController.getReadyName(),
-    getLastSoundfontApplied: () => soundfontController.getLastApplied(),
-    getPlaybackIndexOffset: () => playbackTransport.playbackIndexOffset,
-    getPlaybackRange: () => playbackTransport.playbackRange,
-    getActivePlaybackRange: () => playbackTransport.activePlaybackRange,
-    getActivePlaybackEndAbcOffset: () => playbackTransport.activePlaybackEndAbcOffset,
-    getLastStartPlaybackIdx: () => playbackTransport.lastStartPlaybackIdx,
-    getResumeStartIdx: () => playbackTransport.resumeStartIdx,
-    getDesiredPlayerSpeed: () => playbackTransport.desiredPlayerSpeed,
-    getCurrentPlaybackPlan: () => playbackTransport.currentPlaybackPlan,
-    getPendingPlaybackPlan: () => playbackTransport.pendingPlaybackPlan,
-    getLastPlaybackGuardMessage: () => playbackTransport.lastPlaybackGuardMessage,
-    getLastPlaybackAbortMessage: () => playbackTransport.lastPlaybackAbortMessage,
-    getLastPlaybackException: () => playbackTransport.lastPlaybackException,
-    getPlaybackNoteTrace: () => playbackTransport.playbackNoteTrace,
-    getPlaybackParseErrors: () => playbackTransport.playbackParseErrors,
-    getPlaybackSanitizeWarnings: () => playbackTransport.playbackSanitizeWarnings,
+    getPlaybackState: () => playbackDomain.getDiagnosticsSnapshot().playbackState,
+    getPracticeTempoMultiplier: () => playbackDomain.getDiagnosticsSnapshot().practiceTempoMultiplier,
+    getPlaybackLoopEnabled: () => playbackDomain.getDiagnosticsSnapshot().playbackLoopEnabled,
+    getPlaybackLoopFromMeasure: () => playbackDomain.getDiagnosticsSnapshot().playbackLoopFromMeasure,
+    getPlaybackLoopToMeasure: () => playbackDomain.getDiagnosticsSnapshot().playbackLoopToMeasure,
+    getSoundfontName: playbackDomain.getSoundfontName,
+    getSoundfontSource: playbackDomain.getSoundfontSource,
+    getSoundfontReadyName: playbackDomain.getSoundfontReadyName,
+    getLastSoundfontApplied: playbackDomain.getLastSoundfontApplied,
+    getPlaybackIndexOffset: () => playbackDomain.getDiagnosticsSnapshot().playbackIndexOffset,
+    getPlaybackRange: () => playbackDomain.getDiagnosticsSnapshot().playbackRange,
+    getActivePlaybackRange: () => playbackDomain.getDiagnosticsSnapshot().activePlaybackRange,
+    getActivePlaybackEndAbcOffset: () => playbackDomain.getDiagnosticsSnapshot().activePlaybackEndAbcOffset,
+    getLastStartPlaybackIdx: () => playbackDomain.getDiagnosticsSnapshot().lastStartPlaybackIdx,
+    getResumeStartIdx: () => playbackDomain.getDiagnosticsSnapshot().resumeStartIdx,
+    getDesiredPlayerSpeed: () => playbackDomain.getDiagnosticsSnapshot().desiredPlayerSpeed,
+    getCurrentPlaybackPlan: () => playbackDomain.getDiagnosticsSnapshot().currentPlaybackPlan,
+    getPendingPlaybackPlan: () => playbackDomain.getDiagnosticsSnapshot().pendingPlaybackPlan,
+    getLastPlaybackGuardMessage: () => playbackDomain.getDiagnosticsSnapshot().lastPlaybackGuardMessage,
+    getLastPlaybackAbortMessage: () => playbackDomain.getDiagnosticsSnapshot().lastPlaybackAbortMessage,
+    getLastPlaybackException: () => playbackDomain.getDiagnosticsSnapshot().lastPlaybackException,
+    getPlaybackNoteTrace: () => playbackDomain.getDiagnosticsSnapshot().playbackNoteTrace,
+    getPlaybackParseErrors: () => playbackDomain.getDiagnosticsSnapshot().playbackParseErrors,
+    getPlaybackSanitizeWarnings: () => playbackDomain.getDiagnosticsSnapshot().playbackSanitizeWarnings,
     getLastRhythmErrorSuggestion: () => errorsFeature.getLastRhythmErrorSuggestion(),
     getLastRenderPayload: () => getLastRenderPayload(),
     getBarMismatchMarkers: () => errorsFeature.getBarMismatchMarkers(),
@@ -1249,12 +1105,12 @@ diagnosticsDomain = createDiagnosticsDomain({
     isPayloadMode,
     computeHeaderPresence,
     buildHeaderPrefix,
-    injectGchordOn,
-    normalizeLeadingInlineDirectivesForPlayback,
-    normalizeDollarLineBreaksForPlayback,
-    normalizeBlankLinesForPlayback,
-    normalizeReadableMidiDrumsForPlayback,
-    sanitizeAbcForPlayback,
+    injectGchordOn: playbackPayloadTransforms.injectGchordOn,
+    normalizeLeadingInlineDirectivesForPlayback: playbackPayloadTransforms.normalizeLeadingInlineDirectivesForPlayback,
+    normalizeDollarLineBreaksForPlayback: playbackPayloadTransforms.normalizeDollarLineBreaksForPlayback,
+    normalizeBlankLinesForPlayback: playbackPayloadTransforms.normalizeBlankLinesForPlayback,
+    normalizeReadableMidiDrumsForPlayback: playbackPayloadTransforms.normalizeReadableMidiDrumsForPlayback,
+    sanitizeAbcForPlayback: playbackPayloadTransforms.sanitizeAbcForPlayback,
     clonePlaybackRange,
     clampInt,
     mkdirp,
@@ -1293,205 +1149,6 @@ const toastHoverController = createToastHoverController({
   isDebugMessagesEnabled: diagnosticsDomain.isDebugMessagesEnabled,
 });
 
-const playbackPayloadController = createPlaybackPayloadController({
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
-  getEditorText: getEditorValue,
-  getActiveEntryHeader: () => {
-    const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
-    return entry ? getHeaderEditorValue() : "";
-  },
-  buildHeaderPrefix,
-  countLinesForPrefix,
-  isChordProEnabled: () => chordProFeature.isEnabled(),
-  isChordProFullView: () => chordProFeature.isFullView(),
-  chordProHasBlocks: () => chordProFeature.hasBlocks(),
-  isPayloadMode,
-  isPlaybackPayloadView: () => payloadModeFeature.isPlaybackView(),
-  getExpandRepeats: () => window.__abcarusPlaybackExpandRepeats === true,
-  detectMeterMismatchInBarlines,
-  detectRepeatMarkerAfterShortBar,
-  neutralizeMidiDrumDirectivesForPlayback,
-  assertCleanAbcText,
-  showToast,
-});
-const playbackPrepareController = createPlaybackPrepareController({
-  windowRef: window,
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
-  ensureSoundfontReady,
-  ensurePlayer,
-  getAbcCtor,
-  getPlaybackPayload,
-  getPlaybackSourceKey,
-  buildPlaybackState,
-  setFollowVoiceFromPlayback,
-  clearErrors,
-  setStatus,
-  showToast,
-  logErr,
-  addError,
-  setErrorLineOffsetFromHeader,
-  setErrorsLineOffset: (lineOffset) => errorsFeature.setLineOffset(lineOffset),
-  parseErrorLocation,
-  scheduleAutoDump,
-  assertCleanAbcText,
-  neutralizeMidiDrumDirectivesForPlayback,
-  isMidiDrumMustBeInVoicePlaybackError,
-  hasMidiDrumMustBeInVoicePlaybackError,
-  shouldRelocateMidiDrumsForPlayback,
-  normalizeAccThreeQuarterToneForAbc2svg,
-  isChordProFullView: () => chordProFeature.isFullView(),
-});
-const playbackStartController = createPlaybackStartController({
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: editorRuntime.getView,
-  getPlaybackRange,
-  setPlaybackRange,
-  clonePlaybackRange,
-  getPlaybackSourceKey,
-  preparePlayback,
-  ensureSoundfontReady,
-  stopPlaybackForRestart,
-  stopPlaybackFromGuard,
-  recordDebugLog,
-  scheduleAutoDump,
-  setStatus,
-  updatePlayButton,
-  clearNoteSelection,
-  resetPlaybackUiState,
-  setSoundfontCaption: soundfontController.setCaption,
-  showToast,
-  updatePracticeUi,
-  getScopedPlaybackSettingsForOrigin,
-  withScopedPlaybackOrigin,
-  getStripChordSymbols: () => window.__abcarusPlaybackStripChordSymbols === true,
-  toDerivedOffset,
-  toEditorOffset,
-  findSymbolAtOrAfter,
-  findSymbolAtOrBefore,
-  findMeasureIndex,
-  isFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
-  getDebugParts: () => window.__abcarusDebugParts === true,
-});
-const playbackTransportController = createPlaybackTransportController({
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: editorRuntime.getView,
-  getEditorText: getEditorValue,
-  findMeasureStartOffsetByNumber,
-  getFocusModeEnabled: isFocusModeEnabled,
-  normalizeFocusLoopBoundsForPlayback,
-  computeFocusPlaybackPlanFromCurrentState,
-  startPlaybackFromRange,
-  startPlaybackAtIndex,
-  pausePlayback,
-  playSelectionOnce,
-  setPracticeBarHighlight,
-  clearSvgPracticeBarHighlight,
-  playbackGuardError: (message) => {
-    if (playbackUiController) playbackUiController.reportPlaybackGuardError(message);
-  },
-  stopPlaybackFromGuard,
-  setStatus,
-  updatePlayButton,
-  clearNoteSelection,
-  resetPlaybackUiState,
-  setSoundfontCaption: soundfontController.setCaption,
-  showToast,
-});
-const playbackAutoScrollController = createPlaybackAutoScrollController({
-  windowRef: window,
-  consoleRef: console,
-  getRenderPane: () => $renderPane,
-  getOutElement: () => $out,
-  getPlayheadElement: () => scoreHighlightController.getSvgPlayheadElement(),
-  isPlaybackBusy,
-  clampNumber,
-  getRenderZoomFactor,
-  isDebugEnabled: () => Boolean(window.__abcarusDebugAutoscroll),
-});
-const playbackFollowController = createPlaybackFollowController({
-  windowRef: window,
-  transport: playbackTransport,
-  getEditorView: editorRuntime.getView,
-  getOutElement: () => $out,
-  getRenderPane: () => $renderPane,
-  getFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
-  getFocusModeEnabled: isFocusModeEnabled,
-  clearSvgPlayhead,
-  clearSvgFollowBarHighlight,
-  clearSvgFollowMeasureHighlight,
-  clearSvgPracticeBarHighlight,
-  setPracticeBarHighlight,
-  findSymbolAtOrBefore,
-  upperBoundTime,
-  snapIstartToPlayable,
-  mapEditorOffsetToRenderIdx,
-  mapRenderIdxToEditorOffset,
-  findNearestNoteHighlightElements,
-  pickClosestNoteElement,
-  extractRenderIdxFromElementClass,
-  findNearestBarElForNote,
-  setSvgPlayheadFromElements,
-  highlightSvgFollowMeasureForNote,
-  maybeAutoScrollRenderToCursor,
-  cancelPlaybackAutoScroll,
-});
-const playbackPlayerController = createPlaybackPlayerController({
-  windowRef: window,
-  transport: playbackTransport,
-  selectionRuntime: selectionPlaybackRuntime,
-  getEditorView: editorRuntime.getView,
-  getFocusModeEnabled: isFocusModeEnabled,
-  getFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
-  getSoundfontSource: () => soundfontController.getSource(),
-  setSuppressPlaybackRangeSelectionSync: (next) => {
-    editorRuntime.setSuppressPlaybackRangeSelectionSync(next);
-  },
-  applyPlaybackPlanSpeed,
-  startPlaybackFromRange,
-  updatePracticeUi,
-  setStatus,
-  updatePlayButton,
-  clearNoteSelection,
-  clearPlaybackNoteOnEls,
-  clearSvgPlayhead,
-  clearSvgFollowBarHighlight,
-  clearSvgFollowMeasureHighlight,
-  resetPlaybackUiState,
-  setSoundfontCaption: soundfontController.setCaption,
-  findSymbolAtOrBefore,
-  toEditorOffset,
-  appendPlaybackTrace,
-  stopPlaybackFromGuard,
-  schedulePlaybackUiUpdate,
-  logErr,
-});
-const drumPreviewController = createDrumPreviewController({
-  transport: playbackTransport,
-  velocityToDynamic,
-  ensureSoundfontLoaded,
-  ensurePlayer,
-  getAbcCtor,
-  getSoundfontSource: () => soundfontController.getSource(),
-  stopPlaybackForRestart,
-  updatePlayButton,
-  logErr,
-  windowRef: window,
-});
-playbackDomain.attach({
-  abSelection: abSelectionPlaybackController,
-  autoScroll: playbackAutoScrollController,
-  drumPreview: drumPreviewController,
-  follow: playbackFollowController,
-  payload: playbackPayloadController,
-  player: playbackPlayerController,
-  prepare: playbackPrepareController,
-  start: playbackStartController,
-  transport: playbackTransportController,
-});
 function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
 }
@@ -1559,61 +1216,6 @@ const layoutController = createLayoutController({
     if (!window.api || typeof window.api.updateSettings !== "function") return;
     await window.api.updateSettings(patch);
   },
-  showToast,
-});
-
-focusModeController = createFocusModeController({
-  elements: {
-    focusButton: $btnFocusMode,
-    practiceTempoWrap: $practiceTempoWrap,
-    practiceTempo: $practiceTempo,
-    practiceFocusRangeGroup: $practiceFocusRangeGroup,
-    practiceFocusOptionsGroup: $practiceFocusOptionsGroup,
-    practiceFocusVoicesGroup: $practiceFocusVoicesGroup,
-    practiceSelectionGroup: $practiceSelectionGroup,
-    practiceLoopWrap: $practiceLoopWrap,
-    practiceLoopEnabled: $practiceLoopEnabled,
-    practiceLoopFrom: $practiceLoopFrom,
-    practiceLoopTo: $practiceLoopTo,
-    selectionSuppressWrap: $selectionSuppressWrap,
-    selectionSuppressEnabled: $selectionSuppressEnabled,
-    selectionGchordsWrap: $selectionGchordsWrap,
-    selectionGchordsEnabled: $selectionGchordsEnabled,
-    selectionDrumsWrap: $selectionDrumsWrap,
-    selectionDrumsEnabled: $selectionDrumsEnabled,
-    selectionMutedWrap: $selectionMutedWrap,
-    selectionMutedVoices: $selectionMutedVoices,
-    selectionLoopWrap: $selectionLoopWrap,
-    selectionLoopEnabled: $selectionLoopEnabled,
-  },
-  transport: playbackTransport,
-  getSettings: settingsSnapshot.get,
-  getActiveTuneId: () => activeContext.getActiveTuneId(),
-  getLibraryVisible: libraryRuntime.isVisible,
-  isRawModeActive: () => isRawModeActive(),
-  isPlaybackBusy,
-  isFocusBoundedPlaybackScope,
-  getEditorView: editorRuntime.getView,
-  getEditorText: getEditorValue,
-  getRenderMeasureIndex,
-  getRenderCompatMap,
-  mapRenderIdxToEditorOffset,
-  getOutputElement: () => $out,
-  getRenderPane: () => $renderPane,
-  getScopedPlaybackSettingsForOrigin,
-  findMeasureStartOffsetByNumber: findMeasureStartOffsetByNumberInPrimaryVoice,
-  clampInt,
-  readRenderZoom: readRenderZoomCss,
-  setRenderZoom: setRenderZoomCss,
-  computeFocusFitZoom,
-  setLibraryVisible,
-  resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
-  syncPendingPlaybackPlan,
-  clearNormalPlaybackPlan: () => {
-    editorRuntime.setPendingPlaybackRangeOrigin(null);
-    clearPlaybackPlans();
-  },
-  persistLoopSettingsPatch: settingsSnapshot.persistPatch,
   showToast,
 });
 
@@ -2296,74 +1898,161 @@ fileOperationGuard = createFileOperationGuard({
   },
 });
 
-playbackUiController = createPlaybackUiController({
+playbackDomain.initialize({
+  windowRef: window,
+  documentRef: document,
+  api: window.api,
   elements: {
+    soundfontLabel: $soundfontLabel,
+    output: $out,
     renderPane: $renderPane,
-    playButton: $btnPlay,
-    pauseButton: $btnPause,
-    playPauseButton: $btnPlayPause,
-    stopButton: $btnStop,
-    resetLayoutButton: $btnResetLayout,
-    focusModeButton: $btnFocusMode,
-    toggleLibraryButton: $btnToggleLibrary,
-    libraryRefreshButton: $btnLibraryRefresh,
-    libraryClearFilterButton: $btnLibraryClearFilter,
-    groupBySelect: $groupBy,
-    sortBySelect: $sortBy,
-    sortTunesBySelect: $sortTunesBy,
-    librarySearchInput: $librarySearch,
-    tuneSelect: $fileTuneSelect,
-    fileNewButton: $btnFileNew,
-    fileOpenButton: $btnFileOpen,
-    fileSaveButton: $btnFileSave,
-    fileCloseButton: $btnFileClose,
-    toggleRawButton: $btnToggleRaw,
-    toggleErrorsButton: $btnToggleErrors,
-    toggleFollowButton: $btnToggleFollow,
-    toggleGlobalsButton: $btnToggleGlobals,
-    fileHeaderToggle: $fileHeaderToggle,
-    fileHeaderSaveButton: $fileHeaderSave,
-    fileHeaderReloadButton: $fileHeaderReload,
-    practiceTempoInput: $practiceTempo,
-    practiceLoopEnabled: $practiceLoopEnabled,
-    practiceLoopFrom: $practiceLoopFrom,
-    practiceLoopTo: $practiceLoopTo,
-    selectionSuppressEnabled: $selectionSuppressEnabled,
-    selectionGchordsEnabled: $selectionGchordsEnabled,
-    selectionDrumsEnabled: $selectionDrumsEnabled,
-    selectionMutedVoices: $selectionMutedVoices,
-    fontsButton: $btnFonts,
-    xIssuesAutoFixButton: $xIssuesAutoFix,
-    xIssuesJumpButton: $xIssuesJump,
-    xIssuesCopyButton: $xIssuesCopy,
-    xIssuesCloseButton: $xIssuesClose,
+    focus: {
+      focusButton: $btnFocusMode,
+      practiceTempoWrap: $practiceTempoWrap,
+      practiceTempo: $practiceTempo,
+      practiceFocusRangeGroup: $practiceFocusRangeGroup,
+      practiceFocusOptionsGroup: $practiceFocusOptionsGroup,
+      practiceFocusVoicesGroup: $practiceFocusVoicesGroup,
+      practiceSelectionGroup: $practiceSelectionGroup,
+      practiceLoopWrap: $practiceLoopWrap,
+      practiceLoopEnabled: $practiceLoopEnabled,
+      practiceLoopFrom: $practiceLoopFrom,
+      practiceLoopTo: $practiceLoopTo,
+      selectionSuppressWrap: $selectionSuppressWrap,
+      selectionSuppressEnabled: $selectionSuppressEnabled,
+      selectionGchordsWrap: $selectionGchordsWrap,
+      selectionGchordsEnabled: $selectionGchordsEnabled,
+      selectionDrumsWrap: $selectionDrumsWrap,
+      selectionDrumsEnabled: $selectionDrumsEnabled,
+      selectionMutedWrap: $selectionMutedWrap,
+      selectionMutedVoices: $selectionMutedVoices,
+      selectionLoopWrap: $selectionLoopWrap,
+      selectionLoopEnabled: $selectionLoopEnabled,
+    },
+    ui: {
+      renderPane: $renderPane,
+      playButton: $btnPlay,
+      pauseButton: $btnPause,
+      playPauseButton: $btnPlayPause,
+      stopButton: $btnStop,
+      resetLayoutButton: $btnResetLayout,
+      focusModeButton: $btnFocusMode,
+      toggleLibraryButton: $btnToggleLibrary,
+      libraryRefreshButton: $btnLibraryRefresh,
+      libraryClearFilterButton: $btnLibraryClearFilter,
+      groupBySelect: $groupBy,
+      sortBySelect: $sortBy,
+      sortTunesBySelect: $sortTunesBy,
+      librarySearchInput: $librarySearch,
+      tuneSelect: $fileTuneSelect,
+      fileNewButton: $btnFileNew,
+      fileOpenButton: $btnFileOpen,
+      fileSaveButton: $btnFileSave,
+      fileCloseButton: $btnFileClose,
+      toggleRawButton: $btnToggleRaw,
+      toggleErrorsButton: $btnToggleErrors,
+      toggleFollowButton: $btnToggleFollow,
+      toggleGlobalsButton: $btnToggleGlobals,
+      fileHeaderToggle: $fileHeaderToggle,
+      fileHeaderSaveButton: $fileHeaderSave,
+      fileHeaderReloadButton: $fileHeaderReload,
+      practiceTempoInput: $practiceTempo,
+      practiceLoopEnabled: $practiceLoopEnabled,
+      practiceLoopFrom: $practiceLoopFrom,
+      practiceLoopTo: $practiceLoopTo,
+      selectionSuppressEnabled: $selectionSuppressEnabled,
+      selectionGchordsEnabled: $selectionGchordsEnabled,
+      selectionDrumsEnabled: $selectionDrumsEnabled,
+      selectionMutedVoices: $selectionMutedVoices,
+      fontsButton: $btnFonts,
+      xIssuesAutoFixButton: $xIssuesAutoFix,
+      xIssuesJumpButton: $xIssuesJump,
+      xIssuesCopyButton: $xIssuesCopy,
+      xIssuesCloseButton: $xIssuesClose,
+    },
   },
-  state: {
-    transport: playbackTransport,
-    selectionRuntime: selectionPlaybackRuntime,
+  host: {
+    consoleRef: console,
+    getSettings: settingsSnapshot.get,
     getEditorView: editorRuntime.getView,
-    getIsPlaying: isPlaying,
-    getIsPaused: isPlaybackPaused,
-    getWaitingForFirstNote: isWaitingForFirstNote,
-    getFollowPlayback: playbackDomain.isFollowEnabled,
+    getEditorText: getEditorValue,
+    refreshEditor: editorRuntime.refresh,
+    setSuppressPlaybackRangeSelectionSync: editorRuntime.setSuppressPlaybackRangeSelectionSync,
+    isRawMode: () => isRawModeActive(),
+    isPayloadMode,
+    isPlaybackPayloadView: () => payloadModeFeature.isPlaybackView(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
-  },
-  actions: {
+    chordProHasBlocks: () => chordProFeature.hasBlocks(),
+    getActiveEntryHeader: () => {
+      const entry = chordProFeature.isEnabled() ? null : getActiveFileEntry();
+      return entry ? getHeaderEditorValue() : "";
+    },
+    getActiveTuneId: () => activeContext.getActiveTuneId(),
+    getLibraryVisible: libraryRuntime.isVisible,
+    getExpandRepeats: () => window.__abcarusPlaybackExpandRepeats === true,
+    getStripChordSymbols: () => window.__abcarusPlaybackStripChordSymbols === true,
+    getDebugParts: () => window.__abcarusDebugParts === true,
+    isAutoScrollDebugEnabled: () => Boolean(window.__abcarusDebugAutoscroll),
+    getAbcCtor,
+    getRenderMeasureIndex,
+    getRenderCompatMap,
+    getRenderZoomFactor,
+    getPlayheadElement: () => scoreHighlightController.getSvgPlayheadElement(),
+    buildHeaderPrefix,
+    countLinesForPrefix,
+    detectMeterMismatchInBarlines,
+    detectRepeatMarkerAfterShortBar,
+    neutralizeMidiDrumDirectivesForPlayback,
+    assertCleanAbcText,
+    normalizeAccThreeQuarterToneForAbc2svg,
+    findMeasureStartOffsetByNumber,
+    findPrimaryVoiceMeasureStart: findMeasureStartOffsetByNumberInPrimaryVoice,
+    mapEditorOffsetToRenderIdx,
+    mapRenderIdxToEditorOffset,
+    findNearestNoteHighlightElements,
+    pickClosestNoteElement,
+    extractRenderIdxFromElementClass,
+    findNearestBarElForNote,
+    setSvgPlayheadFromElements,
+    highlightSvgFollowMeasureForNote,
+    setPracticeBarHighlight,
+    clearSvgPracticeBarHighlight,
+    clearSvgPlayhead,
+    clearSvgFollowBarHighlight,
+    clearSvgFollowMeasureHighlight,
+    clearNoteSelection,
+    clearErrors,
+    addError,
+    setErrorLineOffsetFromHeader,
+    setErrorsLineOffset: (lineOffset) => errorsFeature.setLineOffset(lineOffset),
+    parseErrorLocation,
+    isMidiDrumMustBeInVoicePlaybackError,
+    hasMidiDrumMustBeInVoicePlaybackError,
+    shouldRelocateMidiDrumsForPlayback,
+    clampNumber,
+    clampInt,
+    velocityToDynamic,
+    readRenderZoom: readRenderZoomCss,
+    setRenderZoom: setRenderZoomCss,
+    computeFocusFitZoom,
+    setLibraryVisible,
+    resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
+    clearNormalPlaybackPlan: () => {
+      editorRuntime.setPendingPlaybackRangeOrigin(null);
+      clearPlaybackPlans();
+    },
+    persistLoopSettingsPatch: settingsSnapshot.persistPatch,
+    setBufferStatus,
+    setStatus,
+    showToast,
+    logErr,
     recordDebugLog,
     scheduleAutoDump,
     logPlaybackGuardError: (message) => {
       console.error(`[abcarus][playback-range] ${message}`);
     },
-    setStatus,
-    clearNoteSelection,
-    resetPlaybackUiState,
-    clearSvgPlayhead,
-    clearSvgFollowBarHighlight,
-    clearSvgFollowMeasureHighlight,
     setButtonText,
-    updateAbUi,
-    updatePracticeUi,
   },
 });
 
@@ -2651,7 +2340,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     scheduleRenderLibraryTree,
     scheduleRenderNow,
     scheduleSaveLibraryUiState,
-    selectionPlaybackRuntime,
+    clearPlaybackSelectionCapture: playbackDomain.clearSelectionCapture,
     setActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
     setActiveTuneId: (next) => { activeContext.setActiveTuneId(next); },
     setActiveTuneIndex: (next) => { activeContext.setActiveTuneIndex(next); },
@@ -2914,10 +2603,7 @@ diagnosticsDomain.installDevUiSmoke({
     settingsSnapshot.patch({ payloadModeEnabled: Boolean(enabled) });
   },
   getState: () => ({
-    isPlaying: playbackTransport.isPlaying,
-    isPaused: playbackTransport.isPaused,
-    waitingForFirstNote: playbackTransport.waitingForFirstNote,
-    playbackStartArmed: playbackTransport.playbackStartArmed,
+    ...playbackDomain.getUiState(),
     payloadMode: isPayloadMode(),
   }),
   getHasSvg: () => Boolean($out && $out.querySelector("svg")),
@@ -3079,10 +2765,7 @@ async function navigateTuneByDelta(delta) {
 
 const measureErrorPlugin = errorsFeature.plugins.measure;
 
-const abPlugin = createAbMarkerExtension({
-  ViewPlugin,
-  runtime: abLoopRuntime,
-});
+const abPlugin = playbackDomain.createAbMarkerPlugin(ViewPlugin);
 
 const barMismatchPlugin = errorsFeature.plugins.barMismatch;
 
@@ -3256,8 +2939,8 @@ function initEditor() {
       patchCurrentDocument,
       setDirtyIndicator,
       handleTypingPreviewChange: (update) => midiInputFeature.handleTypingPreviewChange(update),
-      incrementAbRevision: () => abLoopRuntime.incrementRevision(),
-      hasAbPlan: () => abLoopRuntime.hasPlan(),
+      incrementAbRevision: playbackDomain.incrementAbRevision,
+      hasAbPlan: playbackDomain.hasAbPlan,
       clearAbPlan,
       isChordProEnabled: () => chordProFeature.isEnabled(),
       isChordProFullView: () => chordProFeature.isFullView(),
@@ -3275,7 +2958,7 @@ function initEditor() {
       clearNoteSelection,
       updatePlaybackRangeFromSelection,
       getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
-      transport: playbackTransport,
+      handlePlaybackSelectionTransportState: playbackDomain.handleEditorSelectionTransportState,
       clearPracticeHighlight: () => {
         setPracticeBarHighlight(null);
         clearSvgPracticeBarHighlight();
@@ -3536,7 +3219,7 @@ function findMeasureStartOffsetByNumber(text, measureNumber) {
 }
 
 function findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber) {
-  return measureNavigationController.findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber, { normalizeVoiceIdToken });
+  return measureNavigationController.findMeasureStartOffsetByNumberInPrimaryVoice(text, measureNumber);
 }
 
 function getRenderMeasureIndex() {
@@ -3657,7 +3340,7 @@ renderRuntime.initializePipeline({
 });
 
 function setRenderBusy(next) {
-  if (playbackUiController) playbackUiController.setRenderBusy(next);
+  playbackDomain.setRenderBusy(next);
 }
 
 initEditor();
@@ -3672,19 +3355,10 @@ updateHeaderStateUI();
 layoutController.initPaneResizer();
 layoutController.initRightPaneResizer({ isRawMode: () => isRawModeActive() });
 layoutController.initSidebarResizer();
-initPlaybackAutoScrollListeners();
 setLibraryVisible(false);
 
 // Preload soundfont in background to avoid first-play delay.
-(async () => {
-  try {
-    await ensureSoundfontLoaded();
-    setStatus("OK");
-  } catch (e) {
-    logErr((e && e.stack) ? e.stack : String(e));
-    setStatus("Error");
-  }
-})();
+playbackDomain.preloadSoundfont({ setStatus, logErr });
 
 checkExternalTools().catch(() => {});
 
@@ -4035,6 +3709,7 @@ document.addEventListener("abcarus:reset-library-cache", () => {
   } catch {}
 });
 
+const playbackSettingsControllers = playbackDomain.getSettingsControllers();
 settingsDomain = createSettingsDomain({
   api: window.api,
   documentRef: document,
@@ -4054,11 +3729,11 @@ settingsDomain = createSettingsDomain({
   },
   controllers: {
     headerLayers: headerLayersController,
-    soundfont: soundfontController,
+    soundfont: playbackSettingsControllers.soundfont,
     layout: layoutController,
-    followHighlightSettings,
-    playbackAutoScroll: { setFromSettings: setAutoScrollFromSettings },
-    focusMode: focusModeController,
+    followHighlightSettings: playbackSettingsControllers.followHighlightSettings,
+    playbackAutoScroll: playbackSettingsControllers.playbackAutoScroll,
+    focusMode: playbackSettingsControllers.focusMode,
     printAll: printAllFeature,
     libraryUiDomain,
     midiInput: midiInputFeature,
@@ -4075,7 +3750,7 @@ settingsDomain = createSettingsDomain({
     resetPlaybackForSoundfontChange: resetPlayerForSoundfontChange,
     scheduleRender: scheduleRenderNow,
     scheduleStartupLayoutReset: startupController.scheduleLayoutReset,
-    setSoundfontStatus: soundfontController.setStatus,
+    setSoundfontStatus: playbackDomain.setSoundfontStatus,
     showDisclaimerIfNeeded: disclaimerController.showIfNeeded,
     showToast,
     updateErrorsFeatureUi: updateErrorsFeatureUI,
@@ -4125,7 +3800,7 @@ function computeFocusFitZoom() {
 }
 
 function isFocusModeEnabled() {
-  return focusModeController ? focusModeController.isEnabled() : false;
+  return playbackDomain.isFocusEnabled();
 }
 
 function getRenderZoomFactor() {
@@ -4175,15 +3850,7 @@ function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText
   return headerLayersController.buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText);
 }
 
-if (focusModeController) focusModeController.wireControls();
-
-document.addEventListener("drum:preview", (event) => {
-  const detail = event && event.detail ? event.detail : {};
-  playDrumPreview(detail.pitch, detail.velocity);
-});
-
-updatePlayButton();
-updateFollowToggle();
+playbackDomain.start();
 
 diagnosticsDomain.runDevAutoscrollDemo({
   readFile,

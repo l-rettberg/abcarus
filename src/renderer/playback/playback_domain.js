@@ -6,12 +6,30 @@ import {
   snapIstartToPlayable,
   upperBoundTime,
 } from "./playback_state_model.js";
+import { createAbLoopRuntime } from "./ab_loop_runtime.js";
+import { createAbMarkerExtension } from "./ab_marker_extension.js";
+import { createFollowHighlightSettings } from "./follow_highlight_settings.js";
+import { createPlaybackTransportState } from "./playback_transport_state.js";
+import { createSelectionPlaybackRuntime } from "./selection_playback_runtime.js";
+import { createPlaybackComposition } from "./playback_composition.js";
+import { expandRepeatsForPlayback } from "./repeat_expansion_model.js";
+import {
+  injectGchordOn,
+  normalizeBlankLinesForPlayback,
+  normalizeDollarLineBreaksForPlayback,
+  normalizeLeadingInlineDirectivesForPlayback,
+  normalizeReadableMidiDrumsForPlayback,
+  sanitizeAbcForPlayback,
+} from "./playback_payload_model.js";
 
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 
 export function createPlaybackDomain({
-  transport,
-  selectionRuntime,
+  transport = createPlaybackTransportState(),
+  selectionRuntime = createSelectionPlaybackRuntime(),
+  abLoopRuntime = createAbLoopRuntime({ minLength: 2 }),
+  documentRef = typeof document !== "undefined" ? document : null,
+  clampNumber,
   getEditorLength = () => 0,
   getFocusModeEnabled = () => false,
   getPlaybackUiController = () => null,
@@ -19,6 +37,10 @@ export function createPlaybackDomain({
   getSoundfontController = () => null,
 } = {}) {
   let followEnabled = true;
+  const followHighlightSettings = createFollowHighlightSettings({
+    documentRef,
+    clampNumber,
+  });
   const controllers = {
     abSelection: null,
     autoScroll: null,
@@ -29,6 +51,9 @@ export function createPlaybackDomain({
     prepare: null,
     start: null,
     transport: null,
+    focus: null,
+    soundfont: null,
+    ui: null,
   };
 
   function attach(next = {}) {
@@ -50,7 +75,11 @@ export function createPlaybackDomain({
   }
 
   function isFocusBoundedScope() {
-    return Boolean(getFocusModeEnabled())
+    const focusController = getFocusController();
+    const focusEnabled = focusController && typeof focusController.isEnabled === "function"
+      ? focusController.isEnabled()
+      : Boolean(getFocusModeEnabled());
+    return focusEnabled
       && (
         clampInt(transport.playbackLoopFromMeasure, 0, 100000, 0) > 0
         || clampInt(transport.playbackLoopToMeasure, 0, 100000, 0) > 0
@@ -86,11 +115,20 @@ export function createPlaybackDomain({
   }
 
   function getUiController() {
-    return getPlaybackUiController();
+    return controllers.ui || getPlaybackUiController();
   }
 
-  return {
+  function getFocusController() {
+    return controllers.focus || getFocusModeController();
+  }
+
+  function getSoundfont() {
+    return controllers.soundfont || getSoundfontController();
+  }
+
+  const domainApi = {
     clearAbPlan: (options) => requireController("abSelection").clearPlan(options),
+    clearSelectionCapture: () => selectionRuntime.clearSelectionCapture(),
     clearPlans() {
       transport.pendingPlaybackPlan = null;
       transport.currentPlaybackPlan = null;
@@ -98,6 +136,15 @@ export function createPlaybackDomain({
     appendTrace: (event) => transport.appendTrace(event),
     applyPlanSpeed: (plan) => requireController("transport").applyPlaybackPlanSpeed(plan),
     attach,
+    initialize(options) {
+      attach(createPlaybackComposition({
+        ...options,
+        domain: domainApi,
+        transport,
+        selectionRuntime,
+        abLoopRuntime,
+      }));
+    },
     buildState: (firstSymbol) => buildPlaybackState(firstSymbol, {
       editorLength: getEditorLength(),
       playbackIndexOffset: transport.playbackIndexOffset,
@@ -108,18 +155,30 @@ export function createPlaybackDomain({
     cloneRange: (range) => requireController("transport").clonePlaybackRange(range),
     ensurePlayer: () => requireController("player").ensurePlayer(),
     ensureSoundfontLoaded: () => {
-      const controller = getSoundfontController();
+      const controller = getSoundfont();
       return controller ? controller.ensureLoaded() : Promise.resolve();
     },
     ensureSoundfontReady: () => {
-      const controller = getSoundfontController();
+      const controller = getSoundfont();
       return controller ? controller.ensureReady() : Promise.resolve();
     },
     findMeasureIndex: (index) => findPlaybackMeasureIndex(transport.playbackState, index),
     findSymbolAtOrAfter: (index) => findPlaybackSymbolAtOrAfter(transport.playbackState, index),
     findSymbolAtOrBefore: (index) => findPlaybackSymbolAtOrBefore(transport.playbackState, index),
     getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
+    getFollowPlayheadPad: followHighlightSettings.getPlayheadPad,
+    getFollowPlayheadShift: followHighlightSettings.getPlayheadShift,
+    getFollowPlayheadWidth: followHighlightSettings.getPlayheadWidth,
     getPayload: () => requireController("payload").getPlaybackPayload(),
+    getPayloadTransforms: () => ({
+      expandRepeatsForPlayback,
+      injectGchordOn,
+      normalizeBlankLinesForPlayback,
+      normalizeDollarLineBreaksForPlayback,
+      normalizeLeadingInlineDirectivesForPlayback,
+      normalizeReadableMidiDrumsForPlayback,
+      sanitizeAbcForPlayback,
+    }),
     getActiveRange: () => transport.activePlaybackRange,
     getFollowVoiceId: () => requireController("follow").getFollowVoiceId(),
     getFollowVoiceIndex: () => requireController("follow").getFollowVoiceIndex(),
@@ -129,6 +188,51 @@ export function createPlaybackDomain({
     getSelectionSettings: () => requireController("abSelection").getSelectionSettings(),
     getSelectionRange: () => requireController("abSelection").getSelectionRange(),
     getSourceKey: () => requireController("payload").getPlaybackSourceKey(),
+    getDiagnosticsSnapshot: () => ({
+      activePlaybackEndAbcOffset: transport.activePlaybackEndAbcOffset,
+      activePlaybackRange: transport.activePlaybackRange,
+      currentPlaybackPlan: transport.currentPlaybackPlan,
+      desiredPlayerSpeed: transport.desiredPlayerSpeed,
+      lastPlaybackAbortMessage: transport.lastPlaybackAbortMessage,
+      lastPlaybackException: transport.lastPlaybackException,
+      lastPlaybackGuardMessage: transport.lastPlaybackGuardMessage,
+      lastPlaybackPayloadCache: transport.lastPlaybackPayloadCache,
+      lastStartPlaybackIdx: transport.lastStartPlaybackIdx,
+      pendingPlaybackPlan: transport.pendingPlaybackPlan,
+      playbackIndexOffset: transport.playbackIndexOffset,
+      playbackLoopEnabled: transport.playbackLoopEnabled,
+      playbackLoopFromMeasure: transport.playbackLoopFromMeasure,
+      playbackLoopToMeasure: transport.playbackLoopToMeasure,
+      playbackNoteTrace: transport.playbackNoteTrace,
+      playbackParseErrors: transport.playbackParseErrors,
+      playbackRange: transport.playbackRange,
+      playbackSanitizeWarnings: transport.playbackSanitizeWarnings,
+      playbackState: transport.playbackState,
+      practiceTempoMultiplier: transport.practiceTempoMultiplier,
+      resumeStartIdx: transport.resumeStartIdx,
+    }),
+    getSoundfontName: () => {
+      const controller = getSoundfont();
+      return controller ? controller.getName() : "";
+    },
+    getSoundfontSource: () => {
+      const controller = getSoundfont();
+      return controller ? controller.getSource() : "";
+    },
+    getSoundfontReadyName: () => {
+      const controller = getSoundfont();
+      return controller ? controller.getReadyName() : "";
+    },
+    getLastSoundfontApplied: () => {
+      const controller = getSoundfont();
+      return controller ? controller.getLastApplied() : null;
+    },
+    getUiState: () => ({
+      isPlaying: Boolean(transport.isPlaying),
+      isPaused: Boolean(transport.isPaused),
+      waitingForFirstNote: Boolean(transport.waitingForFirstNote),
+      playbackStartArmed: Boolean(transport.playbackStartArmed),
+    }),
     highlightSourceAt: (index, on) => requireController("follow").highlightSourceAt(index, on),
     initAutoScrollListeners: () => (
       requireController("autoScroll").initPlaybackAutoScrollListeners()
@@ -146,28 +250,49 @@ export function createPlaybackDomain({
     isTransportJumpHighlightActive: () => Boolean(transport.transportJumpHighlightActive),
     isWaitingForFirstNote: () => Boolean(transport.waitingForFirstNote),
     isFocusBoundedScope,
+    isFocusEnabled: () => {
+      const controller = getFocusController();
+      return controller && typeof controller.isEnabled === "function"
+        ? controller.isEnabled()
+        : Boolean(getFocusModeEnabled());
+    },
+    createAbMarkerPlugin: (ViewPlugin) => createAbMarkerExtension({
+      ViewPlugin,
+      runtime: abLoopRuntime,
+    }),
+    incrementAbRevision: () => abLoopRuntime.incrementRevision(),
+    hasAbPlan: () => abLoopRuntime.hasPlan(),
+    handleEditorSelectionTransportState(clearPracticeHighlight = () => {}) {
+      if (!transport.transportJumpHighlightActive) return;
+      if (transport.suppressTransportJumpClearOnce) {
+        transport.suppressTransportJumpClearOnce = false;
+        return;
+      }
+      transport.transportJumpHighlightActive = false;
+      clearPracticeHighlight();
+    },
     setFocusEnabled(value) {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       if (controller) controller.setEnabled(value);
     },
     toggleFocus() {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       if (controller) controller.toggle();
     },
     computeFocusPlan: () => {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       return controller
         ? controller.computePlaybackPlan()
         : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
     },
     normalizeFocusLoopBounds: (fromMeasure, toMeasure) => {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       return controller
         ? controller.normalizeLoopBounds(fromMeasure, toMeasure)
         : { from: 0, to: 0 };
     },
     normalizeFocusLoopBoundsForPlayback: () => {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       return controller ? controller.normalizeLoopBoundsForPlayback() : false;
     },
     maybeScrollEditorToOffset: (offset) => (
@@ -202,7 +327,7 @@ export function createPlaybackDomain({
       return requireController("follow").resetPlaybackUiState();
     },
     resetFocusLoopForTune(tuneId, options) {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       if (controller) controller.maybeResetLoopForTune(tuneId, options);
     },
     resolveEndSymbol: (range, startSymbol) => (
@@ -213,6 +338,25 @@ export function createPlaybackDomain({
     setFollowEnabled(value) {
       followEnabled = Boolean(value);
     },
+    setFollowHighlightSettings: followHighlightSettings.setFromSettings,
+    setRenderBusy(value) {
+      const controller = getUiController();
+      if (controller) controller.setRenderBusy(value);
+    },
+    setSoundfontStatus: (status) => {
+      const controller = getSoundfont();
+      if (controller) controller.setStatus(status);
+    },
+    getSettingsControllers: () => ({
+      soundfont: getSoundfont(),
+      playbackAutoScroll: {
+        setFromSettings: (settings) => requireController("autoScroll").setFromSettings(settings),
+      },
+      focusMode: getFocusController(),
+      followHighlightSettings: {
+        setFromSettings: followHighlightSettings.setFromSettings,
+      },
+    }),
     setAbFromSelection: () => requireController("abSelection").setFromSelection(),
     setAbOptions: (options) => requireController("abSelection").setOptions(options),
     setAbPoint: (which) => requireController("abSelection").setPoint(which),
@@ -279,7 +423,7 @@ export function createPlaybackDomain({
       if (controller) controller.updateFollowToggle();
     },
     updatePracticeUi: () => {
-      const controller = getFocusModeController();
+      const controller = getFocusController();
       if (controller) controller.updatePracticeUi();
     },
     upperBoundTime,
@@ -287,7 +431,28 @@ export function createPlaybackDomain({
     withTempFlags: (flags, action) => (
       requireController("abSelection").withTempPlaybackFlags(flags, action)
     ),
-    selectionRuntime,
-    transport,
+    preloadSoundfont: async ({ setStatus = () => {}, logErr = () => {} } = {}) => {
+      try {
+        await domainApi.ensureSoundfontLoaded();
+        setStatus("OK");
+      } catch (error) {
+        logErr(error && error.stack ? error.stack : String(error));
+        setStatus("Error");
+      }
+    },
+    start() {
+      requireController("autoScroll").initPlaybackAutoScrollListeners();
+      const focus = getFocusController();
+      if (focus) focus.wireControls();
+      if (documentRef) {
+        documentRef.addEventListener("drum:preview", (event) => {
+          const detail = event && event.detail ? event.detail : {};
+          domainApi.playDrumPreview(detail.pitch, detail.velocity);
+        });
+      }
+      domainApi.updatePlayButton();
+      domainApi.updateFollowToggle();
+    },
   };
+  return domainApi;
 }

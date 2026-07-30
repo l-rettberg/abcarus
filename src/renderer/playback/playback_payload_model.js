@@ -379,126 +379,6 @@ function sanitizeAbcForPlayback(text) {
   return { text: out.join("\n"), warnings };
 }
 
-function isInlineFieldOnlyLine(rawLine) {
-  const trimmed = String(rawLine || "").trim();
-  if (!trimmed.startsWith("[")) return false;
-  let rest = trimmed;
-  // Consume one or more leading inline fields: `[P:...] [M:...] ...`
-  while (true) {
-    const m = rest.match(/^\[\s*[A-Za-z]+\s*:\s*[^\]]*\]\s*/);
-    if (!m) break;
-    rest = rest.slice(m[0].length);
-  }
-  const tail = rest.trim();
-  if (!tail) return true;
-  // Treat "only comment after inline field" as header-like (no music content).
-  if (tail.startsWith("%")) return true;
-  return false;
-}
-
-function detectKeyFieldNotLastBeforeBody(text) {
-  const lines = String(text || "").split(/\r\n|\n|\r/);
-  const isTuneStart = (line) => /^\s*X:/.test(line);
-  const isFieldLine = (line) => /^\s*[A-Za-z]:/.test(line);
-  const isContinuationLine = (line) => /^\s*\+:\s*/.test(line);
-  const isKeyLine = (line) => /^\s*K:/.test(line);
-  const isPartLine = (line) => /^\s*P:/.test(line);
-  const isCommentLine = (line) => /^\s*%/.test(line);
-  const isDirectiveLine = (line) => /^\s*%%/.test(line);
-  const beginsBlock = (trimmed) => {
-    if (!/^%%\s*begin/i.test(trimmed)) return null;
-    if (/^%%\s*begintext\b/i.test(trimmed)) return "text";
-    if (/^%%\s*beginsvg\b/i.test(trimmed)) return "svg";
-    if (/^%%\s*beginps\b/i.test(trimmed)) return "ps";
-    return "other";
-  };
-  const endsBlock = (trimmed, block) => {
-    if (!block) return false;
-    if (block === "text") return /^%%\s*endtext\b/i.test(trimmed);
-    if (block === "svg") return /^%%\s*endsvg\b/i.test(trimmed);
-    if (block === "ps") return /^%%\s*endps\b/i.test(trimmed);
-    if (block === "other") return /^%%\s*end/i.test(trimmed);
-    return false;
-  };
-
-  const scanTune = (start, end) => {
-    let kIdx = -1;
-    for (let i = start; i < end; i += 1) {
-      if (isKeyLine(lines[i])) { kIdx = i; break; }
-    }
-    if (kIdx < 0) return null;
-
-    let block = null;
-    let bodyStart = end;
-    for (let j = kIdx + 1; j < end; j += 1) {
-      const raw = lines[j];
-      const trimmed = raw.trim();
-      if (block) {
-        if (endsBlock(trimmed, block)) block = null;
-        continue;
-      }
-      const begin = beginsBlock(trimmed);
-      if (begin) {
-        block = begin;
-        continue;
-      }
-      if (!trimmed) continue;
-      if (isCommentLine(raw)) continue;
-      if (isPartLine(raw)) { bodyStart = j; break; }
-      // Inline field-only lines like `[P:A]` or `[M:...]` are tune-body directives (even if they contain no notes).
-      // Treat them as the body start so we don't reorder K: past them (it can break P: parts playback).
-      if (isInlineFieldOnlyLine(raw)) { bodyStart = j; break; }
-      if (isDirectiveLine(raw) || isFieldLine(raw) || isContinuationLine(raw)) continue;
-      bodyStart = j;
-      break;
-    }
-
-    let firstOffender = null;
-    for (let j = kIdx + 1; j < bodyStart; j += 1) {
-      const raw = lines[j];
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      if (isCommentLine(raw)) continue;
-      if (isDirectiveLine(raw) || isFieldLine(raw) || isContinuationLine(raw)) {
-        firstOffender = { line: j + 1, text: raw };
-        break;
-      }
-    }
-    if (!firstOffender) return null;
-
-    const tuneLabel = (() => {
-      for (let i = start; i < end; i += 1) {
-        const m = String(lines[i] || "").match(/^\s*X:\s*(\d+)/);
-        if (m) return `X:${m[1]}`;
-      }
-      return null;
-    })();
-
-    return {
-      kind: "abc2svg-k-field-not-last",
-      loc: { line: firstOffender.line, col: 1 },
-      detail: `${tuneLabel ? `${tuneLabel}: ` : ""}K: is not the last header field before the music. abc2svg playback may fail when directives/fields appear after K:.`,
-    };
-  };
-
-  let start = 0;
-  let sawTuneStart = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (isTuneStart(lines[i])) {
-      if (sawTuneStart) {
-        const warn = scanTune(start, i);
-        if (warn) return warn;
-        start = i;
-      } else {
-        sawTuneStart = true;
-        start = i;
-      }
-    }
-  }
-  const warn = scanTune(sawTuneStart ? start : 0, lines.length);
-  return warn || null;
-}
-
 function normalizeKeyFieldToBeLastBeforeBodyForPlayback(text) {
   const lines = String(text || "").split(/\r\n|\n|\r/);
   const isTuneStart = (line) => /^\s*X:/.test(line);
@@ -720,3 +600,7 @@ export {
   stripChordSymbolsForPlayback,
   stripLyricsForPlayback,
 };
+import {
+  detectKeyFieldNotLastBeforeBody,
+  isInlineFieldOnlyLine,
+} from "../abc/abc_structure_model.js";

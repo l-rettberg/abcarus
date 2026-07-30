@@ -1,12 +1,12 @@
 # Renderer Modularization Final Audit
 
-Date: 2026-07-29
+Date: 2026-07-30
 
 Branch: `renderer-modularization`
 
 Baseline: approximately 32,000 lines in `src/renderer/renderer.js`
 
-Audited state: 4,262 physical lines in `src/renderer/renderer.js`
+Audited state: 3,866 physical lines in `src/renderer/renderer.js`
 
 ## Result
 
@@ -14,7 +14,7 @@ The renderer modularization acceptance criteria in ADR-0017 are met.
 
 `renderer.js` now acts primarily as the renderer composition root:
 
-- imports concrete controllers, features, and domain facades;
+- imports features and domain facades;
 - collects DOM references;
 - constructs domains and supplies explicit host adapters;
 - wires cross-domain callbacks and startup order;
@@ -32,7 +32,7 @@ ownership.
 | Library | `src/renderer/library/` and `library_ui_domain.js` / `library_crud_domain.js` | DOM inputs, facade construction, command callbacks | Complete |
 | Document, file, save, working copy | `src/renderer/app/document/` | Controller construction and explicit cross-domain adapters | Complete |
 | Render | `src/renderer/render/` | Pipeline construction, DOM output target, callbacks into errors/playback | Complete |
-| Playback, Focus, Follow | `src/renderer/playback/` and `playback_domain.js` | Controller construction and transport/UI wiring | Complete |
+| Playback, Focus, Follow | `src/renderer/playback/playback_domain.js` and `playback_composition.js` | One domain construction/initialization call, DOM map, host adapters, facade calls | Complete |
 | Editor and errors | `src/renderer/editor/` | Editor host construction and callbacks into render/library | Complete |
 | Settings and app commands | `src/renderer/app/ui/` and `src/renderer/app/commands/` | DOM element map and facade wiring | Complete |
 | Microtonal tools | `src/renderer/microtonal/microtonal_domain.js` | Domain construction, editor extension, and generic host adapters | Complete |
@@ -46,7 +46,7 @@ The final domain searches still find names such as `selectTune`,
 `performSaveFlow`, `renderPayload`, `focusMode`, and `intonationExplorer`.
 Those matches are expected and fall into these categories:
 
-- **Expected app-shell wiring:** DOM references and feature construction.
+- **Expected app-shell wiring:** DOM references and domain construction.
 - **Expected facade calls:** menu commands call public domain methods.
 - **Accepted orchestration:** render completion feeds errors/highlights;
   document selection feeds render and library state; Settings feeds optional
@@ -67,12 +67,14 @@ The large mutable state clusters have explicit owners:
 - working-copy snapshot/conflict/sync: working-copy controllers;
 - library index/visibility: `library_runtime_store.js`;
 - settings snapshot: `settings_snapshot_store.js`;
-- playback transport/follow/range state: playback domain/controllers;
+- playback transport/follow/range/A-B state: playback domain/controllers;
 - render state and payload: render runtime/controllers;
 - editor view and editor-local state: editor runtime/controllers.
 
-`renderer.js` keeps references to constructed controllers and features. Those
-references are composition-root dependencies, not duplicate domain state.
+`renderer.js` keeps references to domain facades and independently owned
+features. Playback controller construction is internal to
+`playback_composition.js`; renderer supplies DOM and cross-domain host adapters
+without receiving mutable playback runtime objects.
 
 ## Guardrails
 

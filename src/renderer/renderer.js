@@ -118,6 +118,7 @@ import { createAbLoopRuntime } from "./playback/ab_loop_runtime.js";
 import { createAbSelectionPlaybackController } from "./playback/ab_selection_playback_controller.js";
 import { createSelectionPlaybackRuntime } from "./playback/selection_playback_runtime.js";
 import { createPlaybackTransportState } from "./playback/playback_transport_state.js";
+import { createPlaybackDomain } from "./playback/playback_domain.js";
 import { createPlaybackPayloadController } from "./playback/playback_payload_controller.js";
 import { createPlaybackPrepareController } from "./playback/playback_prepare_controller.js";
 import { createDrumPreviewController } from "./playback/drum_preview_controller.js";
@@ -142,14 +143,7 @@ import {
   normalizeReadableMidiDrumsForPlayback,
   sanitizeAbcForPlayback,
 } from "./playback/playback_payload_model.js";
-import {
-  buildPlaybackState as buildPlaybackStateModel,
-  findPlaybackMeasureIndex,
-  findPlaybackSymbolAtOrAfter,
-  findPlaybackSymbolAtOrBefore,
-  snapIstartToPlayable as snapIstartToPlayableModel,
-  upperBoundTime,
-} from "./playback/playback_state_model.js";
+import { upperBoundTime } from "./playback/playback_state_model.js";
 import { createSoundfontController } from "./playback/soundfont_controller.js";
 import { createPrintAllFeature } from "./print/print_all_feature.js";
 import { createPrintCurrentFeature } from "./print/print_current_feature.js";
@@ -464,6 +458,103 @@ let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
 const activeContext = createActiveTuneContextStore();
+const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
+const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
+const playbackTransport = createPlaybackTransportState();
+const playbackDomain = createPlaybackDomain({
+  transport: playbackTransport,
+  selectionRuntime: selectionPlaybackRuntime,
+  getEditorLength: editorRuntime.getLength,
+  getFocusModeEnabled: isFocusModeEnabled,
+  getPlaybackUiController: () => playbackUiController,
+  getFocusModeController: () => focusModeController,
+  getSoundfontController: () => soundfontController,
+});
+const {
+  appendTrace: appendPlaybackTrace,
+  applyPlanSpeed: applyPlaybackPlanSpeed,
+  buildState: buildPlaybackState,
+  buildTransportPlan: buildTransportPlaybackPlan,
+  cancelAutoScroll: cancelPlaybackAutoScroll,
+  clearAbPlan,
+  clearPlans: clearPlaybackPlans,
+  clearNoteOnElements: clearPlaybackNoteOnEls,
+  cloneRange: clonePlaybackRange,
+  ensurePlayer,
+  ensureSoundfontLoaded,
+  ensureSoundfontReady,
+  findMeasureIndex,
+  findSymbolAtOrAfter,
+  findSymbolAtOrBefore,
+  getPayload: getPlaybackPayload,
+  getActiveRange: getActivePlaybackRange,
+  getFollowVoiceId,
+  getFollowVoiceIndex,
+  getRange: getPlaybackRange,
+  getScopedSettingsForOrigin: getScopedPlaybackSettingsForOrigin,
+  getSelectionRange: getSelectionPlaybackRange,
+  getSelectionSettings: getSelectionPlaybackSettings,
+  getSourceKey: getPlaybackSourceKey,
+  highlightSourceAt,
+  initAutoScrollListeners: initPlaybackAutoScrollListeners,
+  isAbPlanValid,
+  isActive: isPlaybackActive,
+  isBusy: isPlaybackBusy,
+  isFocusBoundedScope: isFocusBoundedPlaybackScope,
+  isPaused: isPlaybackPaused,
+  isPlaying,
+  isTransportJumpHighlightActive,
+  isWaitingForFirstNote,
+  maybeAutoScrollRenderToCursor,
+  maybeScrollEditorToOffset,
+  maybeScrollRenderToNote,
+  pause: pausePlayback,
+  playAbLoop,
+  playDrumPreview,
+  playSelectionOnce,
+  prepare: preparePlayback,
+  refreshAbOptionsUi,
+  resetState: resetPlaybackState,
+  resetPlayerForSoundfontChange,
+  resetUiState: resetPlaybackUiState,
+  resolveEndSymbol: resolvePlaybackEndSymbol,
+  scheduleUiUpdate: schedulePlaybackUiUpdate,
+  setAbFromSelection,
+  setAbOptions: setAbPlanOptions,
+  setAbPoint,
+  setAbRange: setAbPlanRange,
+  setFollowVoiceFromPlayback,
+  setRange: setPlaybackRange,
+  setAutoScrollModeForDev,
+  setAutoScrollFromSettings,
+  setTransportJumpHighlightActive,
+  setTransportPlayheadOffset,
+  snapIstartToPlayable,
+  startAtIndex: startPlaybackAtIndex,
+  startAtMeasureOffset: startPlaybackAtMeasureOffset,
+  startFromPrepared: startPlaybackFromPrepared,
+  startFromRange: startPlaybackFromRange,
+  stopForRestart: stopPlaybackForRestart,
+  stopTransport: stopPlaybackTransport,
+  suppressFollowScroll,
+  syncPendingPlan: syncPendingPlaybackPlan,
+  toDerivedOffset,
+  toEditorOffset,
+  toggleAbOptionsPopover,
+  togglePlayPauseEffective,
+  transportPause,
+  transportPlay,
+  transportStartOver,
+  transportTogglePlayPause,
+  updateAbUi,
+  updateFollowToggle,
+  updateInteractionLock: updatePlaybackInteractionLock,
+  updateRangeFromSelection: updatePlaybackRangeFromSelection,
+  updatePlayButton,
+  updatePracticeUi,
+  withScopedOrigin: withScopedPlaybackOrigin,
+  withTempFlags: withTempPlaybackFlags,
+} = playbackDomain;
 const renderRuntime = createRenderRuntime({ consoleRef: console });
 const {
   assertCleanAbcText,
@@ -575,9 +666,9 @@ const soundfontController = createSoundfontController({
     label: $soundfontLabel,
   },
   state: {
-    isPlaying: () => playbackTransport.isPlaying,
-    isPaused: () => playbackTransport.isPaused,
-    isWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
+    isPlaying: () => playbackDomain.isPlaying(),
+    isPaused: () => playbackDomain.isPaused(),
+    isWaitingForFirstNote: () => playbackDomain.isWaitingForFirstNote(),
   },
   actions: {
     ensurePlayer: () => ensurePlayer(),
@@ -941,8 +1032,6 @@ function safeWriteJsonLocalStorage(key, value) {
 }
 
 printAllFeature.loadOptionsFromStorage();
-const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
-const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const abSelectionPlaybackController = createAbSelectionPlaybackController({
   abLoopRuntime,
   selectionPlaybackRuntime,
@@ -958,8 +1047,8 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   getEditorText: getEditorValue,
   isRawMode: () => isRawModeActive(),
   isPayloadMode,
-  isPlaying: () => playbackTransport.isPlaying,
-  getActivePlaybackRange: () => playbackTransport.activePlaybackRange,
+  isPlaying,
+  getActivePlaybackRange,
   setPlaybackRange,
   startPlaybackFromRange,
   stopPlayback: stopPlaybackTransport,
@@ -989,7 +1078,7 @@ const scoreHighlightController = createScoreHighlightController({
   requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
   getFollowEnabled: () => followPlayback,
   isRawMode: () => isRawModeActive(),
-  isPlaying: () => playbackTransport.isPlaying,
+  isPlaying,
   scrollToNote: (element) => maybeScrollRenderToNote(element),
 });
 const practiceBarHighlightController = createPracticeBarHighlightController({
@@ -1033,7 +1122,7 @@ const scoreInteractionController = createScoreInteractionController({
   setPendingPlaybackRangeOrigin: (origin) => {
     editorRuntime.setPendingPlaybackRangeOrigin(origin);
   },
-  getPlaybackRange: () => playbackTransport.playbackRange,
+  getPlaybackRange,
   setPlaybackRange,
 });
 const centerRenderPaneOnCurrentAnchor = scoreInteractionController.centerCurrentAnchor;
@@ -1078,9 +1167,9 @@ const errorsFeature = createErrorsFeature({
   getTextIndexFromLoc,
   highlightRenderNoteAtIndex,
   highlightSvgAtEditorOffset,
-  isPlaying: () => playbackTransport.isPlaying,
-  isPaused: () => playbackTransport.isPaused,
-  getPlaybackRange: () => playbackTransport.playbackRange,
+  isPlaying,
+  isPaused: isPlaybackPaused,
+  getPlaybackRange,
   setPlaybackRange,
   setPendingPlaybackRangeOrigin: (origin) => {
     editorRuntime.setPendingPlaybackRangeOrigin(origin);
@@ -1135,86 +1224,6 @@ function isErrorsEnabled() {
   return errorsFeature.isEnabled();
 }
 
-function isAbPlanValid() {
-  return abSelectionPlaybackController.isPlanValid();
-}
-
-function updateAbUi() {
-  abSelectionPlaybackController.updateUi();
-}
-
-function clearAbPlan({ toast } = {}) {
-  abSelectionPlaybackController.clearPlan({ toast });
-}
-
-function setAbPlanRange(startOffset, endOffset) {
-  abSelectionPlaybackController.setRange(startOffset, endOffset);
-}
-
-function setAbPlanOptions(opts = {}) {
-  abSelectionPlaybackController.setOptions(opts);
-}
-
-function toggleAbOptionsPopover() {
-  abSelectionPlaybackController.toggleOptionsPopover();
-}
-
-function refreshAbOptionsUi() {
-  abSelectionPlaybackController.refreshOptionsUi();
-}
-
-function getSelectionPlaybackSettings() {
-  return abSelectionPlaybackController.getSelectionSettings();
-}
-
-function isFocusBoundedPlaybackScope() {
-  return Boolean(isFocusModeEnabled())
-    && (
-      clampInt(playbackTransport.playbackLoopFromMeasure, 0, 100000, 0) > 0
-      || clampInt(playbackTransport.playbackLoopToMeasure, 0, 100000, 0) > 0
-    );
-}
-
-function getScopedPlaybackSettingsForOrigin(origin) {
-  const settings = getSelectionPlaybackSettings();
-  if (String(origin || "") !== "focus" || !isFocusBoundedPlaybackScope()) return settings;
-  return {
-    ...settings,
-    suppressRepeats: true,
-  };
-}
-
-function withScopedPlaybackOrigin(settings, origin) {
-  return {
-    ...(settings || {}),
-    origin: String(origin || ""),
-  };
-}
-
-function getSelectionPlaybackRange() {
-  return abSelectionPlaybackController.getSelectionRange();
-}
-
-function withTempPlaybackFlags(flags, fn) {
-  return abSelectionPlaybackController.withTempPlaybackFlags(flags, fn);
-}
-
-function setAbPoint(which) {
-  abSelectionPlaybackController.setPoint(which);
-}
-
-function setAbFromSelection() {
-  abSelectionPlaybackController.setFromSelection();
-}
-
-async function playAbLoop() {
-  await abSelectionPlaybackController.playAbLoop();
-}
-
-async function playSelectionOnce() {
-  return abSelectionPlaybackController.playSelectionOnce();
-}
-
 let diagnosticsDomain = null;
 diagnosticsDomain = createDiagnosticsDomain({
   api: window.api,
@@ -1237,12 +1246,12 @@ diagnosticsDomain = createDiagnosticsDomain({
     getPlaybackPayload,
     getLastPlaybackPayloadCache: () => playbackTransport.lastPlaybackPayloadCache,
     getFollowPipelineVersion: () => FOLLOW_PIPELINE_VERSION,
-    getIsPlaying: () => playbackTransport.isPlaying,
-    getIsPaused: () => playbackTransport.isPaused,
-    getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
+    getIsPlaying: isPlaying,
+    getIsPaused: isPlaybackPaused,
+    getWaitingForFirstNote: isWaitingForFirstNote,
     getFollowPlayback: () => followPlayback,
-    getFollowVoiceId: () => playbackFollowController.getFollowVoiceId(),
-    getFollowVoiceIndex: () => playbackFollowController.getFollowVoiceIndex(),
+    getFollowVoiceId,
+    getFollowVoiceIndex,
     getPlaybackState: () => playbackTransport.playbackState,
     getPracticeTempoMultiplier: () => playbackTransport.practiceTempoMultiplier,
     getPlaybackLoopEnabled: () => playbackTransport.playbackLoopEnabled,
@@ -1322,8 +1331,6 @@ const toastHoverController = createToastHoverController({
   isDebugMessagesEnabled: diagnosticsDomain.isDebugMessagesEnabled,
 });
 
-// Playback transport state must be initialized before initEditor() runs (selection listeners fire early).
-const playbackTransport = createPlaybackTransportState();
 const playbackPayloadController = createPlaybackPayloadController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
@@ -1378,7 +1385,7 @@ const playbackStartController = createPlaybackStartController({
   transport: playbackTransport,
   selectionRuntime: selectionPlaybackRuntime,
   getEditorView: editorRuntime.getView,
-  getPlaybackRange: () => playbackTransport.playbackRange,
+  getPlaybackRange,
   setPlaybackRange,
   clonePlaybackRange,
   getPlaybackSourceKey,
@@ -1511,6 +1518,17 @@ const drumPreviewController = createDrumPreviewController({
   updatePlayButton,
   logErr,
   windowRef: window,
+});
+playbackDomain.attach({
+  abSelection: abSelectionPlaybackController,
+  autoScroll: playbackAutoScrollController,
+  drumPreview: drumPreviewController,
+  follow: playbackFollowController,
+  payload: playbackPayloadController,
+  player: playbackPlayerController,
+  prepare: playbackPrepareController,
+  start: playbackStartController,
+  transport: playbackTransportController,
 });
 function getSortedErrorsForNav() {
   return errorsFeature.getSortedErrorsForNav ? errorsFeature.getSortedErrorsForNav() : [];
@@ -1648,8 +1666,7 @@ focusModeController = createFocusModeController({
   syncPendingPlaybackPlan,
   clearNormalPlaybackPlan: () => {
     editorRuntime.setPendingPlaybackRangeOrigin(null);
-    playbackTransport.pendingPlaybackPlan = null;
-    playbackTransport.currentPlaybackPlan = null;
+    clearPlaybackPlans();
   },
   persistLoopSettingsPatch,
   showToast,
@@ -2183,12 +2200,9 @@ const measureNavigationController = createMeasureNavigationController({
   pickClosestNoteElement,
   maybeScrollRenderToNote,
   highlightSvgAtEditorOffset,
-  setTransportPlayheadOffset: (pos) => { playbackTransport.transportPlayheadOffset = pos; },
+  setTransportPlayheadOffset,
   syncPendingPlaybackPlan,
-  setTransportJumpHighlightActive: (active) => {
-    playbackTransport.transportJumpHighlightActive = Boolean(active);
-    playbackTransport.suppressTransportJumpClearOnce = Boolean(active);
-  },
+  setTransportJumpHighlightActive,
   debugWindow: window,
 });
 
@@ -2414,9 +2428,9 @@ playbackUiController = createPlaybackUiController({
     transport: playbackTransport,
     selectionRuntime: selectionPlaybackRuntime,
     getEditorView: editorRuntime.getView,
-    getIsPlaying: () => playbackTransport.isPlaying,
-    getIsPaused: () => playbackTransport.isPaused,
-    getWaitingForFirstNote: () => playbackTransport.waitingForFirstNote,
+    getIsPlaying: isPlaying,
+    getIsPaused: isPlaybackPaused,
+    getWaitingForFirstNote: isWaitingForFirstNote,
     getFollowPlayback: () => followPlayback,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -3370,11 +3384,7 @@ async function leaveRawModeForAction(contextLabel) {
 
 function toggleLineComments(view) {
   return toggleLineCommentsCore(view, {
-    isEditingBlocked: () => (
-      playbackTransport.isPlaying
-      || playbackTransport.isPaused
-      || playbackTransport.waitingForFirstNote
-    ),
+    isEditingBlocked: isPlaybackBusy,
     onEditingBlocked: () => showToast("Playback active: stop before editing.", 2400),
   });
 }
@@ -3448,17 +3458,11 @@ function initEditor() {
       isRawMode: () => isRawModeActive(),
       scheduleRender: () => scheduleRenderNow(),
       scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),
-      isPlaying: () => playbackTransport.isPlaying,
+      isPlaying,
       getFollowPlayback: () => followPlayback,
       scheduleCursorNoteHighlight,
       clearNoteSelection,
-      updatePlaybackRangeFromSelection: (selection, origin, activeHighlight) => {
-        playbackTransportController.updatePlaybackRangeFromSelection(
-          selection,
-          origin,
-          activeHighlight
-        );
-      },
+      updatePlaybackRangeFromSelection,
       getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
       transport: playbackTransport,
       clearPracticeHighlight: () => {
@@ -3889,7 +3893,7 @@ renderRuntime.initializePipeline({
   getActiveErrorHighlightRange: () => errorsFeature.getActiveHighlightRange(),
   highlightSvgAtEditorOffset,
   isPlaybackBusy,
-  isTransportJumpHighlightActive: () => playbackTransport.transportJumpHighlightActive,
+  isTransportJumpHighlightActive,
   highlightSvgPracticeBarAtEditorOffset,
   isDebugMessagesEnabled: diagnosticsDomain.isDebugMessagesEnabled,
   setTransientBufferStatus,
@@ -4218,7 +4222,7 @@ appCommandsDomain = createAppCommandsDomain({
     isMicrotonalNotationSupported,
     isPayloadMode,
     isPayloadModeSettingEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.payloadModeEnabled),
-    isPlaybackActive: () => Boolean(playbackTransport.isPlaying || playbackTransport.isPaused),
+    isPlaybackActive,
     isPlaybackBusy,
     isRawModeActive: () => isRawModeActive(),
   },
@@ -4325,7 +4329,7 @@ settingsDomain = createSettingsDomain({
     soundfont: soundfontController,
     layout: layoutController,
     followHighlightSettings,
-    playbackAutoScroll: playbackAutoScrollController,
+    playbackAutoScroll: { setFromSettings: setAutoScrollFromSettings },
     focusMode: focusModeController,
     printAll: printAllFeature,
     libraryUiDomain,
@@ -4340,15 +4344,7 @@ settingsDomain = createSettingsDomain({
     markStartupSettingsApplied: () => statusController.markStartupSettingsApplied(),
     reconfigureEditor: reconfigureAbcExtensions,
     refreshChordProPdfButtonState: (options) => chordProFeature.refreshPdfButtonState(options),
-    resetPlaybackForSoundfontChange: () => {
-      if (playbackTransport.player && typeof playbackTransport.player.stop === "function") {
-        playbackTransport.suppressOnEnd = true;
-        playbackTransport.player.stop();
-      }
-      playbackTransport.player = null;
-      playbackTransport.playbackState = null;
-      playbackTransport.playbackIndexOffset = 0;
-    },
+    resetPlaybackForSoundfontChange: resetPlayerForSoundfontChange,
     scheduleRender: scheduleRenderNow,
     scheduleStartupLayoutReset: startupController.scheduleLayoutReset,
     setSoundfontStatus,
@@ -4436,23 +4432,6 @@ function toggleFocusMode() {
   if (focusModeController) focusModeController.toggle();
 }
 
-function clearPlaybackNoteOnEls() {
-  return playbackFollowController.clearPlaybackNoteOnEls();
-}
-
-function resetPlaybackUiState() {
-  playbackAutoScrollController.resetManualPause();
-  return playbackFollowController.resetPlaybackUiState();
-}
-
-function initPlaybackAutoScrollListeners() {
-  return playbackAutoScrollController.initPlaybackAutoScrollListeners();
-}
-
-function cancelPlaybackAutoScroll() {
-  return playbackAutoScrollController.cancelPlaybackAutoScroll();
-}
-
 function getRenderZoomFactor() {
   return layoutController ? layoutController.getRenderZoomFactor() : 1;
 }
@@ -4461,153 +4440,8 @@ function stopPlaybackFromGuard(message) {
   if (playbackUiController) playbackUiController.handlePlaybackGuardStop(message);
 }
 
-function maybeAutoScrollRenderToCursor(el) {
-  return playbackAutoScrollController.maybeAutoScrollRenderToCursor(el);
-}
-
-function clonePlaybackRange(r) {
-  return playbackTransportController.clonePlaybackRange(r);
-}
-
-function setPlaybackRange(next) {
-  return playbackTransportController.setPlaybackRange(next);
-}
-
-function appendPlaybackTrace(evt) {
-  playbackTransport.appendTrace(evt);
-}
-
-function getPlaybackSourceKey() {
-  return playbackPayloadController.getPlaybackSourceKey();
-}
-
-function updatePlayButton() {
-  if (playbackUiController) playbackUiController.updatePlayButton();
-}
-
-function isPlaybackBusy() {
-  return playbackUiController ? playbackUiController.isPlaybackBusy() : Boolean(playbackTransport.isPlaying || playbackTransport.isPaused || playbackTransport.waitingForFirstNote);
-}
-
-function updatePlaybackInteractionLock() {
-  if (playbackUiController) playbackUiController.updatePlaybackInteractionLock();
-}
-
-function buildTransportPlaybackPlan() {
-  return playbackTransportController.buildTransportPlaybackPlan();
-}
-
-function syncPendingPlaybackPlan() {
-  return playbackTransportController.syncPendingPlaybackPlan();
-}
-
-function applyPlaybackPlanSpeed(plan) {
-  return playbackTransportController.applyPlaybackPlanSpeed(plan);
-}
-
-async function togglePlayPauseEffective() {
-  return playbackTransportController.togglePlayPauseEffective();
-}
-
-async function transportStartOver() {
-  return playbackTransportController.transportStartOver();
-}
-
-async function transportTogglePlayPause() {
-  return playbackTransportController.transportTogglePlayPause();
-}
-
-async function transportPlay() {
-  return playbackTransportController.transportPlay();
-}
-
-async function transportPause() {
-  return playbackTransportController.transportPause();
-}
-
-function resetPlaybackState() {
-  return playbackTransportController.resetPlaybackState();
-}
-
-function highlightSourceAt(idx, on) {
-  return playbackFollowController.highlightSourceAt(idx, on);
-}
-
-function maybeScrollEditorToOffset(editorOffset) {
-  return playbackFollowController.maybeScrollEditorToOffset(editorOffset);
-}
-
-function schedulePlaybackUiUpdate(istart) {
-  return playbackFollowController.schedulePlaybackUiUpdate(istart);
-}
-
-function maybeScrollRenderToNote(el) {
-  return playbackFollowController.maybeScrollRenderToNote(el);
-}
-
-async function ensureSoundfontLoaded() {
-  return soundfontController.ensureLoaded();
-}
-
-async function ensureSoundfontReady() {
-  return soundfontController.ensureReady();
-}
-
-function ensurePlayer() {
-  return playbackPlayerController.ensurePlayer();
-}
-
-function setFollowVoiceFromPlayback() {
-  return playbackFollowController.setFollowVoiceFromPlayback();
-}
-
-function buildPlaybackState(firstSymbol) {
-  const editorLength = editorRuntime.getLength();
-  return buildPlaybackStateModel(firstSymbol, { editorLength, playbackIndexOffset: playbackTransport.playbackIndexOffset });
-}
-
-function snapIstartToPlayable(istart) {
-  return snapIstartToPlayableModel(playbackTransport.playbackState, istart);
-}
-
-function findSymbolAtOrBefore(idx) {
-  return findPlaybackSymbolAtOrBefore(playbackTransport.playbackState, idx);
-}
-
-function findSymbolAtOrAfter(idx) {
-  return findPlaybackSymbolAtOrAfter(playbackTransport.playbackState, idx);
-}
-
-function findMeasureIndex(idx) {
-  return findPlaybackMeasureIndex(playbackTransport.playbackState, idx);
-}
-
-function stopPlaybackForRestart() {
-  return playbackTransportController.stopPlaybackForRestart();
-}
-
-function stopPlaybackTransport() {
-  return playbackTransportController.stopPlaybackTransport();
-}
-
-function toDerivedOffset(editorOffset) {
-  const raw = Number(editorOffset);
-  if (!Number.isFinite(raw)) return null;
-  return raw + (playbackTransport.playbackIndexOffset || 0);
-}
-
-function toEditorOffset(derivedOffset) {
-  const raw = Number(derivedOffset);
-  if (!Number.isFinite(raw)) return null;
-  return Math.max(0, raw - (playbackTransport.playbackIndexOffset || 0));
-}
-
 function updateGlobalHeaderToggle() {
   headerLayersController.updateToggle();
-}
-
-function updateFollowToggle() {
-  if (playbackUiController) playbackUiController.updateFollowToggle();
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -4629,10 +4463,6 @@ function computeFocusPlaybackPlanFromCurrentState() {
     : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
 }
 
-function updatePracticeUi() {
-  if (focusModeController) focusModeController.updatePracticeUi();
-}
-
 function normalizeLoopBounds(fromMeasure, toMeasure) {
   return focusModeController ? focusModeController.normalizeLoopBounds(fromMeasure, toMeasure) : { from: 0, to: 0 };
 }
@@ -4649,7 +4479,7 @@ function setSplitOrientation(nextOrientation, { persist = true, userAction = fal
   const before = layoutController.getRightSplitOrientation();
   const ok = layoutController.setSplitOrientation(nextOrientation, { persist, userAction });
   if (ok && before !== layoutController.getRightSplitOrientation()) {
-    playbackFollowController.suppressFollowScroll();
+    suppressFollowScroll();
   }
   return ok;
 }
@@ -4658,7 +4488,7 @@ function toggleSplitOrientation({ userAction = false } = {}) {
   const before = layoutController.getRightSplitOrientation();
   const ok = layoutController.toggleSplitOrientation({ userAction });
   if (ok && before !== layoutController.getRightSplitOrientation()) {
-    playbackFollowController.suppressFollowScroll();
+    suppressFollowScroll();
   }
   return ok;
 }
@@ -4669,42 +4499,6 @@ function buildHeaderPrefix(entryHeader, includeCheckbars, tuneText) {
 
 function buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText) {
   return headerLayersController.buildHeaderPrefixWithLayerSpans(entryHeader, includeCheckbars, tuneText);
-}
-
-function getPlaybackPayload() {
-  return playbackPayloadController.getPlaybackPayload();
-}
-
-async function preparePlayback() {
-  return playbackPrepareController.preparePlayback();
-}
-
-function startPlaybackFromPrepared(startIdx) {
-  return playbackStartController.startPlaybackFromPrepared(startIdx);
-}
-
-function resolvePlaybackEndSymbol(range, startSymbol) {
-  return playbackStartController.resolvePlaybackEndSymbol(range, startSymbol);
-}
-
-async function startPlaybackFromRange(rangeOverride) {
-  return playbackStartController.startPlaybackFromRange(rangeOverride);
-}
-
-async function startPlaybackAtIndex(startIdx) {
-  return playbackStartController.startPlaybackAtIndex(startIdx);
-}
-
-function pausePlayback() {
-  return playbackStartController.pausePlayback();
-}
-
-async function startPlaybackAtMeasureOffset(delta) {
-  return playbackStartController.startPlaybackAtMeasureOffset(delta);
-}
-
-async function playDrumPreview(pitch, velocity) {
-  return drumPreviewController.playDrumPreview(pitch, velocity);
 }
 
 async function persistLoopSettingsPatch(patch) {
@@ -4730,7 +4524,7 @@ diagnosticsDomain.runDevAutoscrollDemo({
   setRenderZoom: setRenderZoomCss,
   getRenderZoomFactor,
   setFocusModeEnabled,
-  setAutoscrollModeForDev: (mode) => playbackAutoScrollController.setModeForDev(mode),
+  setAutoscrollModeForDev: setAutoScrollModeForDev,
   togglePlayPause: togglePlayPauseEffective,
   stopPlayback: stopPlaybackTransport,
 }).catch(() => {});

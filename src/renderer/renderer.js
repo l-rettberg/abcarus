@@ -54,6 +54,7 @@ import { createLibraryLifecycleController } from "./library/library_lifecycle_co
 import { createLibraryDocumentContext } from "./library/library_document_context.js";
 import { createLibraryCrudDomain } from "./library/library_crud_domain.js";
 import { createLibraryUiDomain } from "./library/library_ui_domain.js";
+import { createLibraryRuntimeStore } from "./library/library_runtime_store.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
 import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
@@ -196,6 +197,7 @@ import { createEditStateController } from "./app/document/edit_state_controller.
 import { createFileOperationGuard } from "./app/document/file_operation_guard.js";
 import { createPlaybackUiController } from "./app/ui/playback_ui_controller.js";
 import { createSettingsDomain } from "./app/ui/settings_domain.js";
+import { createSettingsSnapshotStore } from "./app/ui/settings_snapshot_store.js";
 import { createMeasureNavigationController } from "./app/navigation/measure_navigation_controller.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
@@ -444,7 +446,6 @@ ee2e2d c2dcBA             | "E"  B2cBAG   "A"   ABGA3  :|
 "E7"   EEE2FG "A" ABcde2  | "E"  e2dc2B   "A"   AGBA3  :|
 %--------------------------------------------------------
 `;
-let isNewTuneDraft = false;
 let rawModeFeature = null;
 let payloadModeDecorations = null;
 let fileContextController = null;
@@ -471,6 +472,8 @@ let newFileAction = null;
 let abcTransformFeature = null;
 let appCommandsDomain = null;
 const activeContext = createActiveTuneContextStore();
+const libraryRuntime = createLibraryRuntimeStore();
+const settingsSnapshot = createSettingsSnapshotStore();
 const selectionPlaybackRuntime = createSelectionPlaybackRuntime();
 const abLoopRuntime = createAbLoopRuntime({ minLength: 2 });
 const playbackTransport = createPlaybackTransportState();
@@ -844,7 +847,7 @@ const chordProFeature = createChordProFeature({
   setCurrentDoc: (doc) => { setCurrentDocument(doc || null); },
   setCurrentDocContent: (content) => patchCurrentDocument({ content }, { create: false }),
   isPayloadMode,
-  isLibraryVisible: () => isLibraryVisible,
+  isLibraryVisible: libraryRuntime.isVisible,
   isHeaderCollapsed: getHeaderCollapsed,
   setLibraryVisible,
   setHeaderCollapsed,
@@ -873,7 +876,7 @@ const chordProFeature = createChordProFeature({
   setFileContentInCache,
   updateFileHeaderPanel,
   updateHeaderStateUI,
-  suppressRecentEntries: () => suppressRecentEntries,
+  suppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
   ensureWorkingCopyOpenForPath,
   refreshWorkingCopySnapshot,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
@@ -903,9 +906,9 @@ fileContextController = createFileContextController({
     getActiveTuneId: () => activeContext.getActiveTuneId(),
     getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-    getIsNewTuneDraft: () => isNewTuneDraft,
-    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
-    getLibraryIndex: () => libraryIndex,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
+    setIsNewTuneDraft: activeContext.setNewTuneDraft,
+    getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
     isPayloadMode,
     isTuneErrorFilterActive,
@@ -1022,7 +1025,7 @@ function isPayloadMode() {
   return payloadModeFeature.isEnabled();
 }
 
-function isMicrotonalNotationSupported(settings = latestSettingsSnapshot) {
+function isMicrotonalNotationSupported(settings = settingsSnapshot.get()) {
   return isMicrotonalNotationSupportedForSettings(settings);
 }
 
@@ -1050,7 +1053,7 @@ const abSelectionPlaybackController = createAbSelectionPlaybackController({
   abLoopRuntime,
   selectionPlaybackRuntime,
   getSettings: () => ({
-    ...(latestSettingsSnapshot || {}),
+    ...(settingsSnapshot.get() || {}),
     selectionLoopElement: $selectionLoopEnabled,
     selectionSuppressElement: $selectionSuppressEnabled,
     selectionGchordsElement: $selectionGchordsEnabled,
@@ -1090,7 +1093,7 @@ const scoreHighlightController = createScoreHighlightController({
   findMeasureRangeAt,
   mapEditorOffsetToRenderIdx,
   requestAnimationFrameRef: (callback) => requestAnimationFrame(callback),
-  getFollowEnabled: () => followPlayback,
+  getFollowEnabled: playbackDomain.isFollowEnabled,
   isRawMode: () => isRawModeActive(),
   isPlaying,
   scrollToNote: (element) => maybeScrollRenderToNote(element),
@@ -1203,7 +1206,7 @@ const errorsFeature = createErrorsFeature({
   setEditorScroll: editorRuntime.setScroll,
   getRenderScroll: () => $renderPane ? $renderPane.scrollTop : 0,
   setRenderScroll: (value) => { if ($renderPane) $renderPane.scrollTop = value; },
-  setSuppressRecentEntries: (value) => { suppressRecentEntries = Boolean(value); },
+  setSuppressRecentEntries: libraryRuntime.setRecentEntriesSuppressed,
   buildTuneSelectOptions,
   setStatus,
   updateFileContext,
@@ -1244,7 +1247,7 @@ diagnosticsDomain = createDiagnosticsDomain({
   windowRef: window,
   documentRef: document,
   storage: typeof localStorage !== "undefined" ? localStorage : null,
-  getLatestSettings: () => latestSettingsSnapshot,
+  getLatestSettings: settingsSnapshot.get,
   clampInt,
   debugDumpHost: {
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
@@ -1263,7 +1266,7 @@ diagnosticsDomain = createDiagnosticsDomain({
     getIsPlaying: isPlaying,
     getIsPaused: isPlaybackPaused,
     getWaitingForFirstNote: isWaitingForFirstNote,
-    getFollowPlayback: () => followPlayback,
+    getFollowPlayback: playbackDomain.isFollowEnabled,
     getFollowVoiceId,
     getFollowVoiceIndex,
     getPlaybackState: () => playbackTransport.playbackState,
@@ -1424,7 +1427,7 @@ const playbackStartController = createPlaybackStartController({
   findSymbolAtOrAfter,
   findSymbolAtOrBefore,
   findMeasureIndex,
-  isFollowPlaybackEnabled: () => followPlayback,
+  isFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
   getDebugParts: () => window.__abcarusDebugParts === true,
 });
 const playbackTransportController = createPlaybackTransportController({
@@ -1470,7 +1473,7 @@ const playbackFollowController = createPlaybackFollowController({
   getEditorView: editorRuntime.getView,
   getOutElement: () => $out,
   getRenderPane: () => $renderPane,
-  getFollowPlaybackEnabled: () => followPlayback,
+  getFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
   getFocusModeEnabled: isFocusModeEnabled,
   clearSvgPlayhead,
   clearSvgFollowBarHighlight,
@@ -1497,7 +1500,7 @@ const playbackPlayerController = createPlaybackPlayerController({
   selectionRuntime: selectionPlaybackRuntime,
   getEditorView: editorRuntime.getView,
   getFocusModeEnabled: isFocusModeEnabled,
-  getFollowPlaybackEnabled: () => followPlayback,
+  getFollowPlaybackEnabled: playbackDomain.isFollowEnabled,
   getSoundfontSource: () => soundfontController.getSource(),
   setSuppressPlaybackRangeSelectionSync: (next) => {
     editorRuntime.setSuppressPlaybackRangeSelectionSync(next);
@@ -1616,8 +1619,8 @@ const layoutController = createLayoutController({
   minRightPaneHeight: MIN_RIGHT_PANE_HEIGHT,
   minErrorPaneHeight: MIN_ERROR_PANE_HEIGHT,
   useErrorOverlay: USE_ERROR_OVERLAY,
-  getLibraryVisible: () => isLibraryVisible,
-  getLatestSettings: () => latestSettingsSnapshot,
+  getLibraryVisible: libraryRuntime.isVisible,
+  getLatestSettings: settingsSnapshot.get,
   isNormalModeForSplitToggle,
   isRawMode: () => isRawModeActive(),
   getSidebarWidth: () => libraryUiStateController ? libraryUiStateController.getLastSidebarWidth() : 280,
@@ -1655,9 +1658,9 @@ focusModeController = createFocusModeController({
     selectionLoopEnabled: $selectionLoopEnabled,
   },
   transport: playbackTransport,
-  getSettings: () => latestSettingsSnapshot,
+  getSettings: settingsSnapshot.get,
   getActiveTuneId: () => activeContext.getActiveTuneId(),
-  getLibraryVisible: () => isLibraryVisible,
+  getLibraryVisible: libraryRuntime.isVisible,
   isRawModeActive: () => isRawModeActive(),
   isPlaybackBusy,
   isFocusBoundedPlaybackScope,
@@ -1689,8 +1692,6 @@ function isNormalModeForSplitToggle() {
   return !isRawModeActive() && !isFocusModeEnabled();
 }
 
-let libraryIndex = null;
-let suppressRecentEntries = false;
 const FOLLOW_PIPELINE_VERSION = "follow-2026-02-21-r3";
 let headerLayersController = null;
 const fileContentCache = createFileContentCache({
@@ -1900,9 +1901,6 @@ function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffse
 }
 const MAX_NAV_FILE_HISTORY = 20;
 const navFileHistory = [];
-let isLibraryVisible = true;
-let latestSettingsSnapshot = null;
-
 libraryDocumentContext = createLibraryDocumentContext({
   activeTuneContext: activeContext,
   clearSaveSession,
@@ -1958,8 +1956,8 @@ saveFlowController = createSaveFlowController({
     getFocusModeEnabled: isFocusModeEnabled,
     getHeaderDirty,
     getHeaderEditorValue,
-    getIsNewTuneDraft: () => isNewTuneDraft,
-    getLibraryIndex: () => libraryIndex,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
+    getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot,
     getChordProFullText: () => chordProFeature.getFullText(),
@@ -2084,10 +2082,10 @@ const libraryUiDomain = createLibraryUiDomain({
     xIssuesAutoFix: $xIssuesAutoFix,
   },
   state: {
-    getLibraryVisible: () => isLibraryVisible,
-    setLibraryVisibleState: (value) => { isLibraryVisible = Boolean(value); },
+    getLibraryVisible: libraryRuntime.isVisible,
+    setLibraryVisibleState: libraryRuntime.setVisible,
     isLibraryDisabled: () => chordProFeature.isEnabled(),
-    getLibraryIndex: () => libraryIndex,
+    getLibraryIndex: libraryRuntime.getIndex,
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     setActiveFilePath: (filePath) => { activeContext.setActiveFilePath(filePath || null); },
     getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -2095,7 +2093,7 @@ const libraryUiDomain = createLibraryUiDomain({
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDocDirty: isCurrentDocumentDirty,
     getHeaderDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
     isPayloadMode,
     isRawMode: () => isRawModeActive(),
   },
@@ -2332,17 +2330,17 @@ const statusController = createStatusController({
   getRawModeFilePath,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
   getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-  getIsNewTuneDraft: () => isNewTuneDraft,
+  getIsNewTuneDraft: activeContext.isNewTuneDraft,
   getHeaderDirty,
-  getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
-  getLibraryVisible: () => isLibraryVisible,
+  getLibraryRoot: libraryRuntime.getRoot,
+  getLibraryVisible: libraryRuntime.isVisible,
   hasDiskConflictPath,
 });
 
 const startupController = createStartupController({
   api: window.api,
   requestAnimationFrameRef: requestAnimationFrame,
-  getLibraryRoot: () => (libraryIndex && libraryIndex.root ? String(libraryIndex.root) : ""),
+  getLibraryRoot: libraryRuntime.getRoot,
   pathsEqual,
   loadLibraryFromFolder,
   openRecentTune,
@@ -2368,7 +2366,7 @@ editStateController = createEditStateController({
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDoc: getCurrentDocument,
     getHeaderDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
     getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot,
   },
@@ -2444,7 +2442,7 @@ playbackUiController = createPlaybackUiController({
     getIsPlaying: isPlaying,
     getIsPaused: isPlaybackPaused,
     getWaitingForFirstNote: isWaitingForFirstNote,
-    getFollowPlayback: () => followPlayback,
+    getFollowPlayback: playbackDomain.isFollowEnabled,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
   },
@@ -2484,7 +2482,6 @@ documentLifecycleController = createDocumentLifecycleController({
     setRenderBusy,
     clearActiveTuneState: (filePath = null) => {
       activeContext.clear({ nextFilePath: filePath });
-      isNewTuneDraft = false;
     },
     clearSaveSession,
     setFullFileSaveSession: (filePath, source) => setSaveSession({
@@ -2518,8 +2515,8 @@ documentLifecycleController = createDocumentLifecycleController({
 libraryMetadataController = createLibraryMetadataController({
   api: window.api,
   state: {
-    getLibraryIndex: () => libraryIndex,
-    setLibraryIndex: (next) => { libraryIndex = next; },
+    getLibraryIndex: libraryRuntime.getIndex,
+    setLibraryIndex: libraryRuntime.setIndex,
     getWorkingCopySnapshot,
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     setActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
@@ -2595,8 +2592,8 @@ libraryCrudDomain = createLibraryCrudDomain({
     getCurrentNavFilePath,
     getEditorText: getEditorValue,
     getHeaderDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
-    getLibraryIndex: () => libraryIndex,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
+    getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
     getSaveSession: resolveSaveSession,
     hasGlobalUnsavedChanges,
@@ -2651,7 +2648,7 @@ libraryCrudDomain = createLibraryCrudDomain({
     setDirtyIndicator,
     setFileContentInCache,
     setFileNameMeta,
-    setIsNewTuneDraft: (value) => { isNewTuneDraft = Boolean(value); },
+    setIsNewTuneDraft: activeContext.setNewTuneDraft,
     setSaveSession,
     setStatus,
     showSaveDialog,
@@ -2686,8 +2683,8 @@ libraryLifecycleController = createLibraryLifecycleController({
     tuneSelect: $fileTuneSelect,
   },
   state: {
-    getLibraryIndex: () => libraryIndex,
-    setLibraryIndex: (next) => { libraryIndex = next; },
+    getLibraryIndex: libraryRuntime.getIndex,
+    setLibraryIndex: libraryRuntime.setIndex,
     getWorkingCopySnapshot,
     getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: isFocusModeEnabled,
@@ -2697,7 +2694,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentDocumentPath,
     getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
-    getSuppressRecentEntries: () => suppressRecentEntries,
+    getSuppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
     isPayloadMode,
     isWorkingCopyOpenForFile,
     isCurrentDocumentDirty,
@@ -2719,7 +2716,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     errorsHasActiveHighlight: () => errorsFeature.hasActiveHighlight(),
     expandInitialCollapsedState: () => libraryUiDomain.expandInitialCollapsedState(),
     getFileContentFromCache,
-    getLatestSettingsSnapshot: () => latestSettingsSnapshot,
+    getLatestSettingsSnapshot: settingsSnapshot.get,
     invalidateLibraryView: () => libraryUiDomain.invalidateView(),
     isChordProFilePath,
     isChordProText,
@@ -2768,7 +2765,7 @@ libraryLifecycleController = createLibraryLifecycleController({
     setEditorValue,
     setFileContentInCache,
     setFileNameMeta,
-    setIsNewTuneDraft: (next) => { isNewTuneDraft = Boolean(next); },
+    setIsNewTuneDraft: activeContext.setNewTuneDraft,
     setLibraryActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
     setPlaybackRange,
     setSaveSession,
@@ -2800,12 +2797,12 @@ documentSessionController = createDocumentSessionController({
     getActiveTuneUid: () => activeContext.getActiveTuneUid(),
     getCurrentNavFilePath,
     getHeaderDirty,
-    getLibraryFiles: () => (libraryIndex && Array.isArray(libraryIndex.files)) ? libraryIndex.files : [],
+    getLibraryFiles: libraryRuntime.getFiles,
     hasUnsavedChangesInActiveEditContext,
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFilePath,
     isChordProText,
-    isNewTuneDraft: () => isNewTuneDraft,
+    isNewTuneDraft: activeContext.isNewTuneDraft,
     isPayloadMode,
     isRawMode: () => isRawModeActive(),
     getRawModeFilePath,
@@ -2868,7 +2865,7 @@ const sourceLinkFeature = createSourceLinkFeature({
   getEditorText: getEditorValue,
   hasEditor: editorRuntime.hasView,
   isDisabled: () => Boolean(isRawModeActive() || chordProFeature.isEnabled()),
-  shouldIncludePrintQr: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.printSourceQrCodes),
+  shouldIncludePrintQr: () => Boolean(settingsSnapshot.get() && settingsSnapshot.get().printSourceQrCodes),
 });
 const printCurrentFeature = createPrintCurrentFeature({
   api: window.api,
@@ -2968,7 +2965,7 @@ abcTransformFeature = createAbcTransformFeature({
   devConfig,
   getEditorText: getEditorValue,
   getHeaderText: getHeaderEditorValue,
-  getSettings: () => latestSettingsSnapshot,
+  getSettings: settingsSnapshot.get,
   setEditorTextForSmoke: (text) => editorRuntime.setTextClean(String(text || "")),
   applyTransformedText,
   showTransformError,
@@ -2985,7 +2982,6 @@ diagnosticsDomain.installDevUiSmoke({
       setEditorValue(content);
       setCurrentDocument({ path: null, dirty: false, content });
       activeContext.clear();
-      isNewTuneDraft = false;
       updateFileContext();
       markActiveTuneButton(null);
       setDirtyIndicator(false);
@@ -3019,10 +3015,7 @@ diagnosticsDomain.installDevUiSmoke({
     ? appCommandsDomain.dispatch(action)
     : Promise.resolve(),
   setPayloadModeSettingEnabled: (enabled) => {
-    latestSettingsSnapshot = {
-      ...(latestSettingsSnapshot || {}),
-      payloadModeEnabled: Boolean(enabled),
-    };
+    settingsSnapshot.patch({ payloadModeEnabled: Boolean(enabled) });
   },
   getState: () => ({
     isPlaying: playbackTransport.isPlaying,
@@ -3044,7 +3037,7 @@ const rawModeEnterGuard = createRawModeEnterGuard({
     getCurrentDocumentPath,
     getHeaderDirty,
     getIsCurrentDocumentDirty: isCurrentDocumentDirty,
-    getIsNewTuneDraft: () => isNewTuneDraft,
+    getIsNewTuneDraft: activeContext.isNewTuneDraft,
     getWorkingCopySnapshot,
   },
   actions: {
@@ -3314,8 +3307,9 @@ function clearLibraryFilter() {
 
 function getActiveFileEntry() {
   if (chordProFeature.isEnabled()) return null;
-  if (!libraryIndex || !libraryIndex.files || !activeContext.getActiveFilePath()) return null;
-  return libraryIndex.files.find((file) => pathsEqual(file.path, activeContext.getActiveFilePath())) || null;
+  const files = libraryRuntime.getFiles();
+  if (!files.length || !activeContext.getActiveFilePath()) return null;
+  return files.find((file) => pathsEqual(file.path, activeContext.getActiveFilePath())) || null;
 }
 
 function updateFileHeaderPanel() {
@@ -3443,7 +3437,7 @@ function initEditor() {
       scheduleRender: () => scheduleRenderNow(),
       scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),
       isPlaying,
-      getFollowPlayback: () => followPlayback,
+      getFollowPlayback: playbackDomain.isFollowEnabled,
       scheduleCursorNoteHighlight,
       clearNoteSelection,
       updatePlaybackRangeFromSelection,
@@ -3789,7 +3783,7 @@ function getPlaybackText() {
 
 function getDefaultSaveDir() {
   if (activeContext.getActiveFilePath()) return safeDirname(activeContext.getActiveFilePath());
-  if (libraryIndex && libraryIndex.root) return libraryIndex.root;
+  if (libraryRuntime.getRoot()) return libraryRuntime.getRoot();
   {
     const docPath = getCurrentDocumentPath();
     if (docPath) return safeDirname(docPath);
@@ -4152,8 +4146,8 @@ appCommandsDomain = createAppCommandsDomain({
   },
   state: {
     getEditorView: editorRuntime.getView,
-    getFollowPlayback: () => followPlayback,
-    getLatestSettings: () => latestSettingsSnapshot,
+    getFollowPlayback: playbackDomain.isFollowEnabled,
+    getLatestSettings: settingsSnapshot.get,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -4161,7 +4155,7 @@ appCommandsDomain = createAppCommandsDomain({
     isGlobalHeaderEnabled: () => headerLayersController.isGlobalHeaderEnabled(),
     isMicrotonalNotationSupported,
     isPayloadMode,
-    isPayloadModeSettingEnabled: () => Boolean(latestSettingsSnapshot && latestSettingsSnapshot.payloadModeEnabled),
+    isPayloadModeSettingEnabled: () => Boolean(settingsSnapshot.get() && settingsSnapshot.get().payloadModeEnabled),
     isPlaybackActive,
     isPlaybackBusy,
     isRawModeActive: () => isRawModeActive(),
@@ -4215,7 +4209,7 @@ appCommandsDomain = createAppCommandsDomain({
     scanAndLoadLibrary,
     setChordProFullView: (next) => chordProFeature.setFullView(next),
     setErrorsEnabled,
-    setFollowPlayback: (next) => { followPlayback = Boolean(next); },
+    setFollowPlayback: playbackDomain.setFollowEnabled,
     setNoteTypingPreview: (enabled) => midiInputFeature.applySettingsPatch({ noteTypingPreviewEnabled: Boolean(enabled) }),
     setSplitOrientation,
     setStatus,
@@ -4250,9 +4244,9 @@ settingsDomain = createSettingsDomain({
   documentRef: document,
   requestAnimationFrameRef: requestAnimationFrame,
   state: {
-    getLatestSettings: () => latestSettingsSnapshot,
-    setLatestSettings: (settings) => { latestSettingsSnapshot = settings || null; },
-    setFollowPlayback: (next) => { followPlayback = Boolean(next); },
+    getLatestSettings: settingsSnapshot.get,
+    setLatestSettings: settingsSnapshot.set,
+    setFollowPlayback: playbackDomain.setFollowEnabled,
     setDrumVelocityMap: (next) => abcHelpersFeature.setDrumVelocityMap(next),
     getEditorDom: editorRuntime.getDom,
     isPayloadMode,
@@ -4320,8 +4314,6 @@ startupController.start();
 scoreInteractionController.wireOutputSelection();
 
 // ---------- AUDIO ----------
-
-let followPlayback = true;
 
 function setRenderZoomCss(zoom) {
   layoutController.setRenderZoom(zoom);

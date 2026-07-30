@@ -16,6 +16,7 @@ export function createPlaybackDomain({
   getFocusModeController = () => null,
   getSoundfontController = () => null,
 } = {}) {
+  let followEnabled = true;
   const controllers = {
     abSelection: null,
     autoScroll: null,
@@ -119,6 +120,7 @@ export function createPlaybackDomain({
     getActiveRange: () => transport.activePlaybackRange,
     getFollowVoiceId: () => requireController("follow").getFollowVoiceId(),
     getFollowVoiceIndex: () => requireController("follow").getFollowVoiceIndex(),
+    isFollowEnabled: () => followEnabled,
     getRange: () => transport.playbackRange,
     getScopedSettingsForOrigin,
     getSelectionSettings: () => requireController("abSelection").getSelectionSettings(),
@@ -177,6 +179,9 @@ export function createPlaybackDomain({
     ),
     scheduleUiUpdate: (istart) => requireController("follow").schedulePlaybackUiUpdate(istart),
     setFollowVoiceFromPlayback: () => requireController("follow").setFollowVoiceFromPlayback(),
+    setFollowEnabled(value) {
+      followEnabled = Boolean(value);
+    },
     setAbFromSelection: () => requireController("abSelection").setFromSelection(),
     setAbOptions: (options) => requireController("abSelection").setOptions(options),
     setAbPoint: (which) => requireController("abSelection").setPoint(which),

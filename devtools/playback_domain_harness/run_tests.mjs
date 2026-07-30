@@ -46,6 +46,9 @@ const domain = createPlaybackDomain({
 });
 
 assert.equal(domain.isBusy(), false);
+assert.equal(domain.isFollowEnabled(), true);
+domain.setFollowEnabled(false);
+assert.equal(domain.isFollowEnabled(), false);
 transport.waitingForFirstNote = true;
 assert.equal(domain.isBusy(), true);
 transport.waitingForFirstNote = false;

@@ -14,6 +14,7 @@ function createActiveTuneContextStore() {
   let tuneUid = null;
   let tuneIndex = null;
   let tuneMeta = null;
+  let newTuneDraft = false;
 
   function syncUidWithMeta() {
     if (!tuneMeta || typeof tuneMeta !== "object") return;
@@ -29,6 +30,7 @@ function createActiveTuneContextStore() {
     tuneUid = null;
     tuneIndex = null;
     tuneMeta = null;
+    newTuneDraft = false;
   }
 
   function clear({ nextFilePath = null } = {}) {
@@ -81,6 +83,12 @@ function createActiveTuneContextStore() {
       syncUidWithMeta();
     },
     setTuneMetaOffsets,
+    isNewTuneDraft() {
+      return newTuneDraft;
+    },
+    setNewTuneDraft(value) {
+      newTuneDraft = Boolean(value);
+    },
     snapshot() {
       return {
         filePath,
@@ -88,6 +96,7 @@ function createActiveTuneContextStore() {
         tuneUid,
         tuneIndex,
         tuneMeta,
+        newTuneDraft,
       };
     },
   };

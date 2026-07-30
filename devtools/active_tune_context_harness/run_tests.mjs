@@ -19,17 +19,20 @@ assert.deepEqual(context.snapshot(), {
   tuneUid: null,
   tuneIndex: null,
   tuneMeta: null,
+  newTuneDraft: false,
 });
 
 context.setActiveFilePath("/music/set.abc");
 context.setActiveTuneId("/music/set.abc::12");
 context.setActiveTuneIndex("3");
 context.setActiveTuneUid("uid-3");
+context.setNewTuneDraft(true);
 const meta = { path: "/music/set.abc", tuneUid: "", startOffset: 12, endOffset: 40 };
 context.setActiveTuneMeta(meta);
 assert.equal(context.getActiveTuneIndex(), 3);
 assert.equal(context.getActiveTuneUid(), "uid-3");
 assert.equal(meta.tuneUid, "uid-3", "metadata must track the canonical tune UID");
+assert.equal(context.isNewTuneDraft(), true);
 
 context.setActiveTuneUid("uid-4");
 assert.equal(meta.tuneUid, "uid-4", "UID updates must propagate to active metadata");
@@ -46,6 +49,7 @@ assert.equal(context.getActiveTuneId(), null);
 assert.equal(context.getActiveTuneUid(), null);
 assert.equal(context.getActiveTuneIndex(), null);
 assert.equal(context.getActiveTuneMeta(), null);
+assert.equal(context.isNewTuneDraft(), false, "clearing the tune must clear draft state");
 
 const restoredMeta = { tuneUid: "restored-uid" };
 context.setActiveTuneMeta(restoredMeta);

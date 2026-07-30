@@ -49,9 +49,41 @@ for (const forbidden of [
   /function\s+getTextIndexFromLoc\s*\(/,
   /function\s+ensureToolPanelDefaultLeftPosition\s*\(/,
   /function\s+showDisclaimerIfNeeded\s*\(/,
+  /\blet\s+isNewTuneDraft\b/,
+  /\blet\s+libraryIndex\b/,
+  /\blet\s+isLibraryVisible\b/,
+  /\blet\s+latestSettingsSnapshot\b/,
+  /\blet\s+suppressRecentEntries\b/,
+  /\blet\s+followPlayback\b/,
 ]) {
   assert.doesNotMatch(rendererSource, forbidden);
 }
+
+const { createLibraryRuntimeStore } = await importBundledModule(
+  "src/renderer/library/library_runtime_store.js",
+);
+const libraryRuntime = createLibraryRuntimeStore();
+assert.equal(libraryRuntime.getIndex(), null);
+assert.equal(libraryRuntime.isVisible(), true);
+libraryRuntime.setIndex({ root: "/music", files: [{ path: "/music/a.abc" }] });
+libraryRuntime.setVisible(false);
+libraryRuntime.setRecentEntriesSuppressed(true);
+assert.equal(libraryRuntime.getRoot(), "/music");
+assert.equal(libraryRuntime.getFiles().length, 1);
+assert.equal(libraryRuntime.isVisible(), false);
+assert.equal(libraryRuntime.areRecentEntriesSuppressed(), true);
+
+const { createSettingsSnapshotStore } = await importBundledModule(
+  "src/renderer/app/ui/settings_snapshot_store.js",
+);
+const settingsSnapshot = createSettingsSnapshotStore();
+assert.equal(settingsSnapshot.get(), null);
+settingsSnapshot.set({ followPlayback: true });
+settingsSnapshot.patch({ payloadModeEnabled: false });
+assert.deepEqual(settingsSnapshot.get(), {
+  followPlayback: true,
+  payloadModeEnabled: false,
+});
 
 const headerModel = await importBundledModule(
   "src/renderer/app/document/file_header_model.js",

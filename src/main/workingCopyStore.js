@@ -8,6 +8,7 @@ const { decodeAbcTextFromBuffer, encodeAbcTextToBuffer } = require("./abcCharset
 const emitter = new EventEmitter();
 
 let state = null;
+let persistenceInFlight = false;
 
 function makeTuneUid() {
   try {
@@ -29,6 +30,58 @@ function beginsWithXLine(text) {
   return /^\s*X:/.test(first);
 }
 
+function parseXNumberFromText(text) {
+  const first = firstNonEmptyLine(text);
+  const match = first.match(/^\s*X:\s*(\d+)/);
+  return match && match[1] ? String(match[1]) : "";
+}
+
+function parseXNumberFromLabel(label) {
+  const match = String(label || "").match(/^\s*X:\s*(\d+)/);
+  return match && match[1] ? String(match[1]) : "";
+}
+
+function parseFirstTitle(text) {
+  const lines = String(text || "").split(/\r\n|\n|\r/);
+  for (const line of lines) {
+    const raw = String(line || "");
+    if (/^\s*X:/.test(raw)) continue;
+    const match = raw.match(/^T:\s*(.*)$/);
+    if (match) return String(match[1] || "").trim();
+    const trimmed = raw.trim();
+    if (trimmed && !/^[A-Za-z]:/.test(raw) && !/^%/.test(raw)) break;
+  }
+  return "";
+}
+
+function assertTuneIdentity({ tune, oldSlice, nextTuneText, expected } = {}) {
+  const exp = expected && typeof expected === "object" ? expected : {};
+  const expectedX = String(exp.xNumber || "").trim();
+  const expectedTitle = String(exp.title || "").trim();
+  const targetX = parseXNumberFromLabel(tune && tune.xLabel);
+  const oldX = parseXNumberFromText(oldSlice);
+  const nextX = parseXNumberFromText(nextTuneText);
+
+  if (expectedX) {
+    if (targetX && targetX !== expectedX) {
+      throw new Error(`Refusing to save: target tune identity changed (expected X:${expectedX}, found X:${targetX}).`);
+    }
+    if (oldX && oldX !== expectedX) {
+      throw new Error(`Refusing to save: target tune text changed (expected X:${expectedX}, found X:${oldX}).`);
+    }
+    if (nextX && nextX !== expectedX) {
+      throw new Error(`Refusing to save: editor tune identity does not match target (expected X:${expectedX}, got X:${nextX}).`);
+    }
+  }
+
+  if (expectedTitle) {
+    const oldTitle = parseFirstTitle(oldSlice);
+    if (oldTitle && oldTitle !== expectedTitle) {
+      throw new Error("Refusing to save: target tune title changed.");
+    }
+  }
+}
+
 function freezeSnapshot(obj) {
   try {
     return Object.freeze(obj);
@@ -40,6 +93,17 @@ function freezeSnapshot(obj) {
 function isMissingFileError(err) {
   const code = err && err.code ? String(err.code) : "";
   return code === "ENOENT";
+}
+
+function contentHash(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function fingerprintWithContent(stat, buffer) {
+  return {
+    ...(stat || {}),
+    sha256: contentHash(buffer),
+  };
 }
 
 function getWorkingCopySnapshot() {
@@ -71,6 +135,25 @@ function getWorkingCopyMetaSnapshot() {
     diskFingerprintOnOpen: state.diskFingerprintOnOpen ? { ...state.diskFingerprintOnOpen } : null,
     tuneCount: state.tunes ? state.tunes.length : 0,
   });
+}
+
+function assertWorkingCopyContext({ expectedPath, expectedVersion } = {}, operation = "operation") {
+  if (!state || !state.path) throw new Error("No working copy open.");
+  const expected = String(expectedPath || "");
+  if (!expected) throw new Error(`Refusing to ${operation}: expected working copy path is missing.`);
+  if (String(state.path) !== expected) {
+    throw new Error(`Refusing to ${operation}: working copy path changed.`);
+  }
+  if (expectedVersion != null) {
+    const version = Number(expectedVersion);
+    if (!Number.isFinite(version)) {
+      throw new Error(`Refusing to ${operation}: expected working copy version is invalid.`);
+    }
+    if (Number(state.version) !== version) {
+      throw new Error(`Refusing to ${operation}: working copy changed.`);
+    }
+  }
+  return state;
 }
 
 async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
@@ -157,11 +240,15 @@ async function openWorkingCopyFromPath(filePath) {
   const p = String(filePath || "");
   if (!p) throw new Error("Missing file path.");
   if (state && state.path === p) return getWorkingCopyMetaSnapshot();
+  if (persistenceInFlight) throw new Error("Refusing to switch working copy while a save is in progress.");
+  if (state && state.dirty && state.path && state.path !== p) {
+    throw new Error("Refusing to replace a dirty working copy. Save, discard, or reload it first.");
+  }
 
   const raw = await fs.promises.readFile(p);
   const decoded = decodeAbcTextFromBuffer(raw);
   const text = decoded.text;
-  const fp = await statFingerprint(p);
+  const fp = fingerprintWithContent(await statFingerprint(p), raw);
   const seg = segmentTunes(text);
   const tunes = [];
   for (let i = 0; i < seg.tunes.length; i += 1) {
@@ -192,33 +279,81 @@ async function openWorkingCopyFromPath(filePath) {
   return getWorkingCopyMetaSnapshot();
 }
 
-async function closeWorkingCopy() {
+async function closeWorkingCopy({ expectedPath, expectedVersion, force = false } = {}) {
+  if (persistenceInFlight) throw new Error("Refusing to close working copy while a save is in progress.");
+  if (!state) return true;
+  const closingState = assertWorkingCopyContext(
+    { expectedPath, expectedVersion },
+    "close working copy"
+  );
+  if (closingState.dirty && !force) {
+    throw new Error("Refusing to close a dirty working copy without explicit discard.");
+  }
   state = null;
   notifyChanged();
   return true;
 }
 
-async function reloadWorkingCopyFromDisk() {
-  if (!state || !state.path) throw new Error("No working copy open.");
+async function reloadWorkingCopyFromDisk({ force = false, expectedPath, expectedVersion } = {}) {
+  if (persistenceInFlight) throw new Error("Refusing to reload working copy while a save is in progress.");
+  assertWorkingCopyContext({ expectedPath, expectedVersion }, "reload working copy");
+  if (state.dirty && !force) {
+    throw new Error("Refusing to reload a dirty working copy. Save or explicitly discard it first.");
+  }
   const p = String(state.path || "");
   const raw = await fs.promises.readFile(p);
   const decoded = decodeAbcTextFromBuffer(raw);
   const text = decoded.text;
-  const fp = await statFingerprint(p);
+  const fp = fingerprintWithContent(await statFingerprint(p), raw);
   const seg = segmentTunes(text);
 
   const prevTunes = state.tunes || [];
+  const prevText = String(state.text || "");
+  const prevIdentity = prevTunes.map((t, index) => {
+    const start = Number(t && t.start);
+    const end = Number(t && t.end);
+    const slice = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end >= start
+      ? prevText.slice(start, end)
+      : "";
+    return {
+      index,
+      tuneUid: t && t.tuneUid ? String(t.tuneUid) : "",
+      slice,
+      xNumber: parseXNumberFromText(slice),
+      title: parseFirstTitle(slice),
+    };
+  });
+  const usedPrevIndexes = new Set();
   const nextTunes = [];
   for (let i = 0; i < seg.tunes.length; i += 1) {
     const t = seg.tunes[i];
-    const prev = prevTunes[i];
-    const tuneUid = prev && prev.tuneUid ? prev.tuneUid : makeTuneUid();
+    const start = Number(t && t.start) || 0;
+    const end = Number(t && t.end) || 0;
+    const slice = text.slice(start, end);
+    const nextX = parseXNumberFromText(slice);
+    const nextTitle = parseFirstTitle(slice);
+    let matched = prevIdentity.find((entry) => (
+      !usedPrevIndexes.has(entry.index)
+      && entry.tuneUid
+      && entry.slice === slice
+    )) || null;
+    if (!matched && nextX) {
+      const identityMatches = prevIdentity.filter((entry) => (
+        !usedPrevIndexes.has(entry.index)
+        && entry.tuneUid
+        && entry.xNumber === nextX
+        && entry.title === nextTitle
+      ));
+      if (identityMatches.length === 1) matched = identityMatches[0];
+    }
+    if (matched) usedPrevIndexes.add(matched.index);
+    const tuneUid = matched ? matched.tuneUid : makeTuneUid();
     const xLabelRaw = t && t.rawXLine ? String(t.rawXLine).trim() : "";
     nextTunes.push({
       tuneIndex: i,
       tuneUid,
-      start: Number(t.start) || 0,
-      end: Number(t.end) || 0,
+      start,
+      end,
       xLabel: xLabelRaw,
     });
   }
@@ -239,87 +374,127 @@ async function reloadWorkingCopyFromDisk() {
   return getWorkingCopyMetaSnapshot();
 }
 
-async function commitWorkingCopyToDisk({ force = false } = {}) {
-  if (!state || !state.path) throw new Error("No working copy open.");
-  const p = String(state.path || "");
-  const fpOnOpen = state.diskFingerprintOnOpen || null;
-
-  let fpNow = null;
-  let missingOnDisk = false;
-  try {
-    fpNow = await statFingerprint(p);
-  } catch (err) {
-    if (isMissingFileError(err)) missingOnDisk = true;
-    else throw err;
-  }
-  if (missingOnDisk && !force) {
-    return { ok: false, missingOnDisk: true, diskFingerprintOnOpen: fpOnOpen };
-  }
-
-  const hasConflict = Boolean(
-    fpOnOpen
-    && fpNow
-    && (Number(fpOnOpen.mtimeMs) !== Number(fpNow.mtimeMs) || Number(fpOnOpen.size) !== Number(fpNow.size))
+async function commitWorkingCopyToDisk({ force = false, expectedPath, expectedVersion } = {}) {
+  if (persistenceInFlight) throw new Error("Working copy save is already in progress.");
+  const commitState = assertWorkingCopyContext(
+    { expectedPath, expectedVersion },
+    "save working copy"
   );
-  // By policy, the in-app working copy session is authoritative for its file.
-  // If the file changed on disk while a working copy is open, we overwrite on Save.
-  // (Callers may pass `force=true` for explicitness, but the default behavior is the same.)
-  const overwroteExternalChanges = Boolean(hasConflict && !force);
+  const commitVersion = Number(commitState.version);
+  const p = String(commitState.path || "");
+  const fpOnOpen = commitState.diskFingerprintOnOpen || null;
+  persistenceInFlight = true;
 
-  const text = String(state.text || "");
   try {
-    const encoded = encodeAbcTextToBuffer(text);
-    state.encoding = encoded.encoding || state.encoding || "utf8";
-    await atomicWriteFileWithRetry(p, encoded.buffer);
-    await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
-  } catch (err) {
-    // Treat any write/verify failure as "not saved". Keep the session authoritative copy dirty.
-    try { state.dirty = true; } catch {}
-    if (isMissingFileError(err) && !force) {
+    let fpNow = null;
+    let missingOnDisk = false;
+    try {
+      const rawNow = await fs.promises.readFile(p);
+      fpNow = fingerprintWithContent(await statFingerprint(p), rawNow);
+    } catch (err) {
+      if (isMissingFileError(err)) missingOnDisk = true;
+      else throw err;
+    }
+    if (missingOnDisk && !force) {
       return { ok: false, missingOnDisk: true, diskFingerprintOnOpen: fpOnOpen };
     }
-    return { ok: false, error: err && err.message ? err.message : String(err) };
+
+    const hasConflict = Boolean(
+      fpOnOpen
+      && fpNow
+      && (
+        String(fpOnOpen.sha256 || "") !== String(fpNow.sha256 || "")
+        || Number(fpOnOpen.mtimeMs) !== Number(fpNow.mtimeMs)
+        || Number(fpOnOpen.size) !== Number(fpNow.size)
+      )
+    );
+    if (hasConflict && !force) {
+      return {
+        ok: false,
+        conflict: true,
+        diskFingerprintOnOpen: fpOnOpen,
+        diskFingerprintNow: fpNow,
+      };
+    }
+    const overwroteExternalChanges = Boolean(hasConflict && force);
+
+    if (state !== commitState || Number(state.version) !== commitVersion) {
+      throw new Error("Refusing to save working copy: working copy changed before write.");
+    }
+
+    const text = String(commitState.text || "");
+    let encoded = null;
+    try {
+      encoded = encodeAbcTextToBuffer(text);
+      commitState.encoding = encoded.encoding || commitState.encoding || "utf8";
+      await atomicWriteFileWithRetry(p, encoded.buffer);
+      await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
+    } catch (err) {
+      try { commitState.dirty = true; } catch {}
+      if (isMissingFileError(err) && !force) {
+        return { ok: false, missingOnDisk: true, diskFingerprintOnOpen: fpOnOpen };
+      }
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+    const fpAfter = fingerprintWithContent(await statFingerprint(p), encoded.buffer);
+    if (state !== commitState || Number(state.version) !== commitVersion) {
+      throw new Error("Working copy changed during save; saved data was not marked clean.");
+    }
+    commitState.diskFingerprintOnOpen = fpAfter;
+    commitState.dirty = false;
+    try {
+      commitState.lastMutationMeta = { kind: "commitToDisk", forced: Boolean(force), overwroteExternalChanges };
+    } catch {}
+    notifyChanged();
+    return { ok: true, diskFingerprint: fpAfter, overwroteExternalChanges };
+  } finally {
+    persistenceInFlight = false;
   }
-  const fpAfter = await statFingerprint(p);
-  state.diskFingerprintOnOpen = fpAfter;
-  state.dirty = false;
-  try {
-    state.lastMutationMeta = { kind: "commitToDisk", forced: Boolean(force), overwroteExternalChanges };
-  } catch {}
-  notifyChanged();
-  return { ok: true, diskFingerprint: fpAfter, overwroteExternalChanges };
 }
 
-async function writeWorkingCopyToPath(targetPath) {
-  if (!state) throw new Error("No working copy open.");
+async function writeWorkingCopyToPath(targetPath, context = {}) {
+  if (persistenceInFlight) throw new Error("Working copy save is already in progress.");
+  const sourceState = assertWorkingCopyContext(context, "write working copy to path");
   const p = String(targetPath || "");
   if (!p) throw new Error("Missing file path.");
-  const text = String(state.text || "");
-  const encoded = encodeAbcTextToBuffer(text);
-  await atomicWriteFileWithRetry(p, encoded.buffer);
-  await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
-  return true;
+  const text = String(sourceState.text || "");
+  persistenceInFlight = true;
+  try {
+    const encoded = encodeAbcTextToBuffer(text);
+    await atomicWriteFileWithRetry(p, encoded.buffer);
+    await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
+    return true;
+  } finally {
+    persistenceInFlight = false;
+  }
 }
 
-async function writeWorkingCopyToPathAndSwitch(targetPath) {
-  if (!state) throw new Error("No working copy open.");
+async function writeWorkingCopyToPathAndSwitch(targetPath, context = {}) {
+  if (persistenceInFlight) throw new Error("Working copy save is already in progress.");
+  const sourceState = assertWorkingCopyContext(context, "save working copy as");
   const p = String(targetPath || "");
   if (!p) throw new Error("Missing file path.");
-  const text = String(state.text || "");
-  const encoded = encodeAbcTextToBuffer(text);
-  state.encoding = encoded.encoding || state.encoding || "utf8";
-  await atomicWriteFileWithRetry(p, encoded.buffer);
-  await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
-  const fp = await statFingerprint(p);
-  state.path = p;
-  state.diskFingerprintOnOpen = fp;
-  state.dirty = false;
-  state.version += 1;
+  const text = String(sourceState.text || "");
+  persistenceInFlight = true;
   try {
-    state.lastMutationMeta = { kind: "writeToPathAndSwitch" };
-  } catch {}
-  notifyChanged();
-  return getWorkingCopyMetaSnapshot();
+    const encoded = encodeAbcTextToBuffer(text);
+    sourceState.encoding = encoded.encoding || sourceState.encoding || "utf8";
+    await atomicWriteFileWithRetry(p, encoded.buffer);
+    await verifyFileOnDiskMatchesBuffer(p, encoded.buffer);
+    const fp = fingerprintWithContent(await statFingerprint(p), encoded.buffer);
+    if (state !== sourceState) throw new Error("Refusing to switch path: working copy changed.");
+    sourceState.path = p;
+    sourceState.diskFingerprintOnOpen = fp;
+    sourceState.dirty = false;
+    sourceState.version += 1;
+    try {
+      sourceState.lastMutationMeta = { kind: "writeToPathAndSwitch" };
+    } catch {}
+    notifyChanged();
+    return getWorkingCopyMetaSnapshot();
+  } finally {
+    persistenceInFlight = false;
+  }
 }
 
 function onWorkingCopyChanged(listener) {
@@ -327,8 +502,9 @@ function onWorkingCopyChanged(listener) {
   return () => emitter.off("changed", listener);
 }
 
-function mutateWorkingCopy(mutatorFn, meta) {
-  if (!state) throw new Error("No working copy open.");
+function mutateWorkingCopy(mutatorFn, meta, context) {
+  if (persistenceInFlight) throw new Error("Refusing to change working copy while a save is in progress.");
+  assertWorkingCopyContext(context, (meta && meta.kind) ? String(meta.kind) : "change working copy");
   if (typeof mutatorFn !== "function") throw new Error("mutatorFn must be a function.");
 
   const prevVersion = state.version;
@@ -429,7 +605,7 @@ function mutateWorkingCopy(mutatorFn, meta) {
   return getWorkingCopyMetaSnapshot();
 }
 
-function applyHeaderText(headerText) {
+function applyHeaderText(headerText, context = {}) {
   const nextHeader = String(headerText == null ? "" : headerText);
   return mutateWorkingCopy((draft) => {
     const fullText = String(draft.text || "");
@@ -442,11 +618,10 @@ function applyHeaderText(headerText) {
     if (header && !/[\r\n]$/.test(header) && /^[\t ]*X:/.test(suffix)) header += "\n";
     draft.text = `${header}${suffix}`;
     return { text: draft.text };
-  }, { kind: "applyHeaderText" });
+  }, { kind: "applyHeaderText" }, context);
 }
 
-function renumberXStartingAt1() {
-  if (!state) throw new Error("No working copy open.");
+function renumberXStartingAt1(context = {}) {
   return mutateWorkingCopy((draft) => {
     const text = String(draft.text || "");
     const newline = text.includes("\r\n") ? "\r\n" : "\n";
@@ -470,20 +645,17 @@ function renumberXStartingAt1() {
     if (!foundAny) throw new Error("No X: headers found in file.");
     draft.text = out.join(newline);
     return { text: draft.text };
-  }, { kind: "renumberXStartingAt1", regenerateTuneUids: true });
+  }, { kind: "renumberXStartingAt1", regenerateTuneUids: true }, context);
 }
 
-function deleteTune({ tuneUid, tuneIndex } = {}) {
+function deleteTune({ tuneUid, tuneIndex, expectedPath, expectedVersion, expected } = {}) {
   const uid = tuneUid != null ? String(tuneUid) : "";
   const idx = Number.isFinite(Number(tuneIndex)) ? Number(tuneIndex) : null;
-  if (!uid && idx == null) throw new Error("Missing tuneUid/tuneIndex.");
+  if (!uid) throw new Error("Missing stable tuneUid.");
 
   const tunes = state && Array.isArray(state.tunes) ? state.tunes : [];
-  let resolvedIndex = idx;
-  if (resolvedIndex == null) {
-    const found = state && state.tuneUidToIndex && uid ? state.tuneUidToIndex.get(uid) : null;
-    resolvedIndex = Number.isFinite(Number(found)) ? Number(found) : null;
-  }
+  const found = state && state.tuneUidToIndex ? state.tuneUidToIndex.get(uid) : null;
+  const resolvedIndex = Number.isFinite(Number(found)) ? Number(found) : null;
 
   return mutateWorkingCopy((draft) => {
     if (resolvedIndex == null || resolvedIndex < 0 || resolvedIndex >= tunes.length) {
@@ -497,6 +669,8 @@ function deleteTune({ tuneUid, tuneIndex } = {}) {
     }
     const fullText = String(draft.text || "");
     if (end > fullText.length) throw new Error("Tune slice is out of bounds.");
+    const oldSlice = fullText.slice(start, end);
+    assertTuneIdentity({ tune, oldSlice, nextTuneText: oldSlice, expected });
 
     let before = fullText.slice(0, start);
     let after = fullText.slice(end);
@@ -505,22 +679,24 @@ function deleteTune({ tuneUid, tuneIndex } = {}) {
     }
     draft.text = `${before}${after}`;
     return { text: draft.text };
-  }, { kind: "deleteTune", tuneUid: uid || null, tuneIndex: idx, resolvedIndex });
+  }, { kind: "deleteTune", tuneUid: uid, tuneIndex: idx, resolvedIndex }, {
+    expectedPath,
+    expectedVersion,
+  });
 }
 
-function applyTuneText({ tuneUid, tuneIndex, text } = {}) {
+function applyTuneText({ tuneUid, tuneIndex, text, expected, expectedPath, expectedVersion } = {}) {
   const uid = tuneUid != null ? String(tuneUid) : "";
   const idx = Number.isFinite(Number(tuneIndex)) ? Number(tuneIndex) : null;
   const nextTuneText = (text != null) ? String(text) : "";
-  if (!uid && idx == null) throw new Error("Missing tuneUid/tuneIndex.");
+  if (!uid) throw new Error("Missing stable tuneUid.");
 
   return mutateWorkingCopy((draft) => {
     const tunes = state && Array.isArray(state.tunes) ? state.tunes : [];
-    // Prefer tuneUid over tuneIndex. tuneIndex is inherently unstable across reparses.
     let resolvedIndex = null;
     const byUid = state && state.tuneUidToIndex && uid ? state.tuneUidToIndex.get(uid) : null;
     if (Number.isFinite(Number(byUid))) resolvedIndex = Number(byUid);
-    if (resolvedIndex == null && idx != null) resolvedIndex = idx;
+    if (resolvedIndex == null) throw new Error("Tune not found by stable tuneUid.");
     if (resolvedIndex == null || resolvedIndex < 0 || resolvedIndex >= tunes.length) {
       throw new Error("Tune not found.");
     }
@@ -536,24 +712,44 @@ function applyTuneText({ tuneUid, tuneIndex, text } = {}) {
     if (beginsWithXLine(oldSlice) && !beginsWithXLine(nextTuneText)) {
       throw new Error("Refusing to save: tune must start with an X: header.");
     }
+    assertTuneIdentity({ tune, oldSlice, nextTuneText, expected });
     draft.text = `${fullText.slice(0, start)}${nextTuneText}${fullText.slice(end)}`;
     return { text: draft.text };
-  }, { kind: "applyTuneText", tuneUid: uid || null, tuneIndex: idx });
+  }, { kind: "applyTuneText", tuneUid: uid || null, tuneIndex: idx }, {
+    expectedPath,
+    expectedVersion,
+  });
 }
 
-function applyFullText(text) {
+function applyFullText(text, context = {}) {
   const next = String(text == null ? "" : text);
-  if (!state) throw new Error("No working copy open.");
   return mutateWorkingCopy((draft) => {
     draft.text = next;
     return { text: draft.text };
-  }, { kind: "applyFullText" });
+  }, { kind: "applyFullText", regenerateTuneUids: true }, context);
 }
 
-function insertTuneAfter({ afterTuneIndex, text } = {}) {
-  if (!state) throw new Error("No working copy open.");
+function insertTuneAfter({
+  afterTuneUid,
+  afterTuneIndex,
+  append = false,
+  text,
+  expectedPath,
+  expectedVersion,
+} = {}) {
+  assertWorkingCopyContext({ expectedPath, expectedVersion }, "insert tune");
   const tunes = state && Array.isArray(state.tunes) ? state.tunes : [];
-  const afterIdx = Number.isFinite(Number(afterTuneIndex)) ? Number(afterTuneIndex) : null;
+  const uid = String(afterTuneUid || "");
+  let afterIdx = null;
+  if (append) {
+    afterIdx = tunes.length - 1;
+  } else if (uid) {
+    const found = state && state.tuneUidToIndex ? state.tuneUidToIndex.get(uid) : null;
+    afterIdx = Number.isFinite(Number(found)) ? Number(found) : null;
+    if (afterIdx == null) throw new Error("Tune not found by stable tuneUid.");
+  } else if (Number.isFinite(Number(afterTuneIndex))) {
+    throw new Error("Refusing to insert tune by index without stable tuneUid.");
+  }
   const insertIdx = afterIdx == null ? tunes.length : Math.max(0, Math.min(tunes.length, afterIdx + 1));
   const tuneText = String(text == null ? "" : text);
   if (!tuneText.trim()) throw new Error("Missing tune text.");
@@ -582,7 +778,10 @@ function insertTuneAfter({ afterTuneIndex, text } = {}) {
     if (/^\r?\n/.test(after) && /\r?\n$/.test(prepared)) after = after.replace(/^\r?\n/, "");
     draft.text = `${before}${prepared}${after}`;
     return { text: draft.text };
-  }, { kind: "insertTune", insertIndex: insertIdx });
+  }, { kind: "insertTune", insertIndex: insertIdx }, {
+    expectedPath,
+    expectedVersion,
+  });
 }
 
 module.exports = {

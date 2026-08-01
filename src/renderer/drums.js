@@ -76,10 +76,64 @@ function velocityToDynamic(value) {
   return "fff";
 }
 
+function neutralizeMidiDrumDirectivesForPlayback(text) {
+  const raw = String(text || "");
+  if (!/(%%\s*MIDI\s+drum(on|bars)?\b|^\s*\+:)/im.test(raw)) return raw;
+  // Keep line lengths stable (istart mapping) by replacing "%%" with "% " (comment).
+  let inDrumDirectiveRun = false;
+  return raw.split(/\r\n|\n|\r/).map((line) => {
+    const isDrumDirective = /^\s*%%\s*MIDI\s+drum(on|off|bars)?\b/i.test(line);
+    const isContinuation = inDrumDirectiveRun && /^\s*(%%\s*MIDI\s+drum\s+)?\+:/i.test(line);
+    if (!isDrumDirective && !isContinuation) {
+      inDrumDirectiveRun = false;
+      return line;
+    }
+    inDrumDirectiveRun = isDrumDirective || isContinuation;
+    const idx = line.indexOf("%%");
+    if (idx < 0) {
+      const plusIdx = line.indexOf("+");
+      if (plusIdx < 0) return line;
+      return `${line.slice(0, plusIdx)}% ${line.slice(plusIdx)}`;
+    }
+    return `${line.slice(0, idx)}% ${line.slice(idx + 2)}`;
+  }).join("\n");
+}
+
+function isMidiDrumMustBeInVoicePlaybackError(message) {
+  return /%%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b[^\n]*must be (?:in|within) a voice/i
+    .test(String(message || ""));
+}
+
+function isMidiDrumBadValueCompatibilityError(message) {
+  return /Bad value in %%MIDI\s+(?:drum|drumon|drumoff|drumbars|drummap)\b/i
+    .test(String(message || ""));
+}
+
+function shouldSuppressUserVisibleAbcError(message) {
+  return isMidiDrumMustBeInVoicePlaybackError(message)
+    || isMidiDrumBadValueCompatibilityError(message);
+}
+
+function hasMidiDrumMustBeInVoicePlaybackError(parseErrors) {
+  if (!Array.isArray(parseErrors)) return false;
+  return parseErrors.some((e) => isMidiDrumMustBeInVoicePlaybackError(e && e.message ? e.message : ""));
+}
+
+function shouldRelocateMidiDrumsForPlayback(scopedOptions) {
+  if (!scopedOptions) return true;
+  return String(scopedOptions.origin || "") === "focus" && scopedOptions.allowMidiDrums !== false;
+}
+
 export {
   DEFAULT_DRUM_VELOCITY,
   DRUM_INSTRUMENTS,
   buildDefaultDrumVelocityMap,
   clampVelocity,
+  hasMidiDrumMustBeInVoicePlaybackError,
+  isMidiDrumBadValueCompatibilityError,
+  isMidiDrumMustBeInVoicePlaybackError,
+  neutralizeMidiDrumDirectivesForPlayback,
+  shouldRelocateMidiDrumsForPlayback,
+  shouldSuppressUserVisibleAbcError,
   velocityToDynamic,
 };

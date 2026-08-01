@@ -3,9 +3,9 @@ export async function mkdirp(dirPath) {
   return window.api.mkdirp(dirPath);
 }
 
-export async function writeFile(filePath, data) {
+export async function writeFile(filePath, data, options = {}) {
   if (!window.api || typeof window.api.writeFile !== "function") return { ok: false, error: "API missing" };
-  return window.api.writeFile(filePath, data);
+  return window.api.writeFile(filePath, data, options);
 }
 
 export async function renameFile(oldPath, newPath) {
@@ -36,4 +36,3 @@ export function safeDirname(filePath) {
   }
   return String(filePath || "").split("/").slice(0, -1).join("/");
 }
-

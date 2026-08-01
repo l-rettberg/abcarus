@@ -117,7 +117,7 @@ const FALLBACK_SCHEMA = [
   { key: "editorNotesBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Notes", ui: { input: "checkbox" } },
   { key: "editorLyricsBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Lyrics", ui: { input: "checkbox" } },
   { key: "useNativeTranspose", type: "boolean", default: true, section: "Tools", label: "Use native transpose", ui: { input: "checkbox" } },
-  { key: "makamToolsEnabled", type: "boolean", default: false, section: "Tools", group: "Makam Tools", groupOrder: 5, label: "Enable Makam Tools (microtone/EDO-53)", ui: { input: "checkbox" }, advanced: true },
+  { key: "supportMicrotonalNotation", type: "boolean", default: false, section: "Tools", group: "Microtonal notation", groupOrder: 5, label: "Support microtonal notation", help: "Enables optional makam/perde/EDO-53 tools such as Intonation Explorer and Makam DNA.", ui: { input: "checkbox" }, advanced: true },
   { key: "payloadModeEnabled", type: "boolean", default: false, section: "Tools", group: "Diagnostics", groupOrder: 6, label: "Enable Payload Mode (Diagnostics)", ui: { input: "checkbox" }, advanced: true },
   { key: "autoAlignBarsAfterTransforms", type: "boolean", default: false, section: "Tools", label: "Auto-align bars after transforms", ui: { input: "checkbox" }, advanced: true },
   { key: "abc2xmlArgs", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "abc2xml flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },
@@ -159,29 +159,6 @@ const FALLBACK_SCHEMA = [
   { key: "followPlayheadBetweenNotesWeight", type: "number", default: 1, section: "Playback", label: "Playhead between notes (%)", ui: { input: "percent", min: 0, max: 100, step: 5 }, advanced: true },
   { key: "followPlayheadShift", type: "number", default: 0, section: "Playback", label: "Playhead horizontal shift (px)", ui: { input: "number", min: -20, max: 20, step: 1 }, advanced: true },
   { key: "followPlayheadFirstBias", type: "number", default: 6, section: "Playback", label: "First-note bias (px)", ui: { input: "number", min: 0, max: 20, step: 1 }, advanced: true },
-  { key: "playbackNativeMidiDrums", type: "boolean", default: true, section: "Playback", label: "Use native abc2svg %%MIDI drum*", ui: { input: "checkbox" }, advanced: true },
-  {
-    key: "playbackMidiFxPreset",
-    type: "string",
-    default: "Custom",
-    section: "Playback",
-    group: "Audio",
-    groupOrder: 35,
-    order: 0,
-    label: "MIDI FX preset",
-    help: "Applies a preset reverb/chorus balance for playback. Choose Custom to edit the Reverb/Chorus levels below.",
-    ui: {
-      input: "select",
-      options: [
-        { value: "Custom", label: "Custom (manual)" },
-        { value: "Off", label: "Off" },
-        { value: "Room", label: "Room" },
-        { value: "Hall", label: "Hall" },
-      ],
-    },
-  },
-  { key: "playbackMidiReverb", type: "number", default: 0, section: "Playback", group: "Audio", groupOrder: 35, label: "MIDI reverb (CC91)", help: "Reverb level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.", ui: { input: "number", min: 0, max: 127, step: 1 } },
-  { key: "playbackMidiChorus", type: "number", default: 0, section: "Playback", group: "Audio", groupOrder: 35, label: "MIDI chorus (CC93)", help: "Chorus level during playback (0 = leave unchanged, 1–127 set level). Locked unless preset is Custom.", ui: { input: "number", min: 0, max: 127, step: 1 } },
 		  {
 		    key: "playbackAutoScrollMode",
 		    type: "string",
@@ -591,12 +568,11 @@ export function initSettings(api) {
         } else {
           meta.el.value = String(value || "");
         }
+        if (typeof meta.updateRemoveEnabled === "function") meta.updateRemoveEnabled();
       } else if ((kind === "number" || kind === "text") && meta.el) {
         meta.el.value = String(value == null ? "" : value);
       }
     }
-
-    updatePlaybackFxUi(effectiveSettings);
 
     if (globalHeaderView) {
       const nextText = String(effectiveSettings.globalHeaderText || "");
@@ -610,36 +586,6 @@ export function initSettings(api) {
       }
     }
 
-  }
-
-  function updatePlaybackFxUi(effectiveSettings) {
-    if (!effectiveSettings) return;
-    const preset = String(effectiveSettings.playbackMidiFxPreset || "Custom");
-    const isCustom = preset === "Custom";
-    const reverbMeta = controlByKey.get("playbackMidiReverb");
-    const chorusMeta = controlByKey.get("playbackMidiChorus");
-    if (reverbMeta && reverbMeta.el) reverbMeta.el.disabled = !isCustom;
-    if (chorusMeta && chorusMeta.el) chorusMeta.el.disabled = !isCustom;
-
-    if (!$settingsPanelsHost) return;
-    const presetHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiFxPreset\"] .settings-help");
-    if (presetHelp) {
-      presetHelp.textContent = isCustom
-        ? "Custom uses the Reverb/Chorus levels below."
-        : "Preset controls the Reverb/Chorus levels below (locked).";
-    }
-    const reverbHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiReverb\"] .settings-help");
-    if (reverbHelp) {
-      reverbHelp.textContent = isCustom
-        ? "Reverb level during playback (0 = leave unchanged, 1–127 set level)."
-        : `Locked by preset (${preset}). Switch to Custom to edit.`;
-    }
-    const chorusHelp = $settingsPanelsHost.querySelector(".settings-entry[data-settings-key=\"playbackMidiChorus\"] .settings-help");
-    if (chorusHelp) {
-      chorusHelp.textContent = isCustom
-        ? "Chorus level during playback (0 = leave unchanged, 1–127 set level)."
-        : `Locked by preset (${preset}). Switch to Custom to edit.`;
-    }
   }
 
   function openSettings() {
@@ -974,7 +920,12 @@ export function initSettings(api) {
           const v = String(select.value || "");
           const m = v.match(/^user:(.+)$/);
           const file = m ? String(m[1] || "") : "";
-          removeBtn.disabled = !file || !getEditorFontUserFiles().includes(file);
+          const canRemove = Boolean(file && getEditorFontUserFiles().includes(file));
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.title = canRemove
+            ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
+            : "No ABCarus-installed editor font copy is selected.";
         };
 
         removeBtn.addEventListener("click", async () => {
@@ -984,6 +935,7 @@ export function initSettings(api) {
           if (!file) return;
           const list = getEditorFontUserFiles();
           if (!list.includes(file)) return;
+          if (!confirm(`Delete ABCarus installed copy of "${file}"?\n\nThe original external font file will not be touched.`)) return;
           if (!api || typeof api.removeFont !== "function") return;
           const res = await api.removeFont(file).catch(() => null);
           if (!res || !res.ok) return;
@@ -1002,7 +954,7 @@ export function initSettings(api) {
         wrap.appendChild(addBtn);
         wrap.appendChild(removeBtn);
         row.appendChild(wrap);
-        controlByKey.set(entry.key, { entry, el: select });
+        controlByKey.set(entry.key, { entry, el: select, updateRemoveEnabled });
         return row;
       }
 
@@ -1157,14 +1109,34 @@ export function initSettings(api) {
         if (!m) return;
         const fileName = String(m[1] || "");
         if (!fileName) return;
-        const ok = confirm(`Remove user font "${fileName}"?`);
+        const ok = confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`);
         if (!ok) return;
         if (!api || typeof api.removeFont !== "function") return;
+        const removedRef = `user:${fileName}`;
+        const effectiveBeforeRemove = getEffectiveSettings();
         const res = await api.removeFont(fileName).catch(() => null);
         if (!res || !res.ok) {
           alert(res && res.error ? res.error : "Failed to remove font.");
           return;
         }
+        const patch = {};
+        if (String(effectiveBeforeRemove.abc2svgNotationFontFile || "") === removedRef) {
+          patch.abc2svgNotationFontFile = "";
+        }
+        if (String(effectiveBeforeRemove.abc2svgTextFontFile || "") === removedRef) {
+          patch.abc2svgTextFontFile = "";
+        }
+        if (String(effectiveBeforeRemove.editorFontFamily || "").includes(`ABCarus User Font: ${fileName}`)) {
+          patch.editorFontFamily = String(defaultSettings.editorFontFamily || "");
+        }
+        if (Object.keys(patch).length) {
+          const nextDraft = { ...(draftPatch || {}) };
+          for (const key of Object.keys(patch)) delete nextDraft[key];
+          setDraftPatch(nextDraft);
+          await updateSettings(patch).catch(() => {});
+        }
+        setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => String(name || "") !== fileName));
+        ensureEditorUserFontFaces();
         const list = await api.listFonts().catch(() => null);
         if (list && list.ok) {
           cachedFontLists = {
@@ -1179,24 +1151,25 @@ export function initSettings(api) {
           };
         }
         refreshFontSelectControls();
-        const removedRef = `user:${fileName}`;
-        const effective = getEffectiveSettings();
-        if (String(effective.abc2svgNotationFontFile || "") === removedRef) {
-          stageSetting("abc2svgNotationFontFile", "");
-        }
-        if (String(effective.abc2svgTextFontFile || "") === removedRef) {
-          stageSetting("abc2svgTextFontFile", "");
-        }
+        updateRemoveEnabled();
       });
 
       const updateRemoveEnabled = () => {
         const current = String(select.value || "");
         if (isSoundfontSelect) {
-          removeBtn.disabled = !isSoundfontPath(current);
-          removeBtn.title = removeBtn.disabled ? "Bundled soundfonts cannot be removed." : "";
+          const canRemove = isSoundfontPath(current);
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Remove link" : "No link";
+          removeBtn.title = canRemove
+            ? "Remove this external soundfont reference from ABCarus. The file will not be deleted."
+            : "Bundled/default soundfonts cannot be removed from this list.";
         } else {
-          removeBtn.disabled = !/^user:/.test(current);
-          removeBtn.title = removeBtn.disabled ? "Only user-installed fonts can be removed." : "";
+          const canRemove = /^user:/.test(current);
+          removeBtn.disabled = !canRemove;
+          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.title = canRemove
+            ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
+            : "Only ABCarus-installed font copies can be deleted.";
         }
       };
       select.addEventListener("change", updateRemoveEnabled);
@@ -1205,7 +1178,7 @@ export function initSettings(api) {
       wrap.appendChild(addBtn);
       wrap.appendChild(removeBtn);
       row.appendChild(wrap);
-      controlByKey.set(entry.key, { entry, el: select });
+      controlByKey.set(entry.key, { entry, el: select, updateRemoveEnabled });
       return row;
     }
 

@@ -1,7 +1,13 @@
 ADR-0010 — Renderer Tool Modules & Stability Rails
 
 Date: 2026-01-24  
-Status: Proposed
+Status: Superseded in scope by ADR-0015 and ADR-0017
+
+Update 2026-07-16: This ADR remains useful as the first tool-module stability
+rail, but its scope is narrower than the current renderer modularization
+contract. ADR-0015 defines feature ownership boundaries, and ADR-0017 defines
+the active domain-modularization contract for `renderer.js`. New work should
+follow ADR-0017 when this ADR is less strict or less specific.
 
 ## Context
 

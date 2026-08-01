@@ -3,13 +3,24 @@ const fs = require("fs");
 const path = require("path");
 const { fileURLToPath, pathToFileURL } = require("url");
 const childProcess = require("child_process");
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell, Menu, screen, protocol } = require("electron");
 const { applyMenu } = require("./menu");
 const { registerIpcHandlers } = require("./ipc");
+const { createSoundfontProtocol, registerSoundfontScheme } = require("./soundfontProtocol");
 const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
+const { normalizeMicrotonalSettings } = require("./settings_normalize");
 const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
+const {
+  composeStateDocument,
+  loadStateDocument,
+  saveStateDocument,
+  splitStateDocument,
+} = require("./state_store");
+
+registerSoundfontScheme(protocol);
+const soundfontProtocol = createSoundfontProtocol({ protocol, fs, path });
 
 let mainWindow = null;
 let splashWindow = null;
@@ -28,6 +39,27 @@ const DEFAULT_MAIN_WINDOW_BOUNDS = {
 const STARTUP_PERF_ENABLED = process.env.ABCARUS_DEV_STARTUP_PERF === "1";
 const UI_SMOKE_ENABLED = process.env.ABCARUS_DEV_UI_SMOKE === "1";
 const DEV_NO_CACHE_ENABLED = process.env.ABCARUS_DEV_NO_CACHE !== "0";
+const DEV_SOUNDFONT_PATH = UI_SMOKE_ENABLED
+  ? String(process.env.ABCARUS_DEV_SOUNDFONT_PATH || "").trim()
+  : "";
+const DEV_USER_DATA_PATH = UI_SMOKE_ENABLED
+  ? String(process.env.ABCARUS_DEV_USER_DATA || "").trim()
+  : "";
+if (DEV_USER_DATA_PATH) app.setPath("userData", path.resolve(DEV_USER_DATA_PATH));
+function withDevSoundfont(settings) {
+  const smokeSettings = UI_SMOKE_ENABLED
+    ? { ...settings, disclaimerSeen: true }
+    : settings;
+  if (!DEV_SOUNDFONT_PATH) return smokeSettings;
+  return {
+    ...smokeSettings,
+    soundfontName: DEV_SOUNDFONT_PATH,
+    soundfontPaths: Array.from(new Set([
+      ...(Array.isArray(settings.soundfontPaths) ? settings.soundfontPaths : []),
+      DEV_SOUNDFONT_PATH,
+    ])),
+  };
+}
 const STARTUP_T0_MS = Date.now();
 function logStartupPerf(label, data) {
   if (!STARTUP_PERF_ENABLED) return;
@@ -59,6 +91,9 @@ const appState = {
     isFullScreen: false,
   },
 };
+let stateDocumentExtras = {};
+let stateRecoveredFromBackup = false;
+let stateSaveQueue = Promise.resolve();
 
 function parseCliOptions(argv) {
   let args = Array.isArray(argv) ? argv.slice(1) : [];
@@ -127,9 +162,6 @@ function queueOrOpenCliInputPath(rawPath) {
   }
   const abs = path.resolve(resolved);
   pendingCliOpenFile = abs;
-  appState.recentTunes = [];
-  appState.recentFiles = [];
-  appState.recentFolders = [];
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   try {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -505,57 +537,62 @@ async function loadSettingsFromAttachedFile() {
 }
 
 async function loadState() {
-  try {
-    const raw = await fs.promises.readFile(getStatePath(), "utf8");
-    const data = JSON.parse(raw);
-    if (data && typeof data === "object") {
-      appState.lastFolder = data.lastFolder || null;
-      appState.lastDialogDir = data.lastDialogDir || data.lastDialogPath || null;
-      appState.recentTunes = Array.isArray(data.recentTunes) ? data.recentTunes : [];
-      appState.recentFiles = Array.isArray(data.recentFiles) ? data.recentFiles : [];
-      appState.recentFolders = Array.isArray(data.recentFolders) ? data.recentFolders : [];
-      if (data.settingsFile && typeof data.settingsFile === "object") {
-        const mode = data.settingsFile.mode === "file" ? "file" : "internal";
-        const p = data.settingsFile.path ? String(data.settingsFile.path) : null;
-        appState.settingsFile = {
-          mode,
-          path: p,
-          lastKnownMtimeMs: Number(data.settingsFile.lastKnownMtimeMs) || 0,
-        };
-      }
-      if (data.settings && typeof data.settings === "object") {
-        const merged = { ...getDefaultSettings(), ...data.settings };
-        if (data.settings.zoomFactor && !data.settings.renderZoom && !data.settings.editorZoom) {
-          merged.renderZoom = data.settings.zoomFactor;
-          merged.editorZoom = data.settings.zoomFactor;
-        }
-        // Default portal dialogs ON for Linux unless explicitly set by the user.
-        if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
-          merged.usePortalFileDialogs = true;
-        }
-        // Errors feature is intentionally session-only and defaults to off.
-        merged.errorsEnabled = false;
-        // Per-split zoom migration: keep old single zoom for both orientations.
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "layoutRenderZoomVertical")) {
-          merged.layoutRenderZoomVertical = merged.renderZoom;
-        }
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "layoutRenderZoomHorizontal")) {
-          merged.layoutRenderZoomHorizontal = merged.renderZoom;
-        }
-        // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
-        // If the backend was never explicitly chosen, move to auto mode.
-        if (!Object.prototype.hasOwnProperty.call(data.settings, "midiImportBackendSetByUser")) {
-          if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
-            merged.midiImportBackend = "auto";
-          }
-        }
-        appState.settings = merged;
-      } else {
-        appState.settings = getDefaultSettings();
-      }
-      appState.windowState = normalizeWindowState(data.windowState);
+  const loaded = await loadStateDocument({ fs, filePath: getStatePath() });
+  const data = loaded.data;
+  if (data) {
+    const { known, extras } = splitStateDocument(data);
+    stateDocumentExtras = extras;
+    stateRecoveredFromBackup = loaded.recovered;
+    if (loaded.recovered) {
+      console.warn("Recovered application state from backup after the primary state file could not be read.");
     }
-  } catch {}
+    const state = known;
+    appState.lastFolder = state.lastFolder || null;
+    appState.lastDialogDir = state.lastDialogDir || state.lastDialogPath || null;
+    appState.recentTunes = Array.isArray(state.recentTunes) ? state.recentTunes : [];
+    appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
+    appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
+    if (state.settingsFile && typeof state.settingsFile === "object") {
+      const mode = state.settingsFile.mode === "file" ? "file" : "internal";
+      const p = state.settingsFile.path ? String(state.settingsFile.path) : null;
+      appState.settingsFile = {
+        mode,
+        path: p,
+        lastKnownMtimeMs: Number(state.settingsFile.lastKnownMtimeMs) || 0,
+      };
+    }
+    if (state.settings && typeof state.settings === "object") {
+      const merged = { ...getDefaultSettings(), ...state.settings };
+      if (state.settings.zoomFactor && !state.settings.renderZoom && !state.settings.editorZoom) {
+        merged.renderZoom = state.settings.zoomFactor;
+        merged.editorZoom = state.settings.zoomFactor;
+      }
+      // Default portal dialogs ON for Linux unless explicitly set by the user.
+      if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
+        merged.usePortalFileDialogs = true;
+      }
+      // Errors feature is intentionally session-only and defaults to off.
+      merged.errorsEnabled = false;
+      // Per-split zoom migration: keep old single zoom for both orientations.
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomVertical")) {
+        merged.layoutRenderZoomVertical = merged.renderZoom;
+      }
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomHorizontal")) {
+        merged.layoutRenderZoomHorizontal = merged.renderZoom;
+      }
+      // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
+      // If the backend was never explicitly chosen, move to auto mode.
+      if (!Object.prototype.hasOwnProperty.call(state.settings, "midiImportBackendSetByUser")) {
+        if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
+          merged.midiImportBackend = "auto";
+        }
+      }
+      appState.settings = merged;
+    } else {
+      appState.settings = getDefaultSettings();
+    }
+    appState.windowState = normalizeWindowState(state.windowState);
+  }
   if (!appState.settings) appState.settings = getDefaultSettings();
   if (!appState.windowState) appState.windowState = normalizeWindowState(null);
   // If the user explicitly attached a properties file, prefer it as the source of truth.
@@ -608,54 +645,26 @@ async function migrateStatePaths() {
     }
   }
 
-  const validFolderEntries = [];
-  for (const entry of appState.recentFolders) {
-    if (entry && entry.path && await pathExists(entry.path)) {
-      if (await folderHasAbc(entry.path)) validFolderEntries.push(entry);
-    }
-  }
-  appState.recentFolders = validFolderEntries;
-
-  const validFileEntries = [];
-  for (const entry of appState.recentFiles) {
-    if (entry && entry.path && await pathExists(entry.path)) validFileEntries.push(entry);
-  }
-  appState.recentFiles = validFileEntries;
-
-  const validTuneEntries = [];
-  for (const entry of appState.recentTunes) {
-    if (entry && entry.path && await pathExists(entry.path)) validTuneEntries.push(entry);
-  }
-  appState.recentTunes = validTuneEntries;
+  // Do not destructively prune recents during startup. Files or folders may be
+  // temporarily unavailable, externally deleted, or opened through file
+  // association. Keeping the remembered paths is safer than replacing the
+  // user's navigation history with an empty state.
+  appState.recentFolders = Array.isArray(appState.recentFolders)
+    ? appState.recentFolders.filter((entry) => entry && entry.path)
+    : [];
+  appState.recentFiles = Array.isArray(appState.recentFiles)
+    ? appState.recentFiles.filter((entry) => entry && entry.path)
+    : [];
+  appState.recentTunes = Array.isArray(appState.recentTunes)
+    ? appState.recentTunes.filter((entry) => entry && entry.path)
+    : [];
 
   await saveState();
 }
 
-async function folderHasAbc(rootDir) {
-  const stack = [rootDir];
-  while (stack.length) {
-    const dir = stack.pop();
-    let entries = [];
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".abc")) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-async function saveState() {
+async function persistState() {
   try {
-    const payload = JSON.stringify(
+    const payload = composeStateDocument(
       {
         lastFolder: appState.lastFolder,
         lastDialogDir: appState.lastDialogDir,
@@ -666,11 +675,30 @@ async function saveState() {
         settingsFile: appState.settingsFile,
         windowState: appState.windowState,
       },
-      null,
-      2
+      stateDocumentExtras,
     );
-    await fs.promises.writeFile(getStatePath(), payload, "utf8");
-  } catch {}
+    await saveStateDocument({
+      fs,
+      path,
+      filePath: getStatePath(),
+      data: payload,
+      skipBackup: stateRecoveredFromBackup,
+    });
+    stateRecoveredFromBackup = false;
+  } catch (error) {
+    console.error("Unable to persist application state:", error && error.message ? error.message : error);
+    return false;
+  }
+  return true;
+}
+
+function saveState() {
+  const next = stateSaveQueue.then(() => persistState());
+  stateSaveQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 function captureWindowState(win) {
@@ -1054,6 +1082,16 @@ function showSaveError(message) {
   });
 }
 
+function showTransformError(message) {
+  const parent = prepareDialogParent(null, "transform-error");
+  dialog.showMessageBoxSync(parent || undefined, {
+    type: "error",
+    buttons: ["OK"],
+    message: "Unable to transform notation.",
+    detail: message || "Unknown error.",
+  });
+}
+
 function showOpenError(message) {
   const parent = prepareDialogParent(null, "open-error");
   dialog.showMessageBoxSync(parent || undefined, {
@@ -1159,9 +1197,12 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <style>
       html, body { margin: 0; padding: 0; }
       body { padding: 24px; font-family: sans-serif; }
-      svg { width: 100%; height: auto; display: block; }
-      img { width: 100%; height: auto; display: block; }
-      .print-tune { page-break-after: always; break-after: page; }
+      svg { max-width: 100%; height: auto; display: block; overflow: visible; }
+      img { max-width: 100%; height: auto; display: block; }
+      .nobrk { page-break-inside: avoid; break-inside: avoid; }
+      .newpage { page-break-before: always; break-before: page; }
+      .newpage:first-of-type { page-break-before: auto; break-before: auto; }
+      .print-tune { page-break-after: always; break-after: page; overflow: visible; }
       .print-tune:last-of-type { page-break-after: auto; break-after: auto; }
       .print-error-summary,
       .print-error-card {
@@ -1202,16 +1243,39 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <script>
       (function () {
         var skipRaster = ${skipRaster ? "true" : "false"};
-        if (skipRaster) {
-          window._rasterReadyPromise = Promise.resolve();
-          return;
-        }
         function waitForFonts() {
           if (!document.fonts || !document.fonts.load) return Promise.resolve();
           return Promise.all([
             document.fonts.load('12px "music"').catch(function () { return null; }),
             document.fonts.ready.catch(function () { return null; }),
           ]);
+        }
+        function normalizeSvgBounds() {
+          const svgs = Array.from(document.querySelectorAll("svg"));
+          for (const svg of svgs) {
+            try {
+              if (!svg || !svg.getBBox) continue;
+              const bbox = svg.getBBox();
+              if (!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) continue;
+              const vb = svg.viewBox && svg.viewBox.baseVal;
+              const curX = vb ? Number(vb.x) || 0 : 0;
+              const curY = vb ? Number(vb.y) || 0 : 0;
+              const curW = vb && Number(vb.width) > 0 ? Number(vb.width) : (Number.parseFloat(svg.getAttribute("width")) || bbox.width);
+              const curH = vb && Number(vb.height) > 0 ? Number(vb.height) : (Number.parseFloat(svg.getAttribute("height")) || bbox.height);
+              const pad = 3;
+              const minX = Math.min(curX, Math.floor(bbox.x - pad));
+              const minY = Math.min(curY, Math.floor(bbox.y - pad));
+              const maxX = Math.max(curX + curW, Math.ceil(bbox.x + bbox.width + pad));
+              const maxY = Math.max(curY + curH, Math.ceil(bbox.y + bbox.height + pad));
+              const nextW = Math.max(1, maxX - minX);
+              const nextH = Math.max(1, maxY - minY);
+              if (minX !== curX || minY !== curY || nextW > curW || nextH > curH) {
+                svg.setAttribute("viewBox", minX + " " + minY + " " + nextW + " " + nextH);
+                svg.setAttribute("width", nextW + "px");
+                svg.setAttribute("height", nextH + "px");
+              }
+            } catch (_e) {}
+          }
         }
         function rasterizeSvg(svg) {
           const xml = new XMLSerializer().serializeToString(svg);
@@ -1252,7 +1316,11 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
             }
           });
         }
-        window._rasterReadyPromise = waitForFonts().then(rasterizeAll);
+        window._rasterReadyPromise = waitForFonts().then(function () {
+          normalizeSvgBounds();
+          if (skipRaster) return null;
+          return rasterizeAll();
+        });
       })();
     </script>
   </body>
@@ -1517,7 +1585,7 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.confirmAppendToActiveFile = Boolean(next.confirmAppendToActiveFile);
   next.autoAlignBarsAfterTransforms = Boolean(next.autoAlignBarsAfterTransforms);
   next.editorHelpEnabled = Boolean(next.editorHelpEnabled);
-  next.makamToolsEnabled = Boolean(next.makamToolsEnabled || next.studyToolsEnabled);
+  normalizeMicrotonalSettings(next, patch);
   next.payloadModeEnabled = Boolean(next.payloadModeEnabled);
   {
     const rawMidiBackend = String(next.midiImportBackend || "").trim();
@@ -1525,16 +1593,9 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
     next.midiImportBackend = allowed.has(rawMidiBackend) ? rawMidiBackend : "auto";
   }
   next.midiImportBackendSetByUser = Boolean(next.midiImportBackendSetByUser);
-  next.playbackNativeMidiDrumsSetByUser = Boolean(next.playbackNativeMidiDrumsSetByUser);
   if (patch && Object.prototype.hasOwnProperty.call(patch, "usePortalFileDialogs")) {
     next.usePortalFileDialogsSetByUser = true;
   }
-  if (patch && Object.prototype.hasOwnProperty.call(patch, "playbackNativeMidiDrums")) {
-    next.playbackNativeMidiDrumsSetByUser = true;
-  }
-  next.playbackNativeMidiDrums = next.playbackNativeMidiDrumsSetByUser
-    ? Boolean(next.playbackNativeMidiDrums)
-    : true;
   if (patch && Object.prototype.hasOwnProperty.call(patch, "midiImportBackend")) {
     next.midiImportBackendSetByUser = true;
   }
@@ -1544,10 +1605,11 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   saveState();
   if (persistToSettingsFile) schedulePersistAttachedSettingsFile();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("settings:changed", next);
+    mainWindow.webContents.send("settings:changed", withDevSoundfont(next));
   }
   if (patch && (
-    Object.prototype.hasOwnProperty.call(patch, "makamToolsEnabled")
+    Object.prototype.hasOwnProperty.call(patch, "supportMicrotonalNotation")
+    || Object.prototype.hasOwnProperty.call(patch, "makamToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "studyToolsEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "payloadModeEnabled")
     || Object.prototype.hasOwnProperty.call(patch, "mp3ExportTimidityPath")
@@ -2716,17 +2778,22 @@ async function createWindow() {
     }
     const hasMod = input.control || input.meta;
     if (!hasMod || !input.shift || input.alt) return;
-    const key = input.key;
-    if (key === "ArrowUp") {
+    const key = String(input.key || "");
+    const code = String(input.code || "");
+    const isArrowUp = key === "ArrowUp" || key === "Up" || code === "ArrowUp" || code === "Up";
+    const isArrowDown = key === "ArrowDown" || key === "Down" || code === "ArrowDown" || code === "Down";
+    const isArrowRight = key === "ArrowRight" || key === "Right" || code === "ArrowRight" || code === "Right";
+    const isArrowLeft = key === "ArrowLeft" || key === "Left" || code === "ArrowLeft" || code === "Left";
+    if (isArrowUp) {
       event.preventDefault();
       sendMenuAction("transformTransposeUp");
-    } else if (key === "ArrowDown") {
+    } else if (isArrowDown) {
       event.preventDefault();
       sendMenuAction("transformTransposeDown");
-    } else if (key === "ArrowRight") {
+    } else if (isArrowRight) {
       event.preventDefault();
       sendMenuAction("transformDouble");
-    } else if (key === "ArrowLeft") {
+    } else if (isArrowLeft) {
       event.preventDefault();
       sendMenuAction("transformHalf");
     } else if (key === "A" || key === "a") {
@@ -2761,6 +2828,401 @@ async function createWindow() {
 }
 
 async function runUiSmoke(win) {
+  const exitUiSmoke = (ok, label, result) => {
+    try {
+      const prefix = ok ? "PASS" : "FAIL";
+      const log = ok ? console.log : console.error;
+      log(`[ui-smoke] ${prefix} ${label}`, JSON.stringify(result || {}));
+    } catch {}
+    process.exitCode = ok ? 0 : 1;
+    isQuitting = true;
+    try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
+  };
+
+  if (process.env.ABCARUS_DEV_PAYLOAD_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const payloadResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const hook = window.__abcarusDevUiSmoke;
+        if (
+          !hook
+          || typeof hook.preparePayloadTune !== "function"
+          || typeof hook.dispatchAction !== "function"
+          || typeof hook.snapshot !== "function"
+        ) {
+          return { ok: false, reason: "payload smoke hook unavailable" };
+        }
+        const source = "X:1\\nT:Payload Smoke\\nK:C\\nC D E F|\\n";
+        hook.setPayloadModeSettingEnabled(true);
+        hook.preparePayloadTune(source);
+        await hook.dispatchAction({ type: "openPayloadMode" });
+        await wait(120);
+        const entered = hook.snapshot();
+        await hook.dispatchAction({ type: "openPayloadMode" });
+        await wait(120);
+        const exited = hook.snapshot();
+        return {
+          ok: Boolean(
+            entered
+            && entered.payloadMode
+            && entered.payloadBarHidden === false
+            && exited
+            && !exited.payloadMode
+            && exited.payloadBarHidden === true
+            && exited.editorText === source
+          ),
+          entered: {
+            payloadMode: Boolean(entered && entered.payloadMode),
+            payloadBarHidden: Boolean(entered && entered.payloadBarHidden),
+            editorChars: entered && entered.editorText ? entered.editorText.length : 0,
+            toast: entered ? entered.toast : "",
+          },
+          exited: {
+            payloadMode: Boolean(exited && exited.payloadMode),
+            payloadBarHidden: Boolean(exited && exited.payloadBarHidden),
+            restored: Boolean(exited && exited.editorText === source),
+            toast: exited ? exited.toast : "",
+          },
+        };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(payloadResult && payloadResult.ok), "payload", payloadResult);
+    return;
+  }
+
+  if (process.env.ABCARUS_DEV_PLAYBACK_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const requireFirstNote = process.env.ABCARUS_DEV_SOUNDFONT_SMOKE === "1";
+    const playbackResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const requireFirstNote = ${requireFirstNote ? "true" : "false"};
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitFor = async (predicate, timeoutMs, stepMs = 100) => {
+          const start = Date.now();
+          let last = null;
+          while (Date.now() - start < timeoutMs) {
+            last = predicate();
+            if (last && last.ok) return last;
+            await wait(stepMs);
+          }
+          return last || { ok: false };
+        };
+        const compactSnapshot = (snap) => ({
+          isPlaying: !!(snap && snap.isPlaying),
+          isPaused: !!(snap && snap.isPaused),
+          waitingForFirstNote: !!(snap && snap.waitingForFirstNote),
+          playbackStartArmed: !!(snap && snap.playbackStartArmed),
+          playText: snap ? snap.playText : "",
+          playActive: !!(snap && snap.playActive),
+          playDisabled: !!(snap && snap.playDisabled),
+          stopDisabled: !!(snap && snap.stopDisabled),
+          status: snap ? snap.status : "",
+          toast: snap ? snap.toast : "",
+          hasSvg: !!(snap && snap.hasSvg),
+          debugSymbols: snap && snap.playbackDebug ? snap.playbackDebug.symbols : undefined,
+          debugMeasures: snap && snap.playbackDebug ? snap.playbackDebug.measures : undefined,
+          soundfont: snap ? snap.soundfont : null,
+        });
+        const hook = window.__abcarusDevUiSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.snapshot !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-ui-hook" };
+        }
+        const abc = [
+          "X:1",
+          "T:UI Playback Smoke",
+          "M:4/4",
+          "L:1/4",
+          "Q:1/4=96",
+          "K:C",
+          "C D E F | G A B c | c B A G | F E D C |",
+          "C D E F | G A B c | c B A G | F E D C |]"
+        ].join("\\n") + "\\n";
+        hook.setText(abc);
+        const rendered = await waitFor(() => {
+          const snap = hook.snapshot();
+          return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+        }, 8000, 120);
+        if (!rendered.ok) {
+          return { ok: false, phase: "render", reason: "missing-svg", last: rendered.snap };
+        }
+        if (typeof hook.clickPlay !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-click-play" };
+        }
+        const audioProbe = {
+          starts: 0,
+          bufferedStarts: 0,
+          nonZeroStarts: 0,
+          lastBufferLength: 0,
+        };
+        if (requireFirstNote && window.AudioBufferSourceNode && window.AudioBufferSourceNode.prototype) {
+          const proto = window.AudioBufferSourceNode.prototype;
+          const originalStart = proto.start;
+          proto.start = function (...args) {
+            audioProbe.starts += 1;
+            const buffer = this.buffer;
+            const length = buffer && Number(buffer.length) > 1 ? Number(buffer.length) : 0;
+            if (length > 0) {
+              audioProbe.bufferedStarts += 1;
+              audioProbe.lastBufferLength = length;
+              try {
+                const data = buffer.getChannelData(0);
+                const step = Math.max(1, Math.floor(data.length / 256));
+                for (let i = 0; i < data.length; i += step) {
+                  if (Math.abs(Number(data[i]) || 0) > 1e-8) {
+                    audioProbe.nonZeroStarts += 1;
+                    break;
+                  }
+                }
+              } catch {}
+            }
+            return originalStart.apply(this, args);
+          };
+        }
+        hook.clickPlay();
+        const failurePattern = /Playback failed|Playback parse error|failed to start|not mappable|invalid/i;
+        const startSamples = [];
+        const started = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          startSamples.push(compact);
+          if (startSamples.length > 10) startSamples.shift();
+          const text = String((compact.status || "") + " " + (compact.toast || ""));
+          if (failurePattern.test(text)) {
+            return { ok: false, failed: true, snap: compact };
+          }
+          const active = !!(
+            compact.isPlaying
+            || compact.waitingForFirstNote
+            || compact.playbackStartArmed
+            || compact.playActive
+            || /Pause|Resume/i.test(String(compact.playText || ""))
+          );
+          const firstNoteStarted = compact.isPlaying
+            && !compact.waitingForFirstNote
+            && /Playing/i.test(String(compact.status || ""));
+          return { ok: requireFirstNote ? firstNoteStarted : active, snap: compact };
+        }, requireFirstNote ? 90000 : 7000, 120);
+        if (!started.ok) {
+          return {
+            ok: false,
+            phase: "start",
+            reason: started.failed ? "playback-failed" : "playback-did-not-start",
+            last: started.snap,
+            samples: startSamples,
+          };
+        }
+        if (requireFirstNote) {
+          const audible = await waitFor(() => ({
+            ok: audioProbe.bufferedStarts > 0 && audioProbe.nonZeroStarts > 0,
+          }), 90000, 150);
+          if (!audible.ok) {
+            return {
+              ok: false,
+              phase: "audio",
+              reason: "no-nonzero-audio-buffer-started",
+              audioProbe,
+              started: started.snap,
+            };
+          }
+        }
+        if (typeof hook.clickStop === "function") hook.clickStop();
+        const stopped = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          return {
+            ok: !compact.isPlaying && !compact.waitingForFirstNote && !compact.playbackStartArmed && !compact.playActive,
+            snap: compact,
+          };
+        }, 4000, 120);
+        if (!stopped.ok) {
+          return { ok: false, phase: "stop", reason: "playback-did-not-stop", last: stopped.snap };
+        }
+        const soundfontSource = window.p && typeof window.p.set_sfu === "function"
+          ? window.p.set_sfu()
+          : "";
+        const runtimeSettings = window.api && typeof window.api.getSettings === "function"
+          ? await window.api.getSettings()
+          : null;
+        const configuredSoundfont = runtimeSettings ? String(runtimeSettings.soundfontName || "") : "";
+        if (
+          requireFirstNote
+          && (/^[/]|^[A-Za-z]:\\\\/.test(configuredSoundfont))
+          && !String(soundfontSource || "").startsWith("abcarus-sf2://")
+        ) {
+          return {
+            ok: false,
+            phase: "soundfont",
+            reason: "external-soundfont-was-not-applied",
+            configuredSoundfont,
+            soundfontSource,
+            soundfont: stopped.snap ? stopped.snap.soundfont : null,
+          };
+        }
+        return {
+          ok: true,
+          rendered: rendered.snap,
+          started: started.snap,
+          stopped: stopped.snap,
+          soundfontSource,
+          configuredSoundfont,
+          audioProbe: requireFirstNote ? audioProbe : null,
+        };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(playbackResult && playbackResult.ok), "playback", playbackResult);
+    return;
+  }
+
+  if (process.env.ABCARUS_DEV_CLOSE_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const closeResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitFor = async (predicate, timeoutMs, stepMs = 100) => {
+          const start = Date.now();
+          let last = null;
+          while (Date.now() - start < timeoutMs) {
+            last = predicate();
+            if (last && last.ok) return last;
+            await wait(stepMs);
+          }
+          return last || { ok: false };
+        };
+        const compactSnapshot = (snap) => ({
+          editorChars: snap && snap.editorText ? String(snap.editorText).length : 0,
+          hasSvg: !!(snap && snap.hasSvg),
+          status: snap ? snap.status : "",
+          toast: snap ? snap.toast : "",
+          closeDisabled: !!(snap && snap.closeDisabled),
+          tuneSelectDisabled: !!(snap && snap.tuneSelectDisabled),
+          tuneSelectValue: snap ? snap.tuneSelectValue : "",
+          tuneSelectText: snap ? snap.tuneSelectText : "",
+        });
+        const hook = window.__abcarusDevUiSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.clickClose !== "function" || typeof hook.snapshot !== "function") {
+          return { ok: false, phase: "setup", reason: "missing-ui-hook" };
+        }
+        let rendered = await waitFor(() => {
+          const snap = hook.snapshot();
+          return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+        }, 2500, 120);
+        if (!rendered.ok) {
+          hook.setCleanDocument("X:1\\nT:Close Smoke\\nM:4/4\\nL:1/4\\nK:C\\nC D E F |]\\n");
+          rendered = await waitFor(() => {
+            const snap = hook.snapshot();
+            return { ok: !!(snap && snap.hasSvg), snap: compactSnapshot(snap) };
+          }, 8000, 120);
+        }
+        if (!rendered.ok) return { ok: false, phase: "render", reason: "missing-svg", last: rendered.snap };
+        if (rendered.snap && rendered.snap.closeDisabled) {
+          return { ok: false, phase: "close", reason: "close-button-disabled", last: rendered.snap };
+        }
+        hook.clickClose();
+        const closed = await waitFor(() => {
+          const snap = hook.snapshot();
+          const compact = compactSnapshot(snap);
+          return {
+            ok: compact.editorChars === 0 && !compact.hasSvg && compact.tuneSelectDisabled,
+            snap: compact,
+          };
+        }, 4000, 120);
+        if (!closed.ok) return { ok: false, phase: "close", reason: "document-did-not-close", last: closed.snap };
+        return { ok: true, rendered: rendered.snap, closed: closed.snap };
+      })()`,
+      true
+    );
+    exitUiSmoke(Boolean(closeResult && closeResult.ok), "close", closeResult);
+    return;
+  }
+
+  if (process.env.ABCARUS_DEV_TRANSFORM_KEYS_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const setupResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const hook = window.__abcarusDevTransformSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.getText !== "function") {
+          return { ok: false, reason: "missing-transform-hook" };
+        }
+        hook.setText("X:1\\nT:Test\\nM:4/4\\nL:1/8\\nK:C\\nC2 D E F | G A B c |]\\n");
+        return { ok: true, text: hook.getText() || "" };
+      })()`,
+      true
+    );
+    if (!setupResult || !setupResult.ok) {
+      exitUiSmoke(false, "transform keys setup", setupResult);
+      return;
+    }
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right", modifiers: ["control", "shift"] });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right", modifiers: ["control", "shift"] });
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    const afterDouble = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    const afterDoubleText = String(afterDouble || "");
+    const result = {
+      ok: afterDoubleText.includes("L:1/16") && afterDoubleText.includes("C4"),
+      afterDouble: afterDoubleText.slice(0, 160),
+    };
+    exitUiSmoke(Boolean(result.ok), "transform keys", result);
+    return;
+  }
+
+  if (process.env.ABCARUS_DEV_TRANSFORM_SMOKE === "1") {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    const transformResult = await win.webContents.executeJavaScript(
+      `(async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const hook = window.__abcarusDevTransformSmoke;
+        if (!hook || typeof hook.setText !== "function" || typeof hook.getText !== "function") {
+          return { ok: false, reason: "missing-transform-hook" };
+        }
+        hook.setText("X:1\\nT:Test\\nM:4/4\\nL:1/8\\nK:C\\nC2 D E F | G A B c |]\\n");
+        await wait(200);
+        return { ok: true, text: hook.getText() || "" };
+      })()`,
+      true
+    );
+    if (!transformResult || !transformResult.ok) {
+      exitUiSmoke(false, "transform setup", transformResult);
+      return;
+    }
+    sendMenuAction("transformDouble");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterDouble = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    sendMenuAction("transformTransposeUp");
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterTranspose = await win.webContents.executeJavaScript(
+      `window.__abcarusDevTransformSmoke?.getText?.() || ""`,
+      true
+    );
+    const afterDoubleText = String(afterDouble || "");
+    const afterTransposeText = String(afterTranspose || "");
+    const result = {
+      ok: afterDoubleText.includes("L:1/16")
+        && afterDoubleText.includes("C4")
+        && afterTransposeText
+        && afterTransposeText !== afterDoubleText,
+      afterDouble,
+      afterTranspose,
+    };
+    if (result.ok) {
+      exitUiSmoke(true, "transform", {
+        afterDouble: String(afterDouble || "").slice(0, 80),
+        afterTranspose: String(afterTranspose || "").slice(0, 80),
+      });
+    } else {
+      exitUiSmoke(false, "transform", result);
+    }
+    return;
+  }
+
   // Keep this smoke tiny and deterministic: verify the exact UI contracts we keep regressing.
   const result = await win.webContents.executeJavaScript(
     `(async () => {
@@ -2839,21 +3301,7 @@ async function runUiSmoke(win) {
     true
   );
 
-  if (result && result.ok) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log("[ui-smoke] PASS", JSON.stringify(result));
-    } catch {}
-    process.exitCode = 0;
-  } else {
-    try {
-      // eslint-disable-next-line no-console
-      console.error("[ui-smoke] FAIL", JSON.stringify(result || {}));
-    } catch {}
-    process.exitCode = 1;
-  }
-  isQuitting = true;
-  try { app.exit(process.exitCode || 0); } catch { process.exit(process.exitCode || 0); }
+  exitUiSmoke(Boolean(result && result.ok), "layout", result);
 }
 
 app.whenReady().then(async () => {
@@ -2866,6 +3314,7 @@ app.whenReady().then(async () => {
     return;
   }
   if (!singleInstanceLock) return;
+  soundfontProtocol.register();
   logStartupPerf("app.whenReady()");
   if (CLI_OPTIONS.enableLog) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -2890,11 +3339,6 @@ app.whenReady().then(async () => {
   updateSplashStatus("Loading settings…");
   await loadState();
   logStartupPerf("loadState() done");
-  if (pendingCliOpenFile) {
-    appState.recentTunes = [];
-    appState.recentFiles = [];
-    appState.recentFolders = [];
-  }
   if (process.platform === "linux" && appState.settings && appState.settings.usePortalFileDialogs) {
     process.env.GTK_USE_PORTAL = "1";
   }
@@ -2968,8 +3412,12 @@ registerIpcHandlers({
     appState.settingsFile = next;
     await saveState();
   },
-  getSettings: () => appState.settings || getDefaultSettings(),
+  getSettings: () => {
+    const settings = appState.settings || getDefaultSettings();
+    return withDevSoundfont(settings);
+  },
   updateSettings,
+  showTransformError,
   getLastRecent: () => {
     if (appState.recentTunes && appState.recentTunes.length) {
       return { type: "tune", entry: appState.recentTunes[0] };
@@ -2979,6 +3427,19 @@ registerIpcHandlers({
     }
     return null;
   },
+  getRecentCandidates: () => {
+    const out = [];
+    const add = (type, entries) => {
+      if (!Array.isArray(entries)) return;
+      for (const entry of entries) {
+        if (entry && entry.path) out.push({ type, entry });
+      }
+    };
+    add("tune", appState.recentTunes);
+    add("file", appState.recentFiles);
+    add("folder", appState.recentFolders);
+    return out;
+  },
   requestQuit: () => {
     isQuitting = true;
     app.quit();
@@ -2986,4 +3447,5 @@ registerIpcHandlers({
   reportStartupStatus: (text) => {
     updateSplashStatus(text);
   },
+  soundfontProtocol,
 });

@@ -249,6 +249,7 @@ export function suggestMakamCandidates({
   makamEntries,
   resolvePerdePc53,
   maxCandidates = 5,
+  pinnedMakamNames = [],
   recognitionMakamKeys = DEFAULT_RECOGNITION_MAKAM_KEYS,
 } = {}) {
   const entries = Array.isArray(makamEntries) ? makamEntries : [];
@@ -414,5 +415,17 @@ export function suggestMakamCandidates({
     if (b.score !== a.score) return b.score - a.score;
     return String(a.makam || "").localeCompare(String(b.makam || ""), undefined, { sensitivity: "base" });
   });
-  return candidates.slice(0, Math.max(1, Number(maxCandidates) || 5));
+  const limit = Math.max(1, Number(maxCandidates) || 5);
+  const out = candidates.slice(0, limit);
+  const outKeys = new Set(out.flatMap((candidate) => makamSearchKeys(candidate && candidate.makam)));
+  const pinnedKeys = Array.from(new Set((Array.isArray(pinnedMakamNames) ? pinnedMakamNames : [])
+    .flatMap((name) => makamSearchKeys(name))));
+  for (const key of pinnedKeys) {
+    if (!key || outKeys.has(key)) continue;
+    const pinned = candidates.find((candidate) => makamSearchKeys(candidate && candidate.makam).includes(key));
+    if (!pinned) continue;
+    out.push({ ...pinned, pinned: true });
+    for (const outKey of makamSearchKeys(pinned.makam)) outKeys.add(outKey);
+  }
+  return out;
 }

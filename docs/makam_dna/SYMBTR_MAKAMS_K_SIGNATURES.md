@@ -1,6 +1,6 @@
 # SymbTr Makams: K-signature correlation
 - Source: `/home/avetik/Projects/ABC/abc/makams.abc`
-- SHA-256: `c8e17bbe1d6acc2c03a00406d32d445f960b676ac90e33fd5a7aaff47b26ee95`
+- SHA-256: `53f0964793c80a1063b3325d33ba82d25dca8988f6eb3ed4b9987e6e7773c7e8`
 - Tunes: `2200`
 - Unique detected makam tokens: `155` (heuristic)
 
@@ -74,6 +74,6 @@
 - `sevkefza` — `11` tunes; K:C _5B_4d (11)
 
 ## Notes
-- `K:` appears to be used as a **53-EDO accidental signature** (not classical major/minor).
-- The makam token is inferred from the **first word of the 2nd `T:` line** when present (common SymbTr convention).
-- Some makams have multiple `K:` variants; this likely reflects subtypes, modulations, or inconsistent tagging.
+- Heuristic: first token of the 2nd T: line when present; normalized to ASCII; keeps hyphenated forms.
+- K: appears to encode 53-EDO accidental sets (SymbTr convention) rather than major/minor.
+- Runtime UI uses the most common `K:` per detected makam as a practical SymbTr convention, not as a musicological proof.

@@ -35,6 +35,41 @@ function detectEdoStepsPerOctave(text) {
   return last || 12;
 }
 
+function hasExplicitEdoDirective(text) {
+  const re = /^%%MIDI\s+temperamentequal\s+(\d+)\s*$/gmi;
+  let match;
+  let last = null;
+  while ((match = re.exec(String(text || ""))) !== null) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0) last = n;
+  }
+  return last;
+}
+
+function stripLineComment(line) {
+  return String(line || "").replace(/(^|[^\\])%.*/, "$1");
+}
+
+function has53TetNotation(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = stripLineComment(rawLine);
+    if (!line.trim()) continue;
+    if (/(?:\^\/|_\/|\^\d+(?:\/\d+)?|_\d+(?:\/\d+)?)(?=[A-Ga-g])/.test(line)) return true;
+  }
+  return false;
+}
+
+function detectEffectiveTransposeEdo(text, options = {}) {
+  const bodyText = String(text || "");
+  const localEdo = hasExplicitEdoDirective(bodyText);
+  if (localEdo != null) return localEdo;
+  const headerText = options && options.headerText ? String(options.headerText) : "";
+  const inheritedEdo = hasExplicitEdoDirective(headerText);
+  if (inheritedEdo === 53 && !has53TetNotation(bodyText)) return 12;
+  return inheritedEdo || 12;
+}
+
 const SHARP_MAP = [
   { letter: "C", acc: 0 },
   { letter: "C", acc: 1 },
@@ -194,9 +229,7 @@ function classifyDefaultTransposeKeyToken(token) {
 }
 
 export function getDefaultTransposeSupport(text, options = {}) {
-  const headerText = options && options.headerText ? String(options.headerText) : "";
-  const combined = headerText ? `${headerText}\n${String(text || "")}` : String(text || "");
-  const edo = detectEdoStepsPerOctave(combined);
+  const edo = detectEffectiveTransposeEdo(text, options);
   if (edo !== 12) {
     return {
       ok: false,
@@ -236,9 +269,7 @@ export function getDefaultTransposeSupport(text, options = {}) {
 }
 
 export function getNativeTransposeSupport(text, options = {}) {
-  const headerText = options && options.headerText ? String(options.headerText) : "";
-  const combined = headerText ? `${headerText}\n${String(text || "")}` : String(text || "");
-  const edo = detectEdoStepsPerOctave(combined);
+  const edo = detectEffectiveTransposeEdo(text, options);
   if (edo === 53) return { ok: true, edo };
   if (edo === 12) return getDefaultTransposeSupport(text, options);
   return {
@@ -2399,8 +2430,7 @@ function transposeChordText(chordText, semitones, preferDefault) {
 }
 
 export function transformTranspose(text, semitones, options = {}) {
-  const headerText = options && options.headerText ? String(options.headerText) : "";
-  const edo = detectEdoStepsPerOctave(headerText ? `${headerText}\n${text}` : text);
+  const edo = detectEffectiveTransposeEdo(text, options);
   if (edo === 53) {
     return transformTranspose53(text, semitones, options);
   }

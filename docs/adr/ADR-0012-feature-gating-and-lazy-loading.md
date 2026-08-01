@@ -1,7 +1,17 @@
-ADR-0012 — Feature Gating & Lazy Loading (Makam Tools + Payload Mode default OFF)
+ADR-0012 — Feature Gating & Lazy Loading (Microtonal Tools + Payload Mode default OFF)
 
 Date: 2026-01-26  
-Status: Proposed
+Status: Proposed; amended by ADR-0016
+
+Update 2026-07-03: ADR-0016 renames the user-facing Makam Tools boundary to
+**Support microtonal notation**. Existing `makamToolsEnabled` and
+`studyToolsEnabled` settings are legacy aliases for the canonical
+`supportMicrotonalNotation` setting.
+
+Update 2026-07-16: When this ADR says “Microtonal Tools”, read it as the
+ADR-0016 umbrella setting **Support microtonal notation**. ADR-0017 supplies
+the active renderer/domain ownership rules for implementing these gates without
+leaving feature-specific tails in `renderer.js`.
 
 ## Context
 
@@ -34,7 +44,7 @@ ABCarus uses two terms in docs and UI:
    - **Default ON**.
    - Must be **toggleable in Basic settings** (so people can turn it off if unwanted).
 
-2) **Makam Tools**
+2) **Microtonal Tools**
    - Everything related to microtone / makam / perde / EDO‑53 study tools.
    - Examples: Intonation Explorer, makam overlays, Makam DNA editor.
    - **Default OFF**.
@@ -49,9 +59,9 @@ Separately:
 
 ### 2) Defaults and UI gating behavior
 
-- When **Makam Tools** are OFF:
-  - Makam-related menu entries are hidden (not merely disabled).
-  - Attempting to open a Makam tool via an existing menu action string must be a safe no-op with a user-facing message
+- When **Microtonal Tools** are OFF:
+  - Microtonal/makam-related menu entries are hidden (not merely disabled).
+  - Attempting to open a microtonal tool via an existing menu action string must be a safe no-op with a user-facing message
     (“Enable in Settings → …”).
 
 - When **Payload Mode** is OFF:
@@ -60,7 +70,7 @@ Separately:
 
 ### 3) Lazy loading rule (must be enforceable)
 
-When **Makam Tools** are OFF, ABCarus must not import or execute Makam-related modules/datasets at startup.
+When **Microtonal Tools** are OFF, ABCarus must not import or execute microtonal UI modules/datasets at startup.
 
 When **Payload Mode** is OFF, ABCarus must not import or execute Payload Mode UI at startup.
 
@@ -90,7 +100,7 @@ Trade-offs:
 ## Verification (how to prove it)
 
 - Manual:
-  - With defaults, Makam Tools and Payload Mode menus are not present.
+  - With defaults, Microtonal Tools and Payload Mode menus are not present.
   - Enabling/disabling toggles updates menus without restart.
   - If a tool module import fails, ABCarus stays usable (no crash; tool remains closed).
 
@@ -109,11 +119,11 @@ Trade-offs:
 ## Acceptance
 
 - Default installation:
-  - Makam Tools are OFF and do not load at startup.
+  - Microtonal Tools are OFF and do not load at startup.
   - Payload Mode is OFF and does not load at startup.
   - Editor Help is ON and available in Basic settings (toggleable OFF).
 
 - Runtime:
-  - Enabling/disabling Makam Tools and Payload Mode updates menus without restart.
+  - Enabling/disabling Microtonal Tools and Payload Mode updates menus without restart.
   - Tool open requests while disabled → toast + no state change.
   - Tool import/runtime errors → no crash; core remains usable.

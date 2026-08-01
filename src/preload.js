@@ -37,26 +37,36 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("dialog:confirm-reload-from-disk", filePath || ""),
   confirmMissingOnDisk: async (filePath) =>
     ipcRenderer.invoke("dialog:confirm-missing-on-disk", filePath || ""),
+  confirmSaveAsForPermissionDenied: async (filePath, message) =>
+    ipcRenderer.invoke("dialog:confirm-save-as-for-permission-denied", {
+      filePath: filePath || "",
+      message: message == null ? "" : String(message),
+    }),
   getMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:get"),
   saveMakamDnaUser: async (text) => ipcRenderer.invoke("makam-dna:user:save", { text: text == null ? "" : String(text) }),
   clearMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:clear"),
   openWorkingCopy: async (filePath) => ipcRenderer.invoke("workingcopy:open", filePath),
-  closeWorkingCopy: async () => ipcRenderer.invoke("workingcopy:close"),
+  closeWorkingCopy: async (context) => ipcRenderer.invoke("workingcopy:close", context || {}),
   getWorkingCopySnapshot: async () => ipcRenderer.invoke("workingcopy:get"),
   getWorkingCopyMeta: async () => ipcRenderer.invoke("workingcopy:get-meta"),
-  reloadWorkingCopyFromDisk: async () => ipcRenderer.invoke("workingcopy:reload"),
+  reloadWorkingCopyFromDisk: async (payload) => ipcRenderer.invoke("workingcopy:reload", payload || {}),
   commitWorkingCopyToDisk: async (payload) => ipcRenderer.invoke("workingcopy:commit", payload || {}),
-  writeWorkingCopyToPath: async (filePath) => ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "" }),
-  writeWorkingCopyToPathAndSwitch: async (filePath) =>
-    ipcRenderer.invoke("workingcopy:write-to-path-and-switch", { filePath: filePath || "" }),
-  applyWorkingCopyHeaderText: async (text) => ipcRenderer.invoke("workingcopy:apply-header-text", { text: text == null ? "" : String(text) }),
-  applyWorkingCopyFullText: async (text) => ipcRenderer.invoke("workingcopy:apply-full-text", { text: text == null ? "" : String(text) }),
+  writeWorkingCopyToPath: async (filePath, context) =>
+    ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "", ...(context || {}) }),
+  writeWorkingCopyToPathAndSwitch: async (filePath, context) =>
+    ipcRenderer.invoke("workingcopy:write-to-path-and-switch", { filePath: filePath || "", ...(context || {}) }),
+  applyWorkingCopyHeaderText: async (text, context) =>
+    ipcRenderer.invoke("workingcopy:apply-header-text", { text: text == null ? "" : String(text), ...(context || {}) }),
+  applyWorkingCopyFullText: async (text, context) =>
+    ipcRenderer.invoke("workingcopy:apply-full-text", { text: text == null ? "" : String(text), ...(context || {}) }),
   insertWorkingCopyTuneAfter: async (payload) => ipcRenderer.invoke("workingcopy:insert-tune-after", payload || {}),
-  renumberWorkingCopyXStartingAt1: async () => ipcRenderer.invoke("workingcopy:renumber-x"),
+  renumberWorkingCopyXStartingAt1: async (context) => ipcRenderer.invoke("workingcopy:renumber-x", context || {}),
   deleteWorkingCopyTune: async (payload) => ipcRenderer.invoke("workingcopy:delete-tune", payload || {}),
   applyWorkingCopyTuneText: async (payload) => ipcRenderer.invoke("workingcopy:apply-tune-text", payload),
   showSaveError: async (message) =>
     ipcRenderer.invoke("dialog:show-save-error", message),
+  showTransformError: async (message) =>
+    ipcRenderer.invoke("dialog:show-transform-error", message),
   showOpenError: async (message) =>
     ipcRenderer.invoke("dialog:show-open-error", message),
   importMusicXml: async () => ipcRenderer.invoke("import:musicxml"),
@@ -76,7 +86,7 @@ contextBridge.exposeInMainWorld("api", {
   checkChordPro: async () => ipcRenderer.invoke("chordpro:check"),
   checkConversionTools: async () => ipcRenderer.invoke("tools:check"),
   readFile: async (filePath) => ipcRenderer.invoke("file:read", filePath),
-  writeFile: async (filePath, data) => ipcRenderer.invoke("file:write", filePath, data),
+  writeFile: async (filePath, data, options) => ipcRenderer.invoke("file:write", filePath, data, options || {}),
   renameFile: async (oldPath, newPath) => ipcRenderer.invoke("file:rename", oldPath, newPath),
   fileExists: async (filePath) => ipcRenderer.invoke("file:exists", filePath),
   mkdirp: async (dirPath) => ipcRenderer.invoke("file:mkdirp", dirPath),
@@ -99,6 +109,7 @@ contextBridge.exposeInMainWorld("api", {
   listSoundfonts: async () => ipcRenderer.invoke("sf2:list"),
   pickSoundfont: async () => ipcRenderer.invoke("sf2:pick"),
   getSoundfontInfo: async (name) => ipcRenderer.invoke("sf2:info", name),
+  getSoundfontStreamUrl: async (name) => ipcRenderer.invoke("sf2:stream-url", name),
   quitApplication: async () => ipcRenderer.invoke("app:quit"),
   getSettings: async () => ipcRenderer.invoke("settings:get"),
   getSettingsSchema: async () => ipcRenderer.invoke("settings:schema"),
@@ -113,9 +124,11 @@ contextBridge.exposeInMainWorld("api", {
   importSettings: async () => ipcRenderer.invoke("settings:import"),
   openSettingsFolder: async () => ipcRenderer.invoke("settings:open-folder"),
   getLastRecent: async () => ipcRenderer.invoke("recent:last"),
+  getRecentCandidates: async () => ipcRenderer.invoke("recent:candidates"),
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   previewYouTubeSource: async (url) => ipcRenderer.invoke("source:preview-youtube", url),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
+  cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),

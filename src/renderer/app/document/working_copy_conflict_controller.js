@@ -122,7 +122,6 @@ function createWorkingCopyConflictController({
       !api
       || typeof api.showSaveDialog !== "function"
       || typeof api.openWorkingCopy !== "function"
-      || typeof api.commitWorkingCopyToDisk !== "function"
       || typeof api.writeWorkingCopyToPathAndSwitch !== "function"
     ) return { ok: false, error: "Save Copy As is unavailable." };
 
@@ -141,21 +140,9 @@ function createWorkingCopyConflictController({
       if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, fromPath)) {
         throw new Error("Working copy no longer matches the file being copied.");
       }
-      const committed = await api.commitWorkingCopyToDisk({
-        force: false,
-        expectedPath: fromPath,
-        expectedVersion: sourceSnapshot.version,
-      });
-      if (!committed || !committed.ok) {
-        throw new Error((committed && committed.error) || "Unable to save source file before copying.");
-      }
-      const cleanSnapshot = await refreshWorkingCopySnapshot();
-      if (!cleanSnapshot || !cleanSnapshot.path || !pathsEqual(cleanSnapshot.path, fromPath) || cleanSnapshot.dirty) {
-        throw new Error("Source file was not cleanly saved before copying.");
-      }
       const writeRes = await api.writeWorkingCopyToPathAndSwitch(targetPath, {
         expectedPath: fromPath,
-        expectedVersion: cleanSnapshot.version,
+        expectedVersion: sourceSnapshot.version,
       });
       if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to save copy.");
     });

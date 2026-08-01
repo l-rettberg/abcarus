@@ -1498,6 +1498,10 @@ saveFlowController = createSaveFlowController({
     getDefaultSaveDir,
     getEditorValue,
     getSuggestedBaseName,
+    fileExists: (filePath) => window.api && typeof window.api.fileExists === "function"
+      ? window.api.fileExists(filePath)
+      : Promise.resolve(false),
+    confirmOverwrite,
     ensureWorkingCopyOpenForPath,
     isHeaderEditorFilePath,
     isWorkingCopyOpenForFile,

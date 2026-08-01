@@ -34,6 +34,8 @@ export function createSaveFlowController({
     getDefaultSaveDir = () => "",
     getEditorValue = () => "",
     getSuggestedBaseName = () => "untitled",
+    fileExists = async () => false,
+    confirmOverwrite = async () => "cancel",
     ensureWorkingCopyOpenForPath = async () => false,
     isHeaderEditorFilePath = () => false,
     isWorkingCopyOpenForFile = () => false,
@@ -255,51 +257,6 @@ export function createSaveFlowController({
     });
   }
 
-  async function commitSourceBeforeSaveAs(filePath) {
-    const p = String(filePath || "");
-    if (!p || !api || typeof api.commitWorkingCopyToDisk !== "function") {
-      await showSaveError("Unable to save as: source working copy is unavailable.");
-      return { ok: false };
-    }
-
-    const opened = await ensureWorkingCopyOpenForPath(p);
-    if (!opened) {
-      const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
-      await showSaveError(reason
-        ? `Unable to save as: ${reason}`
-        : "Unable to save as: source working copy could not be opened.");
-      return { ok: false };
-    }
-
-    const sourceSnapshot = await refreshWorkingCopySnapshot();
-    if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, p)) {
-      await showSaveError("Unable to save as: working copy no longer matches the active file.");
-      return { ok: false };
-    }
-
-    const saveRes = await api.commitWorkingCopyToDisk({
-      force: false,
-      expectedPath: p,
-      expectedVersion: sourceSnapshot.version,
-    });
-    if (saveRes && saveRes.ok) {
-      await finalizeWorkingCopySave(p);
-      return { ok: true };
-    }
-
-    if (saveRes && saveRes.conflict) {
-      const resolved = await resolveWorkingCopySaveConflictDefault(p, {
-        restoreTuneId: getActiveTuneUid() || getActiveTuneId(),
-      });
-      if (resolved && resolved.ok) return { ...resolved, handled: true };
-      if (resolved && resolved.error) await showSaveError(resolved.error);
-      return { ok: false };
-    }
-
-    await showSaveError((saveRes && saveRes.error) || "Unable to save source file before Save As.");
-    return { ok: false };
-  }
-
   async function performSaveFlow() {
     const currentDocument = getCurrentDocument();
     if (!currentDocument) return false;
@@ -483,12 +440,22 @@ export function createSaveFlowController({
       const suggestedName = `${stripFileExtension(base || "untitled")}${suffix}`;
       const suggestedDir = getDefaultSaveDir();
       if (currentPath) {
-        const sourceSaved = await commitSourceBeforeSaveAs(currentPath);
-        if (sourceSaved.handled) return true;
-        if (!sourceSaved.ok) return false;
+        const opened = await ensureWorkingCopyOpenForPath(currentPath);
+        if (!opened) {
+          const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
+          await showSaveError(reason
+            ? `Unable to save as: ${reason}`
+            : "Unable to save as: source working copy could not be opened.");
+          return false;
+        }
       }
       const filePath = await showSaveDialog(suggestedName, suggestedDir);
       if (!filePath) return false;
+      if (currentPath && pathsEqual(normalizeLibraryPath(filePath), normalizeLibraryPath(currentPath))) {
+        await showSaveError("Save As destination must be different from the source file.");
+        return false;
+      }
+      if (await fileExists(filePath) && (await confirmOverwrite(filePath)) !== "replace") return false;
 
       const hasWorkingCopy = Boolean(
         currentPath
@@ -554,17 +521,16 @@ export function createSaveFlowController({
       } catch {}
     }
 
-    const sourcePathBeforeSaveAs = getActiveFilePath() || getCurrentDocumentPath() || "";
-    if (sourcePathBeforeSaveAs) {
-      const sourceSaved = await commitSourceBeforeSaveAs(sourcePathBeforeSaveAs);
-      if (sourceSaved.handled) return true;
-      if (!sourceSaved.ok) return false;
-    }
-
     const suggestedName = `${getSuggestedBaseName()}.abc`;
     const suggestedDir = getDefaultSaveDir();
     const filePath = await showSaveDialog(suggestedName, suggestedDir);
     if (!filePath) return false;
+    const sourcePath = getActiveFilePath() || getCurrentDocumentPath() || "";
+    if (sourcePath && pathsEqual(normalizeLibraryPath(filePath), normalizeLibraryPath(sourcePath))) {
+      await showSaveError("Save As destination must be different from the source file.");
+      return false;
+    }
+    if (await fileExists(filePath) && (await confirmOverwrite(filePath)) !== "replace") return false;
 
     const activeTuneMeta = getActiveTuneMeta();
     const workingCopySnapshot = getWorkingCopySnapshot();
@@ -575,7 +541,7 @@ export function createSaveFlowController({
       && workingCopySnapshot.path
       && pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)
       && api
-      && typeof api.writeWorkingCopyToPath === "function"
+      && typeof api.writeWorkingCopyToPathAndSwitch === "function"
     );
     if (!hasWorkingCopy) {
       const content = serializeDocument(currentDocument);
@@ -606,7 +572,7 @@ export function createSaveFlowController({
       return true;
     }
 
-    const out = await api.writeWorkingCopyToPath(filePath, {
+    const out = await api.writeWorkingCopyToPathAndSwitch(filePath, {
       expectedPath: activeTuneMeta.path,
       expectedVersion: workingCopySnapshot.version,
     });

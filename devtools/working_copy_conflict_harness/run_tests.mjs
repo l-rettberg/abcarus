@@ -28,11 +28,6 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
         calls.push(["openWorkingCopy", path]);
         return { ok: true };
       },
-      commitWorkingCopyToDisk: async (context) => {
-        calls.push(["commitWorkingCopyToDisk", context]);
-        snapshot = { ...snapshot, dirty: false };
-        return { ok: true };
-      },
       writeWorkingCopyToPathAndSwitch: async (path, context) => {
         calls.push(["writeWorkingCopyToPathAndSwitch", path, context]);
         snapshot = { path, text, version: snapshot.version + 1 };
@@ -85,11 +80,6 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
       { expectedPath: fromPath, expectedVersion: 7 },
     ],
     "Raw Save Copy As must bind the write to the source working-copy snapshot"
-  );
-  assert.deepEqual(
-    calls.find((entry) => entry[0] === "commitWorkingCopyToDisk"),
-    ["commitWorkingCopyToDisk", { force: false, expectedPath: fromPath, expectedVersion: 7 }],
-    "Raw Save Copy As must commit the source before copying it"
   );
   assert.deepEqual(
     calls.find((entry) => entry[0] === "switchWorkingCopyFileContext"),

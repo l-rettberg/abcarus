@@ -95,7 +95,7 @@ function makeController({
       withFileLock: async (_path, fn) => fn(),
     },
   });
-  return { controller, calls, sourcePath, destinationPath };
+  return { controller, calls, snapshot, sourcePath, destinationPath };
 }
 
 async function testTuneSyncFailureStopsBeforeDialog() {
@@ -121,21 +121,41 @@ async function testChordProFailureStopsBeforeDialog() {
 }
 
 async function testCancelLeavesSourceUntouched() {
-  const { controller, calls } = makeController({ destination: null });
+  const { controller, calls, snapshot, sourcePath } = makeController({ destination: null });
   const result = await controller.performSaveAsFlow();
   assert.equal(result, false);
   assert.equal(calls.some(([kind]) => kind === "writeWorkingCopyToPathAndSwitch"), false);
   assert.equal(calls.some(([kind]) => kind === "setActiveFilePath"), false);
   assert.equal(calls.some(([kind]) => kind === "patchCurrentDocument"), false);
+  assert.deepEqual(
+    snapshot,
+    {
+      path: sourcePath,
+      text: "X:1\nT:Source\nK:C\nC |]\n",
+      version: 4,
+      dirty: true,
+    },
+    "Save As cancel must preserve the complete source working-copy state"
+  );
 }
 
 async function testDestinationFailureLeavesSourceUntouched() {
-  const { controller, calls } = makeController({ writeResult: { ok: false, error: "destination write failed" } });
+  const { controller, calls, snapshot, sourcePath } = makeController({ writeResult: { ok: false, error: "destination write failed" } });
   const result = await controller.performSaveAsFlow();
   assert.equal(result, false);
   assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /destination write failed/);
   assert.equal(calls.some(([kind]) => kind === "setActiveFilePath"), false);
   assert.equal(calls.some(([kind]) => kind === "patchCurrentDocument"), false);
+  assert.deepEqual(
+    snapshot,
+    {
+      path: sourcePath,
+      text: "X:1\nT:Source\nK:C\nC |]\n",
+      version: 4,
+      dirty: true,
+    },
+    "Destination write failure must preserve the complete source working-copy state"
+  );
 }
 
 await testTuneSyncFailureStopsBeforeDialog();

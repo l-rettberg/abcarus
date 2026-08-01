@@ -429,9 +429,19 @@ export function createSaveFlowController({
     if (!currentDocument) return false;
 
     if (isChordProEnabled()) {
+      let fullSyncResult;
       try {
-        await flushWorkingCopyFullSync();
-      } catch {}
+        fullSyncResult = await flushWorkingCopyFullSync();
+      } catch (err) {
+        await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
+        return false;
+      }
+      if (!fullSyncResult || !fullSyncResult.ok) {
+        await showSaveError(
+          `Unable to prepare Save As: ${(fullSyncResult && fullSyncResult.error) || "ChordPro changes could not be synchronized."}`
+        );
+        return false;
+      }
 
       const currentPath = getActiveFilePath() || getCurrentDocumentPath() || "";
       const base = currentPath ? safeBasename(currentPath) : "";
@@ -501,24 +511,46 @@ export function createSaveFlowController({
       return true;
     }
 
+    let tuneSyncResult;
     try {
-      await flushWorkingCopyTuneSync();
-    } catch {}
-    if (getHeaderDirty() && api && typeof api.applyWorkingCopyHeaderText === "function") {
+      tuneSyncResult = await flushWorkingCopyTuneSync();
+    } catch (err) {
+      await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
+      return false;
+    }
+    if (!tuneSyncResult || !tuneSyncResult.ok) {
+      await showSaveError(
+        `Unable to prepare Save As: ${(tuneSyncResult && tuneSyncResult.error) || "Tune changes could not be synchronized."}`
+      );
+      return false;
+    }
+
+    if (getHeaderDirty()) {
+      if (!api || typeof api.applyWorkingCopyHeaderText !== "function") {
+        await showSaveError("Unable to prepare Save As: header synchronization is unavailable.");
+        return false;
+      }
       try {
         const headerSnapshot = await refreshWorkingCopySnapshot();
         const headerPath = headerSnapshot && headerSnapshot.path ? String(headerSnapshot.path) : "";
-        const res = headerPath
-          ? await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
-            expectedPath: headerPath,
-            expectedVersion: headerSnapshot.version,
-          })
-          : { ok: false };
-        if (res && res.ok) {
-          markHeaderClean();
-          updateHeaderStateUI();
+        if (!headerSnapshot || !headerPath) {
+          await showSaveError("Unable to prepare Save As: header working-copy context is missing.");
+          return false;
         }
-      } catch {}
+        const res = await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
+          expectedPath: headerPath,
+          expectedVersion: headerSnapshot.version,
+        });
+        if (!res || !res.ok) {
+          await showSaveError((res && res.error) || "Header changes could not be synchronized.");
+          return false;
+        }
+        markHeaderClean();
+        updateHeaderStateUI();
+      } catch (err) {
+        await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
+        return false;
+      }
     }
 
     const suggestedName = `${getSuggestedBaseName()}.abc`;

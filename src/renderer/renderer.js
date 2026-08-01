@@ -1481,6 +1481,9 @@ saveFlowController = createSaveFlowController({
     getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot,
+    getWorkingCopyOpenError: () => workingCopyRuntimeController
+      ? workingCopyRuntimeController.getLastOpenError()
+      : "",
     getChordProFullText: () => chordProFeature.getFullText(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),

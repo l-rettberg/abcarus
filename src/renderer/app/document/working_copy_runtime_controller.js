@@ -28,6 +28,7 @@ export function createWorkingCopyRuntimeController({
   } = utils;
 
   let snapshot = null;
+  let lastOpenError = "";
   let lazyOpenSeq = 0;
   const diskConflictPaths = new Set();
 
@@ -82,8 +83,15 @@ export function createWorkingCopyRuntimeController({
 
   async function ensureOpenForPath(filePath) {
     const p = String(filePath || "");
-    if (!p) return false;
-    if (!api || typeof api.getWorkingCopyMeta !== "function" || typeof api.openWorkingCopy !== "function") return false;
+    lastOpenError = "";
+    if (!p) {
+      lastOpenError = "Missing file path.";
+      return false;
+    }
+    if (!api || typeof api.getWorkingCopyMeta !== "function" || typeof api.openWorkingCopy !== "function") {
+      lastOpenError = "Working copy API is unavailable.";
+      return false;
+    }
 
     try {
       const metaRes = await api.getWorkingCopyMeta();
@@ -95,18 +103,30 @@ export function createWorkingCopyRuntimeController({
         version: (metaRes && metaRes.ok && metaRes.meta && Number.isFinite(Number(metaRes.meta.version))) ? Number(metaRes.meta.version) : null,
       });
       if (metaPath && pathsEqual(metaPath, p)) return true;
-    } catch {}
+    } catch (err) {
+      lastOpenError = err && err.message ? String(err.message) : String(err);
+    }
 
     try {
       recordRecentAction("wc.open", { path: p, reason: "ensureWorkingCopyOpenForPath" });
-      await api.openWorkingCopy(p);
+      const opened = await api.openWorkingCopy(p);
+      if (opened && opened.ok === false) {
+        lastOpenError = opened.error ? String(opened.error) : "Working copy open failed.";
+        return false;
+      }
       const metaRes2 = await api.getWorkingCopyMeta();
       const metaPath2 = (metaRes2 && metaRes2.ok && metaRes2.meta && metaRes2.meta.path) ? String(metaRes2.meta.path) : "";
       if (metaPath2 && pathsEqual(metaPath2, p)) {
+        lastOpenError = "";
         await refreshSnapshot();
         return true;
       }
-    } catch {}
+      lastOpenError = (metaRes2 && metaRes2.error)
+        ? String(metaRes2.error)
+        : "Working copy path did not switch to the requested file.";
+    } catch (err) {
+      lastOpenError = err && err.message ? String(err.message) : String(err);
+    }
 
     return false;
   }
@@ -156,6 +176,7 @@ export function createWorkingCopyRuntimeController({
   return {
     ensureOpenForPath,
     getSnapshot,
+    getLastOpenError: () => lastOpenError,
     hasDiskConflictPath,
     markDiskConflictPath,
     refreshSnapshot,

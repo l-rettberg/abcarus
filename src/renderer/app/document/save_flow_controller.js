@@ -18,6 +18,7 @@ export function createSaveFlowController({
     getLibraryIndex = () => null,
     getRawMode = () => false,
     getWorkingCopySnapshot = () => null,
+    getWorkingCopyOpenError = () => "",
     getChordProFullText = () => "",
     isChordProEnabled = () => false,
     isChordProFullView = () => false,
@@ -163,7 +164,10 @@ export function createSaveFlowController({
       }
       const opened = await ensureWorkingCopyOpenForPath(p);
       if (!opened) {
-        await showSaveError("Unable to save: working copy could not be opened.");
+        const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
+        await showSaveError(reason
+          ? `Unable to save: ${reason}`
+          : "Unable to save: working copy could not be opened.");
         return false;
       }
       tryResolveActiveTuneUid();
@@ -249,6 +253,51 @@ export function createSaveFlowController({
       recordRecentAction("save.simple_tune.ok", { path: p });
       return true;
     });
+  }
+
+  async function commitSourceBeforeSaveAs(filePath) {
+    const p = String(filePath || "");
+    if (!p || !api || typeof api.commitWorkingCopyToDisk !== "function") {
+      await showSaveError("Unable to save as: source working copy is unavailable.");
+      return { ok: false };
+    }
+
+    const opened = await ensureWorkingCopyOpenForPath(p);
+    if (!opened) {
+      const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
+      await showSaveError(reason
+        ? `Unable to save as: ${reason}`
+        : "Unable to save as: source working copy could not be opened.");
+      return { ok: false };
+    }
+
+    const sourceSnapshot = await refreshWorkingCopySnapshot();
+    if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, p)) {
+      await showSaveError("Unable to save as: working copy no longer matches the active file.");
+      return { ok: false };
+    }
+
+    const saveRes = await api.commitWorkingCopyToDisk({
+      force: false,
+      expectedPath: p,
+      expectedVersion: sourceSnapshot.version,
+    });
+    if (saveRes && saveRes.ok) {
+      await finalizeWorkingCopySave(p);
+      return { ok: true };
+    }
+
+    if (saveRes && saveRes.conflict) {
+      const resolved = await resolveWorkingCopySaveConflictDefault(p, {
+        restoreTuneId: getActiveTuneUid() || getActiveTuneId(),
+      });
+      if (resolved && resolved.ok) return { ...resolved, handled: true };
+      if (resolved && resolved.error) await showSaveError(resolved.error);
+      return { ok: false };
+    }
+
+    await showSaveError((saveRes && saveRes.error) || "Unable to save source file before Save As.");
+    return { ok: false };
   }
 
   async function performSaveFlow() {
@@ -433,6 +482,11 @@ export function createSaveFlowController({
       const suffix = extMatch ? extMatch[1] : ".cho";
       const suggestedName = `${stripFileExtension(base || "untitled")}${suffix}`;
       const suggestedDir = getDefaultSaveDir();
+      if (currentPath) {
+        const sourceSaved = await commitSourceBeforeSaveAs(currentPath);
+        if (sourceSaved.handled) return true;
+        if (!sourceSaved.ok) return false;
+      }
       const filePath = await showSaveDialog(suggestedName, suggestedDir);
       if (!filePath) return false;
 
@@ -498,6 +552,13 @@ export function createSaveFlowController({
           updateHeaderStateUI();
         }
       } catch {}
+    }
+
+    const sourcePathBeforeSaveAs = getActiveFilePath() || getCurrentDocumentPath() || "";
+    if (sourcePathBeforeSaveAs) {
+      const sourceSaved = await commitSourceBeforeSaveAs(sourcePathBeforeSaveAs);
+      if (sourceSaved.handled) return true;
+      if (!sourceSaved.ok) return false;
     }
 
     const suggestedName = `${getSuggestedBaseName()}.abc`;

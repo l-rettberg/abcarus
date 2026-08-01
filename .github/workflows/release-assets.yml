@@ -420,7 +420,7 @@ jobs:
           else
             args=(--notes-file "${notes_file}")
             if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
-            gh release create "${tag}" -R "${repo}" --title "${tag}" "${args[@]}"
+            gh release create "${tag}" -R "${repo}" --title "${tag}" --draft "${args[@]}"
           fi
 
       - name: Upload release files
@@ -443,3 +443,13 @@ jobs:
             release-assets/ABCarus-win-unpacked-x64.zip \
             release-assets/ABCarus-portable-x64.exe \
             release-assets/SHA256SUMS-windows.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.init-release.outputs.tag }}"
+          repo="${GITHUB_REPOSITORY}"
+          gh release edit "${tag}" -R "${repo}" --draft=false

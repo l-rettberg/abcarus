@@ -53,61 +53,6 @@ jobs:
           echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
           echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
 
-      - name: Checkout
-        if: steps.vars.outputs.publish == 'true'
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
-
-      - name: Extract release notes from CHANGELOG
-        if: steps.vars.outputs.publish == 'true'
-        id: notes
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ steps.vars.outputs.version }}"
-          start="## [${version}] - "
-          notes_file="${RUNNER_TEMP}/release-notes.md"
-
-          awk -v start="${start}" '
-            index($0, start) == 1 { in_section=1; next }
-            in_section && $0 ~ /^## \[/ { exit }
-            in_section { print }
-          ' CHANGELOG.md | sed '/^[[:space:]]*$/N;/^\n$/D' > "${notes_file}"
-
-          if [[ ! -s "${notes_file}" ]]; then
-            echo "No changelog section found for ${version}; using fallback release note."
-            {
-              echo "Release ${version}"
-              echo
-              echo "See CHANGELOG.md for details."
-            } > "${notes_file}"
-          fi
-          echo "path=${notes_file}" >> "${GITHUB_OUTPUT}"
-
-      - name: Ensure GitHub Release exists
-        if: steps.vars.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ steps.vars.outputs.tag }}"
-          repo="${GITHUB_REPOSITORY}"
-          prerelease="${{ steps.vars.outputs.prerelease }}"
-          notes_file="${{ steps.notes.outputs.path }}"
-
-          if gh release view "${tag}" -R "${repo}" >/dev/null 2>&1; then
-            args=(--notes-file "${notes_file}")
-            if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
-            gh release edit "${tag}" -R "${repo}" "${args[@]}"
-            exit 0
-          fi
-
-          args=(--notes-file "${notes_file}")
-          if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
-          gh release create "${tag}" -R "${repo}" --title "${tag}" "${args[@]}"
-
   verify-release:
     name: Release verification
     runs-on: ubuntu-22.04
@@ -198,17 +143,14 @@ jobs:
           cd dist/appimage
           sha256sum ABCarus-x86_64.AppImage ABCarus-x86_64-portable.tar.gz > SHA256SUMS-linux.txt
 
-      - name: Upload to GitHub Release
-        if: needs.init-release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          tag="${{ needs.init-release.outputs.tag }}"
-          repo="${GITHUB_REPOSITORY}"
-          gh release upload "${tag}" -R "${repo}" --clobber \
-            dist/appimage/ABCarus-x86_64.AppImage \
-            dist/appimage/ABCarus-x86_64-portable.tar.gz \
+      - name: Store Linux release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          if-no-files-found: error
+          path: |
+            dist/appimage/ABCarus-x86_64.AppImage
+            dist/appimage/ABCarus-x86_64-portable.tar.gz
             dist/appimage/SHA256SUMS-linux.txt
 
   macos-arm64:
@@ -254,16 +196,13 @@ jobs:
           cd dist/electron-builder
           shasum -a 256 ABCarus-macos-arm64.dmg > SHA256SUMS-macos-arm64.txt
 
-      - name: Upload to GitHub Release
-        if: needs.init-release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          tag="${{ needs.init-release.outputs.tag }}"
-          repo="${GITHUB_REPOSITORY}"
-          gh release upload "${tag}" -R "${repo}" --clobber \
-            dist/electron-builder/ABCarus-macos-arm64.dmg \
+      - name: Store macOS arm64 release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          if-no-files-found: error
+          path: |
+            dist/electron-builder/ABCarus-macos-arm64.dmg
             dist/electron-builder/SHA256SUMS-macos-arm64.txt
 
   macos-x64:
@@ -309,16 +248,13 @@ jobs:
           cd dist/electron-builder
           shasum -a 256 ABCarus-macos-x64.dmg > SHA256SUMS-macos-x64.txt
 
-      - name: Upload to GitHub Release
-        if: needs.init-release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          tag="${{ needs.init-release.outputs.tag }}"
-          repo="${GITHUB_REPOSITORY}"
-          gh release upload "${tag}" -R "${repo}" --clobber \
-            dist/electron-builder/ABCarus-macos-x64.dmg \
+      - name: Store macOS x64 release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-x64
+          if-no-files-found: error
+          path: |
+            dist/electron-builder/ABCarus-macos-x64.dmg
             dist/electron-builder/SHA256SUMS-macos-x64.txt
 
   windows-x64:
@@ -412,15 +348,98 @@ jobs:
           $lines += "$( (Get-FileHash -Algorithm SHA256 $portable.FullName).Hash.ToLower() )  $($portable.Name)"
           $lines | Out-File -Encoding ascii "dist/electron-builder/SHA256SUMS-windows.txt"
 
-      - name: Upload to GitHub Release
-        if: needs.init-release.outputs.publish == 'true'
+      - name: Store Windows release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x64
+          if-no-files-found: error
+          path: |
+            dist/electron-builder/ABCarus-setup-x64.exe
+            dist/electron-builder/ABCarus-win-unpacked-x64.zip
+            dist/electron-builder/ABCarus-portable-x64.exe
+            dist/electron-builder/SHA256SUMS-windows.txt
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs: [init-release, verify-release, linux-appimage, macos-arm64, macos-x64, windows-x64]
+    if: needs.init-release.outputs.publish == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Extract release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.init-release.outputs.version }}"
+          start="## [${version}] - "
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+
+          awk -v start="${start}" '
+            index($0, start) == 1 { in_section=1; next }
+            in_section && $0 ~ /^## \[/ { exit }
+            in_section { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/N;/^\n$/D' > "${notes_file}"
+
+          if [[ ! -s "${notes_file}" ]]; then
+            echo "No changelog section found for ${version}; using fallback release note."
+            {
+              echo "Release ${version}"
+              echo
+              echo "See CHANGELOG.md for details."
+            } > "${notes_file}"
+          fi
+          echo "path=${notes_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure GitHub Release exists
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          $tag = "${{ needs.init-release.outputs.tag }}"
-          $repo = "$env:GITHUB_REPOSITORY"
-          gh release upload $tag -R $repo --clobber `
-            dist/electron-builder/ABCarus-setup-x64.exe `
-            dist/electron-builder/ABCarus-win-unpacked-x64.zip `
-            dist/electron-builder/ABCarus-portable-x64.exe `
-            dist/electron-builder/SHA256SUMS-windows.txt
+          set -euo pipefail
+          tag="${{ needs.init-release.outputs.tag }}"
+          repo="${GITHUB_REPOSITORY}"
+          prerelease="${{ needs.init-release.outputs.prerelease }}"
+          notes_file="${{ steps.notes.outputs.path }}"
+
+          if gh release view "${tag}" -R "${repo}" >/dev/null 2>&1; then
+            args=(--notes-file "${notes_file}")
+            if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
+            gh release edit "${tag}" -R "${repo}" "${args[@]}"
+          else
+            args=(--notes-file "${notes_file}")
+            if [[ "${prerelease}" == "true" ]]; then args+=(--prerelease); fi
+            gh release create "${tag}" -R "${repo}" --title "${tag}" "${args[@]}"
+          fi
+
+      - name: Upload release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.init-release.outputs.tag }}"
+          repo="${GITHUB_REPOSITORY}"
+          gh release upload "${tag}" -R "${repo}" --clobber \
+            release-assets/ABCarus-x86_64.AppImage \
+            release-assets/ABCarus-x86_64-portable.tar.gz \
+            release-assets/SHA256SUMS-linux.txt \
+            release-assets/ABCarus-macos-arm64.dmg \
+            release-assets/SHA256SUMS-macos-arm64.txt \
+            release-assets/ABCarus-macos-x64.dmg \
+            release-assets/SHA256SUMS-macos-x64.txt \
+            release-assets/ABCarus-setup-x64.exe \
+            release-assets/ABCarus-win-unpacked-x64.zip \
+            release-assets/ABCarus-portable-x64.exe \
+            release-assets/SHA256SUMS-windows.txt

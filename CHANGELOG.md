@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- First major release of ABCarus with domain-oriented renderer architecture and dedicated Library, playback, rendering, document, tools, settings, and diagnostics modules.
+- Intonation Explorer, Makam DNA, microtonal notation support, templates, MIDI input, native abc2svg drums, ChordPro, PDF, Print All, and Set List workflows.
+- Release preflight, UI smoke, file-operation, working-copy, state-store, and renderer boundary checks.
+
+### Changed
+- Renderer responsibilities are separated into maintainable functional domains while preserving the existing user workflows.
+- Save As now preserves a dirty source on cancel, writes and verifies the destination before rebinding the same working copy, and rejects unsafe same-path operations.
+- Working-copy and application state persistence use stronger atomic-write, recovery, and context-safety checks.
+
+### Fixed
+- Tune/file creation, movement, duplication, Save As, raw mode, playback focus, error navigation, Library lifecycle, and recent-state restoration paths were hardened.
+- Release validation now runs before public release creation and publishes a release only after all platform assets are built and uploaded.
+
+### Known limitations
+- Some external SoundFont files may fail for particular instruments or notes due to the current abc2svg SoundFont runtime. The bundled `TimGM6mb.sf2` remains the recommended fallback.
 
 
 ## [0.42.0] - 2026-06-28

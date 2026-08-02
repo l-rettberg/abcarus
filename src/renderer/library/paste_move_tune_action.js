@@ -1,7 +1,6 @@
 import { appendTuneToContent } from "../abc/text_transforms.js";
 
 export function createPasteMoveTuneAction({
-  api = null,
   state = {},
   actions = {},
 } = {}) {
@@ -12,10 +11,8 @@ export function createPasteMoveTuneAction({
     getClipboardTune = () => null,
     getHeaderDirty = () => false,
     getIsNewTuneDraft = () => false,
-    getWorkingCopySnapshot = () => null,
     hasGlobalUnsavedChanges = () => false,
     isCurrentDocumentDirty = () => false,
-    isWorkingCopyOpenForFile = () => false,
   } = state;
 
   const {
@@ -23,19 +20,15 @@ export function createPasteMoveTuneAction({
     confirmAppendToFile = async () => "",
     ensureXNumberInAbc = (text) => text,
     findTuneById = () => null,
-    flushWorkingCopyTuneSync = async () => {},
     getActiveEditFilePath = () => "",
     getNextXNumber = () => 1,
     getTuneText = async () => "",
-    markDiskConflictPath = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
     removeTuneFromContent = (text, start, end) => String(text || "").slice(0, start) + String(text || "").slice(end),
     renumberXInTextKeepingFirst = () => ({ ok: false }),
     requireCleanForFileOp = async () => false,
-    resolveTuneEntryFromSnapshot = () => null,
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
     setClipboardTune = () => {},
@@ -43,7 +36,6 @@ export function createPasteMoveTuneAction({
     setStatus = () => {},
     selectTune = async () => ({ ok: false }),
     showSaveError = async () => {},
-    syncLibraryFileFromWorkingCopySnapshot = () => {},
     withFileLock = async (_path, fn) => fn(),
     withFileLocks = async (_paths, fn) => fn(),
     writeFile = async () => ({ ok: false }),
@@ -75,9 +67,6 @@ export function createPasteMoveTuneAction({
     const activePath = getActiveEditFilePath();
     if (hasGlobalUnsavedChanges() && activePath && !pathsEqual(activePath, filePath)) {
       throw new Error("Please Save/Discard your current changes before modifying other files.");
-    }
-    if (isWorkingCopyOpenForFile(filePath)) {
-      throw new Error("Refusing to append: file is open in the editor. Save/close it first.");
     }
     const res = await readFile(filePath);
     if (!res.ok) throw new Error(res.error || "Unable to read file.");
@@ -143,52 +132,6 @@ export function createPasteMoveTuneAction({
       const sourceCandidate = clipboardTune && clipboardTune.mode === "move" ? clipboardTune.sourcePath : "";
       await withFileLocks([targetPath, sourceCandidate].filter(Boolean), async () => {
         if (clipboardTune.mode !== "move") {
-          if (
-            isWorkingCopyOpenForFile(targetPath)
-            && api
-            && typeof api.openWorkingCopy === "function"
-            && typeof api.insertWorkingCopyTuneAfter === "function"
-            && typeof api.commitWorkingCopyToDisk === "function"
-          ) {
-            const opened = await api.openWorkingCopy(targetPath);
-            if (!opened || !opened.ok) {
-              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for pasting.");
-            }
-            const snap = await refreshWorkingCopySnapshot();
-            if (!snap || !snap.path || !pathsEqual(snap.path, targetPath)) {
-              throw new Error("Unable to open working copy for pasting.");
-            }
-            const nextX = getNextXNumber(String(snap.text || ""));
-            const prepared = ensureXNumberInAbc(String(clipboardTune.text || ""), nextX);
-            const ins = await api.insertWorkingCopyTuneAfter({
-              append: true,
-              text: prepared,
-              expectedPath: targetPath,
-              expectedVersion: snap.version,
-            });
-            if (!ins || !ins.ok) throw new Error((ins && ins.error) ? ins.error : "Unable to paste.");
-            const snapshotToSave = await refreshWorkingCopySnapshot();
-            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
-              throw new Error("Working copy no longer matches the paste target.");
-            }
-            const saved = await api.commitWorkingCopyToDisk({
-              force: false,
-              expectedPath: targetPath,
-              expectedVersion: snapshotToSave.version,
-            });
-            if (!saved || !saved.ok) {
-              if (saved && saved.conflict) throw new Error("Refusing to paste: file changed on disk. Reload/reopen and try again.");
-              throw new Error((saved && saved.error) ? saved.error : "Unable to save file.");
-            }
-            const snapAfter = await refreshWorkingCopySnapshot();
-            if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, targetPath)) {
-              setFileContentInCache(targetPath, snapAfter.text);
-              syncLibraryFileFromWorkingCopySnapshot(targetPath, snapAfter);
-            }
-            await refreshLibraryFile(targetPath, { force: true });
-            setActiveFilePath(targetPath);
-            return;
-          }
           await appendTuneTextToFileUnlocked(targetPath, clipboardTune.text);
           await refreshLibraryFile(targetPath, { force: true });
           setActiveFilePath(targetPath);
@@ -213,66 +156,16 @@ export function createPasteMoveTuneAction({
         ) {
           throw new Error("Refusing to move: please Save/Discard your unsaved changes in the source/target file first.");
         }
-        const workingCopySnapshot = getWorkingCopySnapshot();
-        if (
-          workingCopySnapshot
-          && workingCopySnapshot.dirty
-          && workingCopySnapshot.path
-          && (pathsEqual(workingCopySnapshot.path, sourcePath) || pathsEqual(workingCopySnapshot.path, targetPath))
-        ) {
-          throw new Error("Refusing to move: source/target file has unsaved changes. Save/Discard them and try again.");
-        }
-
-        if (workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, sourcePath)) {
-          try { await flushWorkingCopyTuneSync(); } catch {}
-          await refreshWorkingCopySnapshot();
-        }
-        if (workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, targetPath)) {
-          await refreshWorkingCopySnapshot();
-        }
-
         let sourceContent = "";
         let startOffset = Number(found.tune.startOffset);
         let endOffset = Number(found.tune.endOffset);
-        const refreshedWorkingCopySnapshot = getWorkingCopySnapshot();
-        if (
-          clipboardTune.tuneUid
-          && refreshedWorkingCopySnapshot
-          && refreshedWorkingCopySnapshot.path
-          && pathsEqual(refreshedWorkingCopySnapshot.path, sourcePath)
-        ) {
-          const entry = resolveTuneEntryFromSnapshot(refreshedWorkingCopySnapshot, {
-            tuneUid: clipboardTune.tuneUid,
-            tuneIndex: clipboardTune.tuneIndex,
-            startOffset: clipboardTune.startOffset,
-          });
-          if (!entry) {
-            throw new Error("Refusing to move: tune offsets look stale. Reload/refresh the library and try again.");
-          }
-          sourceContent = String(refreshedWorkingCopySnapshot.text || "");
-          startOffset = entry.start;
-          endOffset = entry.end;
-          setFileContentInCache(sourcePath, sourceContent);
-        } else {
-          const sourceRes = await readFile(sourcePath);
-          if (!sourceRes.ok) throw new Error(sourceRes.error || "Unable to read source file.");
-          sourceContent = String(sourceRes.data || "");
-        }
+        const sourceRes = await readFile(sourcePath);
+        if (!sourceRes.ok) throw new Error(sourceRes.error || "Unable to read source file.");
+        sourceContent = String(sourceRes.data || "");
 
-        let targetContent = "";
-        const targetWorkingCopySnapshot = getWorkingCopySnapshot();
-        if (
-          targetWorkingCopySnapshot
-          && targetWorkingCopySnapshot.path
-          && pathsEqual(targetWorkingCopySnapshot.path, targetPath)
-        ) {
-          targetContent = String(targetWorkingCopySnapshot.text || "");
-          setFileContentInCache(targetPath, targetContent);
-        } else {
-          const targetRes = await readFile(targetPath);
-          if (!targetRes.ok) throw new Error(targetRes.error || "Unable to read target file.");
-          targetContent = String(targetRes.data || "");
-        }
+        const targetRes = await readFile(targetPath);
+        if (!targetRes.ok) throw new Error(targetRes.error || "Unable to read target file.");
+        const targetContent = String(targetRes.data || "");
 
         if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || startOffset < 0 || endOffset <= startOffset || endOffset > sourceContent.length) {
           throw new Error("Refusing to move: tune offsets look stale. Reload/refresh the library and try again.");
@@ -307,78 +200,18 @@ export function createPasteMoveTuneAction({
           finalSource = renumSource.abcText;
         }
 
-        const useWorkingCopyCommit = Boolean(
-          api
-          && typeof api.openWorkingCopy === "function"
-          && typeof api.applyWorkingCopyFullText === "function"
-          && typeof api.commitWorkingCopyToDisk === "function"
-          && (isWorkingCopyOpenForFile(sourcePath) || isWorkingCopyOpenForFile(targetPath))
-        );
+        const writeTargetRes = await writeFile(targetPath, finalTarget, { expectedData: targetContent });
+        if (!writeTargetRes.ok) throw new Error(writeTargetRes.error || "Unable to update target file.");
 
-        if (useWorkingCopyCommit) {
-          const commitViaWorkingCopy = async (filePath, text, expectedCurrentText) => {
-            const opened = await api.openWorkingCopy(filePath);
-            if (!opened || !opened.ok) {
-              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
-            }
-            const snapshotBefore = await refreshWorkingCopySnapshot();
-            if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
-              throw new Error("Working copy no longer matches the file being moved.");
-            }
-            if (String(snapshotBefore.text || "") !== String(expectedCurrentText || "")) {
-              throw new Error("Refusing to move: file content changed. Refresh/reopen and try again.");
-            }
-            const applyRes = await api.applyWorkingCopyFullText(text, {
-              expectedPath: filePath,
-              expectedVersion: snapshotBefore.version,
-            });
-            if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy.");
-            const snapshotToSave = await refreshWorkingCopySnapshot();
-            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
-              throw new Error("Working copy no longer matches the file being moved.");
-            }
-            let saveRes = await api.commitWorkingCopyToDisk({
-              force: false,
-              expectedPath: filePath,
-              expectedVersion: snapshotToSave.version,
-            });
-            if (!saveRes || !saveRes.ok) {
-              if (saveRes && saveRes.conflict) {
-                markDiskConflictPath(filePath, true);
-                throw new Error("Refusing to move: file changed on disk. Reload/reopen the file and try again.");
-              }
-            }
-            if (!saveRes || !saveRes.ok) {
-              throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-            }
-            const snap = await refreshWorkingCopySnapshot();
-            if (snap && snap.path && pathsEqual(snap.path, filePath)) {
-              setFileContentInCache(filePath, snap.text);
-              syncLibraryFileFromWorkingCopySnapshot(filePath, snap);
-            }
-          };
-
-          await commitViaWorkingCopy(targetPath, finalTarget, targetContent);
-          try {
-            await commitViaWorkingCopy(sourcePath, finalSource, sourceContent);
-          } catch (e) {
-            try { await commitViaWorkingCopy(targetPath, targetContent, finalTarget); } catch {}
-            throw e;
+        const writeSourceRes = await writeFile(sourcePath, finalSource, { expectedData: sourceContent });
+        if (!writeSourceRes.ok) {
+          const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
+          if (rollback && rollback.ok) {
+            throw new Error(writeSourceRes.error || "Unable to update source file.");
           }
-        } else {
-          const writeTargetRes = await writeFile(targetPath, finalTarget, { expectedData: targetContent });
-          if (!writeTargetRes.ok) throw new Error(writeTargetRes.error || "Unable to update target file.");
-
-          const writeSourceRes = await writeFile(sourcePath, finalSource, { expectedData: sourceContent });
-          if (!writeSourceRes.ok) {
-            const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
-            if (rollback && rollback.ok) {
-              throw new Error(writeSourceRes.error || "Unable to update source file.");
-            }
-            throw new Error((writeSourceRes && writeSourceRes.error)
-              ? `${writeSourceRes.error} (rollback failed; the tune may now be duplicated)`
-              : "Unable to update source file (rollback failed; the tune may now be duplicated)");
-          }
+          throw new Error((writeSourceRes && writeSourceRes.error)
+            ? `${writeSourceRes.error} (rollback failed; the tune may now be duplicated)`
+            : "Unable to update source file (rollback failed; the tune may now be duplicated)");
         }
 
         setFileContentInCache(targetPath, finalTarget);

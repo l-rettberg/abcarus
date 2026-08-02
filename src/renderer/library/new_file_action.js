@@ -4,7 +4,6 @@ import {
 } from "../abc/default_documents.js";
 
 export function createNewFileAction({
-  api = null,
   actions = {},
 } = {}) {
   const {
@@ -18,7 +17,6 @@ export function createNewFileAction({
     mkdirp = async () => {},
     patchCurrentDocument = () => {},
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
     safeBasename = (path) => String(path || "").split("/").pop() || "",
     safeDirname = () => "",
     setActiveFilePath = () => {},
@@ -69,12 +67,6 @@ export function createNewFileAction({
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
     const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
     setActiveFilePath(filePath);
-    try {
-      if (api && typeof api.openWorkingCopy === "function") {
-        await api.openWorkingCopy(filePath);
-        await refreshWorkingCopySnapshot();
-      }
-    } catch {}
     if (switched && switched.ok) {
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
       setDirtyIndicator(false);

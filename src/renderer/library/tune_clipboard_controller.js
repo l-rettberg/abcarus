@@ -4,13 +4,10 @@ export function createTuneClipboardController({
 } = {}) {
   const {
     getLibraryIndex = () => null,
-    getWorkingCopySnapshot = () => null,
   } = state;
 
   const {
-    pathsEqual = (a, b) => String(a || "") === String(b || ""),
     readFile = async () => ({ ok: false }),
-    resolveTuneEntryFromSnapshot = () => null,
     setBufferStatus = () => {},
     setFileContentInCache = () => {},
     setStatus = () => {},
@@ -44,25 +41,7 @@ export function createTuneClipboardController({
   }
 
   async function getTuneText(tune, fileMeta) {
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    if (
-      fileMeta
-      && fileMeta.path
-      && workingCopySnapshot
-      && workingCopySnapshot.path
-      && pathsEqual(workingCopySnapshot.path, fileMeta.path)
-    ) {
-      const entry = resolveTuneEntryFromSnapshot(workingCopySnapshot, {
-        tuneUid: tune && tune.tuneUid,
-        tuneIndex: tune && tune.tuneIndex,
-        startOffset: tune && tune.startOffset,
-      });
-      if (entry && Number.isFinite(Number(entry.start)) && Number.isFinite(Number(entry.end))) {
-        const text = String(workingCopySnapshot.text || "");
-        setFileContentInCache(fileMeta.path, text);
-        return text.slice(entry.start, entry.end);
-      }
-    }
+    if (!fileMeta || !fileMeta.path) throw new Error("Tune file path is missing.");
     const res = await readFile(fileMeta.path);
     if (!res.ok) throw new Error(res.error || "Unable to read file.");
     const content = String(res.data || "");

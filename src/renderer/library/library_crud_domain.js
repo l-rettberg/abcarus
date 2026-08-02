@@ -33,13 +33,9 @@ function createLibraryCrudDomain({
   tuneClipboardController = createTuneClipboardController({
     state: {
       getLibraryIndex: state.getLibraryIndex,
-      getWorkingCopySnapshot: actions.getWorkingCopySnapshot,
     },
     actions: {
-      getFileContentFromCache: actions.getFileContentFromCache,
-      pathsEqual: actions.pathsEqual,
       readFile: actions.readFile,
-      resolveTuneEntryFromSnapshot: actions.resolveTuneEntryFromSnapshot,
       setBufferStatus: actions.setBufferStatus,
       setFileContentInCache: actions.setFileContentInCache,
       setStatus: actions.setStatus,
@@ -99,7 +95,6 @@ function createLibraryCrudDomain({
       mkdirp: actions.mkdirp,
       patchCurrentDocument: actions.patchCurrentDocument,
       refreshLibraryFile: actions.refreshLibraryFile,
-      refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
       safeBasename: actions.safeBasename,
       safeDirname: actions.safeDirname,
       setActiveFilePath: actions.libraryDocumentContext.setActiveFile,

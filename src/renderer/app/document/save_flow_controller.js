@@ -514,6 +514,67 @@ export function createSaveFlowController({
       return true;
     }
 
+    const directSourcePath = getActiveFilePath() || getCurrentDocumentPath() || "";
+    const directTuneMeta = getActiveTuneMeta();
+    if (
+      directTuneMeta
+      && directTuneMeta.path
+      && pathsEqual(directTuneMeta.path, directSourcePath)
+      && getFileContentFromCache(directSourcePath) != null
+    ) {
+      if (getCurrentDocument().dirty || getHeaderDirty()) {
+        const prepared = await performSimpleTuneSave(directTuneMeta.path, {
+          includeHeader: Boolean(getHeaderDirty()),
+        });
+        if (!prepared) return false;
+      }
+
+      const sourceRead = await readFile(directSourcePath);
+      if (!sourceRead || !sourceRead.ok) {
+        await showSaveError((sourceRead && sourceRead.error) ? sourceRead.error : "Unable to read source file for Save As.");
+        return false;
+      }
+      const suggestedName = `${getSuggestedBaseName()}.abc`;
+      const filePath = await showSaveDialog(suggestedName, getDefaultSaveDir());
+      if (!filePath) return false;
+      if (pathsEqual(normalizeLibraryPath(filePath), normalizeLibraryPath(directSourcePath))) {
+        await showSaveError("Save As destination must be different from the source file.");
+        return false;
+      }
+
+      const destinationExists = await fileExists(filePath);
+      let destinationOptions = {};
+      if (destinationExists) {
+        if ((await confirmOverwrite(filePath)) !== "replace") return false;
+        const destinationRead = await readFile(filePath);
+        if (!destinationRead || !destinationRead.ok) {
+          await showSaveError((destinationRead && destinationRead.error) || "Unable to read existing Save As destination.");
+          return false;
+        }
+        destinationOptions = { expectedData: String(destinationRead.data || "") };
+      }
+      const out = await writeFile(filePath, String(sourceRead.data || ""), destinationOptions);
+      if (!out || !out.ok) {
+        await showSaveError((out && out.error) ? out.error : "Unable to save file.");
+        return false;
+      }
+      setFileContentInCache(filePath, String(sourceRead.data || ""));
+      patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+      setDirtyIndicator(false);
+      resetTransposePreviewState();
+      setActiveFilePath(filePath);
+      setFileNameMeta(stripFileExtension(safeBasename(filePath)));
+      try { await refreshLibraryFile(filePath, { force: true }); } catch {}
+      const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
+      if (switched && switched.ok) {
+        patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+        setDirtyIndicator(false);
+      }
+      updateFileHeaderPanel();
+      updateWindowTitle();
+      return true;
+    }
+
     let tuneSyncResult;
     try {
       tuneSyncResult = await flushWorkingCopyTuneSync();

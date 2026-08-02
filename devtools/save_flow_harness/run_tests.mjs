@@ -148,6 +148,57 @@ async function testDirectTuneSaveRejectsExternalChange() {
   assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), false);
 }
 
+async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
+  const sourcePath = "/tmp/source.abc";
+  const destinationPath = "/tmp/copy.abc";
+  const sourceText = "X:1\nT:Source\nK:C\nC |]\n";
+  const editedText = "X:1\nT:Saved\nK:C\nD |]\n";
+  const writes = [];
+  let diskSourceText = sourceText;
+  let currentDocument = { path: sourcePath, content: editedText, dirty: true };
+  const controller = createSaveFlowController({
+    state: {
+      getActiveFilePath: () => sourcePath,
+      getCurrentDocument: () => currentDocument,
+      getCurrentDocumentPath: () => sourcePath,
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", startOffset: 0, endOffset: sourceText.length }),
+      getFileContentFromCache: () => sourceText,
+      getHeaderDirty: () => false,
+    },
+    actions: {
+      getActiveFilePath: () => sourcePath,
+      getEditorValue: () => editedText,
+      readFile: async (path) => ({ ok: true, data: path === sourcePath ? diskSourceText : "old destination" }),
+      writeFile: async (path, data, options) => {
+        writes.push([path, data, options]);
+        if (path === sourcePath) diskSourceText = data;
+        return { ok: true };
+      },
+      fileExists: async (path) => path === destinationPath,
+      confirmOverwrite: async () => "replace",
+      getSuggestedBaseName: () => "copy",
+      getDefaultSaveDir: () => "/tmp",
+      showSaveDialog: async () => destinationPath,
+      patchCurrentDocument: (patch) => { currentDocument = { ...currentDocument, ...patch }; },
+      setFileContentInCache: () => {},
+      refreshLibraryFile: async () => null,
+      loadLibraryFileIntoEditor: async () => ({ ok: true }),
+      setDirtyIndicator: () => {},
+      setActiveFilePath: () => {},
+      setFileNameMeta: () => {},
+      updateFileHeaderPanel: () => {},
+      updateWindowTitle: () => {},
+      resetTransposePreviewState: () => {},
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+  assert.equal(await controller.performSaveAsFlow(), true);
+  assert.deepEqual(writes, [
+    [sourcePath, editedText, { expectedData: sourceText }],
+    [destinationPath, editedText, { expectedData: "old destination" }],
+  ]);
+}
+
 async function testTuneSyncFailureStopsBeforeDialog() {
   const { controller, calls } = makeController({ flushTuneResult: { ok: false, error: "tune sync failed" } });
   const result = await controller.performSaveAsFlow();
@@ -215,4 +266,5 @@ await testCancelLeavesSourceUntouched();
 await testDestinationFailureLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
 await testDirectTuneSaveRejectsExternalChange();
+await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
 console.log("save flow harness: all tests passed");

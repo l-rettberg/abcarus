@@ -8,11 +8,8 @@ function createAppendTuneToActiveFileAction({
   getTuneText = async () => "",
   pathsEqual = (a, b) => String(a || "") === String(b || ""),
   withFileLock = async (_path, fn) => fn(),
-  refreshWorkingCopySnapshot = async () => null,
-  markDiskConflictPath = () => {},
-  setFileContentInCache = () => {},
-  syncLibraryFileFromWorkingCopySnapshot = () => {},
-  appendTuneTextToFileUnlocked = async () => {},
+  readFile = async () => ({ ok: false }),
+  writeFile = async () => ({ ok: false }),
   refreshLibraryFile = async () => null,
   setActiveFilePath = () => {},
   selectTune = async () => {},
@@ -62,55 +59,23 @@ function createAppendTuneToActiveFileAction({
       if (confirm !== "append") return;
 
       await withFileLock(targetPath, async () => {
-        if (
-          api
-          && typeof api.openWorkingCopy === "function"
-          && typeof api.insertWorkingCopyTuneAfter === "function"
-          && typeof api.commitWorkingCopyToDisk === "function"
-        ) {
-          const opened = await api.openWorkingCopy(targetPath);
-          if (!opened || !opened.ok) {
-            throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for appending.");
-          }
-          const snap = await refreshWorkingCopySnapshot();
-          if (!snap || !snap.path || !pathsEqual(snap.path, targetPath)) {
-            throw new Error("Unable to open working copy for appending.");
-          }
-          const nextX = getNextXNumber(String(snap.text || ""));
-          const prepared = ensureXNumberInAbc(tuneText, nextX);
-          const ins = await api.insertWorkingCopyTuneAfter({
-            append: true,
-            text: prepared,
-            expectedPath: targetPath,
-            expectedVersion: snap.version,
-          });
-          if (!ins || !ins.ok) throw new Error((ins && ins.error) ? ins.error : "Unable to append.");
-          const snapshotToSave = await refreshWorkingCopySnapshot();
-          if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
-            throw new Error("Working copy no longer matches the append target.");
-          }
-          let saved = await api.commitWorkingCopyToDisk({
-            force: false,
-            expectedPath: targetPath,
-            expectedVersion: snapshotToSave.version,
-          });
-          if (!saved || !saved.ok) {
-            if (saved && saved.conflict) {
-              markDiskConflictPath(targetPath, true);
-              throw new Error("Refusing to append: file changed on disk. Reload/reopen the file and try again.");
-            }
-          }
-          if (!saved || !saved.ok) {
-            throw new Error((saved && saved.error) ? saved.error : "Unable to save file.");
-          }
-          const snapAfter = await refreshWorkingCopySnapshot();
-          if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, targetPath)) {
-            setFileContentInCache(targetPath, snapAfter.text);
-            syncLibraryFileFromWorkingCopySnapshot(targetPath, snapAfter);
-          }
-          return;
+        const readRes = await readFile(targetPath);
+        if (!readRes || !readRes.ok) {
+          throw new Error((readRes && readRes.error) ? readRes.error : "Unable to read append target.");
         }
-        await appendTuneTextToFileUnlocked(targetPath, tuneText);
+        const before = String(readRes.data || "");
+        const nextX = getNextXNumber(before);
+        const prepared = ensureXNumberInAbc(tuneText, nextX);
+        const newline = before.includes("\r\n") ? "\r\n" : "\n";
+        const tune = String(prepared || "").replace(/\s+$/, "");
+        const separator = !before.trim()
+          ? ""
+          : (before.endsWith("\n\n") ? "" : (before.endsWith("\n") ? newline : `${newline}${newline}`));
+        const updated = `${before}${separator}${tune}${newline}`;
+        const saveRes = await writeFile(targetPath, updated, { expectedData: before });
+        if (!saveRes || !saveRes.ok) {
+          throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
+        }
       });
 
       const updatedFile = await refreshLibraryFile(targetPath, { force: true });

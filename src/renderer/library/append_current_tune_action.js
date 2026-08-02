@@ -35,14 +35,12 @@ export function createAppendCurrentTuneAction({
     ensureXNumberInAbc = (text) => text,
     getActiveFileEntry = () => null,
     getNextXNumber = () => 1,
-    markDiskConflictPath = () => {},
     markHeaderClean = () => {},
     parseTuneIdentityFields = () => null,
     patchCurrentDocument = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
-    resolveWorkingCopySaveConflictDefault = async () => null,
+    readFile = async () => ({ ok: false }),
     selectTune = async () => {},
     setActiveFilePath = () => {},
     setFileContentInCache = () => {},
@@ -52,9 +50,9 @@ export function createAppendCurrentTuneAction({
     setDirtyIndicator = () => {},
     showSaveError = async () => {},
     showToast = () => {},
-    syncLibraryFileFromWorkingCopySnapshot = () => {},
     updateHeaderStateUI = () => {},
     withFileLock = async (_path, fn) => fn(),
+    writeFile = async () => ({ ok: false }),
   } = actions;
 
   async function appendTextToFileNow(filePath, tuneText, { toastOk = "" } = {}) {
@@ -62,76 +60,26 @@ export function createAppendCurrentTuneAction({
     if (!p) return false;
     const raw = String(tuneText || "");
     if (!raw.trim()) return false;
-    if (
-      !api
-      || typeof api.openWorkingCopy !== "function"
-      || typeof api.insertWorkingCopyTuneAfter !== "function"
-      || typeof api.commitWorkingCopyToDisk !== "function"
-    ) {
-      await showSaveError("Internal error: working copy is unavailable.");
-      return false;
-    }
-
     return withFileLock(p, async () => {
-      const opened = await api.openWorkingCopy(p);
-      if (!opened || !opened.ok) {
-        await showSaveError((opened && opened.error) ? opened.error : "Unable to open working copy.");
+      const readRes = await readFile(p);
+      if (!readRes || !readRes.ok) {
+        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to read append target.");
         return false;
       }
-      const snap = await refreshWorkingCopySnapshot();
-      if (!snap || !snap.path || !pathsEqual(snap.path, p)) {
-        await showSaveError("Unable to open working copy.");
-        return false;
-      }
-
-      const nextX = getNextXNumber(String(snap.text || ""));
+      const before = String(readRes.data || "");
+      const nextX = getNextXNumber(before);
       const prepared = ensureXNumberInAbc(raw, nextX);
-      const insertRes = await api.insertWorkingCopyTuneAfter({
-        append: true,
-        text: prepared,
-        expectedPath: p,
-        expectedVersion: snap.version,
-      });
-      if (!insertRes || !insertRes.ok) {
-        await showSaveError((insertRes && insertRes.error) ? insertRes.error : "Unable to add tune.");
-        return false;
-      }
-
-      const snapshotToSave = await refreshWorkingCopySnapshot();
-      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, p)) {
-        await showSaveError("Working copy no longer matches the append target.");
-        return false;
-      }
-      const saveRes = await api.commitWorkingCopyToDisk({
-        force: false,
-        expectedPath: p,
-        expectedVersion: snapshotToSave.version,
-      });
+      const newline = before.includes("\r\n") ? "\r\n" : "\n";
+      const tune = prepared.replace(/\s+$/, "");
+      const separator = !before.trim() ? "" : (before.endsWith("\n\n") ? "" : (before.endsWith("\n") ? newline : `${newline}${newline}`));
+      const updated = `${before}${separator}${tune}${newline}`;
+      const saveRes = await writeFile(p, updated, { expectedData: before });
       if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          const resolved = await resolveWorkingCopySaveConflictDefault(p, { restoreTuneId: null });
-          if (resolved && resolved.ok && resolved.action === "overwrite") {
-            // continue below
-          } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-            showToast("Saved copy and switched.", 3000);
-            return true;
-          } else {
-            if (resolved && resolved.action === "discard_reload") showToast("Reloaded from disk.", 2200);
-            else if (resolved && resolved.error) await showSaveError(resolved.error);
-            else setStatus("Save canceled.");
-            return false;
-          }
-        }
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         return false;
       }
 
-      markDiskConflictPath(p, false);
-      const snapAfter = await refreshWorkingCopySnapshot();
-      if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, p)) {
-        setFileContentInCache(p, snapAfter.text);
-        syncLibraryFileFromWorkingCopySnapshot(p, snapAfter);
-      }
+      setFileContentInCache(p, updated);
 
       const updatedFile = await refreshLibraryFile(p, { force: true });
       setActiveFilePath(p);

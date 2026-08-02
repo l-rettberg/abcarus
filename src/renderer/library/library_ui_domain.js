@@ -273,11 +273,7 @@ function createLibraryUiDomain({
     getTuneText: actions.getTuneText,
     pathsEqual,
     withFileLock: actions.withFileLock,
-    refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
-    markDiskConflictPath: actions.markDiskConflictPath,
-    setFileContentInCache: actions.setFileContentInCache,
-    syncLibraryFileFromWorkingCopySnapshot: actions.syncLibraryFileFromWorkingCopySnapshot,
-    appendTuneTextToFileUnlocked: actions.appendTuneTextToFileUnlocked,
+    readFile: actions.readFile,
     refreshLibraryFile: actions.refreshLibraryFile,
     setActiveFilePath: (filePath) => {
       if (typeof state.setActiveFilePath === "function") state.setActiveFilePath(filePath || null);
@@ -286,6 +282,7 @@ function createLibraryUiDomain({
     getNextXNumber: actions.getNextXNumber,
     ensureXNumberInAbc: actions.ensureXNumberInAbc,
     confirmAppendToFile: actions.confirmAppendToFile,
+    writeFile: actions.writeFile,
     showToast: actions.showToast,
   });
 

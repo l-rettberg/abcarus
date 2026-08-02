@@ -242,7 +242,26 @@ async function openWorkingCopyFromPath(filePath) {
   if (state && state.path === p) return getWorkingCopyMetaSnapshot();
   if (persistenceInFlight) throw new Error("Refusing to switch working copy while a save is in progress.");
   if (state && state.dirty && state.path && state.path !== p) {
-    throw new Error("Refusing to replace a dirty working copy. Save, discard, or reload it first.");
+    // A completed save can leave a stale dirty marker after a race with a
+    // debounced renderer sync. Reconcile it only when the actual text is
+    // unchanged; never discard content that differs from the file on disk.
+    try {
+      const currentPath = String(state.path);
+      const rawCurrent = await fs.promises.readFile(currentPath);
+      const decodedCurrent = decodeAbcTextFromBuffer(rawCurrent);
+      if (String(decodedCurrent.text || "") === String(state.text || "")) {
+        state.dirty = false;
+        state.encoding = decodedCurrent.encoding || state.encoding || "utf8";
+        state.diskFingerprintOnOpen = fingerprintWithContent(
+          await statFingerprint(currentPath),
+          rawCurrent
+        );
+        notifyChanged();
+      }
+    } catch {}
+    if (state.dirty) {
+      throw new Error("Refusing to replace a dirty working copy. Save, discard, or reload it first.");
+    }
   }
 
   const raw = await fs.promises.readFile(p);

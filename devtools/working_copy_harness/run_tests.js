@@ -141,6 +141,30 @@ async function testDirtyWorkingCopyCannotBeReplacedByOpen() {
   });
 }
 
+async function testStaleDirtyMarkerIsReconciledBeforeOpen() {
+  await withTempDir(async (dir) => {
+    const firstPath = path.join(dir, "first.abc");
+    const secondPath = path.join(dir, "second.abc");
+    const firstText = "X:1\nT:First\nK:C\nC\n";
+    const secondText = "X:1\nT:Second\nK:C\nE\n";
+
+    await fs.promises.writeFile(firstPath, firstText, "utf8");
+    await fs.promises.writeFile(secondPath, secondText, "utf8");
+    await openWorkingCopyFromPath(firstPath);
+
+    // This reproduces a stale renderer/WC dirty marker without changing data.
+    let snapshot = getWorkingCopySnapshot();
+    applyFullText(firstText, { expectedPath: firstPath, expectedVersion: snapshot.version });
+    snapshot = getWorkingCopySnapshot();
+    assert.strictEqual(snapshot.dirty, true, "the fixture must start with a stale dirty marker");
+
+    await openWorkingCopyFromPath(secondPath);
+    snapshot = getWorkingCopySnapshot();
+    assert.strictEqual(snapshot.path, secondPath, "clean-equivalent WC should be replaceable");
+    assert.strictEqual(snapshot.dirty, false, "reconciled WC must be clean");
+  });
+}
+
 async function testDirtyWorkingCopyCannotBeReloadedByDefault() {
   await withTempDir(async (dir) => {
     const filePath = path.join(dir, "reload.abc");
@@ -575,6 +599,7 @@ async function main() {
   await testConflictDoesNotOverwriteByDefault();
   await testContentHashDetectsSameSizeExternalChange();
   await testDirtyWorkingCopyCannotBeReplacedByOpen();
+  await testStaleDirtyMarkerIsReconciledBeforeOpen();
   await testDirtyWorkingCopyCannotBeReloadedByDefault();
   await testTuneApplyCannotOverwriteFirstTuneByStaleIndex();
   await testStructuralMutationsRequireStableContext();

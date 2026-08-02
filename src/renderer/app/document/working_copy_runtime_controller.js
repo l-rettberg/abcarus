@@ -7,6 +7,7 @@ export function createWorkingCopyRuntimeController({
   const {
     getActiveTuneMeta = () => null,
     isCurrentDocumentDirty = () => false,
+    isDirectDiskSaveMode = () => false,
   } = state;
 
   const {
@@ -161,6 +162,7 @@ export function createWorkingCopyRuntimeController({
         && activeTuneMeta.path
         && pathsEqual(activeTuneMeta.path, p)
         && isCurrentDocumentDirty()
+        && !isDirectDiskSaveMode()
       ) {
         scheduleWorkingCopyTuneSync();
       }

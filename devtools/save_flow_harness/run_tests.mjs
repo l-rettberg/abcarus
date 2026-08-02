@@ -122,11 +122,13 @@ async function testDirectTuneSaveWritesExpectedData() {
       reconcileActiveTuneAfterSave: () => {},
       setDirtyIndicator: () => {},
       setActiveFilePath: () => {},
+      resetWorkingCopyTuneSyncDebounce: () => calls.push(["resetWorkingCopyTuneSyncDebounce"]),
       withFileLock: async (_path, fn) => fn(),
     },
   });
   assert.equal(await direct.performSimpleTuneSave(sourcePath), true);
   assert.deepEqual(writes, [[sourcePath, edited, { expectedData: baseline }]]);
+  assert.equal(calls.filter(([kind]) => kind === "resetWorkingCopyTuneSyncDebounce").length, 2);
 }
 
 async function testDirectTuneSaveRejectsExternalChange() {

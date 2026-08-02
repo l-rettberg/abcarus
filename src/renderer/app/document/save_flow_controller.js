@@ -54,6 +54,7 @@ export function createSaveFlowController({
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
+    resetWorkingCopyTuneSyncDebounce = () => {},
     resetHeaderEditorFilePath = () => {},
     resetTransposePreviewState = () => {},
     resolveWorkingCopySaveConflictDefault = async () => null,
@@ -164,6 +165,7 @@ export function createSaveFlowController({
       return false;
     }
     return withFileLock(p, async () => {
+      resetWorkingCopyTuneSyncDebounce();
       const activeTuneMeta = getActiveTuneMeta();
       if (!activeTuneMeta || !pathsEqual(activeTuneMeta.path, p)) {
         await showSaveError("Unable to save: active tune context is missing or stale.");
@@ -240,6 +242,7 @@ export function createSaveFlowController({
       }
 
       setFileContentInCache(p, nextText);
+      resetWorkingCopyTuneSyncDebounce();
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
         markHeaderClean();

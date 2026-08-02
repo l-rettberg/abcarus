@@ -1274,6 +1274,11 @@ workingCopyRuntimeController = createWorkingCopyRuntimeController({
   state: {
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     isCurrentDocumentDirty,
+    isDirectDiskSaveMode: () => Boolean(
+      !isRawModeActive()
+      && !isPayloadMode()
+      && !chordProFeature.isEnabled()
+    ),
     isFilePerfEnabled,
   },
   actions: {
@@ -1326,6 +1331,7 @@ const workingCopyConflictController = createWorkingCopyConflictController({
     attachTuneUidsToLibraryFile,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
+    resetWorkingCopyTuneSyncDebounce,
     safeBasename,
     safeDirname,
     selectTune,
@@ -1523,6 +1529,7 @@ saveFlowController = createSaveFlowController({
     refreshLibraryFile,
     readFile,
     refreshWorkingCopySnapshot,
+    resetWorkingCopyTuneSyncDebounce,
     resetHeaderEditorFilePath,
     resetTransposePreviewState,
     resolveWorkingCopySaveConflictDefault,
@@ -2959,6 +2966,11 @@ function initEditor() {
       handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
       handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
       getActiveTuneUid: () => activeContext.getActiveTuneUid(),
+      isDirectDiskSaveMode: () => Boolean(
+        !isRawModeActive()
+        && !isPayloadMode()
+        && !chordProFeature.isEnabled()
+      ),
       scheduleWorkingCopyFullSync,
       scheduleWorkingCopyTuneSync,
       isRawMode: () => isRawModeActive(),

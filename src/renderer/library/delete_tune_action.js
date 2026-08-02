@@ -1,29 +1,22 @@
 export function createDeleteTuneAction({
-  api = null,
   state = {},
   actions = {},
 } = {}) {
   const {
     getLibraryIndex = () => null,
-    getActiveFilePath = () => "",
     getActiveTuneId = () => "",
     getRawMode = () => false,
-    getHeaderDirty = () => false,
-    getIsNewTuneDraft = () => false,
-    isCurrentDocumentDirty = () => false,
   } = state;
 
   const {
-    attachTuneUidsToLibraryFile = () => {},
     clearActiveTune = () => {},
     confirmDeleteTune = async () => "",
-    discardWorkingCopyChangesForActiveFile = async () => {},
     ensureSafeToAbandonCurrentDoc = async () => false,
     findTuneById = () => null,
     markCurrentDocumentClean = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
+    readFile = async () => ({ ok: false }),
     requireCleanForFileOp = async () => false,
     selectTune = async () => {},
     setActiveFilePath = () => {},
@@ -31,7 +24,8 @@ export function createDeleteTuneAction({
     setFileContentInCache = () => {},
     showCleanFileDocument = () => {},
     showSaveError = async () => {},
-    syncLibraryFileFromWorkingCopySnapshot = () => null,
+    writeFile = async () => ({ ok: false }),
+    withFileLock = async (_path, fn) => fn(),
   } = actions;
 
   async function deleteTuneById(tuneId) {
@@ -51,80 +45,30 @@ export function createDeleteTuneAction({
 
     if (!(await requireCleanForFileOp(fileMeta.path, "deleting a tune"))) return;
 
-    if (
-      api
-      && typeof api.openWorkingCopy === "function"
-      && typeof api.deleteWorkingCopyTune === "function"
-      && typeof api.commitWorkingCopyToDisk === "function"
-      && fileMeta.path
-    ) {
-      if (
-        pathsEqual(getActiveFilePath(), fileMeta.path)
-        && (isCurrentDocumentDirty() || getHeaderDirty() || Boolean(getIsNewTuneDraft()))
-      ) {
-        await showSaveError("Please Save/Discard your unsaved changes in this file before deleting tunes.");
-        return;
-      }
-
-      try {
-        const opened = await api.openWorkingCopy(fileMeta.path);
-        if (!opened || !opened.ok) {
-          throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy for deletion.");
+    try {
+      const result = await withFileLock(fileMeta.path, async () => {
+        const readRes = await readFile(fileMeta.path);
+        if (!readRes || !readRes.ok) throw new Error(readRes && readRes.error ? readRes.error : "Unable to read file.");
+        const content = String(readRes.data || "");
+        const start = Number(selected.startOffset);
+        const end = Number(selected.endOffset);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > content.length) {
+          throw new Error("Refusing to delete: tune offsets look stale. Refresh the library and try again.");
         }
-        const snapshotBefore = await refreshWorkingCopySnapshot();
-        if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, fileMeta.path)) {
-          throw new Error("Working copy no longer matches the file containing the tune.");
+        const before = content.slice(0, start);
+        let after = content.slice(end);
+        if (/\r?\n$/.test(before) && /^\r?\n/.test(after)) after = after.replace(/^\r?\n/, "");
+        const updatedContent = before + after;
+        const writeRes = await writeFile(fileMeta.path, updatedContent, { expectedData: content });
+        if (!writeRes || !writeRes.ok) {
+          if (writeRes && writeRes.conflict) throw new Error("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
+          throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to delete tune.");
         }
-        attachTuneUidsToLibraryFile(fileMeta.path, snapshotBefore);
-        const refreshed = findTuneById(tuneId);
-        if (refreshed && refreshed.tune) selected = refreshed.tune;
-        if (!selected.tuneUid) {
-          throw new Error("Refusing to delete: stable tune identity is missing. Refresh the library and try again.");
-        }
-        const payload = {
-          tuneUid: selected.tuneUid,
-          tuneIndex: selected.tuneIndex,
-          expectedPath: fileMeta.path,
-          expectedVersion: snapshotBefore.version,
-          expected: {
-            xNumber: selected.xNumber != null ? String(selected.xNumber) : "",
-            title: selected.title ? String(selected.title) : "",
-          },
-        };
-        const deleteRes = await api.deleteWorkingCopyTune({
-          ...payload,
-          expectedPath: fileMeta.path,
-          expectedVersion: snapshotBefore.version,
-        });
-        if (!deleteRes || !deleteRes.ok) {
-          throw new Error((deleteRes && deleteRes.error) ? deleteRes.error : "Unable to delete tune.");
-        }
-
-        const snapshotToSave = await refreshWorkingCopySnapshot();
-        if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, fileMeta.path)) {
-          throw new Error("Working copy no longer matches the file after deletion.");
-        }
-        const saveRes = await api.commitWorkingCopyToDisk({
-          force: false,
-          expectedPath: fileMeta.path,
-          expectedVersion: snapshotToSave.version,
-        });
-        if (!saveRes || !saveRes.ok) {
-          if (saveRes && saveRes.conflict) {
-            await showSaveError("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
-            try { await discardWorkingCopyChangesForActiveFile(); } catch {}
-            try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
-            return;
-          }
-          await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to delete tune.");
-          return;
-        }
-
-        const snapshotAfter = await refreshWorkingCopySnapshot();
-        if (!snapshotAfter || !snapshotAfter.path || !pathsEqual(snapshotAfter.path, fileMeta.path)) return;
-
-        setFileContentInCache(fileMeta.path, snapshotAfter.text);
-        const updatedFile = syncLibraryFileFromWorkingCopySnapshot(fileMeta.path, snapshotAfter);
+        setFileContentInCache(fileMeta.path, updatedContent);
+        const updatedFile = await refreshLibraryFile(fileMeta.path, { force: true });
+        return { updatedContent, updatedFile };
+      });
+      const updatedFile = result && result.updatedFile;
         setActiveFilePath(fileMeta.path);
 
         if (getActiveTuneId() === tuneId) {
@@ -133,7 +77,7 @@ export function createDeleteTuneAction({
 
         const tunes = updatedFile && Array.isArray(updatedFile.tunes) ? updatedFile.tunes : [];
         if (tunes.length) {
-          const prevIndex = Number.isFinite(Number(payload.tuneIndex)) ? Number(payload.tuneIndex) : 0;
+          const prevIndex = Number.isFinite(Number(selected.tuneIndex)) ? Number(selected.tuneIndex) : 0;
           const nextIndex = Math.min(Math.max(0, prevIndex), tunes.length - 1);
           const nextTune = tunes[nextIndex];
           const nextKey = getRawMode() ? nextTune.id : (nextTune.tuneUid || nextTune.id);
@@ -141,18 +85,15 @@ export function createDeleteTuneAction({
           markCurrentDocumentClean();
           setDirtyIndicator(false);
         } else {
-          const text = String(snapshotAfter.text || "");
+          const text = String(result && result.updatedContent || "");
           showCleanFileDocument(fileMeta.path, text);
         }
         try { await refreshLibraryFile(fileMeta.path, { force: true }); } catch {}
         return;
-      } catch (e) {
-        await showSaveError(e && e.message ? e.message : String(e));
-        return;
-      }
+    } catch (e) {
+      await showSaveError(e && e.message ? e.message : String(e));
+      return;
     }
-
-    await showSaveError("Internal error: working copy delete is unavailable.");
   }
 
   return {

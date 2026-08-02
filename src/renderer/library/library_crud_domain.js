@@ -121,53 +121,40 @@ function createLibraryCrudDomain({
   });
 
   const deleteTuneAction = createDeleteTuneAction({
-    api,
     state: {
       getLibraryIndex: state.getLibraryIndex,
-      getActiveFilePath: state.getActiveFilePath,
       getActiveTuneId: state.getActiveTuneId,
       getRawMode: state.getRawMode,
-      getHeaderDirty: state.getHeaderDirty,
-      getIsNewTuneDraft: state.getIsNewTuneDraft,
-      isCurrentDocumentDirty: state.isCurrentDocumentDirty,
     },
     actions: {
-      attachTuneUidsToLibraryFile: actions.attachTuneUidsToLibraryFile,
       clearActiveTune: actions.libraryDocumentContext.clearActiveTune,
       confirmDeleteTune: actions.confirmDeleteTune,
-      discardWorkingCopyChangesForActiveFile: actions.discardWorkingCopyChangesForActiveFile,
       ensureSafeToAbandonCurrentDoc: actions.ensureSafeToAbandonCurrentDoc,
       findTuneById,
       markCurrentDocumentClean: actions.markCurrentDocumentClean,
       pathsEqual: actions.pathsEqual,
       refreshLibraryFile: actions.refreshLibraryFile,
-      refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
       requireCleanForFileOp: actions.requireCleanForFileOp,
+      readFile: actions.readFile,
       selectTune: actions.selectTune,
       setActiveFilePath: actions.libraryDocumentContext.setActiveFile,
       setDirtyIndicator: actions.setDirtyIndicator,
       setFileContentInCache: actions.setFileContentInCache,
       showCleanFileDocument: actions.libraryDocumentContext.showCleanFileDocument,
       showSaveError: actions.showSaveError,
-      syncLibraryFileFromWorkingCopySnapshot: actions.syncLibraryFileFromWorkingCopySnapshot,
+      withFileLock: actions.withFileLock,
+      writeFile: actions.writeFile,
     },
   });
 
   const duplicateTuneAction = createDuplicateTuneAction({
-    api,
-    state: {
-      isWorkingCopyOpenForFile: state.isWorkingCopyOpenForFile,
-    },
     actions: {
-      attachTuneUidsToLibraryFile: actions.attachTuneUidsToLibraryFile,
       ensureCopyTitleInAbc: actions.ensureCopyTitleInAbc,
       findTuneById,
       markActiveTuneButton: actions.markActiveTuneButton,
-      markDiskConflictPath: actions.markDiskConflictPath,
       pathsEqual: actions.pathsEqual,
       readFile: actions.readFile,
       refreshLibraryFile: actions.refreshLibraryFile,
-      refreshWorkingCopySnapshot: actions.refreshWorkingCopySnapshot,
       renumberXInTextKeepingFirst: actions.renumberXInTextKeepingFirst,
       requireCleanForFileOp: actions.requireCleanForFileOp,
       selectTune: actions.selectTune,

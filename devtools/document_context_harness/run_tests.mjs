@@ -415,55 +415,53 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
 
 async function testSimpleTuneSaveIsOwnedBySaveController() {
   const filePath = "/tmp/tunes.abc";
-  let snapshot = {
-    path: filePath,
-    text: "X:2\nT:Second\nK:C\nD|\n",
-    version: 4,
-  };
-  let commitPayload = null;
+  const sourceText = "X:2\nT:Second\nK:C\nD|\n";
+  const editedText = "X:2\nT:Changed\nK:C\nE|\n";
+  let writePayload = null;
   let reconciled = false;
   let patched = null;
   const controller = createSaveFlowController({
-    api: {
-      commitWorkingCopyToDisk: async (payload) => {
-        commitPayload = payload;
-        return { ok: true };
-      },
-    },
     state: {
-      getActiveTuneId: () => "legacy-id",
-      getActiveTuneUid: () => "uid-second",
+      getActiveTuneMeta: () => ({
+        path: filePath,
+        xNumber: "2",
+        startOffset: 0,
+        endOffset: sourceText.length,
+      }),
+      getFileContentFromCache: () => sourceText,
       getHeaderEditorValue: () => "",
     },
     actions: {
-      attachTuneUidsToLibraryFile: () => {},
-      ensureWorkingCopyOpenForPath: async () => true,
-      flushWorkingCopyTuneSync: async () => ({ ok: true }),
-      getEditorValue: () => "X:2\nT:Second\nK:C\nD|\n",
+      getEditorValue: () => editedText,
+      readFile: async () => ({ ok: true, data: sourceText }),
+      writeFile: async (path, data, options) => {
+        writePayload = { path, data, options };
+        return { ok: true };
+      },
       markDiskConflictPath: () => {},
       patchCurrentDocument: (value) => { patched = value; },
       pathsEqual: (a, b) => a === b,
       reconcileActiveTuneAfterSave: () => { reconciled = true; },
       refreshLibraryFile: async () => ({ path: filePath, tunes: [] }),
-      refreshWorkingCopySnapshot: async () => snapshot,
       setActiveFilePath: () => {},
       setDirtyIndicator: () => {},
       setFileContentInCache: () => {},
-      tryResolveActiveTuneUid: () => true,
       updateFileHeaderPanel: () => {},
       withFileLock: async (_path, fn) => fn(),
     },
   });
 
   assert.equal(await controller.performSimpleTuneSave(filePath), true);
-  assert.deepEqual(commitPayload, {
-    force: false,
-    expectedPath: filePath,
-    expectedVersion: 4,
+  assert.deepEqual(writePayload, {
+    path: filePath,
+    data: editedText,
+    options: {
+      expectedData: sourceText,
+    },
   });
   assert.deepEqual(patched, {
     path: filePath,
-    content: snapshot.text,
+    content: editedText,
     dirty: false,
   });
   assert.equal(reconciled, true);

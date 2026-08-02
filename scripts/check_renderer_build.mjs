@@ -271,17 +271,17 @@ async function assertSaveIntentGuards() {
   const simpleSaveEnd = saveFlow.indexOf("async function performSaveFlow()", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
   const simpleSaveBody = saveFlow.slice(simpleSaveStart, simpleSaveEnd);
-  if (!simpleSaveBody.includes("const syncRes = await flushWorkingCopyTuneSync();")) {
-    throw new Error("performSimpleTuneSave() must synchronize the UID-addressed tune through the working copy.");
+  if (!simpleSaveBody.includes("getFileContentFromCache(p)")) {
+    throw new Error("performSimpleTuneSave() must use the loaded file baseline before editing a tune.");
   }
-  if (
-    !simpleSaveBody.includes("expectedPath: p")
-    || !simpleSaveBody.includes("expectedVersion: snapshot.version")
-  ) {
-    throw new Error("performSimpleTuneSave() must bind commit to the expected working-copy path and version.");
+  if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
+    throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
   }
-  if (simpleSaveBody.includes("writeFile(")) {
-    throw new Error("performSimpleTuneSave() must not bypass working-copy identity guards with a direct file write.");
+  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: sourceText })")) {
+    throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
+  }
+  if (!simpleSaveBody.includes("File changed on disk")) {
+    throw new Error("performSimpleTuneSave() must fail closed on an external file change.");
   }
 
   const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");

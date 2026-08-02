@@ -11,6 +11,7 @@ export function createSaveFlowController({
     getActiveTuneUid = () => "",
     getCurrentDocument = () => null,
     getCurrentDocumentPath = () => "",
+    getFileContentFromCache = () => null,
     getFocusModeEnabled = () => false,
     getHeaderDirty = () => false,
     getHeaderEditorValue = () => "",
@@ -65,6 +66,8 @@ export function createSaveFlowController({
     setActiveFilePath = () => {},
     setDirtyIndicator = () => {},
     setFileContentInCache = () => {},
+    readFile = async () => ({ ok: false }),
+    writeFile = async () => ({ ok: false }),
     setFileNameMeta = () => {},
     setStatus = () => {},
     showSaveDialog = async () => "",
@@ -76,6 +79,7 @@ export function createSaveFlowController({
     updateHeaderStateUI = () => {},
     updateLibraryStatus = () => {},
     updateWindowTitle = () => {},
+    ensureXNumberInAbc = (text) => String(text || ""),
     withFileLock = async (_path, fn) => fn(),
   } = actions;
 
@@ -160,83 +164,82 @@ export function createSaveFlowController({
       return false;
     }
     return withFileLock(p, async () => {
-      if (!api || typeof api.commitWorkingCopyToDisk !== "function") {
-        await showSaveError("Internal error: working copy save is unavailable.");
+      const activeTuneMeta = getActiveTuneMeta();
+      if (!activeTuneMeta || !pathsEqual(activeTuneMeta.path, p)) {
+        await showSaveError("Unable to save: active tune context is missing or stale.");
         return false;
       }
-      const opened = await ensureWorkingCopyOpenForPath(p);
-      if (!opened) {
-        const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
-        await showSaveError(reason
-          ? `Unable to save: ${reason}`
-          : "Unable to save: working copy could not be opened.");
+
+      const cachedContent = getFileContentFromCache(p);
+      if (cachedContent == null) {
+        await showSaveError("Unable to save safely: file baseline is missing. Re-open the tune and try again.");
         return false;
       }
-      tryResolveActiveTuneUid();
-      const syncRes = await flushWorkingCopyTuneSync();
-      if (!syncRes || !syncRes.ok) {
-        await showSaveError((syncRes && syncRes.error) ? syncRes.error : "Unable to synchronize the active tune.");
+
+      const sourceText = String(cachedContent);
+      let expectedStart = Number(activeTuneMeta.startOffset);
+      let expectedEnd = Number(activeTuneMeta.endOffset);
+      if (!Number.isFinite(expectedStart) || !Number.isFinite(expectedEnd)
+        || expectedStart < 0 || expectedEnd <= expectedStart || expectedEnd > sourceText.length) {
+        await showSaveError("Unable to save safely: active tune range is missing. Re-open the tune and try again.");
         return false;
       }
-      let snapshot = await refreshWorkingCopySnapshot();
-      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-        await showSaveError("Unable to save: working copy no longer matches the active file.");
+
+      const targetX = activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber).trim() : "";
+      const editorText = targetX
+        ? ensureXNumberInAbc(getEditorValue(), targetX)
+        : String(getEditorValue() || "");
+      if (!editorText.trim()) {
+        await showSaveError("Unable to save: active tune text is empty.");
         return false;
       }
+
+      let nextText = sourceText.slice(0, expectedStart) + editorText + sourceText.slice(expectedEnd);
       if (includeHeader) {
-        if (typeof api.applyWorkingCopyHeaderText !== "function") {
-          await showSaveError("Internal error: working copy header save is unavailable.");
-          return false;
-        }
-        const headerRes = await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
-          expectedPath: p,
-          expectedVersion: snapshot.version,
-        });
-        if (!headerRes || !headerRes.ok) {
-          await showSaveError((headerRes && headerRes.error) ? headerRes.error : "Unable to synchronize the file header.");
-          return false;
-        }
-        snapshot = await refreshWorkingCopySnapshot();
-        if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-          await showSaveError("Unable to save: working copy no longer matches the active file.");
+        const headerMatch = sourceText.match(/^[\t ]*X:/m);
+        const oldHeaderEnd = headerMatch && Number.isFinite(headerMatch.index)
+          ? headerMatch.index
+          : sourceText.length;
+        const rawHeaderText = String(getHeaderEditorValue() || "");
+        const headerText = rawHeaderText && !/[\r\n]$/.test(rawHeaderText)
+          ? `${rawHeaderText}\n`
+          : rawHeaderText;
+        const bodyStart = Math.max(0, expectedStart - oldHeaderEnd);
+        const bodyEnd = Math.max(bodyStart, expectedEnd - oldHeaderEnd);
+        const body = sourceText.slice(oldHeaderEnd);
+        const nextBody = body.slice(0, bodyStart) + editorText + body.slice(bodyEnd);
+        nextText = headerText + nextBody;
+        expectedStart = headerText.length + bodyStart;
+        expectedEnd = expectedStart + editorText.length;
+        if (!nextText.slice(expectedStart, expectedEnd).startsWith(editorText)) {
+          await showSaveError("Unable to save safely: header and tune ranges could not be reconciled.");
           return false;
         }
       }
 
-      const saveRes = await api.commitWorkingCopyToDisk({
-        force: false,
-        expectedPath: p,
-        expectedVersion: snapshot.version,
-      });
+      const diskCheck = await readFile(p);
+      if (!diskCheck || !diskCheck.ok) {
+        await showSaveError((diskCheck && diskCheck.error) ? diskCheck.error : "Unable to read file before saving.");
+        return false;
+      }
+      if (String(diskCheck.data || "") !== sourceText) {
+        markDiskConflictPath(p, true);
+        await showSaveError("File changed on disk. Reload it before saving your changes.");
+        return false;
+      }
+
+      const saveRes = await writeFile(p, nextText, { expectedData: sourceText });
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) {
-          const resolved = await resolveWorkingCopySaveConflictDefault(p, {
-            restoreTuneId: getActiveTuneUid() || getActiveTuneId(),
-          });
-          if (!resolved || !resolved.ok) {
-            if (resolved && resolved.error) await showSaveError(resolved.error);
-            return false;
-          }
-          if (resolved.action === "save_copy_as") return true;
-          if (resolved.action === "discard_reload") return false;
-        } else if (saveRes && saveRes.missingOnDisk) {
-          const handled = await handleMissingWorkingCopySave(p);
-          if (!handled || !handled.ok) return false;
-          if (handled.action === "save_as") return true;
+          markDiskConflictPath(p, true);
+          await showSaveError("File changed on disk while saving. Reload it before trying again.");
         } else {
           await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-          return false;
         }
-      }
-
-      snapshot = await refreshWorkingCopySnapshot();
-      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-        await showSaveError("Save completed, but the working copy could not be refreshed.");
         return false;
       }
 
-      setFileContentInCache(p, snapshot.text);
-      attachTuneUidsToLibraryFile(p, snapshot);
+      setFileContentInCache(p, nextText);
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
         markHeaderClean();

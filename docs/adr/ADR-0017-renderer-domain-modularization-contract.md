@@ -1,7 +1,7 @@
 ADR-0017 — Renderer Domain Modularization Contract
 
 Date: 2026-07-16
-Status: Proposed
+Status: Accepted; amended by ADR-0018
 
 ## Context
 
@@ -25,7 +25,10 @@ renderer.js = app shell / bootstrap / feature construction / callback wiring / u
 domain modules = feature-specific logic, state transitions, internal helpers
 ```
 
-This ADR turns that refactoring contract into a project rule.
+This ADR turns that refactoring contract into a project rule. ADR-0018
+supersedes the global Working Copy state model; document/file ownership and
+save-flow extraction must follow ADR-0018 rather than preserving Working Copy
+APIs as a second authority.
 
 ## Decision
 

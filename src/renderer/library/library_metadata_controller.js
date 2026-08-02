@@ -327,17 +327,6 @@ export function createLibraryMetadataController({
       invalidateLibraryView();
     }
 
-    try {
-      const workingCopySnapshot = getWorkingCopySnapshot();
-      if (
-        workingCopySnapshot
-        && workingCopySnapshot.path
-        && pathsEqual(workingCopySnapshot.path, updatedFile.path)
-      ) {
-        attachTuneUidsToLibraryFile(updatedFile.path, workingCopySnapshot);
-      }
-    } catch {}
-
     renderLibraryTree();
     updateFileContext();
     updateFileHeaderPanel();

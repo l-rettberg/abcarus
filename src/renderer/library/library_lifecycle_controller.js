@@ -370,83 +370,23 @@ export function createLibraryLifecycleController({
     if (!selected || !fileMeta) return { ok: false, error: "Tune not found." };
     logStep("find tune", { file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "" });
 
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    const needsLazyWorkingCopyOpen = Boolean(
-      fileMeta.path
-      && (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, fileMeta.path))
-    );
-    if (needsLazyWorkingCopyOpen) logStep("defer working copy", { file: safeBasename(fileMeta.path) });
-
     let content = null;
     let contentCacheHit = false;
     let sliceStart = Number(selected.startOffset) || 0;
     let sliceEnd = Number(selected.endOffset) || 0;
-    const workingCopyOpen = Boolean(fileMeta.path && isWorkingCopyOpenForFile(fileMeta.path));
-
-    if (workingCopyOpen) {
-      const attemptSliceFromSnapshot = () => resolveTuneEntryFromSnapshot(
-        getWorkingCopySnapshot(),
-        {
-          tuneUid: selected.tuneUid,
-          tuneIndex: selected.tuneIndex,
-          startOffset: selected.startOffset,
-        }
-      );
-      let workingCopySlice = attemptSliceFromSnapshot();
-      if (!workingCopySlice) {
-        await refreshWorkingCopySnapshot();
-        workingCopySlice = attemptSliceFromSnapshot();
+    content = getFileContentFromCache(fileMeta.path);
+    contentCacheHit = content != null;
+    if (content == null) {
+      const res = await readFile(fileMeta.path);
+      if (!res.ok) {
+        logErr(res.error || "Unable to read file.");
+        return { ok: false, error: res.error || "Unable to read file." };
       }
-
-      const latestSnapshot = getWorkingCopySnapshot();
-      if (!workingCopySlice) {
-        if (!options._syncedFromWorkingCopy && latestSnapshot && latestSnapshot.path && latestSnapshot.text) {
-          try {
-            const syncedFile = syncLibraryFileFromWorkingCopySnapshot(fileMeta.path, latestSnapshot);
-            if (syncedFile && Array.isArray(syncedFile.tunes)) {
-              const xNumber = selected && selected.xNumber ? String(selected.xNumber) : "";
-              const idx = Number.isFinite(Number(selected && selected.tuneIndex)) ? Number(selected.tuneIndex) : null;
-              const updated = syncedFile.tunes.find((t) => (
-                (selected && selected.tuneUid && t && t.tuneUid && t.tuneUid === selected.tuneUid)
-                || (xNumber && t && t.xNumber && String(t.xNumber) === xNumber)
-                || (idx != null && t && Number.isFinite(Number(t.tuneIndex)) && Number(t.tuneIndex) === idx)
-              ));
-              const nextId = updated ? (updated.tuneUid || updated.id) : null;
-              if (nextId) return selectTune(nextId, { ...options, skipConfirm: true, _syncedFromWorkingCopy: true });
-            }
-          } catch {}
-        }
-        showEmptyState();
-        showToast("Tune not found in the current file state.", 3400);
-        return { ok: false, error: "Tune not found in the current file state." };
-      }
-
-      content = String((getWorkingCopySnapshot() || {}).text || "");
-      sliceStart = workingCopySlice.start;
-      sliceEnd = workingCopySlice.end;
-      selected.startOffset = sliceStart;
-      selected.endOffset = sliceEnd;
-      if (workingCopySlice.tuneIndex != null) selected.tuneIndex = workingCopySlice.tuneIndex;
-      if (workingCopySlice.tuneUid) selected.tuneUid = workingCopySlice.tuneUid;
+      content = res.data;
       setFileContentInCache(fileMeta.path, content);
     }
-
-    if (content == null) {
-      content = getFileContentFromCache(fileMeta.path);
-      contentCacheHit = content != null;
-      if (content == null) {
-        const res = await readFile(fileMeta.path);
-        if (!res.ok) {
-          logErr(res.error || "Unable to read file.");
-          return { ok: false, error: res.error || "Unable to read file." };
-        }
-        content = res.data;
-        setFileContentInCache(fileMeta.path, content);
-      }
-      if (perfOn) logFilePerf("selectTune: content cache", { hit: contentCacheHit, file: safeBasename(fileMeta.path) });
-    }
+    if (perfOn) logFilePerf("selectTune: content cache", { hit: contentCacheHit, file: safeBasename(fileMeta.path) });
     logStep("load content", {
-      workingCopy: Boolean(workingCopyOpen),
       cacheHit: contentCacheHit,
       chars: content == null ? 0 : String(content || "").length,
     });
@@ -458,7 +398,7 @@ export function createLibraryLifecycleController({
       return /^\s*X:/.test(probe);
     };
 
-    if (!workingCopyOpen && !options._reparsed && !isTuneSliceValid(content, selected)) {
+    if (!options._reparsed && !isTuneSliceValid(content, selected)) {
       try {
         const updatedFile = await refreshLibraryFile(fileMeta.path, { force: true });
         const tunes = updatedFile && Array.isArray(updatedFile.tunes) ? updatedFile.tunes : [];
@@ -498,7 +438,6 @@ export function createLibraryLifecycleController({
       endOffset: sliceEnd,
     }, { suppressRecent: options.suppressRecent || false });
     logStep("set active text", { tuneChars: String(tuneText || "").length });
-    if (needsLazyWorkingCopyOpen) scheduleLazyWorkingCopyOpenForActiveFile(fileMeta.path, "selectTune");
     clearPlaybackSelectionCapture();
     resetPlaybackState();
     setPlaybackRange({ startOffset: 0, endOffset: null, origin: "cursor", loop: false });
@@ -854,7 +793,7 @@ export function createLibraryLifecycleController({
     };
     let chordproText = null;
     try {
-      if (api && typeof api.openWorkingCopy === "function") {
+      if (isChordProFilePath(filePath) && api && typeof api.openWorkingCopy === "function") {
         await api.openWorkingCopy(filePath);
         const snapshot = await refreshWorkingCopySnapshot();
         if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {

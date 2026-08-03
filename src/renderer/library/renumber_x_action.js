@@ -14,10 +14,8 @@ export function createRenumberXAction({
   } = state;
 
   const {
-    hasUnsavedChangesForFile = () => false,
+    requireCleanForFileOp = async () => true,
     markCurrentDocumentClean = () => {},
-    markDiskConflictPath = () => {},
-    pathsEqual = (a, b) => String(a || "") === String(b || ""),
     patchCurrentDocument = () => {},
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
@@ -46,20 +44,7 @@ export function createRenumberXAction({
       return;
     }
 
-    const activePath = (activeTuneMeta && activeTuneMeta.path)
-      ? String(activeTuneMeta.path)
-      : (getActiveFilePath() ? String(getActiveFilePath()) : "");
-    const globalDirty = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(getIsNewTuneDraft());
-    const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
-
-    if (globalDirty && !isTargetActive) {
-      await showSaveError("Please Save/Discard your current changes before renumbering another file.");
-      return;
-    }
-    if (hasUnsavedChangesForFile(filePath)) {
-      await showSaveError("Renumber X is disabled while the file has unsaved changes. Save/Discard first.");
-      return;
-    }
+    if (!(await requireCleanForFileOp(filePath, "renumbering X"))) return;
 
     try {
       await withFileLock(filePath, async () => {

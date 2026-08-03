@@ -28,6 +28,7 @@ const files = new Map([
   ["/tmp/target.abc", "X:1\nT:Target\nK:C\nC D|\n"],
 ]);
 const writes = [];
+let appendAllowed = true;
 
 const readFile = async (path) => ({ ok: files.has(path), data: files.get(path), error: "missing" });
 const writeFile = async (path, data, options = {}) => {
@@ -69,6 +70,7 @@ const menuAction = createAppendTuneToActiveFileAction({
   getNextXNumber,
   ensureXNumberInAbc,
   confirmAppendToFile: async () => "append",
+  requireCleanForFileOp: async () => appendAllowed,
   refreshLibraryFile: async () => ({ tunes: [{ id: "target:1" }, { id: "target:2" }, { id: "target:3" }] }),
   selectTune: async () => {},
 });
@@ -76,5 +78,12 @@ const menuAction = createAppendTuneToActiveFileAction({
 await menuAction.run("source:7");
 assert.match(files.get("/tmp/target.abc"), /^X:3\nT:Source/m);
 assert.equal(writes.at(-1).options.expectedData.includes("X:2"), true);
+
+const writesBeforeBlockedAppend = writes.length;
+const contentBeforeBlockedAppend = files.get("/tmp/target.abc");
+appendAllowed = false;
+await menuAction.run("source:7");
+assert.equal(writes.length, writesBeforeBlockedAppend, "append must not write while the active document is dirty");
+assert.equal(files.get("/tmp/target.abc"), contentBeforeBlockedAppend, "blocked append must preserve the target file");
 
 console.log("library append harness: all tests passed");

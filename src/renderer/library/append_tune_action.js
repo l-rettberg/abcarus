@@ -16,6 +16,7 @@ function createAppendTuneToActiveFileAction({
   getNextXNumber = () => 1,
   ensureXNumberInAbc = (text) => text,
   confirmAppendToFile = async () => false,
+  requireCleanForFileOp = async () => true,
   showToast = () => {},
 } = {}) {
   async function run(tuneId) {
@@ -32,11 +33,6 @@ function createAppendTuneToActiveFileAction({
         showToast("Raw mode: switch to tune mode to append.", 2400);
         return;
       }
-      if (getCurrentDocDirty() || getHeaderDirty()) {
-        showToast("Save the active file first, then append.", 3200);
-        return;
-      }
-
       const res = findTuneById(tuneId);
       if (!res || !res.file || !res.file.path) {
         showToast("Tune not found.", 2400);
@@ -46,6 +42,7 @@ function createAppendTuneToActiveFileAction({
         showToast("Tune is already in the active file.", 2600);
         return;
       }
+      if (!(await requireCleanForFileOp(targetPath, "appending a tune"))) return;
 
       const tuneText = await getTuneText(res.tune, res.file);
       const label = (() => {

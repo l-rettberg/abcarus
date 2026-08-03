@@ -17,6 +17,7 @@ function createRenameFileController({
 
   const {
     renderLibraryTree = () => {},
+    requireCleanForFileOp = async () => true,
     renameLibraryFile = async () => {},
     showSaveError = async () => {},
     showToast = () => {},
@@ -104,6 +105,11 @@ function createRenameFileController({
         return;
       }
       if (newPath === oldPath) {
+        renamingFilePath = null;
+        renderLibraryTree();
+        return;
+      }
+      if (!(await requireCleanForFileOp(oldPath, "renaming a file"))) {
         renamingFilePath = null;
         renderLibraryTree();
         return;

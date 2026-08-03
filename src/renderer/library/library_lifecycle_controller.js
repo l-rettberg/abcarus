@@ -61,7 +61,6 @@ export function createLibraryLifecycleController({
     resolveTuneEntryFromSnapshot = () => null,
     safeBasename = (p) => String(p || ""),
     safeDirname = () => "",
-    scheduleAutoWcDump = () => {},
     scheduleRenderLibraryTree = () => {},
     scheduleRenderNow = () => {},
     scheduleSaveLibraryUiState = () => {},
@@ -438,7 +437,6 @@ export function createLibraryLifecycleController({
     if (typeof actions.resetEditorSelectionToStart === "function") actions.resetEditorSelectionToStart();
     setDirtyIndicator(false);
     clearAbPlan();
-    scheduleAutoWcDump("switch", selected && selected.xNumber ? `X:${String(selected.xNumber)}` : "");
     if (perfOn) {
       logFilePerf("selectTune: done", {
         ms: Math.round(perfNowMs() - t0),

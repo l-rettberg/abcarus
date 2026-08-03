@@ -1045,9 +1045,6 @@ diagnosticsDomain = createDiagnosticsDomain({
   api: window.api,
   windowRef: window,
   documentRef: document,
-  storage: typeof localStorage !== "undefined" ? localStorage : null,
-  getLatestSettings: settingsSnapshot.get,
-  clampInt,
   debugDumpHost: {
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
     getCurrentDoc: getCurrentDocument,
@@ -1131,7 +1128,6 @@ const logRenderPerf = diagnosticsDomain.logRenderPerf;
 const reportStartupStatus = diagnosticsDomain.reportStartupStatus;
 const abbreviatePathForLog = diagnosticsDomain.abbreviatePathForLog;
 const scheduleAutoDump = diagnosticsDomain.scheduleAutoDump;
-const scheduleAutoWcDump = diagnosticsDomain.scheduleAutoWcDump;
 const toolStatusController = createToolStatusController({
   element: $toolStatus,
   api: window.api,
@@ -1438,7 +1434,6 @@ saveFlowController = createSaveFlowController({
     resetTransposePreviewState,
     safeBasename,
     safeDirname,
-    scheduleAutoWcDump,
     scheduleRenderLibraryTree,
     selectTune,
     serializeDocument,
@@ -1573,6 +1568,7 @@ const libraryUiDomain = createLibraryUiDomain({
     readFile,
     refreshLibraryFile,
     refreshLibraryIndex,
+    requireCleanForFileOp,
     renderBufferStatus,
     renameFile,
     renameLibraryFile,
@@ -2238,7 +2234,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     restoreLibraryTuneSelection,
     safeBasename,
     safeDirname,
-    scheduleAutoWcDump,
     scheduleRenderLibraryTree,
     scheduleRenderNow,
     scheduleSaveLibraryUiState,

@@ -51,7 +51,6 @@ export function createSaveFlowController({
     resetTransposePreviewState = () => {},
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
-    scheduleAutoWcDump = () => {},
     scheduleRenderLibraryTree = () => {},
     selectTune = async () => {},
     serializeDocument = (doc) => (doc ? String(doc.content || "") : ""),
@@ -193,7 +192,6 @@ export function createSaveFlowController({
       updateLibraryStatus();
       scheduleRenderLibraryTree();
       updateFileHeaderPanel();
-      scheduleAutoWcDump("save-simple", safeBasename(p));
       recordRecentAction("save.simple_tune.ok", { path: p });
       return true;
     });

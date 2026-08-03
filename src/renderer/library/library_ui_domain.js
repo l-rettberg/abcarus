@@ -200,6 +200,7 @@ function createLibraryUiDomain({
     },
     actions: {
       renderLibraryTree,
+      requireCleanForFileOp: actions.requireCleanForFileOp,
       renameLibraryFile: actions.renameLibraryFile,
       showSaveError: actions.showSaveError,
       showToast: actions.showToast,
@@ -281,6 +282,7 @@ function createLibraryUiDomain({
     getNextXNumber: actions.getNextXNumber,
     ensureXNumberInAbc: actions.ensureXNumberInAbc,
     confirmAppendToFile: actions.confirmAppendToFile,
+    requireCleanForFileOp: actions.requireCleanForFileOp,
     writeFile: actions.writeFile,
     showToast: actions.showToast,
   });

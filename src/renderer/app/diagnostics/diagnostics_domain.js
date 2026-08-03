@@ -15,15 +15,9 @@ function createDiagnosticsDomain({
   api,
   windowRef = typeof window !== "undefined" ? window : null,
   documentRef = typeof document !== "undefined" ? document : null,
-  storage = typeof localStorage !== "undefined" ? localStorage : null,
   debugDumpHost = {},
   uiSmokeHost = {},
   devAutoscrollHost = {},
-  getLatestSettings = () => null,
-  clampInt = (value, min, max, fallback) => {
-    const n = Math.floor(Number(value));
-    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
-  },
 } = {}) {
   const devConfig = readDevConfig(api);
   const autoDumpDefaultEnabled = String(devConfig.ABCARUS_DEV_AUTO_DUMP || "") === "1";
@@ -37,23 +31,9 @@ function createDiagnosticsDomain({
     getAutoDumpDirOverride: () => autoDumpDirOverride,
   });
 
-  function getAutoWcDumpLimit() {
-    const latestSettings = getLatestSettings();
-    const raw = latestSettings && Number.isFinite(Number(latestSettings.autoWcDumpsLimit))
-      ? Number(latestSettings.autoWcDumpsLimit)
-      : 12;
-    return clampInt(raw, 3, 50, 12);
-  }
-
   const diagnosticsController = createDiagnosticsController({
     api,
-    storage,
     autoDumpDefaultEnabled,
-    autoWcDumpDefaultEnabled: () => {
-      const latestSettings = getLatestSettings();
-      return Boolean(latestSettings && latestSettings.autoWcDumpsEnabled);
-    },
-    getAutoWcDumpLimit,
     getSuggestedDebugDumpDir: debugDumpFeature.getSuggestedDir,
     writeDebugDumpSnapshotToPath: debugDumpFeature.writeSnapshotToPath,
     nowCompactStamp: debugDumpFeature.nowCompactStamp,
@@ -132,7 +112,6 @@ function createDiagnosticsDomain({
     reportStartupStatus: diagnosticsController.reportStartupStatus,
     runDevAutoscrollDemo,
     scheduleAutoDump: diagnosticsController.scheduleAutoDump,
-    scheduleAutoWcDump: diagnosticsController.scheduleAutoWcDump,
   };
 }
 

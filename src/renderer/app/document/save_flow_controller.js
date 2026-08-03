@@ -30,7 +30,6 @@ export function createSaveFlowController({
   const {
     attachTuneUidsToLibraryFile = () => {},
     createNewFileAtPath = async () => false,
-    flushWorkingCopyFullSync = async () => {},
     flushWorkingCopyTuneSync = async () => {},
     getDefaultSaveDir = () => "",
     getEditorValue = () => "",
@@ -328,71 +327,7 @@ export function createSaveFlowController({
 
     if (isChordProEnabled()) {
       const filePath = activeFilePath || getCurrentDocumentPath() || "";
-      if (!filePath) return performSaveAsFlow();
-      const wcOk = await ensureWorkingCopyOpenForPath(filePath);
-      if (!wcOk) {
-        await showSaveError("Unable to save file: no working copy open.");
-        return false;
-      }
-      await refreshWorkingCopySnapshot();
-      try {
-        await flushWorkingCopyFullSync();
-      } catch {}
-      if (api && typeof api.commitWorkingCopyToDisk === "function") {
-        const snapshotToSave = await refreshWorkingCopySnapshot();
-        if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
-          await showSaveError("Unable to save: working copy no longer matches the active file.");
-          return false;
-        }
-        const res = await api.commitWorkingCopyToDisk({
-          force: false,
-          expectedPath: filePath,
-          expectedVersion: snapshotToSave.version,
-        });
-        if (res && res.missingOnDisk) {
-          const handled = await handleMissingWorkingCopySave(filePath);
-          return Boolean(handled && handled.ok);
-        }
-        if (res && res.ok) {
-          markDiskConflictPath(filePath, false);
-          const snap = await refreshWorkingCopySnapshot();
-          if (snap && snap.path && pathsEqual(snap.path, filePath)) {
-            setFileContentInCache(filePath, snap.text);
-          }
-          markCurrentDocumentClean();
-          setDirtyIndicator(false);
-          updateWindowTitle();
-          return true;
-        }
-        if (res && res.conflict) {
-          const resolved = await resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId: getActiveTuneUid() || getActiveTuneId() });
-          if (resolved && resolved.ok && resolved.action === "overwrite") {
-            const snap = await refreshWorkingCopySnapshot();
-            if (snap && snap.path && pathsEqual(snap.path, filePath)) {
-              setFileContentInCache(filePath, snap.text);
-            }
-            markCurrentDocumentClean();
-            setDirtyIndicator(false);
-            updateWindowTitle();
-            return true;
-          }
-          if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-            setStatus("Saved copy and switched.");
-            return true;
-          }
-          if (resolved && resolved.action === "discard_reload") {
-            setStatus("Reloaded from disk.");
-            return false;
-          }
-          if (resolved && resolved.error) await showSaveError(resolved.error);
-          return false;
-        }
-        if (await handlePermissionDeniedSave(filePath, (res && res.error) ? res.error : "")) return true;
-        await showSaveError((res && res.error) ? res.error : "Unable to save file.");
-        return false;
-      }
-      await showSaveError("Internal error: working copy save is unavailable.");
-      return false;
+      return filePath ? performChordProDirectSave(filePath) : performSaveAsFlow();
     }
 
     if (session.intent === SAVE_INTENT.APPEND_TO_FILE && session.targetPath) {
@@ -430,41 +365,45 @@ export function createSaveFlowController({
     return performSaveAsFlow();
   }
 
+  async function performChordProDirectSave(filePath) {
+    const p = String(filePath || "");
+    if (!p) return false;
+    const disk = await readFile(p);
+    if (!disk || !disk.ok) {
+      await showSaveError((disk && disk.error) ? disk.error : "Unable to read ChordPro file.");
+      return false;
+    }
+    const diskText = String(disk.data || "");
+    const baseline = getFileContentFromCache(p);
+    if (baseline != null && String(baseline) !== diskText) {
+      await showSaveError("File changed on disk. Reload the ChordPro file before saving.");
+      return false;
+    }
+    const nextText = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
+    const result = await withFileLock(p, () => writeFile(p, nextText, { expectedData: diskText }));
+    if (!result || !result.ok) {
+      await showSaveError((result && result.error) ? result.error : "Unable to save ChordPro file.");
+      return false;
+    }
+    setFileContentInCache(p, nextText);
+    markCurrentDocumentClean();
+    setDirtyIndicator(false);
+    updateWindowTitle();
+    try { await refreshLibraryFile(p, { force: true }); } catch {}
+    return true;
+  }
+
   async function performSaveAsFlow() {
     const currentDocument = getCurrentDocument();
     if (!currentDocument) return false;
 
     if (isChordProEnabled()) {
-      let fullSyncResult;
-      try {
-        fullSyncResult = await flushWorkingCopyFullSync();
-      } catch (err) {
-        await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
-        return false;
-      }
-      if (!fullSyncResult || !fullSyncResult.ok) {
-        await showSaveError(
-          `Unable to prepare Save As: ${(fullSyncResult && fullSyncResult.error) || "ChordPro changes could not be synchronized."}`
-        );
-        return false;
-      }
-
       const currentPath = getActiveFilePath() || getCurrentDocumentPath() || "";
       const base = currentPath ? safeBasename(currentPath) : "";
       const extMatch = base.match(/(\.[^.]+)$/);
       const suffix = extMatch ? extMatch[1] : ".cho";
       const suggestedName = `${stripFileExtension(base || "untitled")}${suffix}`;
       const suggestedDir = getDefaultSaveDir();
-      if (currentPath) {
-        const opened = await ensureWorkingCopyOpenForPath(currentPath);
-        if (!opened) {
-          const reason = typeof getWorkingCopyOpenError === "function" ? String(getWorkingCopyOpenError() || "") : "";
-          await showSaveError(reason
-            ? `Unable to save as: ${reason}`
-            : "Unable to save as: source working copy could not be opened.");
-          return false;
-        }
-      }
       const filePath = await showSaveDialog(suggestedName, suggestedDir);
       if (!filePath) return false;
       if (currentPath && pathsEqual(normalizeLibraryPath(filePath), normalizeLibraryPath(currentPath))) {
@@ -472,46 +411,12 @@ export function createSaveFlowController({
         return false;
       }
       if (await fileExists(filePath) && (await confirmOverwrite(filePath)) !== "replace") return false;
-
-      const hasWorkingCopy = Boolean(
-        currentPath
-        && isWorkingCopyOpenForFile(currentPath)
-        && api
-        && typeof api.writeWorkingCopyToPathAndSwitch === "function"
-      );
-      if (!hasWorkingCopy) {
-        const content = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
-        const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
-        if (!saved) return false;
-        patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
-        resetTransposePreviewState();
-        setActiveFilePath(filePath);
-        setFileNameMeta(stripFileExtension(safeBasename(filePath)));
-        updateWindowTitle();
-        return true;
-      }
-
-      const sourceSnapshot = await refreshWorkingCopySnapshot();
-      if (!sourceSnapshot || !sourceSnapshot.path || !pathsEqual(sourceSnapshot.path, currentPath)) {
-        await showSaveError("Unable to save as: working copy no longer matches the active file.");
-        return false;
-      }
-      const out = await api.writeWorkingCopyToPathAndSwitch(filePath, {
-        expectedPath: currentPath,
-        expectedVersion: sourceSnapshot.version,
-      });
-      if (!out || !out.ok) {
-        await showSaveError((out && out.error) ? out.error : "Unable to save file.");
-        return false;
-      }
-      const snap = await refreshWorkingCopySnapshot();
-      if (snap && snap.path && pathsEqual(snap.path, filePath)) {
-        setFileContentInCache(filePath, snap.text);
-      }
+      const content = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
+      const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
+      if (!saved) return false;
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
       resetTransposePreviewState();
       setActiveFilePath(filePath);
-      setDirtyIndicator(false);
       setFileNameMeta(stripFileExtension(safeBasename(filePath)));
       updateWindowTitle();
       return true;

@@ -12,7 +12,6 @@ export function createLibraryLifecycleController({
   const {
     getLibraryIndex = () => null,
     setLibraryIndex = () => {},
-    getWorkingCopySnapshot = () => null,
     getRawMode = () => false,
     getFocusModeEnabled = () => false,
     getActiveTuneMeta = () => null,
@@ -22,13 +21,11 @@ export function createLibraryLifecycleController({
     getCurrentDocumentPath = () => "",
     getLibraryFilterLabel = () => "",
     isPayloadMode = () => false,
-    isWorkingCopyOpenForFile = () => false,
     isCurrentDocumentDirty = () => false,
   } = state;
 
   const {
     applyLibraryUiStateFromSettings = () => false,
-    attachTuneUidsToLibraryFile = () => {},
     buildTuneMetaLabel = () => "",
     clearAbPlan = () => {},
     clearActiveErrorHighlight = () => {},
@@ -58,7 +55,6 @@ export function createLibraryLifecycleController({
     recordRecentAction = () => {},
     refreshHeaderLayers = async () => {},
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
     reportStartupStatus = () => {},
     resetPlaybackState = () => {},
     resetTransposePreviewState = () => {},
@@ -66,7 +62,6 @@ export function createLibraryLifecycleController({
     safeBasename = (p) => String(p || ""),
     safeDirname = () => "",
     scheduleAutoWcDump = () => {},
-    scheduleLazyWorkingCopyOpenForActiveFile = () => {},
     scheduleRenderLibraryTree = () => {},
     scheduleRenderNow = () => {},
     scheduleSaveLibraryUiState = () => {},
@@ -91,7 +86,6 @@ export function createLibraryLifecycleController({
     showEmptyState = () => {},
     showToast = () => {},
     stripFileExtension = (name) => String(name || ""),
-    syncLibraryFileFromWorkingCopySnapshot = () => null,
     updateFileContext = () => {},
     updateFileHeaderPanel = () => {},
     updateHeaderStateUI = () => {},
@@ -601,26 +595,6 @@ export function createLibraryLifecycleController({
     const shouldForceReload = Boolean(entry && entry.forceReload);
     const reopeningActiveFile = Boolean(targetPath && activePath && pathsEqual(targetPath, activePath));
     if (targetPath && (shouldForceReload || reopeningActiveFile)) {
-      try {
-        if (api && typeof api.getWorkingCopyMeta === "function") {
-          const metaRes = await api.getWorkingCopyMeta();
-          const openedPath = (metaRes && metaRes.ok && metaRes.meta && metaRes.meta.path)
-            ? String(metaRes.meta.path || "")
-            : "";
-          if (openedPath && pathsEqual(openedPath, targetPath)) {
-            if (typeof api.reloadWorkingCopyFromDisk === "function") {
-              await api.reloadWorkingCopyFromDisk({
-                expectedPath: targetPath,
-                expectedVersion: metaRes.meta.version,
-              });
-              await refreshWorkingCopySnapshot();
-            }
-          } else if (typeof api.openWorkingCopy === "function") {
-            await api.openWorkingCopy(targetPath);
-            await refreshWorkingCopySnapshot();
-          }
-        }
-      } catch {}
       try { await refreshLibraryFile(targetPath, { force: true }); } catch {}
     }
     const loadedFileEntry = findLoadedFileEntry(entry.path);
@@ -792,21 +766,8 @@ export function createLibraryLifecycleController({
       suppressRecent: Boolean(options.suppressRecent),
     };
     let chordproText = null;
-    try {
-      if (isChordProFilePath(filePath) && api && typeof api.openWorkingCopy === "function") {
-        await api.openWorkingCopy(filePath);
-        const snapshot = await refreshWorkingCopySnapshot();
-        if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-          attachTuneUidsToLibraryFile(filePath, snapshot);
-          scheduleRenderLibraryTree();
-          if (snapshot.text) chordproText = String(snapshot.text || "");
-        }
-      }
-    } catch {}
-    if (!chordproText) {
-      const cached = getFileContentFromCache(filePath);
-      if (cached != null) chordproText = String(cached || "");
-    }
+    const cached = getFileContentFromCache(filePath);
+    if (cached != null) chordproText = String(cached || "");
     if (!chordproText && isChordProFilePath(filePath)) {
       const readRes = await readFile(filePath);
       if (readRes && readRes.ok) chordproText = String(readRes.data || "");

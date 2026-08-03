@@ -17,7 +17,6 @@ export function createMainEditorUpdateRuntime({
   handleChordProSelectionOffset = () => {},
   getActiveTuneUid = () => "",
   isDirectDiskSaveMode = () => false,
-  scheduleWorkingCopyFullSync = () => {},
   scheduleWorkingCopyTuneSync = () => {},
   isRawMode = () => false,
   scheduleRender = () => {},
@@ -65,7 +64,6 @@ export function createMainEditorUpdateRuntime({
       if (!isDirtySuppressed() && hasCurrentDocument() && !isPayloadMode()) {
         if (isChordProEnabled()) {
           handleChordProDocChanged(update.state.doc.toString());
-          scheduleWorkingCopyFullSync();
         } else if (getActiveTuneUid() && !isDirectDiskSaveMode()) {
           scheduleWorkingCopyTuneSync();
         }

@@ -216,11 +216,39 @@ async function testHeaderFailureStopsBeforeDialog() {
   assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /header sync failed/);
 }
 
-async function testChordProFailureStopsBeforeDialog() {
-  const { controller, calls } = makeController({ chordPro: true, flushFullResult: { ok: false, error: "full sync failed" } });
-  const result = await controller.performSaveAsFlow();
-  assert.equal(result, false);
-  assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /full sync failed/);
+async function testChordProSaveAsWritesDirectly() {
+  const sourcePath = "/tmp/source.cho";
+  const destinationPath = "/tmp/copy.cho";
+  const content = "{title: Song}\n{start_of_abc}\nX:1\nT:Song\nK:C\nC|\n{end_of_abc}\n";
+  const writes = [];
+  const controller = createSaveFlowController({
+    state: {
+      getActiveFilePath: () => sourcePath,
+      getCurrentDocument: () => ({ path: sourcePath, content, dirty: true }),
+      getCurrentDocumentPath: () => sourcePath,
+      isChordProEnabled: () => true,
+      isChordProFullView: () => true,
+    },
+    actions: {
+      createNewFileAtPath: async (path, text) => {
+        writes.push([path, text]);
+        return true;
+      },
+      fileExists: async () => false,
+      getDefaultSaveDir: () => "/tmp",
+      getEditorValue: () => content,
+      getChordProFullText: () => content,
+      getSuggestedBaseName: () => "copy",
+      showSaveDialog: async () => destinationPath,
+      setActiveFilePath: () => {},
+      setFileNameMeta: () => {},
+      patchCurrentDocument: () => {},
+      resetTransposePreviewState: () => {},
+      updateWindowTitle: () => {},
+    },
+  });
+  assert.equal(await controller.performSaveAsFlow(), true);
+  assert.deepEqual(writes, [[destinationPath, content]]);
 }
 
 async function testCancelLeavesSourceUntouched() {
@@ -263,7 +291,7 @@ async function testDestinationFailureLeavesSourceUntouched() {
 
 await testTuneSyncFailureStopsBeforeDialog();
 await testHeaderFailureStopsBeforeDialog();
-await testChordProFailureStopsBeforeDialog();
+await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
 await testDestinationFailureLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();

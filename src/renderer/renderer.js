@@ -1385,10 +1385,6 @@ function scheduleWorkingCopyTuneSync() {
   if (workingCopySyncController) workingCopySyncController.scheduleTuneSync();
 }
 
-function scheduleWorkingCopyFullSync() {
-  if (workingCopySyncController) workingCopySyncController.scheduleFullSync();
-}
-
 function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
   return workingCopySyncController
     ? workingCopySyncController.tryResolveActiveTuneUidFromSnapshot()
@@ -1403,10 +1399,6 @@ async function flushWorkingCopyTuneSync() {
 
 function resetWorkingCopyTuneSyncDebounce() {
   if (workingCopySyncController) workingCopySyncController.resetTuneSyncDebounce();
-}
-
-async function flushWorkingCopyFullSync() {
-  return workingCopySyncController ? workingCopySyncController.flushFullSync() : undefined;
 }
 
 async function discardWorkingCopyChangesForActiveFile() {
@@ -1500,7 +1492,6 @@ saveFlowController = createSaveFlowController({
   actions: {
     attachTuneUidsToLibraryFile,
     createNewFileAtPath,
-    flushWorkingCopyFullSync,
     flushWorkingCopyTuneSync,
     getDefaultSaveDir,
     getEditorValue,
@@ -2356,7 +2347,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     safeBasename,
     safeDirname,
     scheduleAutoWcDump,
-    scheduleLazyWorkingCopyOpenForActiveFile,
     scheduleRenderLibraryTree,
     scheduleRenderNow,
     scheduleSaveLibraryUiState,
@@ -2382,7 +2372,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     showToast,
     sourceLinkUpdate: () => sourceLinkFeature.update(),
     stripFileExtension,
-    syncLibraryFileFromWorkingCopySnapshot,
     updateFileContext,
     updateFileHeaderPanel,
     updateHeaderStateUI,
@@ -2960,7 +2949,6 @@ function initEditor() {
         && !isPayloadMode()
         && !chordProFeature.isEnabled()
       ),
-      scheduleWorkingCopyFullSync,
       scheduleWorkingCopyTuneSync,
       isRawMode: () => isRawModeActive(),
       scheduleRender: () => scheduleRenderNow(),
@@ -3161,9 +3149,6 @@ function applyTransformedText(text, options = {}) {
   nextText = chordProFeature.applyTransformedText(nextText);
   editorRuntime.setTextClean(nextText);
   patchCurrentDocument({ content: nextText, dirty: true }, { create: false });
-  if (chordProFeature.isEnabled()) {
-    scheduleWorkingCopyFullSync();
-  }
   scheduleRenderNow({ clearOutput: true });
 }
 

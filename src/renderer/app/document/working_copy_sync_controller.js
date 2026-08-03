@@ -51,12 +51,10 @@ export function createWorkingCopySyncController({
     getActiveTuneIndex = () => null,
     getActiveTuneMeta = () => null,
     getActiveTuneUid = () => "",
-    getChordProFullText = () => "",
     getCurrentDocumentPath = () => "",
     getRawMode = () => false,
     getWorkingCopySnapshot = () => null,
     isChordProEnabled = () => false,
-    isChordProFullView = () => false,
     isPayloadMode = () => false,
   } = state;
 
@@ -76,7 +74,6 @@ export function createWorkingCopySyncController({
   } = actions;
 
   const tuneDebounceMs = Number.isFinite(Number(debounceMs.tune)) ? Number(debounceMs.tune) : 450;
-  const fullDebounceMs = Number.isFinite(Number(debounceMs.full)) ? Number(debounceMs.full) : 450;
 
   let tuneSyncTimer = null;
   let tuneSyncInFlight = false;
@@ -84,10 +81,6 @@ export function createWorkingCopySyncController({
   let tuneSyncEpoch = 0;
   let tuneSyncRunPromise = null;
 
-  let fullSyncTimer = null;
-  let fullSyncInFlight = false;
-  let fullSyncQueued = false;
-  let fullSyncEpoch = 0;
 
   function scheduleTuneSync() {
     const activeTuneMeta = getActiveTuneMeta();
@@ -102,20 +95,6 @@ export function createWorkingCopySyncController({
       tuneSyncTimer = null;
       flushTuneSync().catch(() => {});
     }, tuneDebounceMs);
-  }
-
-  function scheduleFullSync() {
-    if (getRawMode()) return;
-    if (isPayloadMode()) return;
-    if (!isChordProEnabled()) return;
-    if (!api || typeof api.applyWorkingCopyFullText !== "function") return;
-    const filePath = String(getActiveFilePath() || getCurrentDocumentPath() || "");
-    if (!filePath) return;
-    if (fullSyncTimer) clearTimeout(fullSyncTimer);
-    fullSyncTimer = setTimeout(() => {
-      fullSyncTimer = null;
-      flushFullSync().catch(() => {});
-    }, fullDebounceMs);
   }
 
   function tryResolveActiveTuneUidFromSnapshot() {
@@ -286,72 +265,11 @@ export function createWorkingCopySyncController({
     tuneSyncQueued = false;
   }
 
-  async function flushFullSync() {
-    const epoch = fullSyncEpoch;
-    if (fullSyncInFlight) {
-      fullSyncQueued = true;
-      return { ok: false, error: "Full working-copy sync is already running." };
-    }
-    if (getRawMode()) return { ok: false, error: "Cannot synchronize ChordPro content in raw mode." };
-    if (isPayloadMode()) return { ok: false, error: "Cannot synchronize ChordPro content in payload mode." };
-    if (!isChordProEnabled()) return { ok: false, error: "ChordPro synchronization is not enabled." };
-    if (!api || typeof api.applyWorkingCopyFullText !== "function") {
-      return { ok: false, error: "Working copy full-file sync is unavailable." };
-    }
-
-    const filePath = String(getActiveFilePath() || getCurrentDocumentPath() || "");
-    if (!filePath) return { ok: false, error: "Active ChordPro file path is missing." };
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    if (!workingCopySnapshot || !workingCopySnapshot.path || !pathsEqual(workingCopySnapshot.path, filePath)) {
-      return { ok: false, error: "Working copy snapshot does not match the active ChordPro file." };
-    }
-
-    fullSyncInFlight = true;
-    let result = { ok: false, error: "Working copy full-file sync did not complete." };
-    try {
-      const nextText = isChordProFullView() ? getEditorValue() : getChordProFullText();
-      const res = await api.applyWorkingCopyFullText(String(nextText || ""), {
-        expectedPath: filePath,
-        expectedVersion: workingCopySnapshot.version,
-      });
-      if (epoch !== fullSyncEpoch) {
-        result = { ok: false, error: "Working copy full-file sync was superseded." };
-        return result;
-      }
-      if (!res || !res.ok) {
-        result = { ok: false, error: (res && res.error) ? String(res.error) : "Unable to apply full ChordPro text to working copy." };
-        return result;
-      }
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (epoch !== fullSyncEpoch) {
-        result = { ok: false, error: "Working copy full-file sync was superseded." };
-        return result;
-      }
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-        setFileContentInCache(filePath, snapshot.text);
-        result = { ok: true, path: filePath };
-      } else {
-        result = { ok: false, error: "Working copy snapshot was not refreshed after full sync." };
-      }
-    } finally {
-      fullSyncInFlight = false;
-      if (epoch === fullSyncEpoch && fullSyncQueued) {
-        fullSyncQueued = false;
-        result = await flushFullSync();
-      }
-    }
-    return result;
-  }
-
   function resetAllSyncDebounce() {
     tuneSyncEpoch += 1;
     if (tuneSyncTimer) clearTimeout(tuneSyncTimer);
     tuneSyncTimer = null;
     tuneSyncQueued = false;
-    fullSyncEpoch += 1;
-    if (fullSyncTimer) clearTimeout(fullSyncTimer);
-    fullSyncTimer = null;
-    fullSyncQueued = false;
   }
 
   async function discardChangesForActiveFile() {
@@ -408,12 +326,10 @@ export function createWorkingCopySyncController({
 
   return {
     discardChangesForActiveFile,
-    flushFullSync,
     flushTuneSync,
     reloadActiveTuneTextFromSnapshot,
     resetTuneSyncDebounce,
     resolveTuneEntryFromSnapshot,
-    scheduleFullSync,
     scheduleTuneSync,
     tryResolveActiveTuneUidFromSnapshot,
   };

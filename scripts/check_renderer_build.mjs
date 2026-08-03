@@ -234,11 +234,8 @@ async function assertSaveIntentGuards() {
   if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (
-    !libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")
-    || !libraryLifecycle.includes("expectedPath: targetPath")
-  ) {
-    throw new Error("openRecentFile() must reload the expected working copy from disk.");
+  if (libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")) {
+    throw new Error("openRecentFile() must reload directly from disk, without working copy state.");
   }
   if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");

@@ -406,11 +406,6 @@ function createChordProFeature(host) {
       api.addRecentFile({ path: p, basename: call(h.safeBasename, p) });
     }
 
-    try {
-      await call(h.ensureWorkingCopyOpenForPath, p);
-      await call(h.refreshWorkingCopySnapshot);
-    } catch {}
-
     return { ok: true };
   }
 

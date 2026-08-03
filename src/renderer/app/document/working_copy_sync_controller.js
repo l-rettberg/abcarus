@@ -32,6 +32,7 @@ export function createWorkingCopySyncController({ api = null, state = {}, action
     patchCurrentDocument = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     refreshWorkingCopySnapshot = async () => null,
+    readFile = async () => ({ ok: false }),
     setActiveTuneMetaOffsets = () => {},
     setDirtyIndicator = () => {},
     setEditorValueClean = () => {},
@@ -41,20 +42,10 @@ export function createWorkingCopySyncController({ api = null, state = {}, action
   async function discardChangesForActiveFile() {
     const activeTuneMeta = getActiveTuneMeta();
     if (getRawMode() || isChordProEnabled() || !activeTuneMeta || !activeTuneMeta.path) return false;
-    if (!api || typeof api.reloadWorkingCopyFromDisk !== "function") return false;
     try {
-      const before = getWorkingCopySnapshot();
-      if (!before || !before.path || !pathsEqual(before.path, activeTuneMeta.path)) return false;
-      const res = await api.reloadWorkingCopyFromDisk({
-        force: true,
-        expectedPath: activeTuneMeta.path,
-        expectedVersion: before.version,
-      });
+      const res = await readFile(activeTuneMeta.path);
       if (!res || !res.ok) return false;
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, activeTuneMeta.path)) {
-        setFileContentInCache(snapshot.path, snapshot.text);
-      }
+      setFileContentInCache(activeTuneMeta.path, String(res.data || ""));
       if (markCurrentDocumentClean()) setDirtyIndicator(false);
       return true;
     } catch {

@@ -19,20 +19,10 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
   const targetPath = "/tmp/source_Copy.abc";
   const text = "%%abc-charset utf-8\nX:1\nT:Copy\nK:C\nC|\n";
   const calls = [];
-  let snapshot = { path: fromPath, text, version: 7 };
 
   const controller = createWorkingCopyConflictController({
     api: {
       showSaveDialog: async () => targetPath,
-      openWorkingCopy: async (path) => {
-        calls.push(["openWorkingCopy", path]);
-        return { ok: true };
-      },
-      writeWorkingCopyToPathAndSwitch: async (path, context) => {
-        calls.push(["writeWorkingCopyToPathAndSwitch", path, context]);
-        snapshot = { path, text, version: snapshot.version + 1 };
-        return { ok: true };
-      },
     },
     state: {
       getRawMode: () => true,
@@ -43,7 +33,13 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
         calls.push(["refreshLibraryFile", path]);
         return { path, basename: "source_Copy.abc", headerEndOffset: 18 };
       },
-      refreshWorkingCopySnapshot: async () => snapshot,
+      readFile: async () => ({ ok: true, data: text }),
+      writeFile: async (path, body) => {
+        calls.push(["writeFile", path, body]);
+        return { ok: true };
+      },
+      fileExists: async () => false,
+      confirmOverwrite: async () => "replace",
       safeBasename: (path) => String(path || "").split("/").pop() || "",
       safeDirname: () => "/tmp",
       switchWorkingCopyFileContext: (path, options) => calls.push(["switchWorkingCopyFileContext", path, options]),
@@ -73,13 +69,9 @@ async function testRawSaveCopyAsSwitchesAllFileContext() {
   assert.equal(result.ok, true);
   assert.equal(result.targetPath, targetPath);
   assert.deepEqual(
-    calls.find((entry) => entry[0] === "writeWorkingCopyToPathAndSwitch"),
-    [
-      "writeWorkingCopyToPathAndSwitch",
-      targetPath,
-      { expectedPath: fromPath, expectedVersion: 7 },
-    ],
-    "Raw Save Copy As must bind the write to the source working-copy snapshot"
+    calls.find((entry) => entry[0] === "writeFile"),
+    ["writeFile", targetPath, text],
+    "Raw Save Copy As must write the disk source text"
   );
   assert.deepEqual(
     calls.find((entry) => entry[0] === "switchWorkingCopyFileContext"),

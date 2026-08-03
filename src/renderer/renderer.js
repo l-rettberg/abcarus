@@ -1418,6 +1418,7 @@ workingCopySyncController = createWorkingCopySyncController({
     markCurrentDocumentClean,
     patchCurrentDocument,
     pathsEqual,
+    readFile,
     refreshWorkingCopySnapshot,
     setActiveTuneMetaOffsets: activeContext.setTuneMetaOffsets,
     setDirtyIndicator,

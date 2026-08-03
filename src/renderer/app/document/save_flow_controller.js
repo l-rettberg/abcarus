@@ -84,6 +84,24 @@ export function createSaveFlowController({
     return /\b(EACCES|EPERM)\b/i.test(msg) || /permission denied/i.test(msg);
   }
 
+  async function saveEmergencyCopy(filePath, text) {
+    if (!api || typeof api.getRecoveryDir !== "function" || typeof api.pathJoin !== "function") return "";
+    try {
+      const dir = String(await api.getRecoveryDir() || "");
+      if (!dir || typeof api.mkdirp !== "function") return "";
+      const rawBase = safeBasename(filePath) || "untitled.abc";
+      const base = rawBase.replace(/[^a-z0-9._-]+/gi, "_");
+      const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 17);
+      const target = api.pathJoin(dir, `${base}.recovery-${stamp}`);
+      const made = await api.mkdirp(dir);
+      if (!made || made.ok === false) return "";
+      const result = await writeFile(target, text);
+      return result && result.ok ? target : "";
+    } catch {
+      return "";
+    }
+  }
+
   async function handlePermissionDeniedSave(filePath, message) {
     const p = String(filePath || "");
     if (!p) return false;
@@ -136,19 +154,19 @@ export function createSaveFlowController({
       const nextText = `${nextParts.header}${nextParts.before}${nextParts.active}${nextParts.after}`;
 
       const diskCheck = await readFile(p);
-      if (!diskCheck || !diskCheck.ok) {
-        await showSaveError((diskCheck && diskCheck.error) ? diskCheck.error : "Unable to read file before saving.");
-        return false;
-      }
-      const diskText = String(diskCheck.data || "");
-      const saveRes = await writeFile(p, nextText, { expectedData: diskText });
+      const diskText = diskCheck && diskCheck.ok ? String(diskCheck.data || "") : "";
+      const saveRes = await writeFile(
+        p,
+        nextText,
+        diskCheck && diskCheck.ok ? { expectedData: diskText } : {},
+      );
       if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          markDiskConflictPath(p, true);
-          await showSaveError("File changed on disk while saving. Reload it before trying again.");
-        } else {
-          await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-        }
+        if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
+        const recoveryPath = await saveEmergencyCopy(p, nextText);
+        const detail = (saveRes && saveRes.error) ? saveRes.error : "Unable to save file.";
+        await showSaveError(recoveryPath
+          ? `${detail}\nEmergency copy saved to:\n${recoveryPath}\nYour changes remain unsaved.`
+          : detail);
         return false;
       }
 

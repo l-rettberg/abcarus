@@ -1468,6 +1468,14 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("app:quit", async () => {
     requestQuit();
   });
+  ipcMain.handle("app:recovery-dir", async () => {
+    try {
+      const userData = app && typeof app.getPath === "function" ? app.getPath("userData") : "";
+      return userData ? path.join(userData, "recovery") : "";
+    } catch {
+      return "";
+    }
+  });
   ipcMain.handle("app:cancel-quit", async (event) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender);

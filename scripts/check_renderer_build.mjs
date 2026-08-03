@@ -243,7 +243,7 @@ async function assertSaveIntentGuards() {
   if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
     throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
   }
-  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: diskText })")) {
+  if (!simpleSaveBody.includes("writeFile(") || !simpleSaveBody.includes("expectedData: diskText")) {
     throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
   }
   if (!simpleSaveBody.includes("const nextParts =")) {

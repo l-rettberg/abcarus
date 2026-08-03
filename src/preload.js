@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld("api", {
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
   cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
+  getRecoveryDir: async () => ipcRenderer.invoke("app:recovery-dir"),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),
   pathJoin: (...parts) => path.join(...parts.map((part) => String(part || ""))),

@@ -147,6 +147,42 @@ async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
   assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), true);
 }
 
+async function testFailedPrimarySaveCreatesEmergencyCopy() {
+  const filePath = "/missing/tunes.abc";
+  const text = "X:1\nT:Recovered\nK:C\nC|\n";
+  const writes = [];
+  let errorMessage = "";
+  const controller = createSaveFlowController({
+    api: {
+      getRecoveryDir: async () => "/app/userData/recovery",
+      pathJoin: (...parts) => parts.join("/"),
+      mkdirp: async () => ({ ok: true }),
+    },
+    state: {
+      getActiveTuneMeta: () => ({ path: filePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: text, after: "",
+      } }),
+    },
+    actions: {
+      getEditorValue: () => text,
+      readFile: async () => ({ ok: false, error: "ENOENT: missing directory" }),
+      writeFile: async (path, data, options) => {
+        writes.push({ path, data, options });
+        return path === filePath ? { ok: false, error: "ENOENT: missing directory" } : { ok: true };
+      },
+      safeBasename: () => "tunes.abc",
+      showSaveError: async (message) => { errorMessage = String(message); },
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+  assert.equal(await controller.performSimpleTuneSave(filePath), false);
+  assert.equal(writes.length, 2, "recovery must run only after the primary write fails");
+  assert.equal(writes[0].path, filePath);
+  assert.match(writes[1].path, /userData\/recovery\/tunes\.abc\.recovery-/);
+  assert.match(errorMessage, /Emergency copy saved/);
+  assert.match(errorMessage, /remain unsaved/);
+}
+
 async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   const sourcePath = "/tmp/source.abc";
   const destinationPath = "/tmp/copy.abc";
@@ -293,6 +329,7 @@ await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
 await testDirectTuneSaveOverwritesExternalChangeFromParts();
+await testFailedPrimarySaveCreatesEmergencyCopy();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
 await testHeaderSaveWritesDirectlyWithDiskBaseline();
 console.log("save flow harness: all tests passed");

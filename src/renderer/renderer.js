@@ -2632,7 +2632,6 @@ diagnosticsDomain.installDevUiSmoke({
 });
 
 const rawModeEnterGuard = createRawModeEnterGuard({
-  api: window.api,
   state: {
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
@@ -2641,7 +2640,6 @@ const rawModeEnterGuard = createRawModeEnterGuard({
     getHeaderDirty,
     getIsCurrentDocumentDirty: isCurrentDocumentDirty,
     getIsNewTuneDraft: activeContext.isNewTuneDraft,
-    getWorkingCopySnapshot,
   },
   actions: {
     ensureSafeToAbandonCurrentDoc,
@@ -2649,10 +2647,8 @@ const rawModeEnterGuard = createRawModeEnterGuard({
     getActiveFileEntry,
     getEditorValue,
     getHeaderEditorValue,
-    markDiskConflictPath,
     markHeaderClean,
     patchCurrentDocument,
-    refreshWorkingCopySnapshot,
     setDirtyIndicator,
     updateHeaderStateUI,
   },
@@ -2662,7 +2658,6 @@ const rawModeEnterGuard = createRawModeEnterGuard({
 });
 
 rawModeFeature = createRawModeFeature({
-  api: window.api,
   documentRef: document,
   elements: {
     rawButton: $btnToggleRaw,
@@ -2717,16 +2712,8 @@ rawModeFeature = createRawModeFeature({
   },
   selectTune,
   stopPlaybackTransport,
-  flushWorkingCopyTuneSync,
-  flushWorkingCopyFullSync,
-  normalizeCleanStateBeforeRaw: rawModeEnterGuard.normalizeCleanStateBeforeRaw,
-  ensureWorkingCopyOpenForPath,
-  refreshWorkingCopySnapshot,
-  handleMissingWorkingCopySave,
-  resolveWorkingCopySaveConflictDefault,
-  markDiskConflictPath,
   setFileContentInCache,
-  attachTuneUidsToLibraryFile,
+  writeFile,
   updateHeaderStateUI,
   updateFileHeaderPanel,
   updateFileContext,

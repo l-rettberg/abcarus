@@ -8,7 +8,6 @@ function buildRawFileText({ headerText, bodyText }) {
 }
 
 function createRawModeFeature({
-  api,
   documentRef = typeof document !== "undefined" ? document : null,
   elements = {},
   getCurrentDoc = () => null,
@@ -38,6 +37,7 @@ function createRawModeFeature({
   withFileLock = async (_filePath, operation) => operation(),
   pathsEqual = (a, b) => String(a || "") === String(b || ""),
   readFile = async () => ({ ok: false, error: "Unable to read file." }),
+  writeFile = async () => ({ ok: false, error: "Unable to write file." }),
   refreshLibraryFile = async () => null,
   getActiveFileEntry = () => null,
   findHeaderEndOffset = () => 0,
@@ -45,16 +45,7 @@ function createRawModeFeature({
   safeFirstTuneId = () => "",
   selectTune = async () => ({ ok: false }),
   stopPlaybackTransport = () => {},
-  flushWorkingCopyTuneSync = async () => {},
-  flushWorkingCopyFullSync = async () => {},
-  normalizeCleanStateBeforeRaw = async () => {},
-  ensureWorkingCopyOpenForPath = async () => {},
-  refreshWorkingCopySnapshot = async () => null,
-  handleMissingWorkingCopySave = async () => ({ ok: false }),
-  resolveWorkingCopySaveConflictDefault = async () => ({ ok: false }),
-  markDiskConflictPath = () => {},
   setFileContentInCache = () => {},
-  attachTuneUidsToLibraryFile = () => {},
   updateHeaderStateUI = () => {},
   updateFileHeaderPanel = () => {},
   updateFileContext = () => {},
@@ -142,89 +133,18 @@ function createRawModeFeature({
     const fullText = buildRawFileText({ headerText, bodyText });
 
     return withFileLock(filePath, async () => {
-      if (
-        !api
-        || typeof api.openWorkingCopy !== "function"
-        || typeof api.applyWorkingCopyFullText !== "function"
-        || typeof api.commitWorkingCopyToDisk !== "function"
-      ) {
-        await showSaveError("Internal error: working copy raw save is unavailable.");
+      const readRes = await readFile(filePath);
+      if (!readRes || !readRes.ok) {
+        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to read file before raw save.");
         return false;
       }
-
-      const opened = await api.openWorkingCopy(filePath);
-      if (!opened || !opened.ok) {
-        await showSaveError((opened && opened.error) ? opened.error : "Unable to open working copy for raw save.");
-        return false;
-      }
-      const snapshotBefore = await refreshWorkingCopySnapshot();
-      if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, filePath)) {
-        await showSaveError("Working copy no longer matches the raw file.");
-        return false;
-      }
-      const applyRes = await api.applyWorkingCopyFullText(fullText, {
-        expectedPath: filePath,
-        expectedVersion: snapshotBefore.version,
-      });
-      if (!applyRes || !applyRes.ok) {
-        await showSaveError((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy for raw save.");
-        return false;
-      }
-
-      const snapshotToSave = await refreshWorkingCopySnapshot();
-      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, filePath)) {
-        await showSaveError("Working copy no longer matches the raw file.");
-        return false;
-      }
-      const saveRes = await api.commitWorkingCopyToDisk({
-        force: false,
-        expectedPath: filePath,
-        expectedVersion: snapshotToSave.version,
-      });
-      if (saveRes && saveRes.missingOnDisk) {
-        const handled = await handleMissingWorkingCopySave(filePath);
-        if (handled && handled.ok) {
-          const nextPath = handled.path || filePath;
-          setHeaderClean();
-          updateHeaderStateUI();
-          patchCurrentDoc({ path: nextPath, content: bodyText, dirty: false });
-          setDirtyIndicator(false);
-          setStatus("File saved.");
-          return true;
-        }
-        return false;
-      }
+      const saveRes = await writeFile(filePath, fullText, { expectedData: String(readRes.data || "") });
       if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          const resolved = await resolveWorkingCopySaveConflictDefault(filePath, { restoreTuneId: null });
-          if (resolved && resolved.ok && resolved.action === "overwrite") {
-            // continue below
-          } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-            setStatus("Saved copy.");
-            return true;
-          } else {
-            if (resolved && resolved.action === "discard_reload") {
-              setStatus("Reloaded from disk.");
-            } else if (resolved && resolved.error) {
-              await showSaveError(resolved.error);
-            } else {
-              setStatus("Save canceled.");
-            }
-            return false;
-          }
-        }
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         return false;
       }
 
-      markDiskConflictPath(filePath, false);
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath)) {
-        setFileContentInCache(filePath, snapshot.text);
-        attachTuneUidsToLibraryFile(filePath, snapshot);
-      } else {
-        setFileContentInCache(filePath, fullText);
-      }
+      setFileContentInCache(filePath, fullText);
       setHeaderClean();
       updateHeaderStateUI();
       patchCurrentDoc({ path: filePath, content: bodyText, dirty: false });
@@ -329,26 +249,12 @@ function createRawModeFeature({
         return;
       }
 
-      try { await flushWorkingCopyTuneSync(); } catch {}
-      try { await flushWorkingCopyFullSync(); } catch {}
-
-      let fullText = "";
-      let usingWorkingCopyText = false;
-      try {
-        const snapshot = await refreshWorkingCopySnapshot();
-        if (snapshot && snapshot.path && pathsEqual(snapshot.path, filePath) && typeof snapshot.text === "string") {
-          fullText = String(snapshot.text || "");
-          usingWorkingCopyText = true;
-        }
-      } catch {}
-      if (!usingWorkingCopyText) {
-        const readRes = await readFile(filePath);
-        if (!readRes || !readRes.ok) {
-          await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
-          return;
-        }
-        fullText = String(readRes.data || "");
+      const readRes = await readFile(filePath);
+      if (!readRes || !readRes.ok) {
+        await showOpenError((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+        return;
       }
+      const fullText = String(readRes.data || "");
 
       try { await normalizeCleanStateBeforeRaw(filePath, fullText); } catch {}
       const ok = typeof ensureSafeToEnterRaw === "function"
@@ -357,24 +263,6 @@ function createRawModeFeature({
       if (!ok) return;
 
       try { stopPlaybackTransport(); } catch {}
-
-      try {
-        await ensureWorkingCopyOpenForPath(filePath);
-        if (!usingWorkingCopyText && api && typeof api.reloadWorkingCopyFromDisk === "function") {
-          const snapshotBeforeReload = await refreshWorkingCopySnapshot();
-          if (
-            snapshotBeforeReload
-            && snapshotBeforeReload.path
-            && pathsEqual(snapshotBeforeReload.path, filePath)
-          ) {
-            await api.reloadWorkingCopyFromDisk({
-              expectedPath: filePath,
-              expectedVersion: snapshotBeforeReload.version,
-            });
-          }
-        }
-        await refreshWorkingCopySnapshot();
-      } catch {}
 
       beginRawFullFileContext(filePath, "raw_mode");
       setFileContentInCache(filePath, fullText);

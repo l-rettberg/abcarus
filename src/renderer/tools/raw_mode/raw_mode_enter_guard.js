@@ -1,5 +1,4 @@
 function createRawModeEnterGuard({
-  api = null,
   state = {},
   actions = {},
   utils = {},
@@ -12,7 +11,6 @@ function createRawModeEnterGuard({
     getHeaderDirty = () => false,
     getIsCurrentDocumentDirty = () => false,
     getIsNewTuneDraft = () => false,
-    getWorkingCopySnapshot = () => null,
   } = state;
 
   const {
@@ -21,10 +19,8 @@ function createRawModeEnterGuard({
     getActiveFileEntry = () => null,
     getEditorValue = () => "",
     getHeaderEditorValue = () => "",
-    markDiskConflictPath = () => {},
     markHeaderClean = () => {},
     patchCurrentDocument = () => {},
-    refreshWorkingCopySnapshot = async () => null,
     setDirtyIndicator = () => {},
     updateHeaderStateUI = () => {},
   } = actions;
@@ -65,21 +61,6 @@ function createRawModeEnterGuard({
         markHeaderClean();
         updateHeaderStateUI();
       }
-    }
-
-    const snapshot = getWorkingCopySnapshot();
-    if (snapshot && snapshot.dirty && snapshot.path && pathsEqual(snapshot.path, p) && String(snapshot.text || "") === fullText) {
-      try {
-        if (api && typeof api.reloadWorkingCopyFromDisk === "function") {
-          await api.reloadWorkingCopyFromDisk({
-            force: true,
-            expectedPath: p,
-            expectedVersion: snapshot.version,
-          });
-          await refreshWorkingCopySnapshot();
-          markDiskConflictPath(p, false);
-        }
-      } catch {}
     }
 
     setDirtyIndicator(getIsCurrentDocumentDirty());

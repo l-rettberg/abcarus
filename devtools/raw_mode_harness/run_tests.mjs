@@ -12,7 +12,7 @@ async function importRendererModule(filePath) {
 
 const { createRawModeFeature } = await importRendererModule(resolve("src/renderer/tools/raw_mode/raw_mode_feature.js"));
 
-function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmChoice = "cancel" } = {}) {
+function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
   const filePath = "/tmp/raw-mode.abc";
   const fullText = "%%abc-charset utf-8\nX:1\nT:One\nK:C\nC|\nX:2\nT:Two\nK:D\nD|\n";
   let currentDoc = { path: filePath, content: "X:1\nT:One\nK:C\nC|\n", dirty: false };
@@ -22,14 +22,13 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
   let editorText = currentDoc.content;
   let ensureSafeCalls = 0;
   let readCalls = 0;
-  let tuneFlushCalls = 0;
   let selectedTuneCalls = 0;
   let dirtyIndicator = false;
   let headerCleanCalls = 0;
-  let workingCopyDirty = Boolean(staleWorkingCopyDirty);
   let rawContextCalls = 0;
   let confirmCalls = 0;
   let fileContextUpdates = 0;
+  const writes = [];
 
   const tunes = [
     {
@@ -86,6 +85,12 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
       if (readDelay > 0) await new Promise((resolve) => setTimeout(resolve, readDelay));
       return { ok: true, data: fullText };
     },
+    writeFile: async (path, data, options = {}) => {
+      assert.equal(path, filePath, "raw save should write the active file");
+      assert.equal(options.expectedData, fullText, "raw save should guard against an external file change");
+      writes.push({ path, data, expectedData: options.expectedData });
+      return { ok: true };
+    },
     refreshLibraryFile: async () => fileEntry,
     getActiveFileEntry: () => fileEntry,
     findHeaderEndOffset: () => fileEntry.headerEndOffset,
@@ -106,16 +111,11 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
     ensureSafeToAbandonCurrentDoc: async () => {
       ensureSafeCalls += 1;
       assert.equal(currentDoc.dirty, false, "raw enter must not ask to abandon a phantom dirty document");
-      assert.equal(workingCopyDirty, false, "raw enter must flush stale working-copy dirty before abandon preflight");
       return true;
     },
     confirmUnsavedChanges: async () => {
       confirmCalls += 1;
       return confirmChoice;
-    },
-    flushWorkingCopyTuneSync: async () => {
-      tuneFlushCalls += 1;
-      workingCopyDirty = false;
     },
     setDirtyIndicator: (next) => { dirtyIndicator = Boolean(next); },
     updateHeaderStateUI: () => {},
@@ -130,12 +130,12 @@ function createHarness({ readDelay = 0, staleWorkingCopyDirty = false, confirmCh
     get dirtyIndicator() { return dirtyIndicator; },
     get ensureSafeCalls() { return ensureSafeCalls; },
     get readCalls() { return readCalls; },
-    get tuneFlushCalls() { return tuneFlushCalls; },
     get selectedTuneCalls() { return selectedTuneCalls; },
     get headerCleanCalls() { return headerCleanCalls; },
     get rawContextCalls() { return rawContextCalls; },
     get confirmCalls() { return confirmCalls; },
     get fileContextUpdates() { return fileContextUpdates; },
+    get writes() { return writes; },
     markDirty() { currentDoc = { ...currentDoc, dirty: true }; },
   };
 }
@@ -171,11 +171,11 @@ async function testConcurrentRawEnterIsIgnored() {
   assert.equal(h.currentDoc.dirty, false, "concurrent raw enter should leave a clean document");
 }
 
-async function testRawEnterFlushesBeforeAbandonPreflight() {
-  const h = createHarness({ staleWorkingCopyDirty: true });
+async function testRawSaveUsesDiskBaseline() {
+  const h = createHarness();
   await h.feature.enter();
-  assert.equal(h.tuneFlushCalls, 1, "raw enter should flush tune working copy before preflight");
-  assert.equal(h.currentDoc.dirty, false, "raw enter should remain clean after stale WC flush");
+  assert.equal(await h.feature.save(), true, "raw save should succeed without a working copy");
+  assert.equal(h.writes.length, 1, "raw save should perform one direct file write");
 }
 
 function testDiscardClearsDirtyState() {
@@ -206,7 +206,7 @@ async function testDirtyRawExitUsesOwnedConfirmationFlow() {
 try {
   await testCleanRawRoundTripDoesNotDirtyDocument();
   await testConcurrentRawEnterIsIgnored();
-  await testRawEnterFlushesBeforeAbandonPreflight();
+  await testRawSaveUsesDiskBaseline();
   testDiscardClearsDirtyState();
   await testDirtyRawExitUsesOwnedConfirmationFlow();
   console.log("[raw_mode_harness] OK");

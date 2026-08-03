@@ -176,7 +176,7 @@ async function testFailedPrimarySaveCreatesEmergencyCopy() {
   assert.equal(await controller.performSimpleTuneSave(filePath), false);
   assert.equal(writes.length, 2, "recovery must run only after the primary write fails");
   assert.equal(writes[0].path, filePath);
-  assert.match(writes[1].path, /userData\/recovery\/tunes\.abc\.recovery-/);
+  assert.match(writes[1].path, /userData\/recovery\/tunes\.recovery-.*\.abc$/);
   assert.match(errorMessage, /Emergency copy saved/);
   assert.match(errorMessage, /remain unsaved/);
 }

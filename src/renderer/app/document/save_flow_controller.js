@@ -89,9 +89,12 @@ export function createSaveFlowController({
       const dir = String(await api.getRecoveryDir() || "");
       if (!dir || typeof api.mkdirp !== "function") return "";
       const rawBase = safeBasename(filePath) || "untitled.abc";
-      const base = rawBase.replace(/[^a-z0-9._-]+/gi, "_");
+      const safeBase = rawBase.replace(/[^a-z0-9._-]+/gi, "_");
+      const extensionMatch = safeBase.match(/(\.[^.]+)$/);
+      const extension = extensionMatch ? extensionMatch[1] : ".abc";
+      const stem = (extensionMatch ? safeBase.slice(0, -extension.length) : safeBase) || "untitled";
       const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 17);
-      const target = api.pathJoin(dir, `${base}.recovery-${stamp}`);
+      const target = api.pathJoin(dir, `${stem}.recovery-${stamp}${extension}`);
       const made = await api.mkdirp(dir);
       if (!made || made.ok === false) return "";
       const result = await writeFile(target, text);

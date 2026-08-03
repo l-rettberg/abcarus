@@ -43,7 +43,6 @@ function createImportExportFeature({
   safeBasename = (filePath) => String(filePath || ""),
   safeDirname = () => "",
   stripFileExtension = (name) => String(name || ""),
-  pathsEqual = (a, b) => String(a || "") === String(b || ""),
   initializeNewImportFile = async () => {},
   createBlankDocument = () => ({ path: null, dirty: false, content: "" }),
   setCurrentDocument = () => {},
@@ -52,9 +51,6 @@ function createImportExportFeature({
   setImportedTuneActive = () => {},
   setFileContentInCache = () => {},
   refreshLibraryFile = async () => null,
-  isWorkingCopyOpenForFile = () => false,
-  refreshWorkingCopySnapshot = async () => null,
-  syncLibraryFileFromWorkingCopySnapshot = () => null,
   markDiskConflictPath = () => {},
   getNextXNumber = () => 1,
   ensureXNumberInAbc = (text) => text,
@@ -229,60 +225,12 @@ function createImportExportFeature({
             updated = appendTuneToContent(updated, lastWithX);
           }
 
-          const shouldUseWorkingCopyCommit = Boolean(
-            isWorkingCopyOpenForFile(targetPath)
-            && api
-            && typeof api.openWorkingCopy === "function"
-            && typeof api.applyWorkingCopyFullText === "function"
-            && typeof api.commitWorkingCopyToDisk === "function"
-          );
-          if (shouldUseWorkingCopyCommit) {
-            const opened = await api.openWorkingCopy(targetPath);
-            if (!opened || !opened.ok) {
-              throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
-            }
-            const snapshotBefore = await refreshWorkingCopySnapshot();
-            if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, targetPath)) {
-              throw new Error("Working copy no longer matches the import target.");
-            }
-            if (String(snapshotBefore.text || "") !== before) {
-              throw new Error("Refusing to import: target content changed. Refresh/reopen and try again.");
-            }
-            const applyRes = await api.applyWorkingCopyFullText(updated, {
-              expectedPath: targetPath,
-              expectedVersion: snapshotBefore.version,
-            });
-            if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update working copy.");
-            const snapshotToSave = await refreshWorkingCopySnapshot();
-            if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, targetPath)) {
-              throw new Error("Working copy no longer matches the import target.");
-            }
-            const saveRes = await api.commitWorkingCopyToDisk({
-              force: false,
-              expectedPath: targetPath,
-              expectedVersion: snapshotToSave.version,
-            });
-            if (!saveRes || !saveRes.ok) {
-              if (saveRes && saveRes.conflict) {
-                markDiskConflictPath(targetPath, true);
-                throw new Error("Refusing to import: file changed on disk. Reload/reopen the file and try again.");
-              }
-              if (!saveRes || !saveRes.ok) {
-                throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-              }
-            }
-            const snapAfter = await refreshWorkingCopySnapshot();
-            if (snapAfter && snapAfter.path && pathsEqual(snapAfter.path, targetPath)) {
-              setFileContentInCache(targetPath, snapAfter.text);
-              syncLibraryFileFromWorkingCopySnapshot(targetPath, snapAfter);
-            } else {
-              setFileContentInCache(targetPath, updated);
-            }
-          } else {
-            const writeRes = await writeFile(targetPath, updated, { expectedData: before });
-            if (!writeRes || !writeRes.ok) throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write imported tunes.");
-            setFileContentInCache(targetPath, updated);
+          const writeRes = await writeFile(targetPath, updated, { expectedData: before });
+          if (!writeRes || !writeRes.ok) {
+            if (writeRes && writeRes.conflict) markDiskConflictPath(targetPath, true);
+            throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write imported tunes.");
           }
+          setFileContentInCache(targetPath, updated);
 
           const updatedFile = await refreshLibraryFile(targetPath);
           if (updatedFile && updatedFile.tunes && updatedFile.tunes.length) {

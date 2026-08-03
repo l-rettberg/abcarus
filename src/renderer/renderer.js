@@ -1481,7 +1481,6 @@ saveFlowController = createSaveFlowController({
     refreshWorkingCopySnapshot,
     resetHeaderEditorFilePath,
     resetTransposePreviewState,
-    resolveWorkingCopySaveConflictDefault,
     safeBasename,
     safeDirname,
     scheduleAutoWcDump,
@@ -2196,7 +2195,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     renumberXLinesConsecutive,
     requireCleanForFileOp,
     resolveTuneEntryFromSnapshot,
-    resolveWorkingCopySaveConflictDefault,
     safeBasename,
     safeDirname,
     scheduleRenderLibraryTree,
@@ -3395,10 +3393,6 @@ async function ensureSafeToAbandonCurrentDoc(actionLabel) {
   return documentSessionController
     ? documentSessionController.ensureSafeToAbandonCurrentDoc(actionLabel)
     : false;
-}
-
-async function handleMissingWorkingCopySave(filePath) {
-  return saveFlowController.handleMissingWorkingCopySave(filePath);
 }
 
 async function performSaveFlow() {

@@ -54,7 +54,6 @@ export function createSaveFlowController({
     refreshWorkingCopySnapshot = async () => null,
     resetHeaderEditorFilePath = () => {},
     resetTransposePreviewState = () => {},
-    resolveWorkingCopySaveConflictDefault = async () => null,
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
     scheduleAutoWcDump = () => {},
@@ -80,64 +79,6 @@ export function createSaveFlowController({
     ensureXNumberInAbc = (text) => String(text || ""),
     withFileLock = async (_path, fn) => fn(),
   } = actions;
-
-  async function finalizeWorkingCopySave(filePath) {
-    const normalized = String(filePath || "");
-    if (!normalized) return false;
-
-    markDiskConflictPath(normalized, false);
-    markCurrentDocumentClean();
-    resetTransposePreviewState();
-    setDirtyIndicator(false);
-
-    try {
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, normalized)) {
-        setFileContentInCache(normalized, snapshot.text);
-        attachTuneUidsToLibraryFile(normalized, snapshot);
-      }
-    } catch {}
-
-    try { await refreshLibraryFile(normalized, { force: true }); } catch {}
-    updateLibraryStatus();
-    scheduleRenderLibraryTree();
-    scheduleAutoWcDump("save", normalized ? safeBasename(normalized) : "");
-    return true;
-  }
-
-  async function handleMissingWorkingCopySave(filePath) {
-    const p = String(filePath || "");
-    if (!p) return { ok: false };
-    if (!api || typeof api.confirmMissingOnDisk !== "function") return { ok: false };
-
-    const choice = await api.confirmMissingOnDisk(p);
-    if (choice === "recreate") {
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (!snapshot || !snapshot.path || !pathsEqual(snapshot.path, p)) {
-        await showSaveError("Unable to recreate: working copy no longer matches the missing file.");
-        return { ok: false };
-      }
-      const forced = await api.commitWorkingCopyToDisk({
-        force: true,
-        expectedPath: p,
-        expectedVersion: snapshot.version,
-      });
-      if (forced && forced.ok) {
-        await finalizeWorkingCopySave(p);
-        return { ok: true, path: p, action: "recreate" };
-      }
-      await showSaveError((forced && forced.error) ? forced.error : "Unable to recreate missing file.");
-      return { ok: false };
-    }
-    if (choice === "save_as") {
-      const ok = await performSaveAsFlow();
-      if (!ok) return { ok: false };
-      const snap = await refreshWorkingCopySnapshot();
-      const nextPath = snap && snap.path ? String(snap.path) : "";
-      return { ok: true, path: nextPath || p, action: "save_as" };
-    }
-    return { ok: false, cancelled: true };
-  }
 
   function isPermissionDeniedSaveError(error) {
     const msg = String(error || "");
@@ -553,8 +494,6 @@ export function createSaveFlowController({
   }
 
   return {
-    finalizeWorkingCopySave,
-    handleMissingWorkingCopySave,
     performRawSaveFlow,
     performSaveAsFlow,
     performSaveFlow,

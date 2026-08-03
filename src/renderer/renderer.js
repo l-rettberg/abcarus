@@ -715,7 +715,6 @@ const chordProFeature = createChordProFeature({
   updateFileHeaderPanel,
   updateHeaderStateUI,
   suppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
-  ensureWorkingCopyOpenForPath,
   refreshWorkingCopySnapshot,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
   setStatus,
@@ -1304,14 +1303,6 @@ async function refreshWorkingCopySnapshot() {
   return workingCopyRuntimeController ? workingCopyRuntimeController.refreshSnapshot() : null;
 }
 
-async function ensureWorkingCopyOpenForPath(filePath) {
-  return workingCopyRuntimeController ? workingCopyRuntimeController.ensureOpenForPath(filePath) : false;
-}
-
-function scheduleLazyWorkingCopyOpenForActiveFile(filePath, reason = "selectTune") {
-  if (workingCopyRuntimeController) workingCopyRuntimeController.scheduleLazyOpenForActiveFile(filePath, reason);
-}
-
 const workingCopyConflictController = createWorkingCopyConflictController({
   api: window.api,
   state: {
@@ -1446,9 +1437,6 @@ saveFlowController = createSaveFlowController({
     getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot,
-    getWorkingCopyOpenError: () => workingCopyRuntimeController
-      ? workingCopyRuntimeController.getLastOpenError()
-      : "",
     getChordProFullText: () => chordProFeature.getFullText(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -1465,7 +1453,6 @@ saveFlowController = createSaveFlowController({
       ? window.api.fileExists(filePath)
       : Promise.resolve(false),
     confirmOverwrite,
-    ensureWorkingCopyOpenForPath,
     ensureXNumberInAbc,
     isHeaderEditorFilePath,
     isWorkingCopyOpenForFile,

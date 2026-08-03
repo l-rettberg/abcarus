@@ -61,6 +61,7 @@ export function createLibraryLifecycleController({
     resolveTuneEntryFromSnapshot = () => null,
     safeBasename = (p) => String(p || ""),
     safeDirname = () => "",
+    splitFileIntoHeaderAndBody = (text) => ({ headerText: "", bodyText: String(text || "") }),
     scheduleRenderLibraryTree = () => {},
     scheduleRenderNow = () => {},
     scheduleSaveLibraryUiState = () => {},
@@ -409,6 +410,14 @@ export function createLibraryLifecycleController({
     logStep("validate slice");
 
     const tuneText = content.slice(sliceStart, sliceEnd);
+    const fileParts = splitFileIntoHeaderAndBody(content);
+    const headerEnd = String(fileParts.headerText || "").length;
+    const documentParts = {
+      header: String(fileParts.headerText || ""),
+      before: content.slice(headerEnd, sliceStart),
+      active: tuneText,
+      after: content.slice(sliceEnd),
+    };
     setActiveTuneId(selected.id);
     setActiveTuneUid(selected.tuneUid || null);
     setActiveTuneIndex(Number.isFinite(Number(selected.tuneIndex)) ? Number(selected.tuneIndex) : null);
@@ -429,6 +438,7 @@ export function createLibraryLifecycleController({
       endLine: selected.endLine,
       startOffset: sliceStart,
       endOffset: sliceEnd,
+      documentParts,
     }, { suppressRecent: options.suppressRecent || false });
     logStep("set active text", { tuneChars: String(tuneText || "").length });
     clearPlaybackSelectionCapture();

@@ -11,7 +11,6 @@ export function createSaveFlowController({
     getActiveTuneUid = () => "",
     getCurrentDocument = () => null,
     getCurrentDocumentPath = () => "",
-    getFileContentFromCache = () => null,
     getFocusModeEnabled = () => false,
     getHeaderDirty = () => false,
     getHeaderEditorValue = () => "",
@@ -55,6 +54,7 @@ export function createSaveFlowController({
     selectTune = async () => {},
     serializeDocument = (doc) => (doc ? String(doc.content || "") : ""),
     setActiveFilePath = () => {},
+    setActiveTuneMeta = () => {},
     setDirtyIndicator = () => {},
     setFileContentInCache = () => {},
     readFile = async () => ({ ok: false }),
@@ -108,18 +108,9 @@ export function createSaveFlowController({
         return false;
       }
 
-      const cachedContent = getFileContentFromCache(p);
-      if (cachedContent == null) {
-        await showSaveError("Unable to save safely: file baseline is missing. Re-open the tune and try again.");
-        return false;
-      }
-
-      const sourceText = String(cachedContent);
-      let expectedStart = Number(activeTuneMeta.startOffset);
-      let expectedEnd = Number(activeTuneMeta.endOffset);
-      if (!Number.isFinite(expectedStart) || !Number.isFinite(expectedEnd)
-        || expectedStart < 0 || expectedEnd <= expectedStart || expectedEnd > sourceText.length) {
-        await showSaveError("Unable to save safely: active tune range is missing. Re-open the tune and try again.");
+      const loadedParts = activeTuneMeta.documentParts;
+      if (!loadedParts || typeof loadedParts !== "object") {
+        await showSaveError("Unable to save safely: tune document parts are missing. Re-open the tune and try again.");
         return false;
       }
 
@@ -132,41 +123,25 @@ export function createSaveFlowController({
         return false;
       }
 
-      let nextText = sourceText.slice(0, expectedStart) + editorText + sourceText.slice(expectedEnd);
-      if (includeHeader) {
-        const headerMatch = sourceText.match(/^[\t ]*X:/m);
-        const oldHeaderEnd = headerMatch && Number.isFinite(headerMatch.index)
-          ? headerMatch.index
-          : sourceText.length;
-        const rawHeaderText = String(getHeaderEditorValue() || "");
-        const headerText = rawHeaderText && !/[\r\n]$/.test(rawHeaderText)
-          ? `${rawHeaderText}\n`
-          : rawHeaderText;
-        const bodyStart = Math.max(0, expectedStart - oldHeaderEnd);
-        const bodyEnd = Math.max(bodyStart, expectedEnd - oldHeaderEnd);
-        const body = sourceText.slice(oldHeaderEnd);
-        const nextBody = body.slice(0, bodyStart) + editorText + body.slice(bodyEnd);
-        nextText = headerText + nextBody;
-        expectedStart = headerText.length + bodyStart;
-        expectedEnd = expectedStart + editorText.length;
-        if (!nextText.slice(expectedStart, expectedEnd).startsWith(editorText)) {
-          await showSaveError("Unable to save safely: header and tune ranges could not be reconciled.");
-          return false;
-        }
-      }
+      const headerText = includeHeader
+        ? String(getHeaderEditorValue() || "")
+        : String(loadedParts.header || "");
+      const normalizedHeader = headerText && !/[\r\n]$/.test(headerText) ? `${headerText}\n` : headerText;
+      const nextParts = {
+        header: normalizedHeader,
+        before: String(loadedParts.before || ""),
+        active: editorText,
+        after: String(loadedParts.after || ""),
+      };
+      const nextText = `${nextParts.header}${nextParts.before}${nextParts.active}${nextParts.after}`;
 
       const diskCheck = await readFile(p);
       if (!diskCheck || !diskCheck.ok) {
         await showSaveError((diskCheck && diskCheck.error) ? diskCheck.error : "Unable to read file before saving.");
         return false;
       }
-      if (String(diskCheck.data || "") !== sourceText) {
-        markDiskConflictPath(p, true);
-        await showSaveError("File changed on disk. Reload it before saving your changes.");
-        return false;
-      }
-
-      const saveRes = await writeFile(p, nextText, { expectedData: sourceText });
+      const diskText = String(diskCheck.data || "");
+      const saveRes = await writeFile(p, nextText, { expectedData: diskText });
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) {
           markDiskConflictPath(p, true);
@@ -178,6 +153,7 @@ export function createSaveFlowController({
       }
 
       setFileContentInCache(p, nextText);
+      setActiveTuneMeta({ ...activeTuneMeta, documentParts: nextParts });
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
         markHeaderClean();
@@ -302,11 +278,6 @@ export function createSaveFlowController({
       return false;
     }
     const diskText = String(disk.data || "");
-    const baseline = getFileContentFromCache(p);
-    if (baseline != null && String(baseline) !== diskText) {
-      await showSaveError("File changed on disk. Reload the ChordPro file before saving.");
-      return false;
-    }
     const nextText = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
     const result = await withFileLock(p, () => writeFile(p, nextText, { expectedData: diskText }));
     if (!result || !result.ok) {
@@ -357,7 +328,7 @@ export function createSaveFlowController({
       directTuneMeta
       && directTuneMeta.path
       && pathsEqual(directTuneMeta.path, directSourcePath)
-      && getFileContentFromCache(directSourcePath) != null
+      && directTuneMeta.documentParts
     ) {
       if (getCurrentDocument().dirty || getHeaderDirty()) {
         const prepared = await performSimpleTuneSave(directTuneMeta.path, {
@@ -451,12 +422,6 @@ export function createSaveFlowController({
       const disk = await readFile(p);
       if (!disk || !disk.ok) throw new Error(disk && disk.error ? disk.error : "Unable to read header file.");
       const diskText = String(disk.data || "");
-      const baseline = getFileContentFromCache(p);
-      if (baseline == null) throw new Error("Unable to save safely: file baseline is missing. Re-open the file and try again.");
-      if (String(baseline) !== diskText) {
-        markDiskConflictPath(p, true);
-        throw new Error("File changed on disk. Reload it before saving the header.");
-      }
       const match = diskText.match(/^[\t ]*X:/m);
       const headerEnd = match && Number.isFinite(match.index) ? match.index : diskText.length;
       const rawHeader = String(headerText || "");

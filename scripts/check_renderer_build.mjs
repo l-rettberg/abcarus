@@ -237,17 +237,17 @@ async function assertSaveIntentGuards() {
   const simpleSaveEnd = saveFlow.indexOf("async function performSaveFlow()", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
   const simpleSaveBody = saveFlow.slice(simpleSaveStart, simpleSaveEnd);
-  if (!simpleSaveBody.includes("getFileContentFromCache(p)")) {
-    throw new Error("performSimpleTuneSave() must use the loaded file baseline before editing a tune.");
+  if (!simpleSaveBody.includes("activeTuneMeta.documentParts")) {
+    throw new Error("performSimpleTuneSave() must use the loaded four-part tune document.");
   }
   if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
     throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
   }
-  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: sourceText })")) {
+  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: diskText })")) {
     throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
   }
-  if (!simpleSaveBody.includes("File changed on disk")) {
-    throw new Error("performSimpleTuneSave() must fail closed on an external file change.");
+  if (!simpleSaveBody.includes("const nextParts =")) {
+    throw new Error("performSimpleTuneSave() must update the loaded four-part document after editing.");
   }
 
   const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");

@@ -44,7 +44,7 @@ function makeController({
     state: {
       getActiveFilePath: () => sourcePath,
       getActiveTuneId: () => "source-id",
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", title: "Source", startOffset: 0 }),
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", title: "Source", startOffset: 0, documentParts: {} }),
       getActiveTuneUid: () => "source-uid",
       getCurrentDocument: () => ({ path: sourcePath, content: snapshot.text, dirty: true }),
     getCurrentDocumentPath: () => sourcePath,
@@ -97,8 +97,9 @@ async function testDirectTuneSaveWritesExpectedData() {
   const { calls, sourcePath } = makeController();
   const direct = createSaveFlowController({
     state: {
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", startOffset: 0, endOffset: baseline.length }),
-      getFileContentFromCache: () => baseline,
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: baseline, after: "",
+      } }),
       getHeaderDirty: () => false,
     },
     actions: {
@@ -123,23 +124,27 @@ async function testDirectTuneSaveWritesExpectedData() {
   assert.deepEqual(writes, [[sourcePath, edited, { expectedData: baseline }]]);
 }
 
-async function testDirectTuneSaveRejectsExternalChange() {
+async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
   const baseline = "X:1\nT:Source\nK:C\nC |]\n";
   const direct = createSaveFlowController({
     state: {
-      getActiveTuneMeta: () => ({ path: "/tmp/source.abc", xNumber: "1", startOffset: 0, endOffset: baseline.length }),
-      getFileContentFromCache: () => baseline,
+      getActiveTuneMeta: () => ({ path: "/tmp/source.abc", xNumber: "1", documentParts: {
+        header: "", before: "", active: baseline, after: "",
+      } }),
     },
     actions: {
       getEditorValue: () => baseline,
       readFile: async () => ({ ok: true, data: `${baseline}X:2\n` }),
-      writeFile: async () => { throw new Error("write must not be reached"); },
-      showSaveError: async (message) => { assert.match(message, /changed on disk/i); },
-      markDiskConflictPath: (path, value) => { assert.equal(path, "/tmp/source.abc"); assert.equal(value, true); },
+      writeFile: async (path, data, options) => {
+        assert.equal(path, "/tmp/source.abc");
+        assert.equal(options.expectedData, `${baseline}X:2\n`);
+        assert.equal(data, baseline);
+        return { ok: true };
+      },
       withFileLock: async (_path, fn) => fn(),
     },
   });
-  assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), false);
+  assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), true);
 }
 
 async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
@@ -156,8 +161,9 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
       getActiveFilePath: () => sourcePath,
       getCurrentDocument: () => currentDocument,
       getCurrentDocumentPath: () => sourcePath,
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", startOffset: 0, endOffset: sourceText.length }),
-      getFileContentFromCache: () => sourceText,
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: sourceText, after: "",
+      } }),
       getHeaderDirty: () => false,
     },
     actions: {
@@ -203,7 +209,6 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
   const writes = [];
   const controller = createSaveFlowController({
     state: {
-      getFileContentFromCache: () => baseline,
       getActiveFilePath: () => path,
       getActiveTuneMeta: () => ({ path, xNumber: "1" }),
       getActiveTuneId: () => `${path}::1`,
@@ -287,7 +292,7 @@ async function testCancelLeavesSourceUntouched() {
 await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
-await testDirectTuneSaveRejectsExternalChange();
+await testDirectTuneSaveOverwritesExternalChangeFromParts();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
 await testHeaderSaveWritesDirectlyWithDiskBaseline();
 console.log("save flow harness: all tests passed");

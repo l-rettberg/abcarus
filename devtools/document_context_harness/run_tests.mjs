@@ -347,10 +347,8 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
       getActiveTuneMeta: () => ({
         path: filePath,
         xNumber: "2",
-        startOffset: 0,
-        endOffset: sourceText.length,
+        documentParts: { header: "", before: "", active: sourceText, after: "" },
       }),
-      getFileContentFromCache: () => sourceText,
       getHeaderEditorValue: () => "",
     },
     actions: {
@@ -366,6 +364,7 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
       reconcileActiveTuneAfterSave: () => { reconciled = true; },
       refreshLibraryFile: async () => ({ path: filePath, tunes: [] }),
       setActiveFilePath: () => {},
+      setActiveTuneMeta: () => {},
       setDirtyIndicator: () => {},
       setFileContentInCache: () => {},
       updateFileHeaderPanel: () => {},

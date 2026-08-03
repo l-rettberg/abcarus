@@ -1,10 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-01-21T06:49:04Z",
+  "generatedAt": "2026-07-01T22:53:28Z",
   "source": {
     "path": "/home/avetik/Projects/ABC/abc/makams.abc",
-    "sha256": "c8e17bbe1d6acc2c03a00406d32d445f960b676ac90e33fd5a7aaff47b26ee95",
-    "note": "This file is outside the repo; the hash pins the exact corpus used to generate counts."
+    "sha256": "53f0964793c80a1063b3325d33ba82d25dca8988f6eb3ed4b9987e6e7773c7e8"
   },
   "tunesTotal": 2200,
   "kSignatureTotals": {
@@ -49,10 +48,6 @@
     "C _4A_1B_4d": 1,
     "C _1B_1e^4f^4c^4A": 1
   },
-  "makamTotals": {
-    "uniqueMakamsDetected": 155,
-    "tunesWithMakamAndK": 2199
-  },
   "byMakam": {
     "hicaz": {
       "count": 157,
@@ -69,15 +64,15 @@
         "C _4B^4f^4c": [
           {
             "x": "411",
-            "title": "Hicaz Ağırsemâî"
+            "title": "Güller Kızarır Şerm ile"
           },
           {
             "x": "412",
-            "title": "Hicaz Aranağme"
+            "title": "Hicaz Aranağme (Ağıraksak)"
           },
           {
             "x": "413",
-            "title": "Hicaz Aranağme"
+            "title": "Hicaz Aranağme (Aydın)"
           }
         ]
       }
@@ -97,15 +92,15 @@
         "C _5B_5e": [
           {
             "x": "1337",
-            "title": "Nihâvent Ağırsemâî"
+            "title": "Seni Hükm-ü Ezel..."
           },
           {
             "x": "1338",
-            "title": "Nihâvent Aranağme"
+            "title": "Nihâvent Aranağme (Ağıraksak)"
           },
           {
             "x": "1339",
-            "title": "Nihâvent Aranağme"
+            "title": "Nihâvent Aranağme (Türkaksağı)"
           }
         ]
       }
@@ -125,15 +120,15 @@
         "C _2B": [
           {
             "x": "2037",
-            "title": "Uşşak Ağırsemâî"
+            "title": "Padişah-ı İşvesin"
           },
           {
             "x": "2038",
-            "title": "Uşşak Aranağme"
+            "title": "Uşşak Aranağme (Aksak)"
           },
           {
             "x": "2039",
-            "title": "Uşşak Aranağme"
+            "title": "Uşşak Aranağme (Curcuna)"
           }
         ]
       }
@@ -153,15 +148,15 @@
         "C _1B^4f": [
           {
             "x": "1539",
-            "title": "Rast Ağırsemâî"
+            "title": "Çekmiş Yüzüne Nikab-ı İşve"
           },
           {
             "x": "1540",
-            "title": "Rast Aranağme"
+            "title": "Rast Aranağme (Curcuna)"
           },
           {
             "x": "1541",
-            "title": "Rast Aranağme"
+            "title": "Rast Aranağme (Müsemmen)"
           }
         ]
       }
@@ -181,15 +176,15 @@
         "C _1B_3e^3f": [
           {
             "x": "836",
-            "title": "Hüzzam Ağırsemâî"
+            "title": "Kurban Olayım Gamzene"
           },
           {
             "x": "837",
-            "title": "Hüzzam Aranağme"
+            "title": "Hüzzam Aranağme (Ağıraksak)"
           },
           {
             "x": "838",
-            "title": "Hüzzam Aranağme"
+            "title": "Hüzzam Aranağme (Düyek)"
           }
         ]
       }
@@ -209,15 +204,15 @@
         "C _2B^3f": [
           {
             "x": "736",
-            "title": "Hüseynî Ağırsemâî"
+            "title": "Açıldı Gonce-i"
           },
           {
             "x": "737",
-            "title": "Hüseynî Ağırsemâî"
+            "title": "Tal'atın Devri Kamerde"
           },
           {
             "x": "738",
-            "title": "Hüseynî Aranağme"
+            "title": "Hüseynî Aranağme (Aksak)"
           }
         ]
       }
@@ -237,15 +232,15 @@
         "C _1B_1e^4f": [
           {
             "x": "1753",
-            "title": "Segâh Aranağme"
+            "title": "Segâh Aranağme (Yürüksemâî)"
           },
           {
             "x": "1754",
-            "title": "Segâh Fantezi"
+            "title": "Gül Ne Güzelsin Dalında"
           },
           {
             "x": "1755",
-            "title": "Segâh İlâhî"
+            "title": "Ey Acep"
           }
         ]
       }
@@ -265,15 +260,15 @@
         "C ^5f": [
           {
             "x": "1099",
-            "title": "Mâhur Ağırsemâî"
+            "title": "Cihanı Lal-i"
           },
           {
             "x": "1100",
-            "title": "Mâhur Aranağme"
+            "title": "Mâhur Aranağme (Müsemmen)"
           },
           {
             "x": "1101",
-            "title": "Mâhur Aranağme"
+            "title": "Mâhur Aranağme (Nîmsofyan)"
           }
         ]
       }
@@ -293,11 +288,11 @@
         "C _1B_4e_4A^4f": [
           {
             "x": "469",
-            "title": "Hicazkâr Ağırsemâî"
+            "title": "Benim Serv-i Hırâmânım"
           },
           {
             "x": "470",
-            "title": "Hicazkâr Aranağme"
+            "title": "Hicazkâr Aranağme (Aksak)"
           },
           {
             "x": "471",
@@ -321,11 +316,11 @@
         "C _5B_5e_5A": [
           {
             "x": "1019",
-            "title": "Kürdîlihicazkâr Aranağme"
+            "title": "Kürdîlihicazkâr Aranağme (Semâî)"
           },
           {
             "x": "1020",
-            "title": "Kürdîlihicazkâr Aranağme"
+            "title": "Kürdîlihicazkâr Aranağme (Türkaksağı)"
           },
           {
             "x": "1021",
@@ -349,15 +344,15 @@
         "C _2B^3f": [
           {
             "x": "1191",
-            "title": "Muhayyer Aranağme"
+            "title": "Muhayyer Aranağme (Curcuna)"
           },
           {
             "x": "1192",
-            "title": "Muhayyer Beste"
+            "title": "Hengâm-ı Safâdır"
           },
           {
             "x": "1193",
-            "title": "Muhayyer Beste"
+            "title": "Derd-i Hicrana"
           }
         ]
       }
@@ -377,15 +372,15 @@
         "C _2B_3d": [
           {
             "x": "1664",
-            "title": "Sabâ Aranağme"
+            "title": "Sabâ Aranağme (Senginsemâî)"
           },
           {
             "x": "1666",
-            "title": "Sabâ Beste"
+            "title": "Gülistan-ı Nakş-ı"
           },
           {
             "x": "1667",
-            "title": "Sabâ Beste"
+            "title": "Bir Nim-nigah"
           }
         ]
       }
@@ -405,15 +400,15 @@
         "C _5B": [
           {
             "x": "1",
-            "title": "Acemaşîrân Aranağme"
+            "title": "Acemaşîrân Aranağme (Ağıraksak)"
           },
           {
             "x": "2",
-            "title": "Acemaşîrân Aranağme"
+            "title": "Acemaşîrân Aranağme (Aksak)"
           },
           {
             "x": "3",
-            "title": "Acemaşîrân Aranağme"
+            "title": "Acemaşîrân Aranağme (Curcuna)"
           }
         ]
       }
@@ -433,15 +428,15 @@
         "C _2B": [
           {
             "x": "141",
-            "title": "Beyâtî Ağırsemâî"
+            "title": "Söylen Ol Âfete"
           },
           {
             "x": "142",
-            "title": "Beyâtî Ağırsemâî"
+            "title": "Çıkmaz Derûn-ü Dilden"
           },
           {
             "x": "143",
-            "title": "Beyâtî Ağırsemâî"
+            "title": "Didi Çî Kerdi"
           }
         ]
       }
@@ -461,15 +456,15 @@
         "C": [
           {
             "x": "212",
-            "title": "Bûselik Ağırsemâî"
+            "title": "Söyle Ey Nâlem"
           },
           {
             "x": "213",
-            "title": "Bûselik Ağırsemâî"
+            "title": "Niyaz-ı Nağme-i Dil Yâre"
           },
           {
             "x": "214",
-            "title": "Bûselik Aranağme"
+            "title": "Bûselik Aranağme (Ağıraksak)"
           }
         ]
       }
@@ -489,15 +484,15 @@
         "C _2B_3e^3f": [
           {
             "x": "960",
-            "title": "Karcığar Ağırsemâî"
+            "title": "Ne Dane"
           },
           {
             "x": "961",
-            "title": "Karcığar Aranağme"
+            "title": "Karcığar Aranağme (Ağıraksak)"
           },
           {
             "x": "962",
-            "title": "Karcığar Aranağme"
+            "title": "Karcığar Aranağme (Curcuna)"
           }
         ]
       }
@@ -517,15 +512,15 @@
         "C _4B^4c": [
           {
             "x": "426",
-            "title": "Hicaz-Hümâyûn Ağırsemâî"
+            "title": "Kul Oldum Bir Cefâ-kâre"
           },
           {
             "x": "427",
-            "title": "Hicaz-Hümâyûn Aranağme"
+            "title": "Hicaz-Hümâyûn Aranağme (Curcuna)"
           },
           {
             "x": "428",
-            "title": "Hicaz-Hümâyûn Aranağme"
+            "title": "Hicaz-Hümâyûn Aranağme (Düyek)"
           }
         ]
       }
@@ -545,15 +540,15 @@
         "C _5B": [
           {
             "x": "69",
-            "title": "Acemkürdî Ağırsemâî"
+            "title": "Dûr Etme Yanından Asla"
           },
           {
             "x": "70",
-            "title": "Acemkürdî Aranağme"
+            "title": "Acemkürdî Aranağme (Aksak)"
           },
           {
             "x": "71",
-            "title": "Acemkürdî Aranağme"
+            "title": "Acemkürdî Aranağme (Curcuna)"
           }
         ]
       }
@@ -573,15 +568,15 @@
         "C _1B^4f^4c": [
           {
             "x": "303",
-            "title": "Eviç Ağırsemâî"
+            "title": "Ben Ağlar İdim Her Gece"
           },
           {
             "x": "304",
-            "title": "Eviç Aranağme"
+            "title": "Eviç Aranağme (Senginsemâî)"
           },
           {
             "x": "305",
-            "title": "Eviç Aranağme"
+            "title": "Eviç Aranağme (Sofyan)"
           }
         ]
       }
@@ -601,15 +596,15 @@
         "C _5B": [
           {
             "x": "1201",
-            "title": "Muhayyerkürdî Aranağme"
+            "title": "Muhayyerkürdî Aranağme (Nîmsofyan)"
           },
           {
             "x": "1202",
-            "title": "Muhayyerkürdî Fantezi"
+            "title": "Günlerce Uykusuz, Günlerce Yorgun"
           },
           {
             "x": "1203",
-            "title": "Muhayyerkürdî Küpe"
+            "title": "Bir Muhayyerkürdî Taksîm Et"
           }
         ]
       }
@@ -629,11 +624,11 @@
         "C _2B^3f": [
           {
             "x": "2000",
-            "title": "Tâhir Aranağme"
+            "title": "Tâhir Aranağme (Düyek)"
           },
           {
             "x": "2004",
-            "title": "Tâhir Küpe"
+            "title": "Al Al Olmuş"
           },
           {
             "x": "2005",
@@ -657,15 +652,15 @@
         "C _2B^3f": [
           {
             "x": "372",
-            "title": "Gerdâniye Küpe"
+            "title": "Perde-i Pestten Nezâketle"
           },
           {
             "x": "373",
-            "title": "Gerdâniye Oyunhavası"
+            "title": "Bulut Gelir Seher ile"
           },
           {
             "x": "374",
-            "title": "Gerdâniye Rumelitürküsü"
+            "title": "Kırım'dan Gelirim"
           }
         ]
       }
@@ -685,15 +680,15 @@
         "C ^5f^3c^3g": [
           {
             "x": "1492",
-            "title": "Nişâburek Ağırsemâî"
+            "title": "Bilmem ki Ne Yaptım"
           },
           {
             "x": "1493",
-            "title": "Nişâburek Aranağme"
+            "title": "Nişâburek Aranağme (Düyek)"
           },
           {
             "x": "1494",
-            "title": "Nişâburek Küpe"
+            "title": "Fasl-ı Nişâburek'i..."
           }
         ]
       }
@@ -713,15 +708,15 @@
         "C _1B_4e_4A^4f": [
           {
             "x": "1974",
-            "title": "Sûzinâk-Zirgüle Küpe"
+            "title": "Perdebâzım Gerçi Oldun..."
           },
           {
             "x": "1975",
-            "title": "Sûzinâk-Zirgüle Longa"
+            "title": "Sûzinâk Longa"
           },
           {
             "x": "1976",
-            "title": "Sûzinâk-Zirgüle Nakış"
+            "title": "Cânâ Firâk-ı Aşkın ile..."
           }
         ]
       }
@@ -741,15 +736,15 @@
         "C _4B^1f^4c^4g": [
           {
             "x": "1849",
-            "title": "Şehnâz Ağırsemâî"
+            "title": "Dîdem Yüzüne Nâzır"
           },
           {
             "x": "1850",
-            "title": "Şehnâz Aranağme"
+            "title": "Şehnâz Aranağme (Devrihindî)"
           },
           {
             "x": "1851",
-            "title": "Şehnâz Aranağme"
+            "title": "Şehnâz Aranağme (Sofyan)"
           }
         ]
       }
@@ -769,15 +764,15 @@
         "C _4B^3f^4c": [
           {
             "x": "1467",
-            "title": "Nikrîz Ağırsemâî"
+            "title": "Benim Cürmüm Nihayetsiz"
           },
           {
             "x": "1468",
-            "title": "Nikrîz Aranağme"
+            "title": "Nikrîz Aranağme (Evfer)"
           },
           {
             "x": "1469",
-            "title": "Nikrîz Fantezi"
+            "title": "Uzağa Gitme Yakına Gelme"
           }
         ]
       }
@@ -797,15 +792,15 @@
         "C _5B^4c": [
           {
             "x": "1907",
-            "title": "Sultânîyegâh Aranağme"
+            "title": "Sultânîyegâh Aranağme (Nîmsofyan)"
           },
           {
             "x": "1908",
-            "title": "Sultânîyegâh Aranağme"
+            "title": "Sultânîyegâh Aranağme (Türkaksağı)"
           },
           {
             "x": "1909",
-            "title": "Sultânîyegâh Küpe"
+            "title": "Eyledin Bezm-i Tarabda"
           }
         ]
       }
@@ -825,15 +820,15 @@
         "C _2B^4f": [
           {
             "x": "2158",
-            "title": "Yegâh Ağırsemâî"
+            "title": "Piyâle Elde Ne Dem"
           },
           {
             "x": "2159",
-            "title": "Yegâh Aranağme"
+            "title": "Yegâh Aranağme (Aksak)"
           },
           {
             "x": "2160",
-            "title": "Yegâh Beste"
+            "title": "Gönül ki Aşk ile"
           }
         ]
       }
@@ -853,15 +848,15 @@
         "C _2B^3f": [
           {
             "x": "1300",
-            "title": "Nevâ Ağırsemâî"
+            "title": "Sevdi Bu Gönül Seni"
           },
           {
             "x": "1303",
-            "title": "Nevâ Kâr"
+            "title": "Ey Gülbün-i Iyş"
           },
           {
             "x": "1304",
-            "title": "Nevâ Küpe"
+            "title": "Bezme Gel Ben Zârı..."
           }
         ]
       }
@@ -881,15 +876,15 @@
         "C ^1f^4g^4d": [
           {
             "x": "711",
-            "title": "Hisarbûselik Aranağme"
+            "title": "Hisarbûselik Aranağme (Türkaksağı)"
           },
           {
             "x": "712",
-            "title": "Hisarbûselik Aranağme"
+            "title": "Hisarbûselik Aranağme (Yürüksemâî)"
           },
           {
             "x": "713",
-            "title": "Hisarbûselik Beste"
+            "title": "Zahm-i Sînem Hançer-i Zerkâr..."
           }
         ]
       }
@@ -909,15 +904,15 @@
         "C _2B": [
           {
             "x": "939",
-            "title": "Isfahân Aranağme"
+            "title": "Isfahân Aranağme (Aksak)"
           },
           {
             "x": "940",
-            "title": "Isfahân Beste"
+            "title": "Gel Ey Nesîm-i Sabâ"
           },
           {
             "x": "942",
-            "title": "Isfahân Küpe"
+            "title": "İttifâkan Seyreden"
           }
         ]
       }
@@ -937,15 +932,15 @@
         "C ^1f^4g^4d": [
           {
             "x": "1929",
-            "title": "Sûzidil Ağırsemâî"
+            "title": "Beni Ey Gonca Fem Bülbül"
           },
           {
             "x": "1930",
-            "title": "Sûzidil Ağırsemâî"
+            "title": "Kani Yâd-ı Lebinle"
           },
           {
             "x": "1932",
-            "title": "Sûzidil Aranağme"
+            "title": "Sûzidil Aranağme (Çiftesofyan)"
           }
         ]
       }
@@ -965,15 +960,15 @@
         "C _1B_4e^4f": [
           {
             "x": "1955",
-            "title": "Sûzinâk Ağırsemâî"
+            "title": "Kapılır Her Gören"
           },
           {
             "x": "1956",
-            "title": "Sûzinâk Aranağme"
+            "title": "Sûzinâk Aranağme (Aksak)"
           },
           {
             "x": "1957",
-            "title": "Sûzinâk Aranağme"
+            "title": "Sûzinâk Aranağme (Curcuna)"
           }
         ]
       }
@@ -993,15 +988,15 @@
         "C _5B": [
           {
             "x": "337",
-            "title": "Ferahfezâ Ağırsemâî"
+            "title": "Bir Dilber-i Nâdîde"
           },
           {
             "x": "338",
-            "title": "Ferahfezâ Beste"
+            "title": "Ey Kaşı Keman"
           },
           {
             "x": "339",
-            "title": "Ferahfezâ Küpe"
+            "title": "Bir Nigâh-ı İltifâtın"
           }
         ]
       }
@@ -1021,15 +1016,15 @@
         "C _4B_4e^4f^4c": [
           {
             "x": "1738",
-            "title": "Şedarabân Ağırsemâî"
+            "title": "Nedir Murâd-ı Dil-i"
           },
           {
             "x": "1739",
-            "title": "Şedarabân Aranağme"
+            "title": "Şedarabân Aranağme (Devrihindî)"
           },
           {
             "x": "1740",
-            "title": "Şedarabân Beste"
+            "title": "Ey Safâ-yı Ârızından..."
           }
         ]
       }
@@ -1049,15 +1044,15 @@
         "C _5B": [
           {
             "x": "1014",
-            "title": "Kürdî Aranağme"
+            "title": "Kürdî Aranağme (Nîmsofyan)"
           },
           {
             "x": "1015",
-            "title": "Kürdî Beste"
+            "title": "Kametin Serv-i Sehîdir"
           },
           {
             "x": "1017",
-            "title": "Kürdî Küpe"
+            "title": "Âşık-ı Dilhasteye Rahmeyle"
           }
         ]
       }
@@ -1077,7 +1072,7 @@
         "C _2B_3d": [
           {
             "x": "128",
-            "title": "Bestenigâr Küpe"
+            "title": "Kim Olursa Şevk ile"
           },
           {
             "x": "129",
@@ -1085,7 +1080,7 @@
           },
           {
             "x": "130",
-            "title": "Bestenigâr Şarkı"
+            "title": "Gayrıdan Bulmaz Tesellî"
           }
         ]
       }
@@ -1105,15 +1100,15 @@
         "C ^4f^4c": [
           {
             "x": "355",
-            "title": "Ferahnâk Küpe"
+            "title": "Ol Güzel Cây-ı..."
           },
           {
             "x": "356",
-            "title": "Ferahnâk Şarkı"
+            "title": "Ben Müptelâ Olsam Sana"
           },
           {
             "x": "357",
-            "title": "Ferahnâk Şarkı"
+            "title": "Bir Nigâhın Kalbimi..."
           }
         ]
       }
@@ -1133,15 +1128,15 @@
         "C _4B^4f^4c": [
           {
             "x": "688",
-            "title": "Hicaz-Uzzâl Küpe"
+            "title": "Nağme-i Uzzâl'i Azletmiş İdi"
           },
           {
             "x": "689",
-            "title": "Hicaz-Uzzâl Şarkı"
+            "title": "Doktor Ne İçin Nabzımı Aldın"
           },
           {
             "x": "690",
-            "title": "Hicaz-Uzzâl Şarkı"
+            "title": "Kurdu Meclis Âşıkan Meyhânede"
           }
         ]
       }
@@ -1161,7 +1156,7 @@
         "C _5B_4d": [
           {
             "x": "1886",
-            "title": "Şevk'efzâ Küpe"
+            "title": "Şevk'efzâdır Efendim"
           },
           {
             "x": "1887",
@@ -1169,7 +1164,7 @@
           },
           {
             "x": "1888",
-            "title": "Şevk'efzâ Şarkı"
+            "title": "Ey Serv-i Gülzâr-ı Vefâ"
           }
         ]
       }
@@ -1189,15 +1184,15 @@
         "C _1B^4f^4c^4A^4e": [
           {
             "x": "293",
-            "title": "Evcârâ Küpe"
+            "title": "Kaddi Bâlâ Hoş Edâ"
           },
           {
             "x": "294",
-            "title": "Evcârâ Şarkı"
+            "title": "Gel Ey Güzeller Serveri"
           },
           {
             "x": "295",
-            "title": "Evcârâ Şarkı"
+            "title": "Hüsnüne Mâil Gönlüm Ezelden"
           }
         ]
       }
@@ -1217,11 +1212,11 @@
         "C ^5f": [
           {
             "x": "2187",
-            "title": "Zâvil Ağırsemâî"
+            "title": "Bulunmaz Nev-civansın"
           },
           {
             "x": "2188",
-            "title": "Zâvil Küpe"
+            "title": "Sanma ki Mihr-i Muhabbet"
           },
           {
             "x": "2189",
@@ -1249,7 +1244,7 @@
           },
           {
             "x": "1325",
-            "title": "Nev'eser Küpe"
+            "title": "Dinle Cânım Zevk ile"
           },
           {
             "x": "1326",
@@ -1273,15 +1268,15 @@
         "C": [
           {
             "x": "1852",
-            "title": "Şehnâzbûselik Ağırsemâî"
+            "title": "Kimseyi Dil Teng-i Âzâr Etme"
           },
           {
             "x": "1853",
-            "title": "Şehnâzbûselik Aranağme"
+            "title": "Şehnâzbûselik Aranağme (Semâî)"
           },
           {
             "x": "1854",
-            "title": "Şehnâzbûselik Küpe"
+            "title": "Ehl-i Meclis"
           }
         ]
       }
@@ -1301,15 +1296,15 @@
         "C _1B": [
           {
             "x": "66",
-            "title": "Acem İlâhî"
+            "title": "Aldanma Dünya Varına"
           },
           {
             "x": "67",
-            "title": "Acem İlâhî"
+            "title": "Çalabım Bir Şâr Yaratmış"
           },
           {
             "x": "68",
-            "title": "Acem Küpe"
+            "title": "Zülfünü Tasvîr İçin"
           }
         ]
       }
@@ -1329,15 +1324,15 @@
         "C _1B_4e^4f": [
           {
             "x": "145",
-            "title": "Beyâtî-Arabân İlâhî"
+            "title": "Gönül Mazhardır Envâr-ı Cemâle"
           },
           {
             "x": "146",
-            "title": "Beyâtî-Arabân Küpe"
+            "title": "Ehl-i Zevki Coşturur"
           },
           {
             "x": "147",
-            "title": "Beyâtî-Arabân Şarkı"
+            "title": "Bağa Girdim Ay Çıktı"
           }
         ]
       }
@@ -1357,15 +1352,15 @@
         "C _1B_4d": [
           {
             "x": "284",
-            "title": "Dügâh İlâhî"
+            "title": "Gel Ey Sâlik"
           },
           {
             "x": "285",
-            "title": "Dügâh Kâr"
+            "title": "Pek Sevdim Efendim"
           },
           {
             "x": "286",
-            "title": "Dügâh Küpe"
+            "title": "Ettiğiyçün Aşk İle"
           }
         ]
       }
@@ -1385,15 +1380,15 @@
         "C _2B^3f": [
           {
             "x": "401",
-            "title": "Gülizâr Köçekçe"
+            "title": "Nazlı Nazlı Sekip Gider"
           },
           {
             "x": "402",
-            "title": "Gülizâr Küpe"
+            "title": "Âh Eder Neyler"
           },
           {
             "x": "403",
-            "title": "Gülizâr Şarkı"
+            "title": "Sormadı Hâl-i Dil-i Gam Hâreyi"
           }
         ]
       }
@@ -1413,15 +1408,15 @@
         "C _4B^1f^4c^4g": [
           {
             "x": "704",
-            "title": "Hicaz-Zirgüle Küpe"
+            "title": "Başladı Meclisde Mutrıb"
           },
           {
             "x": "705",
-            "title": "Hicaz-Zirgüle Şarkı"
+            "title": "Gönlümde Açmadan Solan..."
           },
           {
             "x": "706",
-            "title": "Hicaz-Zirgüle Şarkı"
+            "title": "Ne Boş Yere Yanmışım"
           }
         ]
       }
@@ -1441,7 +1436,7 @@
         "C ^5f": [
           {
             "x": "1931",
-            "title": "Sûzidilârâ Küpe"
+            "title": "Mıtrıbâ Mecliste"
           },
           {
             "x": "1934",
@@ -1469,15 +1464,15 @@
         "C": [
           {
             "x": "2180",
-            "title": "Çargâh(Yeni) Destan"
+            "title": "Bir Gemi Yaptırdım"
           },
           {
             "x": "2181",
-            "title": "Çargâh(Yeni) Peşrev"
+            "title": "Çargâh Peşrev"
           },
           {
             "x": "2182",
-            "title": "Çargâh(Yeni) Sazeseri"
+            "title": "Sinsin"
           }
         ]
       }
@@ -1497,15 +1492,15 @@
         "C _2B^3f": [
           {
             "x": "933",
-            "title": "Irak İlâhî"
+            "title": "Uyan Ey Gözlerim"
           },
           {
             "x": "934",
-            "title": "Irak Küpe"
+            "title": "Pür Arak"
           },
           {
             "x": "935",
-            "title": "Irak Şarkı"
+            "title": "Derd-i Hicrinle"
           }
         ]
       }
@@ -1525,15 +1520,15 @@
         "C _1B_1e^4f": [
           {
             "x": "1294",
-            "title": "Müstear Küpe"
+            "title": "Kimden Ahzettin ki"
           },
           {
             "x": "1295",
-            "title": "Müstear Şarkı"
+            "title": "Evvel Benim Nazlı Yârim"
           },
           {
             "x": "1296",
-            "title": "Müstear Şarkı"
+            "title": "Gel Ey Sâkî..."
           }
         ]
       }
@@ -1553,15 +1548,15 @@
         "C _1B^4f": [
           {
             "x": "1650",
-            "title": "Rehâvî Beste"
+            "title": "Zannetme Ben Gibi Sana Bende..."
           },
           {
             "x": "1651",
-            "title": "Rehâvî Küpe"
+            "title": "Vâd-i Vasl Etmiş İken"
           },
           {
             "x": "1652",
-            "title": "Rehâvî Marş"
+            "title": "Hoş Gelişler Ola"
           }
         ]
       }
@@ -1581,11 +1576,11 @@
         "C _1B": [
           {
             "x": "731",
-            "title": "Hisar Küpe"
+            "title": "Mâhitâb Olsun Cihan"
           },
           {
             "x": "732",
-            "title": "Hisar Nakış"
+            "title": "Havâ Güzel Yine Gülşende"
           },
           {
             "x": "733",
@@ -1609,11 +1604,11 @@
         "C _1B^4f": [
           {
             "x": "741",
-            "title": "Hüseynîaşîrân Küpe"
+            "title": "Gel Hüseynî'de Aşîrân'ı..."
           },
           {
             "x": "742",
-            "title": "Hüseynîaşîrân Şarkı"
+            "title": "Cemâlin Şem'ine Pervâne Gönlüm"
           },
           {
             "x": "743",
@@ -1637,7 +1632,7 @@
         "C _2B_2e": [
           {
             "x": "114",
-            "title": "Arazbâr Küpe"
+            "title": "Ol Kadar Olmuş Rûhun..."
           },
           {
             "x": "115",
@@ -1665,11 +1660,11 @@
         "C _2B^3f": [
           {
             "x": "277",
-            "title": "Dilkeşhâveran Ağırsemâî"
+            "title": "Hâl-i Ruhsârına..."
           },
           {
             "x": "278",
-            "title": "Dilkeşhâveran Küpe"
+            "title": "Âlemin Aklın Alır"
           },
           {
             "x": "279",
@@ -1693,7 +1688,7 @@
         "C _5B_5e": [
           {
             "x": "367",
-            "title": "Ferahnümâ Şarkı"
+            "title": "Güzel Kız"
           },
           {
             "x": "368",
@@ -1701,7 +1696,7 @@
           },
           {
             "x": "369",
-            "title": "Ferahnümâ Türkü"
+            "title": "Kız Bahçende Gül Var mı"
           }
         ]
       }
@@ -1721,11 +1716,11 @@
         "C ^4c": [
           {
             "x": "1491",
-            "title": "Nişâbur Beste"
+            "title": "Renc-i Hâtır Vermesin..."
           },
           {
             "x": "1519",
-            "title": "Nişâbur Küpe"
+            "title": "Bezm-i Meyde Faslı..."
           },
           {
             "x": "1520",
@@ -1749,11 +1744,11 @@
         "C _1B^4f": [
           {
             "x": "1531",
-            "title": "Pesendîde Küpe"
+            "title": "Bir Pesendîde Edâ"
           },
           {
             "x": "1532",
-            "title": "Pesendîde Nakış"
+            "title": "Ey Âfet-i Cân-ı Âşık"
           },
           {
             "x": "1533",
@@ -1777,11 +1772,11 @@
         "C _1B_1e^4f": [
           {
             "x": "1761",
-            "title": "Segâh-Mâye İlâhî"
+            "title": "Şem'i Rûhuna Cismimi"
           },
           {
             "x": "1762",
-            "title": "Segâh-Mâye Küpe"
+            "title": "Mâye-i Aşk-ı Dilimdir"
           },
           {
             "x": "1763",
@@ -1809,7 +1804,7 @@
           },
           {
             "x": "121",
-            "title": "Aşkefzâ Şarkı"
+            "title": "Kimbilir Belki Bir Gün"
           },
           {
             "x": "122",
@@ -1833,7 +1828,7 @@
         "C _1B": [
           {
             "x": "125",
-            "title": "Beste-Isfahan Küpe"
+            "title": "Isfahânlı Bir Güzel"
           },
           {
             "x": "126",
@@ -1841,7 +1836,7 @@
           },
           {
             "x": "127",
-            "title": "Beste-Isfahan Yürüksemâî"
+            "title": "Bir Elif Çekdi Yine"
           }
         ]
       }
@@ -1861,11 +1856,11 @@
         "C _4B^4f^4c": [
           {
             "x": "416",
-            "title": "Hicazaşîrân Beste"
+            "title": "Gönlümü Vîrân Eden..."
           },
           {
             "x": "417",
-            "title": "Hicazaşîrân Küpe"
+            "title": "Mutrıbâ Çekmiş Aşîrân'ı Hicâz'e"
           },
           {
             "x": "418",
@@ -1889,11 +1884,11 @@
         "C _1B^4f": [
           {
             "x": "1522",
-            "title": "Nühüft Beste"
+            "title": "Tâ Kim Hattın Ey Mah-ı Cebînim"
           },
           {
             "x": "1523",
-            "title": "Nühüft Küpe"
+            "title": "Etme Ruhsârın Nühüft"
           },
           {
             "x": "1524",
@@ -1925,7 +1920,7 @@
           },
           {
             "x": "1530",
-            "title": "Pençgâh Tevşihilâhi"
+            "title": "Yâ Resûlallah Cemâlin..."
           }
         ]
       }
@@ -1945,15 +1940,15 @@
         "C _1B_4d": [
           {
             "x": "1732",
-            "title": "Sabâ-Zemzeme Küpe"
+            "title": "Ehl-i Aşkın Zevki"
           },
           {
             "x": "1733",
-            "title": "Sabâ-Zemzeme Şarkı"
+            "title": "Firâkın Sînemi Dağlar"
           },
           {
             "x": "1734",
-            "title": "Sabâ-Zemzeme Şarkı"
+            "title": "Hayâl-i Yâre Değme"
           }
         ]
       }
@@ -1973,11 +1968,11 @@
         "C _1B^4f": [
           {
             "x": "1735",
-            "title": "Sazkâr Ağırsemâî"
+            "title": "Nice Bir Bülbül-i Nalân Edeyim"
           },
           {
             "x": "1736",
-            "title": "Sazkâr Küpe"
+            "title": "Her Ne Dem Sîne-keman"
           },
           {
             "x": "1737",
@@ -2001,7 +1996,7 @@
         "C _1B_4d": [
           {
             "x": "1900",
-            "title": "Şevkutarab Küpe"
+            "title": "Verme Gel Redd-i Niyâz ile"
           },
           {
             "x": "1901",
@@ -2029,11 +2024,11 @@
         "C _1B^4f": [
           {
             "x": "2001",
-            "title": "Tâhirbûselik Beste"
+            "title": "Bin Cefâ Görsem..."
           },
           {
             "x": "2002",
-            "title": "Tâhirbûselik Küpe"
+            "title": "Bak Ne Tâhir Bûselik Yerdir O"
           },
           {
             "x": "2003",
@@ -2057,11 +2052,11 @@
         "C _1B": [
           {
             "x": "64",
-            "title": "Acembûselik Küpe"
+            "title": "İstedik Şûh-i Acem'den Bûselik"
           },
           {
             "x": "65",
-            "title": "Acembûselik Şarkı"
+            "title": "Çoktan idim Sana Hasret"
           }
         ]
       }
@@ -2081,7 +2076,7 @@
         "C _1B_1e": [
           {
             "x": "112",
-            "title": "Arazbârbûselik Küpe"
+            "title": "Bûse Fikriyle Hulûs"
           },
           {
             "x": "113",
@@ -2105,7 +2100,7 @@
         "C": [
           {
             "x": "219",
-            "title": "Bûselikaşîrân Küpe"
+            "title": "Bûselik'ten Etse Üftâde"
           },
           {
             "x": "220",
@@ -2129,7 +2124,7 @@
         "C ^4f": [
           {
             "x": "271",
-            "title": "Büzürk Küpe"
+            "title": "Sûr Sâl Etti"
           },
           {
             "x": "272",
@@ -2153,7 +2148,7 @@
         "C _1B_4d": [
           {
             "x": "273",
-            "title": "Canfezâ Küpe"
+            "title": "Sâki-yi Gülçehre"
           },
           {
             "x": "274",
@@ -2177,11 +2172,11 @@
         "C _2B_3d": [
           {
             "x": "275",
-            "title": "Çargâh İlâhî"
+            "title": "Kudûmün Rahmet-i Zevk u Safâdır"
           },
           {
             "x": "276",
-            "title": "Çargâh Küpe"
+            "title": "Bezl Eder Geh"
           }
         ]
       }
@@ -2201,7 +2196,7 @@
         "C _1B": [
           {
             "x": "409",
-            "title": "Gülzâr Küpe"
+            "title": "Bak Araplar Bu Makama..."
           },
           {
             "x": "410",
@@ -2225,11 +2220,11 @@
         "C _2B": [
           {
             "x": "834",
-            "title": "Hûzî İlâhî"
+            "title": "Taştı Rahmet Deryâsı"
           },
           {
             "x": "835",
-            "title": "Hûzî Türkü"
+            "title": "Ayva Dibi Serin Olur Yatmaya"
           }
         ]
       }
@@ -2249,11 +2244,11 @@
         "C _1B_4d": [
           {
             "x": "1264",
-            "title": "Muhayyersünbüle Küpe"
+            "title": "Dilberânın Meclisinde"
           },
           {
             "x": "1265",
-            "title": "Muhayyersünbüle Şarkı"
+            "title": "Ey Nihâl-i İşve"
           }
         ]
       }
@@ -2273,11 +2268,11 @@
         "C _1B^4f": [
           {
             "x": "1301",
-            "title": "Nevâbûselik Küpe"
+            "title": "Bûse Ümmidiyle Ey Meh"
           },
           {
             "x": "1302",
-            "title": "Nevâbûselik Şarkı"
+            "title": "Elbet Gönüllerde Sabah Olacak"
           }
         ]
       }
@@ -2297,11 +2292,11 @@
         "C _5B_5e": [
           {
             "x": "1334",
-            "title": "Nihâvend-i-Kebîr Küpe"
+            "title": "Bu Nihavend-i Kebîri"
           },
           {
             "x": "1335",
-            "title": "Nihâvend-i-Kebîr Seyir"
+            "title": "Nihâvend-i Kebîr Seyir"
           }
         ]
       }
@@ -2321,11 +2316,11 @@
         "C _1B^4f": [
           {
             "x": "1526",
-            "title": "Pençgâh-ı-Zâid Küpe"
+            "title": "Pençgâh-ı Zâid'e Meyletti"
           },
           {
             "x": "1527",
-            "title": "Pençgâh-ı-Zâid Seyir"
+            "title": "Pençgâh-ı Zâid Seyir"
           }
         ]
       }
@@ -2345,7 +2340,7 @@
         "C _4B^4c^4f": [
           {
             "x": "1537",
-            "title": "Rahatülervah Küpe"
+            "title": "Hiç Söz Olmaz"
           },
           {
             "x": "1538",
@@ -2393,11 +2388,11 @@
         "C _1B_1e^4f": [
           {
             "x": "1662",
-            "title": "Rûy-i-Irâk Küpe"
+            "title": "Ey Terennümsâz"
           },
           {
             "x": "1663",
-            "title": "Rûy-i-Irâk Sazsemâîsi"
+            "title": "Rûy-i Irâk Sazsemâîsi"
           }
         ]
       }
@@ -2417,7 +2412,7 @@
         "C _1B_1e": [
           {
             "x": "1884",
-            "title": "Şevkâver Küpe"
+            "title": "Halka-i Mecliste Mest"
           },
           {
             "x": "1885",
@@ -2441,11 +2436,11 @@
         "C _1B^4f": [
           {
             "x": "1898",
-            "title": "Şevk-ı-Dil Küpe"
+            "title": "Dinleyenler Güssa-i Devrândan"
           },
           {
             "x": "1899",
-            "title": "Şevk-ı-Dil Peşrev"
+            "title": "Şevkıdil Peşrev"
           }
         ]
       }
@@ -2465,11 +2460,11 @@
         "C _5B_4d": [
           {
             "x": "2035",
-            "title": "Tarz-ı-Nevîn Küpe"
+            "title": "Dilrubâmız Nâzına Vermişti"
           },
           {
             "x": "2036",
-            "title": "Tarz-ı-Nevîn Seyir"
+            "title": "Tarz-ı Nevîn Seyir"
           }
         ]
       }
@@ -2489,7 +2484,7 @@
         "C": [
           {
             "x": "2198",
-            "title": "Zîrefkend Küpe"
+            "title": "Pertev-i Ruhsârına"
           },
           {
             "x": "2199",
@@ -2533,7 +2528,7 @@
         "C _4B_4e^4f^4c": [
           {
             "x": "111",
-            "title": "Arabân Küpe"
+            "title": "Etse Bir Kerre O Meh"
           }
         ]
       }
@@ -2553,7 +2548,7 @@
         "C _1B": [
           {
             "x": "118",
-            "title": "Aşîrân-Mâye Küpe"
+            "title": "Bir Aşîrân-Mâye"
           }
         ]
       }
@@ -2573,7 +2568,7 @@
         "C ^4f": [
           {
             "x": "119",
-            "title": "Aşîrân Zemzeme Peşrev"
+            "title": "Aşîrân-Zemzeme Peşrev"
           }
         ]
       }
@@ -2593,7 +2588,7 @@
         "C": [
           {
             "x": "123",
-            "title": "Bahr-i-Nâzik Küpe"
+            "title": "Mâhi-yi Dil Bahr-i Nâzik"
           }
         ]
       }
@@ -2613,7 +2608,7 @@
         "C ^4g^4d": [
           {
             "x": "124",
-            "title": "Bend-i-Hisar Küpe"
+            "title": "Her Makamın Nağmesinde"
           }
         ]
       }
@@ -2633,7 +2628,7 @@
         "C _1B_4e^4f": [
           {
             "x": "144",
-            "title": "Beyâtî-Arabânbûselik Küpe"
+            "title": "Gel Beyâtî Arabân Bûselik'le"
           }
         ]
       }
@@ -2653,7 +2648,7 @@
         "C _2B": [
           {
             "x": "156",
-            "title": "Beyâtîbûselik Küpe"
+            "title": "Bir Beyâtî Bûselik"
           }
         ]
       }
@@ -2673,7 +2668,7 @@
         "C _1B^4f": [
           {
             "x": "281",
-            "title": "Dilkeşîde Küpe"
+            "title": "Dilkeşîde Faslının..."
           }
         ]
       }
@@ -2713,7 +2708,7 @@
         "C _1B^4f": [
           {
             "x": "283",
-            "title": "Dilnişîn Küpe"
+            "title": "Bir Makam-ı Dilnişîn'e"
           }
         ]
       }
@@ -2733,7 +2728,7 @@
         "C _1B": [
           {
             "x": "287",
-            "title": "Dügâh-Mâye Küpe"
+            "title": "Bir Dügâh-mâye"
           }
         ]
       }
@@ -2753,7 +2748,7 @@
         "C _1B_4d": [
           {
             "x": "292",
-            "title": "Eski-Sipihr Peşrev"
+            "title": "Sipihr Peşrev"
           }
         ]
       }
@@ -2773,7 +2768,7 @@
         "C _1B^4f": [
           {
             "x": "302",
-            "title": "Eviç-Hûzî Türkü"
+            "title": "Ben Havada Uçar İdim"
           }
         ]
       }
@@ -2793,7 +2788,7 @@
         "C _1B^4f": [
           {
             "x": "307",
-            "title": "Eviçbûselik Küpe"
+            "title": "O Mâh-ı Evc-i Nahvet"
           }
         ]
       }
@@ -2833,7 +2828,7 @@
         "C _1B^4f": [
           {
             "x": "371",
-            "title": "Gerdâniyebûselik Küpe"
+            "title": "Oturup Bir Şûh-ı Mutrıbla"
           }
         ]
       }
@@ -2873,7 +2868,7 @@
         "C": [
           {
             "x": "399",
-            "title": "Gonca-i-Rânâ Küpe"
+            "title": "Bülbül-i Dil..."
           }
         ]
       }
@@ -2913,7 +2908,7 @@
         "C _4B^4f^4c": [
           {
             "x": "408",
-            "title": "Gülşen-i-Vefâ Sazsemâîsi"
+            "title": "Gülşen-i Vefâ Sazsemâîsi"
           }
         ]
       }
@@ -2933,7 +2928,7 @@
         "C _4B^4c": [
           {
             "x": "421",
-            "title": "Hicazbûselik Küpe"
+            "title": "Pek Harâretli Olur"
           }
         ]
       }
@@ -2953,7 +2948,7 @@
         "C _4B^4c": [
           {
             "x": "466",
-            "title": "Hicâzî-Uşşak Nefes"
+            "title": "Önüme Bir Cebel Düştü"
           }
         ]
       }
@@ -2973,7 +2968,7 @@
         "C _5B_5e_5A": [
           {
             "x": "486",
-            "title": "Hicazkâr-Kürdî Seyir"
+            "title": "Hicazkârkürdî Seyir"
           }
         ]
       }
@@ -2993,7 +2988,7 @@
         "C _4B^4c": [
           {
             "x": "701",
-            "title": "Hicaz-Zemzeme Şarkı"
+            "title": "Gideyim de Göreyim..."
           }
         ]
       }
@@ -3013,7 +3008,7 @@
         "C _2B^3f": [
           {
             "x": "752",
-            "title": "Hüseynîgülizâr İlâhî"
+            "title": "Çün Sana Gönlüm Müptelâ Düştü"
           }
         ]
       }
@@ -3033,7 +3028,7 @@
         "C _1B_4e^4f": [
           {
             "x": "841",
-            "title": "Hüzzam-ı-Cedîd İlâhî"
+            "title": "Göster Bize Râhı Hüdâ"
           }
         ]
       }
@@ -3053,7 +3048,7 @@
         "C _1B": [
           {
             "x": "941",
-            "title": "Isfahânek Küpe"
+            "title": "Tûtiyâ-yı Dîde-i..."
           }
         ]
       }
@@ -3073,7 +3068,7 @@
         "C _1B_4d": [
           {
             "x": "1013",
-            "title": "Kûçek Küpe"
+            "title": "Bezme Gel Ey..."
           }
         ]
       }
@@ -3093,7 +3088,7 @@
         "C _1B^4f": [
           {
             "x": "1016",
-            "title": "Kürdî-Gerdâniye Küpe"
+            "title": "Gördüm Âgâz Eyliyor"
           }
         ]
       }
@@ -3113,7 +3108,7 @@
         "C ^5f": [
           {
             "x": "1105",
-            "title": "Mâhurbûselik Küpe"
+            "title": "Ey Gözü Âhû"
           }
         ]
       }
@@ -3133,7 +3128,7 @@
         "C": [
           {
             "x": "1188",
-            "title": "Mâverâünnehr Küpe"
+            "title": "Âlem-i Elhân İçinde"
           }
         ]
       }
@@ -3193,7 +3188,7 @@
         "C _1B^4f": [
           {
             "x": "1195",
-            "title": "Muhayyerbûselik Küpe"
+            "title": "Bir Muhayyer Bûselik"
           }
         ]
       }
@@ -3213,7 +3208,7 @@
         "C _1B": [
           {
             "x": "1293",
-            "title": "Mürekkep-Isfahan Şarkı"
+            "title": "Kalmadı Sabra Karârım"
           }
         ]
       }
@@ -3233,7 +3228,7 @@
         "C _1B^4f": [
           {
             "x": "1305",
-            "title": "Nevâkürdî Küpe"
+            "title": "Bir Usul ile"
           }
         ]
       }
@@ -3253,7 +3248,7 @@
         "C _1B": [
           {
             "x": "1332",
-            "title": "Nevrûz Şarkı"
+            "title": "Esmerliği Yıldız Dolu..."
           }
         ]
       }
@@ -3293,7 +3288,7 @@
         "C _5B_5e": [
           {
             "x": "1336",
-            "title": "Nihâvend-i-Rûmî Küpe"
+            "title": "Neş'esi Rûmî Nihavend'in"
           }
         ]
       }
@@ -3333,7 +3328,7 @@
         "C _1B^4f": [
           {
             "x": "1525",
-            "title": "Pençgâh-ı-Asl Küpe"
+            "title": "Pencügâh-ı Asl ile"
           }
         ]
       }
@@ -3353,7 +3348,7 @@
         "C _1B^4f": [
           {
             "x": "1535",
-            "title": "Peyk-i-Neşat Peşrev"
+            "title": "Peyk-i Neşat Peşrev"
           }
         ]
       }
@@ -3373,7 +3368,7 @@
         "C _2B^3f": [
           {
             "x": "1536",
-            "title": "Râhatfezâ Küpe"
+            "title": "Etse Âgâze Eğer"
           }
         ]
       }
@@ -3393,7 +3388,7 @@
         "C _1B^4f": [
           {
             "x": "1545",
-            "title": "Rast-ı-Cedîd Küpe"
+            "title": "Etse Hânende Eğer"
           }
         ]
       }
@@ -3413,7 +3408,7 @@
         "C _1B^4f": [
           {
             "x": "1554",
-            "title": "Rast-Mâye Küpe"
+            "title": "Nağmemiz Bu Beytimizde"
           }
         ]
       }
@@ -3433,7 +3428,7 @@
         "C _4A_1B_4d": [
           {
             "x": "1656",
-            "title": "Rengidil Şarkı"
+            "title": "Masum Bakışlım"
           }
         ]
       }
@@ -3453,7 +3448,7 @@
         "C _1B_1e^4f^4c^4A": [
           {
             "x": "1657",
-            "title": "Revnâknümâ Küpe"
+            "title": "Ol Güzel Takmış..."
           }
         ]
       }
@@ -3473,7 +3468,7 @@
         "C _1B_4e_4A^4f": [
           {
             "x": "1658",
-            "title": "Reyyâ Şarkı"
+            "title": "Süzme Çeşmin"
           }
         ]
       }
@@ -3493,7 +3488,7 @@
         "C _1B": [
           {
             "x": "1661",
-            "title": "Rûy-i-Dilârâ Sazsemâîsi"
+            "title": "Rûy-i Dilârâ Sazsemâîsi"
           }
         ]
       }
@@ -3533,7 +3528,7 @@
         "C _1B_4d": [
           {
             "x": "1668",
-            "title": "Sabâbûselik Küpe"
+            "title": "Bak Sabâ'da Bûselik"
           }
         ]
       }
@@ -3593,7 +3588,7 @@
         "C _5B_4e^4f^4c": [
           {
             "x": "1897",
-            "title": "Şevk-ı-Cedîd Küpe"
+            "title": "Kesme Mutrıb Nağmeni"
           }
         ]
       }
@@ -3613,7 +3608,7 @@
         "C _1B": [
           {
             "x": "1903",
-            "title": "Sipihr Küpe"
+            "title": "Her Ne Dem Düşmen"
           }
         ]
       }
@@ -3633,7 +3628,7 @@
         "C _1B_4d": [
           {
             "x": "1904",
-            "title": "Şîvenümâ Beste"
+            "title": "Bir Görüşte Düştü Gönlüm"
           }
         ]
       }
@@ -3653,7 +3648,7 @@
         "C _1B^4f": [
           {
             "x": "1905",
-            "title": "Sultan-ı-Irak Küpe"
+            "title": "Şâh-ı Sultân-ı Irâk"
           }
         ]
       }
@@ -3693,7 +3688,7 @@
         "C _5B": [
           {
             "x": "2034",
-            "title": "Tarz-ı-Cedîd Küpe"
+            "title": "Kûşe-i Nisyânda"
           }
         ]
       }
@@ -3713,7 +3708,7 @@
         "C _1B^4f": [
           {
             "x": "2155",
-            "title": "Vecd-i-Dil Peşrev"
+            "title": "Vecd-i Dil Peşrev"
           }
         ]
       }
@@ -3733,7 +3728,7 @@
         "C _1B_1e": [
           {
             "x": "2156",
-            "title": "Vech-i-Arazbâr Küpe"
+            "title": "Vechi Var"
           }
         ]
       }
@@ -3753,7 +3748,7 @@
         "C": [
           {
             "x": "2157",
-            "title": "Vech-i-Şehnâz Küpe"
+            "title": "Vech-i Şehnâz'ı Temâşâ"
           }
         ]
       }
@@ -3773,7 +3768,7 @@
         "C _1B^4f": [
           {
             "x": "2196",
-            "title": "Zevk-i-Dil Küpe"
+            "title": "Gel Terennüm Eyle"
           }
         ]
       }
@@ -3793,27 +3788,23 @@
         "C _5B_4e^4f^4c": [
           {
             "x": "2197",
-            "title": "Zevk-i-Tarab Küpe"
+            "title": "Meclisi Zevk-ı Tarab'dır"
           }
         ]
       }
     }
   },
-  "unclassified": {
-    "missingK": 0,
-    "missingMakam": 1,
-    "missingBoth": 0,
-    "examplesMissingMakam": [
-      {
-        "x": "0",
-        "title": "_",
-        "k": "none"
-      }
-    ],
-    "examplesMissingK": []
-  },
+  "unclassified": [
+    {
+      "x": "0",
+      "titles": [
+        "_"
+      ],
+      "k": "none"
+    }
+  ],
   "notes": {
-    "makamDetection": "Heuristic: uses the first token of the 2nd T: line (if present) else 1st; keeps hyphenated forms; falls back to any word-like token if needed. Normalized keys strip diacritics and punctuation.",
-    "kFormat": "K: lines in this corpus often encode a 53-EDO microtonal key-signature-like accidental set (e.g. \"K:C _1B^4f^4c\") rather than major/minor."
+    "makamDetection": "Heuristic: first token of the 2nd T: line when present; normalized to ASCII; keeps hyphenated forms.",
+    "kFormat": "K: appears to encode 53-EDO accidental sets (SymbTr convention) rather than major/minor."
   }
 }

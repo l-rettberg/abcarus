@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.1.0] - 2026-08-03
+### Added
+- Recent Folders now remembers directories used to open files or complete Save As operations, while preserving previously used folders.
+
+### Changed
+- File, tune, header, import, export, Raw, ChordPro, Library, and revert operations now use direct disk reads and atomic writes with on-disk baseline checks.
+
+### Removed
+- Removed the global Working Copy architecture, its IPC bridge, preload API, persistence store, and related mutation paths.
+
+### Fixed
+- Save and file-operation flows no longer maintain a hidden second editable copy of the document, reducing stale-state and lost-edit risks.
+
+## [1.0.0] - 2026-08-01
+### Added
+- First major release of ABCarus with domain-oriented renderer architecture and dedicated Library, playback, rendering, document, tools, settings, and diagnostics modules.
+- Intonation Explorer, Makam DNA, microtonal notation support, templates, MIDI input, native abc2svg drums, ChordPro, PDF, Print All, and Set List workflows.
+- Release preflight, UI smoke, file-operation, working-copy, state-store, and renderer boundary checks.
+
+### Changed
+- Renderer responsibilities are separated into maintainable functional domains while preserving the existing user workflows.
+- Save As now preserves a dirty source on cancel, writes and verifies the destination before rebinding the same working copy, and rejects unsafe same-path operations.
+- Working-copy and application state persistence use stronger atomic-write, recovery, and context-safety checks.
+
+### Fixed
+- Tune/file creation, movement, duplication, Save As, raw mode, playback focus, error navigation, Library lifecycle, and recent-state restoration paths were hardened.
+- Release validation now runs before public release creation and publishes a release only after all platform assets are built and uploaded.
+
+### Known limitations
+- Some external SoundFont files may fail for particular instruments or notes due to the current abc2svg SoundFont runtime. The bundled `TimGM6mb.sf2` remains the recommended fallback.
+
 ## [0.42.0] - 2026-06-28
 ### Added
 - Drum Pattern helper can now preview and write drum patterns as compact `%%MIDI drum`, readable ABCarus `%%MIDI drum +:` blocks, or abc2svg/txtmus `%%begindrum` tablature.

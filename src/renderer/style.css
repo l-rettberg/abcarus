@@ -2318,6 +2318,14 @@ svg {
   margin: 0;
 }
 
+.tool-panel-actions {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 #intonationExplorerRefresh {
   padding: 6px 12px;
   border-radius: var(--radius-1);
@@ -3430,6 +3438,12 @@ button.primary:not(:disabled):hover,
 
 .settings-select-row select {
   min-width: 0;
+}
+
+.settings-select-row button:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
 }
 
 @media (max-width: 860px) {

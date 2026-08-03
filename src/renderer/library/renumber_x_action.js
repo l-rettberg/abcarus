@@ -1,0 +1,88 @@
+export function createRenumberXAction({
+  api = null,
+  state = {},
+  actions = {},
+} = {}) {
+  const {
+    getActiveFilePath = () => "",
+    getActiveTuneMeta = () => null,
+    getCurrentDocumentPath = () => "",
+    getHeaderDirty = () => false,
+    getIsNewTuneDraft = () => false,
+    getRawMode = () => false,
+    isCurrentDocumentDirty = () => false,
+  } = state;
+
+  const {
+    hasUnsavedChangesForFile = () => false,
+    markCurrentDocumentClean = () => {},
+    markDiskConflictPath = () => {},
+    pathsEqual = (a, b) => String(a || "") === String(b || ""),
+    patchCurrentDocument = () => {},
+    readFile = async () => ({ ok: false }),
+    refreshLibraryFile = async () => null,
+    renumberXLinesConsecutive = () => ({ ok: false }),
+    setDirtyIndicator = () => {},
+    setFileContentInCache = () => {},
+    setStatus = () => {},
+    showSaveError = async () => {},
+    showToast = () => {},
+    withFileLock = async (_path, fn) => fn(),
+    writeFile = async () => ({ ok: false }),
+  } = actions;
+
+  async function renumberXInActiveFile(explicitFilePath) {
+    const activeTuneMeta = getActiveTuneMeta();
+    const filePath = explicitFilePath
+      || ((activeTuneMeta && activeTuneMeta.path) ? activeTuneMeta.path : null)
+      || (getActiveFilePath() || getCurrentDocumentPath() || null);
+    if (!filePath) {
+      showToast("No active file selected.", 2200);
+      return;
+    }
+
+    if (getRawMode()) {
+      showToast("Raw mode: switch to tune mode to renumber.", 2400);
+      return;
+    }
+
+    const activePath = (activeTuneMeta && activeTuneMeta.path)
+      ? String(activeTuneMeta.path)
+      : (getActiveFilePath() ? String(getActiveFilePath()) : "");
+    const globalDirty = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(getIsNewTuneDraft());
+    const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
+
+    if (globalDirty && !isTargetActive) {
+      await showSaveError("Please Save/Discard your current changes before renumbering another file.");
+      return;
+    }
+    if (hasUnsavedChangesForFile(filePath)) {
+      await showSaveError("Renumber X is disabled while the file has unsaved changes. Save/Discard first.");
+      return;
+    }
+
+    try {
+      await withFileLock(filePath, async () => {
+        const readRes = await readFile(filePath);
+        if (!readRes || !readRes.ok) throw new Error((readRes && readRes.error) ? readRes.error : "Unable to read file.");
+        const before = String(readRes.data || "");
+        const ren = renumberXLinesConsecutive(before);
+        if (!ren || !ren.ok) throw new Error((ren && ren.error) ? ren.error : "Unable to renumber X.");
+        const writeRes = await writeFile(filePath, ren.text, { expectedData: before });
+        if (!writeRes || !writeRes.ok) {
+          if (writeRes && writeRes.conflict) throw new Error("Refusing to renumber: file changed on disk. Refresh/reopen and try again.");
+          throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write file.");
+        }
+        setFileContentInCache(filePath, ren.text);
+      });
+      await refreshLibraryFile(filePath, { force: true });
+      setStatus("Renumbered X.");
+    } catch (e) {
+      await showSaveError(e && e.message ? e.message : String(e));
+    }
+  }
+
+  return {
+    renumberXInActiveFile,
+  };
+}

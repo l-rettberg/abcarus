@@ -152,11 +152,18 @@ run("default transpose support rejects microtonal temperament", () => {
   assert.match(out.reason, /12-EDO/i);
 });
 
-run("native transpose support inherits 53-TET from file header", () => {
+run("native transpose support inherits 53-TET from file header for microtonal tune", () => {
   const out = getNativeTransposeSupport("X:1\nK:C _4B^4f^4c\nA B c d\n", {
     headerText: "%%MIDI temperamentequal 53",
   });
   assert.deepStrictEqual(out, { ok: true, edo: 53 });
+});
+
+run("native transpose support treats western tune in 53-TET file as 12-EDO", () => {
+  const out = getNativeTransposeSupport("X:53\nT:Tico-Tico No Fuba\nK:DMinor\nA^GA | BA2d |\n", {
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.deepStrictEqual(out, { ok: true, edo: 12 });
 });
 
 run("native transpose support allows local 12-EDO override inside 53-TET file", () => {
@@ -192,6 +199,17 @@ run("53-TET transpose uses file header inheritance", () => {
 run("53-TET local 12-EDO override wins over file header", () => {
   const input = "X:1\n%%MIDI temperamentequal 12\nK:C\nCDE\n";
   const expected = "X:1\n%%MIDI temperamentequal 12\nK:Db\nDEF\n";
+  const output = transformTranspose(input, 1, {
+    mode: "tonal",
+    prefer: "flat",
+    headerText: "%%MIDI temperamentequal 53",
+  });
+  assert.strictEqual(output, expected);
+});
+
+run("western tune in inherited 53-TET file uses 12-EDO transpose", () => {
+  const input = "X:53\nT:Tico-Tico No Fuba\nK:DMinor\nA^GA | BA2d |\n";
+  const expected = "X:53\nT:Tico-Tico No Fuba\nK:EbMinor\nB=AB | cB2e |\n";
   const output = transformTranspose(input, 1, {
     mode: "tonal",
     prefer: "flat",
@@ -287,7 +305,7 @@ run("53-TET prefers non-micro enharmonic spelling for key-derived notes", () => 
 });
 
 run("53-TET semitone size follows finalis anchor", () => {
-  const input = "X:1\nK:C\n^C\n";
+  const input = "X:1\n%%MIDI temperamentequal 53\nK:C\n^C\n";
   const output = transformTranspose(input, 1, {
     mode: "tonal",
     prefer: "flat",

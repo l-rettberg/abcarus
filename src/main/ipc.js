@@ -12,23 +12,6 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { fileURLToPath } = require("url");
 const { getVersionInfo } = require("../version");
-const {
-  openWorkingCopyFromPath,
-  getWorkingCopySnapshot,
-  getWorkingCopyMetaSnapshot,
-  closeWorkingCopy,
-  applyTuneText,
-  applyHeaderText,
-  applyFullText,
-  insertTuneAfter,
-  renumberXStartingAt1,
-  deleteTune,
-  reloadWorkingCopyFromDisk,
-  commitWorkingCopyToDisk,
-  writeWorkingCopyToPath,
-  writeWorkingCopyToPathAndSwitch,
-} = require("./workingCopyStore");
-
 function sanitizeSuggestedFileBaseName(value, fallback) {
   const cleaned = String(value || "")
     .normalize("NFKC")
@@ -475,6 +458,7 @@ function registerIpcHandlers(ctx) {
 	    confirmImportMusicXmlTarget,
 	    confirmDeleteTune,
 	    showSaveError,
+	    showTransformError,
 	    showOpenError,
 	    scanLibrary,
 	    scanLibraryDiscover,
@@ -499,15 +483,58 @@ function registerIpcHandlers(ctx) {
 	    updateSettings,
 	    requestQuit,
 	    getLastRecent,
+      getRecentCandidates,
       reportStartupStatus,
+      soundfontProtocol,
 	  } = ctx;
+
+  function readXdgTemplatesDir() {
+    if (process.platform !== "linux") return "";
+    try {
+      const configPath = path.join(app.getPath("home"), ".config", "user-dirs.dirs");
+      const text = fs.readFileSync(configPath, "utf8");
+      const match = text.match(/^\s*XDG_TEMPLATES_DIR\s*=\s*"([^"]*)"/m);
+      if (!match || !match[1]) return "";
+      return String(match[1])
+        .replace(/\$\{HOME\}/g, app.getPath("home"))
+        .replace(/\$HOME/g, app.getPath("home"));
+    } catch {
+      return "";
+    }
+  }
+
+  function existingDirectory(candidate) {
+    const dir = String(candidate || "").trim();
+    if (!dir) return "";
+    try {
+      return fs.statSync(dir).isDirectory() ? dir : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function resolvePlatformTemplatesFolder() {
+    const home = app.getPath("home");
+    const candidates = [
+      readXdgTemplatesDir(),
+      process.platform === "win32" ? path.join(app.getPath("appData"), "Microsoft", "Windows", "Templates") : "",
+      path.join(home, "Templates"),
+    ];
+    for (const candidate of candidates) {
+      const dir = existingDirectory(candidate);
+      if (dir && path.resolve(dir) === path.resolve(home)) continue;
+      if (dir) return dir;
+    }
+    return "";
+  }
 
   const resolveTemplatesFolder = () => {
     const settings = getSettings ? getSettings() : {};
     const configured = settings && typeof settings.templatesFolder === "string" ? settings.templatesFolder.trim() : "";
     const fallback = path.join(app.getPath("userData"), "templates");
-    const folder = configured || fallback;
-    return { folder, configured, fallback };
+    const platformDefault = configured ? "" : resolvePlatformTemplatesFolder();
+    const folder = configured || platformDefault || fallback;
+    return { folder, configured, fallback, platformDefault };
   };
 
   async function scanTemplatesFolder(rootDir) {
@@ -644,140 +671,6 @@ function registerIpcHandlers(ctx) {
     return response === 0;
   });
 
-  ipcMain.handle("workingcopy:open", async (_event, filePath) => {
-    try {
-      const p = String(filePath || "");
-      if (!p) return { ok: false, error: "Missing file path." };
-      await openWorkingCopyFromPath(p);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:get", async () => {
-    try {
-      const snap = getWorkingCopySnapshot();
-      if (!snap) return { ok: false, error: "No working copy open." };
-      return { ok: true, snapshot: snap };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:get-meta", async () => {
-    try {
-      const meta = getWorkingCopyMetaSnapshot();
-      if (!meta) return { ok: false, error: "No working copy open." };
-      return { ok: true, meta };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:close", async () => {
-    try {
-      await closeWorkingCopy();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:reload", async () => {
-    try {
-      const meta = await reloadWorkingCopyFromDisk();
-      return { ok: true, meta };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:commit", async (_event, payload) => {
-    try {
-      const force = Boolean(payload && payload.force);
-      const res = await commitWorkingCopyToDisk({ force });
-      return res;
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:write-to-path", async (_event, payload) => {
-    try {
-      const p = payload && payload.filePath ? String(payload.filePath) : "";
-      if (!p) return { ok: false, error: "Missing file path." };
-      await writeWorkingCopyToPath(p);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:write-to-path-and-switch", async (_event, payload) => {
-    try {
-      const p = payload && payload.filePath ? String(payload.filePath) : "";
-      if (!p) return { ok: false, error: "Missing file path." };
-      await writeWorkingCopyToPathAndSwitch(p);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:apply-header-text", async (_event, payload) => {
-    try {
-      const text = payload && payload.text != null ? String(payload.text) : "";
-      applyHeaderText(text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-  ipcMain.handle("workingcopy:apply-full-text", async (_event, payload) => {
-    try {
-      const text = payload && payload.text != null ? String(payload.text) : "";
-      applyFullText(text);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-  ipcMain.handle("workingcopy:insert-tune-after", async (_event, payload) => {
-    try {
-      insertTuneAfter(payload || {});
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:renumber-x", async () => {
-    try {
-      renumberXStartingAt1();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:delete-tune", async (_event, payload) => {
-    try {
-      deleteTune(payload || {});
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
-
-  ipcMain.handle("workingcopy:apply-tune-text", async (_event, payload) => {
-    try {
-      applyTuneText(payload || {});
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e && e.message ? e.message : String(e) };
-    }
-  });
   ipcMain.handle("dialog:confirm-delete-tune", async (_e, label) =>
     confirmDeleteTune(label)
   );
@@ -817,6 +710,25 @@ function registerIpcHandlers(ctx) {
     return "cancel";
   });
 
+  ipcMain.handle("dialog:confirm-save-as-for-permission-denied", async (event, payload) => {
+    const parent = getParentForDialog(event, "confirm-save-as-for-permission-denied");
+    const data = payload && typeof payload === "object" ? payload : {};
+    const p = String(data.filePath || "");
+    const base = p ? path.basename(p) : "file";
+    const message = data.message ? String(data.message) : "";
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: "warning",
+      buttons: ["Save As…", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+      message: "Original file is not writable",
+      detail: message
+        ? `ABCarus cannot write “${base}”. Save a copy to another location?\n\n${message}`
+        : `ABCarus cannot write “${base}”. Save a copy to another location?`,
+    });
+    return response === 0 ? "save_as" : "cancel";
+  });
+
   ipcMain.handle("dialog:confirm-reload-from-disk", async (event, filePath) => {
     const parent = getParentForDialog(event, "confirm-reload-from-disk");
     const p = String(filePath || "");
@@ -833,6 +745,9 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("dialog:show-save-error", async (_e, message) => {
     showSaveError(message);
+  });
+  ipcMain.handle("dialog:show-transform-error", async (_e, message) => {
+    showTransformError(message);
   });
   ipcMain.handle("dialog:show-open-error", async (_e, message) => {
     showOpenError(message);
@@ -899,6 +814,30 @@ function registerIpcHandlers(ctx) {
     } catch {
       return null;
     }
+  });
+  ipcMain.handle("sf2:stream-url", async (_e, name) => {
+    if (!soundfontProtocol || typeof soundfontProtocol.exposeFile !== "function") {
+      throw new Error("External soundfont streaming is unavailable.");
+    }
+    const raw = String(name || "").trim();
+    const candidate = raw.startsWith("file://") ? fileURLToPath(raw) : raw;
+    if (!path.isAbsolute(candidate) || !candidate.toLowerCase().endsWith(".sf2")) {
+      throw new Error("Invalid external soundfont path.");
+    }
+    const requested = await fs.promises.realpath(candidate);
+    const settings = ctx && typeof ctx.getSettings === "function" ? ctx.getSettings() : {};
+    const configured = Array.isArray(settings.soundfontPaths) ? settings.soundfontPaths : [];
+    let allowed = false;
+    for (const configuredPath of configured) {
+      try {
+        if (await fs.promises.realpath(String(configuredPath || "")) === requested) {
+          allowed = true;
+          break;
+        }
+      } catch {}
+    }
+    if (!allowed) throw new Error("Soundfont is not registered in ABCarus settings.");
+    return soundfontProtocol.exposeFile(requested);
   });
 	  ipcMain.handle("import:musicxml", async (event) => {
 	    const parent = getParentForDialog(event, "import:musicxml");
@@ -1273,15 +1212,37 @@ function registerIpcHandlers(ctx) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
   });
-  ipcMain.handle("file:write", async (_e, filePath, data) => {
+  ipcMain.handle("file:write", async (_e, filePath, data, options) => {
     try {
       const p = filePath ? String(filePath) : "";
       if (!p) return { ok: false, error: "Missing file path." };
+      const opts = options && typeof options === "object" ? options : {};
+      if (Object.prototype.hasOwnProperty.call(opts, "expectedData")) {
+        let currentText = "";
+        try {
+          const currentBuffer = await fs.promises.readFile(p);
+          currentText = p.toLowerCase().endsWith(".abc")
+            ? decodeAbcTextFromBuffer(currentBuffer).text
+            : currentBuffer.toString("utf8");
+        } catch (e) {
+          return { ok: false, error: e && e.message ? e.message : String(e), code: e && e.code ? e.code : "" };
+        }
+        if (currentText !== String(opts.expectedData == null ? "" : opts.expectedData)) {
+          return { ok: false, conflict: true, error: "File changed on disk." };
+        }
+      }
       if (p.toLowerCase().endsWith(".abc")) {
         const encoded = encodeAbcTextToBuffer(String(data == null ? "" : data));
         await atomicWriteFileWithRetry(fs, path, p, encoded.buffer);
       } else {
         await atomicWriteFileWithRetry(fs, path, p, String(data == null ? "" : data));
+      }
+      const verifyBuffer = await fs.promises.readFile(p);
+      const verifyText = p.toLowerCase().endsWith(".abc")
+        ? decodeAbcTextFromBuffer(verifyBuffer).text
+        : verifyBuffer.toString("utf8");
+      if (verifyText !== String(data == null ? "" : data)) {
+        return { ok: false, error: "Save verification failed: on-disk content does not match the requested text." };
       }
       return { ok: true };
     } catch (e) {
@@ -1289,12 +1250,30 @@ function registerIpcHandlers(ctx) {
     }
   });
   ipcMain.handle("file:rename", async (_e, oldPath, newPath) => {
+    const sourcePath = String(oldPath || "");
+    const targetPath = String(newPath || "");
+    if (!sourcePath || !targetPath) return { ok: false, error: "Missing file path." };
+    if (sourcePath === targetPath) return { ok: true };
     try {
-      await fs.promises.access(newPath, fs.constants.F_OK);
-      return { ok: false, error: "File already exists.", code: "EEXIST" };
-    } catch {}
-    try {
-      await fs.promises.rename(oldPath, newPath);
+      await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+      const [sourceData, targetData] = await Promise.all([
+        fs.promises.readFile(sourcePath),
+        fs.promises.readFile(targetPath),
+      ]);
+      if (!sourceData.equals(targetData)) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return { ok: false, error: "Rename verification failed; source file was preserved." };
+      }
+      try {
+        await fs.promises.unlink(sourcePath);
+      } catch (e) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return {
+          ok: false,
+          error: `Unable to remove source file after verified copy: ${e && e.message ? e.message : String(e)}`,
+          code: e && e.code ? e.code : "",
+        };
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e), code: e && e.code ? e.code : "" };
@@ -1340,7 +1319,13 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("templates:get-info", async () => {
     try {
       const resolved = resolveTemplatesFolder();
-      return { ok: true, folder: resolved.folder, configured: resolved.configured, fallback: resolved.fallback };
+      return {
+        ok: true,
+        folder: resolved.folder,
+        configured: resolved.configured,
+        fallback: resolved.fallback,
+        platformDefault: resolved.platformDefault,
+      };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1483,6 +1468,16 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("app:quit", async () => {
     requestQuit();
   });
+  ipcMain.handle("app:cancel-quit", async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win && win.__abcarusForceQuitTimer) {
+        clearTimeout(win.__abcarusForceQuitTimer);
+        win.__abcarusForceQuitTimer = null;
+      }
+    } catch {}
+    return true;
+  });
   ipcMain.handle("settings:get", async () => {
     return getSettings();
   });
@@ -1595,7 +1590,10 @@ function registerIpcHandlers(ctx) {
       const safeName = sanitizeFontFileName(fileName);
       if (!safeName) return { ok: false, error: "Invalid font filename." };
       const targetPath = path.join(userDir, safeName);
-      await fs.promises.unlink(targetPath);
+      await fs.promises.unlink(targetPath).catch((e) => {
+        if (e && e.code === "ENOENT") return;
+        throw e;
+      });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
@@ -1798,6 +1796,9 @@ function registerIpcHandlers(ctx) {
   // Note: we intentionally do not expose attach/detach/reload controls in the UI.
   // The file-backed mode is activated by Export/Import and silently falls back to internal if the file disappears.
   ipcMain.handle("recent:last", async () => getLastRecent());
+  ipcMain.handle("recent:candidates", async () => (
+    typeof getRecentCandidates === "function" ? getRecentCandidates() : []
+  ));
   ipcMain.handle("app:startup-status", async (_event, text) => {
     try {
       if (typeof reportStartupStatus === "function") {

@@ -26,6 +26,10 @@ if (status) {
   process.exit(1);
 }
 
+console.log("Running release preflight...");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+execFileSync(npmCommand, ["run", "-s", "test:release-preflight"], { cwd: root, stdio: "inherit" });
+
 const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 const current = String(pkg.version || "");
 const next = semver.inc(current, bumpType);

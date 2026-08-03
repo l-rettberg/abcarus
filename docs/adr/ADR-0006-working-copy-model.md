@@ -1,9 +1,16 @@
 # ADR-0006 — Working Copy Model for ABC Files
 
-Status: Accepted  
+Status: Superseded by ADR-0018
 Date: 2026-01-17  
 Decision Owner: Architect  
 Applies to: Editor, Import/Export, Transformers, Jobs, Save/Conflict handling
+
+Update 2026-07-16: Amended by ADR-0017 while the model was still active.
+
+Update 2026-08-02: Superseded by ADR-0018. This document remains as historical
+context for the former global Working Copy architecture. Atomic writes,
+fingerprint checks, explicit reload/overwrite decisions, and strict-write
+behavior remain required, but no longer depend on a global Working Copy.
 
 ---
 

@@ -1,114 +1,280 @@
 import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 
 async function assertSaveIntentGuards() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
+  const documentSessionPath = "src/renderer/app/document/document_session_controller.js";
+  const documentSession = await readFile(documentSessionPath, "utf8").catch(() => "");
+  const selectionPlaybackModelPath = "src/renderer/playback/selection_playback_model.js";
+  const selectionPlaybackModel = await readFile(selectionPlaybackModelPath, "utf8").catch(() => "");
+  const focusPlaybackModelPath = "src/renderer/playback/focus_playback_model.js";
+  const focusPlaybackModel = await readFile(focusPlaybackModelPath, "utf8").catch(() => "");
+  const focusModeControllerPath = "src/renderer/playback/focus_mode_controller.js";
+  const focusModeController = await readFile(focusModeControllerPath, "utf8").catch(() => "");
+  const selectionPlaybackRuntimePath = "src/renderer/playback/selection_playback_runtime.js";
+  const selectionPlaybackRuntime = await readFile(selectionPlaybackRuntimePath, "utf8").catch(() => "");
+  const playbackStartControllerPath = "src/renderer/playback/playback_start_controller.js";
+  const playbackStartController = await readFile(playbackStartControllerPath, "utf8").catch(() => "");
+  const playbackTransportControllerPath = "src/renderer/playback/playback_transport_controller.js";
+  const playbackTransportController = await readFile(playbackTransportControllerPath, "utf8").catch(() => "");
+  const abSelectionPlaybackControllerPath = "src/renderer/playback/ab_selection_playback_controller.js";
+  const abSelectionPlaybackController = await readFile(abSelectionPlaybackControllerPath, "utf8").catch(() => "");
+  const libraryLifecyclePath = "src/renderer/library/library_lifecycle_controller.js";
+  const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
+  const saveFlowPath = "src/renderer/app/document/save_flow_controller.js";
+  const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
+  const saveVerificationPath = "src/renderer/app/document/save_verification.js";
+  const saveVerification = await readFile(saveVerificationPath, "utf8").catch(() => "");
+  const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
+  const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
+  const playbackUiPath = "src/renderer/app/ui/playback_ui_controller.js";
+  const playbackUi = await readFile(playbackUiPath, "utf8").catch(() => "");
+  const layoutControllerPath = "src/renderer/app/ui/layout_controller.js";
+  const layoutController = await readFile(layoutControllerPath, "utf8").catch(() => "");
+  const rawModeFeaturePath = "src/renderer/tools/raw_mode/raw_mode_feature.js";
+  const rawModeFeature = await readFile(rawModeFeaturePath, "utf8").catch(() => "");
+  const editorCommandsPath = "src/renderer/editor/editor_commands.js";
+  const editorCommands = await readFile(editorCommandsPath, "utf8").catch(() => "");
+  const fileContextPath = "src/renderer/app/document/file_context_controller.js";
+  const fileContext = await readFile(fileContextPath, "utf8").catch(() => "");
+  const libraryTreePath = "src/renderer/library/tree_view.js";
+  const libraryTree = await readFile(libraryTreePath, "utf8").catch(() => "");
+  const renderRuntimePath = "src/renderer/render/render_runtime.js";
+  const renderRuntime = await readFile(renderRuntimePath, "utf8").catch(() => "");
+  const scoreInteractionPath = "src/renderer/render/score_interaction_controller.js";
+  const scoreInteraction = await readFile(scoreInteractionPath, "utf8").catch(() => "");
 
-  if (!src.includes("const SAVE_INTENT = Object.freeze(")) {
-    throw new Error("Missing SAVE_INTENT model in renderer.");
+  if (!src.includes("const activeContext = createActiveTuneContextStore();")) {
+    throw new Error("Renderer must construct the active tune context store.");
   }
-  if (!src.includes("function resolveSaveSession()")) {
-    throw new Error("Missing resolveSaveSession() in renderer.");
+  for (const legacyName of [
+    "activeFilePath",
+    "activeTuneId",
+    "activeTuneUid",
+    "activeTuneIndex",
+    "activeTuneMeta",
+  ]) {
+    const declaration = new RegExp(`\\b(?:let|var)\\s+${legacyName}\\b`);
+    if (declaration.test(src)) {
+      throw new Error(`Active tune context must not return to renderer globals: ${legacyName}`);
+    }
   }
-  if (!src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")) {
+  if (/activeContext\.(?:filePath|tuneId|tuneUid|tuneIndex|tuneMeta)\b/.test(src)) {
+    throw new Error("Active tune context must be accessed through its explicit API.");
+  }
+  if (!src.includes("const renderRuntime = createRenderRuntime(")) {
+    throw new Error("Renderer must construct the render runtime facade.");
+  }
+  if (
+    src.includes('from "./render/render_payload_controller.js"')
+    || src.includes('from "./render/render_pipeline_controller.js"')
+    || src.includes('from "./render/render_payload_model.js"')
+  ) {
+    throw new Error("Renderer must access payload, pipeline, and offset mapping through render_runtime.");
+  }
+  for (const legacyRenderFunction of [
+    "assertCleanAbcText",
+    "centerRenderPaneOnCurrentAnchor",
+    "getRenderCompatMap",
+    "getLastRenderPayload",
+    "getRenderPayload",
+    "mapEditorOffsetToRenderIdx",
+    "mapRenderIdxToEditorOffset",
+    "normalizeAccThreeQuarterToneForAbc2svg",
+    "scheduleRenderNow",
+  ]) {
+    const declaration = new RegExp(`\\bfunction\\s+${legacyRenderFunction}\\s*\\(`);
+    if (declaration.test(src)) {
+      throw new Error(`Render domain logic must not return to renderer.js: ${legacyRenderFunction}`);
+    }
+  }
+  if (!renderRuntime.includes("function initializePipeline(") || !renderRuntime.includes("function getRenderCompatMap(")) {
+    throw new Error("Render runtime must own pipeline initialization and offset compatibility mapping.");
+  }
+  if (
+    !scoreInteraction.includes("function centerCurrentAnchor(")
+    || !scoreInteraction.includes("function wireOutputSelection(")
+    || !src.includes("scoreInteractionController.wireOutputSelection();")
+  ) {
+    throw new Error("Score interaction controller must own render centering and SVG selection wiring.");
+  }
+
+  if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
+    throw new Error("Missing SAVE_INTENT model in document session controller.");
+  }
+  if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
+    throw new Error("Missing resolveSaveSession() document-session boundary.");
+  }
+  if (
+    !src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
+    && !saveVerification.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
+  ) {
     throw new Error("Missing post-commit working-copy save verification.");
   }
 
-  const saveStart = src.indexOf("async function performSaveFlow()");
-  const saveEnd = src.indexOf("async function performSaveAsFlow()", saveStart);
+  const saveOwner = saveFlow.includes("async function performSaveFlow()") ? saveFlow : src;
+  const saveStart = saveOwner.indexOf("async function performSaveFlow()");
+  const saveEnd = saveOwner.indexOf("async function performSaveAsFlow()", saveStart);
   if (saveStart < 0 || saveEnd < 0) throw new Error("Unable to isolate performSaveFlow().");
-  const saveBody = src.slice(saveStart, saveEnd);
+  const saveBody = saveOwner.slice(saveStart, saveEnd);
   if (!saveBody.includes("const session = resolveSaveSession();")) {
     throw new Error("performSaveFlow() must route by resolveSaveSession().");
   }
   if (!saveBody.includes("session.intent === SAVE_INTENT.APPEND_TO_FILE")) {
     throw new Error("performSaveFlow() must handle explicit append intent.");
   }
-  if (!src.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")) {
+  if (
+    !src.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")
+    && !selectionPlaybackModel.includes("function hasIntentionalSelectionPlaybackSpan(text, start, end)")
+  ) {
     throw new Error("Missing selection intent gate helper.");
   }
-  if (!src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")) {
+  if (
+    !src.includes("if (!hasIntentionalSelectionPlaybackSpan(text, start, end)) return false;")
+    && !abSelectionPlaybackController.includes("!hasIntentionalSelectionPlaybackSpan(text, start, end)")
+  ) {
     throw new Error("playSelectionOnce() must gate accidental selections.");
   }
-  if (!src.includes("buildSelectionPlaybackToast(selectionSettings)")) {
+  if (
+    !src.includes("buildSelectionPlaybackToast(selectionSettings)")
+    && !abSelectionPlaybackController.includes("buildSelectionPlaybackToast(selectionSettings)")
+  ) {
     throw new Error("Selection playback must show active flags toast.");
   }
-  if (!src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")) {
-    throw new Error("Missing sequential measure resolver for focus loop bounds.");
+  if (
+    !src.includes("function resolveMeasureStartRenderIdxSequential(measureIndex, n, { minBound, minStartRenderIdx } = {})")
+    && !focusPlaybackModel.includes("function getFocusMeasureStartCandidates(byNumber, measureNumber)")
+  ) {
+    throw new Error("Missing measure resolver for focus loop bounds.");
   }
-  if (!src.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
+  if (!focusPlaybackModel.includes("function resolveFocusSegmentBarsByNumber(barMap, byNumber, from, to)")) {
     throw new Error("Missing Focus bar-number resolver for segment mode.");
   }
-  if (!src.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
+  if (!focusPlaybackModel.includes("byNumberRange = resolveFocusSegmentBarsByNumber(bars, byNumber, from, to);")) {
     throw new Error("Focus segment mode must resolve From/To via abc2svg bar numbering.");
   }
-  if (!src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")) {
+  if (
+    !src.includes("const firstMeasureOffset = findMeasureStartOffsetByNumberInPrimaryVoice(tuneText, 1);")
+    && !focusModeController.includes("const firstMeasureOffset = findMeasureStartOffsetByNumber(tuneText, 1);")
+  ) {
     throw new Error("Focus plan must compute first measure fallback offset.");
   }
-  if (!src.includes("mode === \"segment\"") || !src.includes("Number(state.fromMeasure) === 1")) {
+  if (!focusPlaybackModel.includes("mode === \"segment\"") || !focusPlaybackModel.includes("Number(state.fromMeasure) === 1")) {
     throw new Error("Focus segment mode must guard the From=1 fallback path.");
   }
-  if (!src.includes("startOffset = firstMeasureOffset;")) {
+  if (!focusPlaybackModel.includes("startOffset = firstMeasureOffset;")) {
     throw new Error("Focus segment mode must apply first-measure fallback start.");
   }
-  if (!src.includes("let playbackScopedOptions = null;")) {
+  for (const rendererTail of [
+    "function updatePlaybackRangeFromSelection(",
+    "function getEditorMeasureStartOffset(",
+    "function getEditorPlayStartOffset(",
+    "function getEditorSelectionSignature(",
+    "function buildFocusBarIndexMap(",
+    "function getVisibleFocusRenderRange(",
+    "function getFocusPlaybackState(",
+  ]) {
+    if (src.includes(rendererTail)) {
+      throw new Error(`Playback runtime tail must not remain in renderer: ${rendererTail}`);
+    }
+  }
+  if (!playbackTransportController.includes("function updatePlaybackRangeFromSelection(")) {
+    throw new Error("Playback transport controller must own editor selection range synchronization.");
+  }
+  if (!focusModeController.includes("function computePlaybackPlan()")) {
+    throw new Error("Focus mode controller must own Focus playback plan assembly.");
+  }
+  if (src.includes("const result = playbackTransport.resetAfterGuardStop(message);")) {
+    throw new Error("Playback guard-stop behavior must not remain in renderer.");
+  }
+  if (!playbackUi.includes("function handlePlaybackGuardStop(message)")) {
+    throw new Error("Playback UI controller must own guard-stop UI reconciliation.");
+  }
+  if (!playbackUi.includes("function updateFollowToggle()")) {
+    throw new Error("Playback UI controller must own Follow toggle rendering.");
+  }
+  if (!layoutController.includes("const getRenderZoomFactor = () => {")) {
+    throw new Error("Layout controller must own render zoom resolution.");
+  }
+  if (src.includes("async function confirmRawModeLeave(")) {
+    throw new Error("Raw mode dirty confirmation must not remain in renderer.");
+  }
+  if (!rawModeFeature.includes("async function confirmLeave(")) {
+    throw new Error("Raw mode feature must own dirty exit confirmation.");
+  }
+  if (!editorCommands.includes("function scrollEditorToPos(")) {
+    throw new Error("Shared editor commands must own editor position scrolling.");
+  }
+  if (src.includes("function selectTuneInRaw(")) {
+    throw new Error("Renderer must not retain live Raw tune navigation.");
+  }
+  if (!fileContext.includes("tuneSelect.disabled = rawMode;")) {
+    throw new Error("Tune dropdown must be disabled while Raw mode owns the full file.");
+  }
+  if (!libraryTree.includes('showToast("Raw mode: save or exit before selecting another tune."')) {
+    throw new Error("Library tune selection must be guarded while Raw mode owns the full file.");
+  }
+  if (
+    !src.includes("let playbackScopedOptions = null;")
+    && !selectionPlaybackRuntime.includes("let scopedOptions = null;")
+  ) {
     throw new Error("Missing scoped playback options state.");
   }
-  if (!src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")) {
+  if (
+    !src.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")
+    && !playbackStartController.includes("rangeOrigin === \"selection\" || rangeOrigin === \"ab\" || rangeOrigin === \"focus\"")
+  ) {
     throw new Error("Range-origin routing for scoped playback options is missing.");
   }
-  if (!src.includes("!scopedMode")) {
+  if (!src.includes("!scopedMode") && !playbackStartController.includes("!scopedMode")) {
     throw new Error("Playback reuse must be disabled for scoped (selection/ab/focus) modes.");
   }
-  if (!src.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
+  if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (!src.includes("await window.api.reloadWorkingCopyFromDisk();")) {
-    throw new Error("openRecentFile() must reload existing working copy from disk.");
+  if (libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")) {
+    throw new Error("openRecentFile() must reload directly from disk, without working copy state.");
   }
-  if (!src.includes("await refreshLibraryFile(targetPath, { force: true });")) {
+  if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 
-  const syncStart = src.indexOf("async function flushWorkingCopyTuneSync()");
-  const syncEnd = src.indexOf("async function flushWorkingCopyFullSync()", syncStart);
-  if (syncStart < 0 || syncEnd < 0) throw new Error("Unable to isolate flushWorkingCopyTuneSync().");
-  const syncBody = src.slice(syncStart, syncEnd);
-  if (!syncBody.includes("ensureXNumberInAbc(tuneTextRaw")) {
-    throw new Error("flushWorkingCopyTuneSync() must normalize tune text via ensureXNumberInAbc().");
+  if (workingCopySync.includes("applyWorkingCopyTuneText") || workingCopySync.includes("scheduleTuneSync")) {
+    throw new Error("Normal ABC editing must not synchronize editor changes into a working copy.");
   }
-  if (!syncBody.includes("workingCopyTuneSyncRunPromise")) {
-    throw new Error("flushWorkingCopyTuneSync() must wait for in-flight sync before save commits.");
-  }
-  if (!syncBody.includes("result = { ok: true, path: filePath };")) {
-    throw new Error("flushWorkingCopyTuneSync() must report successful tune sync explicitly.");
-  }
-  if (!src.includes("async function performSimpleTuneSave(filePath")) {
-    throw new Error("Renderer must provide the simple full-file tune save path.");
+  if (!saveFlow.includes("async function performSimpleTuneSave(filePath")) {
+    throw new Error("Save flow controller must own the simple tune save path.");
   }
   if (!saveBody.includes("const ok = await performSimpleTuneSave(activeTuneMeta.path")) {
     throw new Error("performSaveFlow() must use the simple full-file tune save path for active ABC tunes.");
   }
-  const simpleSaveStart = src.indexOf("async function performSimpleTuneSave(filePath");
-  const simpleSaveEnd = src.indexOf("async function showSaveError(", simpleSaveStart);
+  const simpleSaveStart = saveFlow.indexOf("async function performSimpleTuneSave(filePath");
+  const simpleSaveEnd = saveFlow.indexOf("async function performSaveFlow()", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
-  const simpleSaveBody = src.slice(simpleSaveStart, simpleSaveEnd);
-  if (!simpleSaveBody.includes("const verifyRes = await readFile(p);")) {
-    throw new Error("performSimpleTuneSave() must read back the disk file after writing.");
+  const simpleSaveBody = saveFlow.slice(simpleSaveStart, simpleSaveEnd);
+  if (!simpleSaveBody.includes("getFileContentFromCache(p)")) {
+    throw new Error("performSimpleTuneSave() must use the loaded file baseline before editing a tune.");
   }
-  if (!simpleSaveBody.includes("String(verifyRes.data || \"\") !== updatedText")) {
-    throw new Error("performSimpleTuneSave() must verify that disk text matches the saved buffer.");
+  if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
+    throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
   }
-  if (!simpleSaveBody.includes("await alignWorkingCopyWithDiskAfterSimpleSave(p);")) {
-    throw new Error("performSimpleTuneSave() must keep any open working copy aligned after disk save.");
+  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: sourceText })")) {
+    throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
+  }
+  if (!simpleSaveBody.includes("File changed on disk")) {
+    throw new Error("performSimpleTuneSave() must fail closed on an external file change.");
   }
 
-  const ensureStart = src.indexOf("function ensureXNumberInAbc(abcText, xNumber)");
-  const ensureEnd = src.indexOf("function renumberXLinesConsecutive(", ensureStart);
-  if (ensureStart < 0 || ensureEnd < 0) throw new Error("Unable to isolate ensureXNumberInAbc().");
-  const ensureFnCode = src.slice(ensureStart, ensureEnd);
-  const ensureXNumberInAbc = new Function(`${ensureFnCode}; return ensureXNumberInAbc;`)();
+  const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");
+  const textTransformsModule = { exports: {} };
+  const textTransformsCode = textTransformsSrc.replace(
+    /export\s+\{[\s\S]*?\};\s*$/,
+    "module.exports = { ensureXNumberInAbc };",
+  );
+  new Function("module", "exports", textTransformsCode)(textTransformsModule, textTransformsModule.exports);
+  const { ensureXNumberInAbc } = textTransformsModule.exports;
 
   const input = [
     "%Rude Mechanicals tune library: www.rudemex.co.uk",
@@ -162,17 +328,192 @@ async function assertInlineToolbarIconsCompatibility() {
   }
 }
 
+async function assertPlaybackPauseResumeUsesPausedOffset() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { createPlaybackTransportController } from './src/renderer/playback/playback_transport_controller.js';",
+        "export { createPlaybackTransportController };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "playback-pause-resume-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { createPlaybackTransportController } = module.exports;
+  if (typeof createPlaybackTransportController !== "function") {
+    throw new Error("Unable to load playback transport controller.");
+  }
+
+  const calls = [];
+  const transport = {
+    isPlaying: false,
+    isPaused: true,
+    pausedSelectionSignature: "0:0",
+    resumeStartIdx: 260,
+    playbackIndexOffset: 100,
+    playbackRange: { startOffset: 0, endOffset: null, origin: "cursor", loop: false },
+    pendingPlaybackPlan: null,
+    desiredPlayerSpeed: 1,
+    cloneRange: (range) => ({ ...(range || {}) }),
+    setRange: (range) => { transport.playbackRange = { ...(range || {}) }; },
+  };
+  const controller = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => false,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({ ok: false }),
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await controller.togglePlayPauseEffective();
+  if (!calls.length || calls[0].startOffset !== 160) {
+    throw new Error(`Paused Play must resume from converted paused offset 160, got ${calls[0] && calls[0].startOffset}.`);
+  }
+
+  calls.length = 0;
+  transport.isPaused = true;
+  transport.resumeStartIdx = 260;
+  transport.playbackIndexOffset = 100;
+  const focusController = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => true,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({
+      ok: true,
+      plan: { startOffset: 0, endOffset: null, loop: false },
+    }),
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await focusController.togglePlayPauseEffective();
+  if (!calls.length || calls[0].startOffset !== 160 || calls[0].origin !== "focus") {
+    throw new Error(`Paused Focus Play must resume from offset 160 with open range end, got ${JSON.stringify(calls[0] || null)}.`);
+  }
+
+  calls.length = 0;
+  transport.isPlaying = false;
+  transport.isPaused = false;
+  transport.waitingForFirstNote = false;
+  transport.transportJumpHighlightActive = true;
+  transport.transportPlayheadOffset = 240;
+  const focusJumpController = createPlaybackTransportController({
+    transport,
+    getEditorView: () => ({ state: { doc: { length: 1000 }, selection: { main: { anchor: 0, head: 0 } } } }),
+    getFocusModeEnabled: () => true,
+    normalizeFocusLoopBoundsForPlayback: () => {},
+    computeFocusPlaybackPlanFromCurrentState: () => ({
+      ok: true,
+      plan: { startOffset: 10, endOffset: 500, loop: false },
+    }),
+    startPlaybackFromRange: async (range) => { calls.push(range); },
+    startPlaybackAtIndex: async () => {},
+    pausePlayback: () => {},
+    playSelectionOnce: async () => false,
+    setPracticeBarHighlight: () => {},
+    clearSvgPracticeBarHighlight: () => {},
+    playbackGuardError: () => {},
+    stopPlaybackFromGuard: () => {},
+    setStatus: () => {},
+    updatePlayButton: () => {},
+    clearNoteSelection: () => {},
+    resetPlaybackUiState: () => {},
+    setSoundfontCaption: () => {},
+    showToast: () => {},
+  });
+  await focusJumpController.transportPlay();
+  if (!calls.length || calls[0].startOffset !== 240 || calls[0].origin !== "focus") {
+    throw new Error(`Focus Play after measure jump must start at highlighted offset 240, got ${JSON.stringify(calls[0] || null)}.`);
+  }
+
+  calls.length = 0;
+  transport.transportJumpHighlightActive = false;
+  transport.transportPlayheadOffset = 240;
+  await focusJumpController.transportPlay();
+  if (!calls.length || calls[0].startOffset !== 10 || calls[0].origin !== "focus") {
+    throw new Error(`Focus Play without active measure jump must start at focus plan offset 10, got ${JSON.stringify(calls[0] || null)}.`);
+  }
+}
+
 async function assertAlignBarsDoesNotCrossSectionFields() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("const BAR_SEP_SYMBOLS =");
-  const end = src.indexOf("function alignBarsInEditor()", start);
-  if (start < 0 || end < 0) throw new Error("Unable to isolate Align Bars helpers.");
+  const barMetricsSrc = await readFile("src/renderer/abc/bar_metrics.js", "utf8");
+  const alignBarsSrc = await readFile("src/renderer/abc/align_bars.js", "utf8");
+
+  const metricsModule = { exports: {} };
+  const metricsHelpers = barMetricsSrc.replace(
+    /export\s+\{[\s\S]*?\};\s*$/,
+    "module.exports = { BAR_SEP_NO_SPACE, getDefaultLen, getMetre, isLikelyAnacrusis, splitLineIntoParts };",
+  );
+  new Function("module", "exports", metricsHelpers)(metricsModule, metricsModule.exports);
+  const {
+    BAR_SEP_NO_SPACE,
+    getDefaultLen,
+    getMetre,
+    isLikelyAnacrusis,
+    splitLineIntoParts,
+  } = metricsModule.exports;
 
   const module = { exports: {} };
-  const helpers = `${src.slice(start, end)}\nmodule.exports = { alignBarsInText, getBarSeparatorColumns };\n`;
-  const load = new Function("module", "exports", helpers);
-  load(module, module.exports);
+  const helpers = alignBarsSrc
+    .replace(/import\s+\{[\s\S]*?\}\s+from\s+"\.\/bar_metrics\.js";\s*/, "")
+    .replace(
+      /export\s+\{[\s\S]*?\};\s*$/,
+      "module.exports = { alignBarsInText, getBarSeparatorColumns };",
+    );
+  const load = new Function(
+    "module",
+    "exports",
+    "BAR_SEP_NO_SPACE",
+    "getDefaultLen",
+    "getMetre",
+    "isLikelyAnacrusis",
+    "splitLineIntoParts",
+    helpers,
+  );
+  load(
+    module,
+    module.exports,
+    BAR_SEP_NO_SPACE,
+    getDefaultLen,
+    getMetre,
+    isLikelyAnacrusis,
+    splitLineIntoParts,
+  );
   const { alignBarsInText, getBarSeparatorColumns } = module.exports;
   if (typeof alignBarsInText !== "function") throw new Error("alignBarsInText() is unavailable.");
   if (typeof getBarSeparatorColumns !== "function") throw new Error("getBarSeparatorColumns() is unavailable.");
@@ -254,8 +595,8 @@ async function assertAlignBarsDoesNotCrossSectionFields() {
 }
 
 async function assertBareContinuationDirectiveHighlight() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
+  const decorationsPath = "src/renderer/editor/abc_decorations.js";
+  const src = await readFile(decorationsPath, "utf8");
   const markerStart = src.indexOf("// Field/directive continuation marker");
   const markerEnd = src.indexOf("if (text.trim().length)", markerStart);
   if (markerStart < 0 || markerEnd < 0) {
@@ -274,10 +615,10 @@ async function assertBareContinuationDirectiveHighlight() {
 }
 
 async function assertDirectiveErrorsDoNotGetMeasureStats() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
+  const measureStatsPath = "src/renderer/abc/measure_stats.js";
+  const src = await readFile(measureStatsPath, "utf8");
   const start = src.indexOf("function shouldComputeMeasureStatsAt(editorText, anchorOffset)");
-  const end = src.indexOf("function setErrorFocusMessage(entry, from)", start);
+  const end = src.indexOf("function computeMeasureStatsAt", start);
   if (start < 0 || end < 0) throw new Error("Unable to isolate measure-stats eligibility helper.");
 
   const module = { exports: {} };
@@ -312,12 +653,19 @@ async function assertDirectiveErrorsDoNotGetMeasureStats() {
 async function assertSepIsPrestrippedForRender() {
   const rendererPath = "src/renderer/renderer.js";
   const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("function stripSepForRender(text)");
-  const end = src.indexOf("function parseBarToken(rawToken)", start);
+  const renderPipelinePath = "src/renderer/render/render_pipeline_controller.js";
+  const renderPipelineSrc = await readFile(renderPipelinePath, "utf8");
+  const markupRenderPath = "src/renderer/render/abc_to_svg_markup.js";
+  const markupRenderSrc = await readFile(markupRenderPath, "utf8");
+  const renderPayloadModelPath = "src/renderer/render/render_payload_model.js";
+  const modelSrc = await readFile(renderPayloadModelPath, "utf8");
+  const start = modelSrc.indexOf("export function stripSepForRender(text)");
+  const end = modelSrc.length;
   if (start < 0 || end < 0) throw new Error("Unable to isolate %%sep render helper.");
 
   const module = { exports: {} };
-  const load = new Function("module", "exports", `${src.slice(start, end)}\nmodule.exports = { stripSepForRender };\n`);
+  const helperSrc = modelSrc.slice(start, end).replace(/export\s+function\s+stripSepForRender/, "function stripSepForRender");
+  const load = new Function("module", "exports", `${helperSrc}\nmodule.exports = { stripSepForRender };\n`);
   load(module, module.exports);
   const { stripSepForRender } = module.exports;
   const input = "X:1\nK:C\nC |]\n%%sep 20 20 100\nW:words\n";
@@ -326,25 +674,38 @@ async function assertSepIsPrestrippedForRender() {
   if (out.text.length !== input.length) throw new Error("stripSepForRender() must preserve source length.");
   if (/^%%sep/m.test(out.text)) throw new Error("stripSepForRender() must neutralize %%sep before rendering.");
 
-  const prestripCount = (src.match(/const sepStripInitial = stripSepForRender/g) || []).length;
+  const prestripCount = (`${src}\n${renderPipelineSrc}\n${markupRenderSrc}`.match(/const sepStripInitial = stripSepForRender/g) || []).length;
   if (prestripCount < 2) {
     throw new Error("Live and print render paths must pre-strip %%sep before calling abc2svg.");
   }
 }
 
 async function assertPrintSuggestedBaseNameIncludesKey() {
-  const rendererPath = "src/renderer/renderer.js";
-  const src = await readFile(rendererPath, "utf8");
-  const start = src.indexOf("function latinize(text)");
-  const end = src.indexOf("function getPlaybackText()", start);
-  if (start < 0 || end < 0) throw new Error("Unable to isolate print suggested filename helpers.");
-
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { buildSuggestedTuneBaseName } from './src/renderer/print/print_helpers.js';",
+        "export { buildSuggestedTuneBaseName };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "print-filename-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
   const module = { exports: {} };
-  const prelude = "let activeTuneMeta = null; let editorText = ''; function getEditorValue() { return editorText; }\n";
-  const load = new Function("module", "exports", `${prelude}${src.slice(start, end)}\nmodule.exports = { getSuggestedBaseName, getSuggestedPrintBaseName, setText: (value) => { editorText = value; } };\n`);
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
   load(module, module.exports);
-  const { getSuggestedBaseName, getSuggestedPrintBaseName, setText } = module.exports;
-  setText([
+  const { buildSuggestedTuneBaseName } = module.exports;
+  if (typeof buildSuggestedTuneBaseName !== "function") {
+    throw new Error("Unable to load print suggested filename helper.");
+  }
+  const textWithKey = [
     "X:1",
     "T:Զով Գիշեր Է",
     "T:Zov Gisher E",
@@ -352,16 +713,159 @@ async function assertPrintSuggestedBaseNameIncludesKey() {
     "M:6/8",
     "K:Gmaj",
     "GABc |]",
-  ].join("\n"));
-  if (getSuggestedBaseName() !== "Zov Gisher E - Komitas") {
+  ].join("\n");
+  if (buildSuggestedTuneBaseName({ editorText: textWithKey }) !== "Zov Gisher E - Komitas") {
     throw new Error("Default suggested filename should keep title/composer without key.");
   }
-  if (getSuggestedPrintBaseName() !== "Zov Gisher E - Komitas - Gmaj") {
+  if (buildSuggestedTuneBaseName({ editorText: textWithKey, includeKey: true }) !== "Zov Gisher E - Komitas - Gmaj") {
     throw new Error("Print/PDF suggested filename should include title, composer, and key.");
   }
-  setText("X:2\nT:Untitled Keyless\nK:none\nCDEF |]\n");
-  if (getSuggestedPrintBaseName() !== "Untitled Keyless") {
+  if (buildSuggestedTuneBaseName({ editorText: "X:2\nT:Untitled Keyless\nK:none\nCDEF |]\n", includeKey: true }) !== "Untitled Keyless") {
     throw new Error("Print/PDF suggested filename must omit K:none.");
+  }
+}
+
+async function assertAbc2svgFontHeaderUrls() {
+  const bundled = await build({
+    entryPoints: ["src/renderer/render/header_layers_controller.js"],
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { createHeaderLayersController } = module.exports;
+  if (typeof createHeaderLayersController !== "function") {
+    throw new Error("Unable to load header layers controller for font smoke.");
+  }
+  const controller = createHeaderLayersController({
+    api: { pathJoin: (a, b) => `${String(a || "").replace(/[\\/]+$/, "")}/${String(b || "")}` },
+    isMeasureCheckEnabled: () => false,
+  });
+  controller.setFromSettings({
+    abc2svgNotationFontFile: "bundled:Leland.otf",
+    abc2svgTextFontFile: "bundled:LelandText.otf",
+  });
+  const tune = "X:1\nT:Font Test\nM:4/4\nL:1/4\nK:C\nC D E F |]\n";
+  const prefix = controller.buildHeaderPrefix("", false, tune);
+  const text = `${prefix.text || ""}${tune}`;
+
+  if (text.includes('url("') || text.includes("url('")) {
+    throw new Error("abc2svg font URLs must be unquoted; quoted url(...) breaks custom music fonts.");
+  }
+  if (!text.includes("%%musicfont url(../../assets/fonts/notation/Leland.otf) 24")) {
+    throw new Error("Missing bundled Leland musicfont header.");
+  }
+  if (!text.includes("%%titlefont url(../../assets/fonts/notation/LelandText.otf) *")) {
+    throw new Error("Missing bundled Leland text font header.");
+  }
+
+  const abc2svgSource = await readFile("third_party/abc2svg/abc2svg-1.js", "utf8");
+  const sandbox = { console };
+  vm.createContext(sandbox);
+  vm.runInContext(abc2svgSource, sandbox, { filename: "abc2svg-1.js" });
+  const parts = [];
+  const errors = [];
+  const AbcCtor = sandbox.abc2svg && sandbox.abc2svg.Abc;
+  if (typeof AbcCtor !== "function") throw new Error("abc2svg constructor unavailable for font header smoke.");
+  const abc = new AbcCtor({
+    img_out: (s) => parts.push(s),
+    err: (msg) => errors.push(String(msg || "")),
+    errmsg: (msg, line, col) => errors.push(`${line}:${col}:${msg}`),
+  });
+  abc.tosvg("out", text);
+  const svg = parts.join("");
+  if (errors.length) throw new Error(`abc2svg font header smoke produced errors: ${errors.join("; ")}`);
+  if (!svg.includes("font-family:Leland") || !svg.includes("font-family:LelandText")) {
+    throw new Error("abc2svg output did not include selected Leland font faces.");
+  }
+}
+
+async function assertIntonationTonalBaseUses53Map() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { resolveTonalBaseInput } from './src/renderer/tools/intonation_explorer/intonation_model.js';",
+        "import { baseId53ForNaturalLetter } from './src/renderer/transpose.mjs';",
+        "export { resolveTonalBaseInput, baseId53ForNaturalLetter };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "intonation-tonal-base-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { baseId53ForNaturalLetter, resolveTonalBaseInput } = module.exports;
+  if (typeof baseId53ForNaturalLetter !== "function" || typeof resolveTonalBaseInput !== "function") {
+    throw new Error("Unable to load intonation tonal base helpers.");
+  }
+  for (const letter of ["C", "D", "E", "F", "G", "A", "B"]) {
+    const resolved = resolveTonalBaseInput(letter);
+    const expected = baseId53ForNaturalLetter(letter);
+    if (!resolved || !resolved.ok || resolved.base !== expected) {
+      throw new Error(`Tonal base ${letter} must use the 53-EDO natural-letter map (${expected}), got ${resolved && resolved.base}.`);
+    }
+  }
+}
+
+async function assertIntonationPinnedCandidates() {
+  const bundled = await build({
+    stdin: {
+      contents: [
+        "import { suggestMakamCandidates } from './src/renderer/makam_suggestion.mjs';",
+        "export { suggestMakamCandidates };",
+      ].join("\n"),
+      resolveDir: ".",
+      sourcefile: "intonation-candidates-check.js",
+      loader: "js",
+    },
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    splitting: false,
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { suggestMakamCandidates } = module.exports;
+  if (typeof suggestMakamCandidates !== "function") {
+    throw new Error("Unable to load makam candidate helper.");
+  }
+
+  const candidates = suggestMakamCandidates({
+    makamEntries: [
+      { makam: "Beyati", durak: "A", guclu: "A", yeden: "A" },
+      { makam: "Uşşak", durak: "A" },
+    ],
+    noteEvents: [
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+      { pc53: 0, abs53: 53, durationWeight: 1 },
+    ],
+    resolvePerdePc53: (name) => (name === "A" ? [0] : []),
+    maxCandidates: 1,
+    pinnedMakamNames: ["Uşşak"],
+  });
+  if (candidates.length !== 2 || candidates[0].makam !== "Beyati") {
+    throw new Error("Intonation candidates smoke must keep top scoring makam first.");
+  }
+  const pinned = candidates.find((candidate) => candidate && candidate.makam === "Uşşak");
+  if (!pinned || pinned.pinned !== true) {
+    throw new Error("Selected/overlay makam must remain visible when it falls outside the candidate limit.");
   }
 }
 
@@ -381,11 +885,15 @@ async function main() {
 
   await assertSaveIntentGuards();
   await assertInlineToolbarIconsCompatibility();
+  await assertPlaybackPauseResumeUsesPausedOffset();
   await assertAlignBarsDoesNotCrossSectionFields();
   await assertBareContinuationDirectiveHighlight();
   await assertDirectiveErrorsDoNotGetMeasureStats();
   await assertSepIsPrestrippedForRender();
   await assertPrintSuggestedBaseNameIncludesKey();
+  await assertAbc2svgFontHeaderUrls();
+  await assertIntonationTonalBaseUses53Map();
+  await assertIntonationPinnedCandidates();
 }
 
 main().catch((err) => {

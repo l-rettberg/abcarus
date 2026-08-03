@@ -6,6 +6,11 @@ Some of them are executed at runtime (e.g. MusicXML converters), so upgrades mus
 This document defines a lightweight, repeatable upgrade workflow that produces a clear **SAFE / NEEDS PATCH / HOLD**
 verdict before updating `third_party/`.
 
+Boundary rule:
+- `third_party/**` is read-only except for coherent upstream upgrades, provenance/license metadata, and deterministic runtime locks.
+- ABCarus-owned adapters, workarounds, recipes, tests, build state, and temporary archives must live outside `third_party/**`.
+- See [docs/third-party-policy.md](third-party-policy.md).
+
 ## Scope
 
 Regularly used script/tool components:
@@ -66,6 +71,8 @@ For each component:
 
 - Update only the relevant `third_party/<component>/` directory.
 - Keep upgrades atomic and easy to revert (one component per commit whenever feasible).
+- Do not include app-side adapter fixes in the same commit.
+- Do not commit local build state such as `.ninja_*`, caches, logs, or files from `third_party/_upd/`.
 
 ### 5) Run local regression checks
 

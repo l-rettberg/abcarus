@@ -259,6 +259,7 @@ Reference for advanced directives:
 ### “Playback is silent”
 - Confirm a soundfont is selected in Settings and that the file exists.
 - Try a different soundfont if notes/drums are missing (coverage varies by SF2).
+- Some external SF2 files can fail only on particular instruments or notes because of a known limitation in the current abc2svg SF2 runtime. Use the bundled `TimGM6mb.sf2` as the fallback.
 
 ### “Import/Export MusicXML fails”
 - Release builds include a bundled Python runtime; in development you may need to install it.

@@ -1733,7 +1733,7 @@ const startupController = createStartupController({
   markRecentOpenStarted: () => statusController.markStartupRecentOpenStarted(),
   markUiReady: () => statusController.markStartupUiReady(),
   renderStatus: () => statusController.renderUnifiedStatus(),
-  showToastWithAction,
+  showToast,
 });
 
 editStateController = createEditStateController({

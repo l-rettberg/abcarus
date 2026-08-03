@@ -185,32 +185,26 @@ const { createStartupController } = await importRendererModule(
 
 {
   const events = [];
-  let recoveryAction = null;
   const controller = createStartupController({
     api: {
       getRecentCandidates: async () => [],
-      getRecoveryFiles: async () => [{ path: "/app/recovery/song.recovery-20260803.abc", basename: "song.recovery-20260803.abc" }],
+      getRecoveryFiles: async () => [{ path: "/app/recovery/song.recovery-20260803.abc", basename: "song.recovery-20260803.abc", originalPath: "/music/song.abc" }],
       getSettings: async () => ({}),
+      confirmRecovery: async () => "later",
     },
     openRecentFile: async (entry) => {
       events.push(["open-recovery", entry]);
       return { ok: true };
     },
-    showToastWithAction: (_message, label, action) => {
-      events.push(["recovery-toast", label]);
-      recoveryAction = action;
-    },
+    showToast: (message) => events.push(["recovery-toast", message]),
     renderStatus: () => events.push(["render-status"]),
   });
 
   assert.equal(await controller.start(), false);
-  assert.deepEqual(events, [["recovery-toast", "Open"], ["render-status"]]);
-  await recoveryAction();
-  assert.deepEqual(events[2], ["open-recovery", {
-    path: "/app/recovery/song.recovery-20260803.abc",
-    basename: "song.recovery-20260803.abc",
-    forceReload: true,
-  }]);
+  assert.deepEqual(events, [
+    ["recovery-toast", "Recovery copy kept at: /app/recovery/song.recovery-20260803.abc"],
+    ["render-status"],
+  ]);
 }
 
 console.log("startup harness: all tests passed");

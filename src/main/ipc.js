@@ -743,6 +743,23 @@ function registerIpcHandlers(ctx) {
     });
     return response === 0;
   });
+  ipcMain.handle("dialog:confirm-recovery", async (event, recovery) => {
+    const parent = getParentForDialog(event, "confirm-recovery");
+    const data = recovery && typeof recovery === "object" ? recovery : {};
+    const recoveryPath = String(data.path || "");
+    const originalPath = String(data.originalPath || "");
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: "warning",
+      buttons: ["Restore", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      message: "A recovery copy of the last file is available.",
+      detail: originalPath
+        ? `Restore it to:\n${originalPath}\n\nRecovery copy:\n${recoveryPath}`
+        : `Recovery copy:\n${recoveryPath}`,
+    });
+    return response === 0 ? "restore" : "later";
+  });
   ipcMain.handle("dialog:show-save-error", async (_e, message) => {
     showSaveError(message);
   });
@@ -1489,12 +1506,50 @@ function registerIpcHandlers(ctx) {
         try {
           const stat = await fs.promises.stat(filePath);
           if (!stat.isFile()) continue;
-          files.push({ path: filePath, basename: name, mtimeMs: stat.mtimeMs, size: stat.size });
+          let originalPath = "";
+          try {
+            const metadata = JSON.parse(await fs.promises.readFile(`${filePath}.json`, "utf8"));
+            originalPath = String(metadata.originalPath || "");
+          } catch {}
+          files.push({ path: filePath, basename: name, originalPath, mtimeMs: stat.mtimeMs, size: stat.size });
         } catch {}
       }
       return files.sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
     } catch {
       return [];
+    }
+  });
+  ipcMain.handle("app:recovery-metadata", async (_e, recoveryPath, originalPath, createdAt) => {
+    try {
+      const userData = app && typeof app.getPath === "function" ? app.getPath("userData") : "";
+      const recoveryDir = userData ? path.join(userData, "recovery") : "";
+      const source = path.resolve(String(recoveryPath || ""));
+      if (!recoveryDir || !source.startsWith(`${path.resolve(recoveryDir)}${path.sep}`)) return { ok: false, error: "Invalid recovery path." };
+      await fs.promises.writeFile(`${source}.json`, JSON.stringify({
+        originalPath: String(originalPath || ""),
+        createdAt: String(createdAt || new Date().toISOString()),
+      }, null, 2), "utf8");
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle("app:recovery-restore", async (_e, recoveryPath, originalPath) => {
+    try {
+      const userData = app && typeof app.getPath === "function" ? app.getPath("userData") : "";
+      const recoveryDir = userData ? path.join(userData, "recovery") : "";
+      const source = path.resolve(String(recoveryPath || ""));
+      const target = String(originalPath || "");
+      if (!recoveryDir || !source.startsWith(`${path.resolve(recoveryDir)}${path.sep}`) || !target) {
+        return { ok: false, error: "Invalid recovery path." };
+      }
+      const data = await fs.promises.readFile(source);
+      await atomicWriteFileWithRetry(fs, path, target, data);
+      try { await fs.promises.unlink(`${source}.json`); } catch {}
+      try { await fs.promises.unlink(source); } catch {}
+      return { ok: true, path: target };
+    } catch (e) {
+      return { ok: false, error: e && e.message ? e.message : String(e) };
     }
   });
   ipcMain.handle("app:cancel-quit", async (event) => {

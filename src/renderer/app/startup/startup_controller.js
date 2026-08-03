@@ -15,7 +15,7 @@ export function createStartupController({
   markRecentOpenStarted = () => {},
   markUiReady = () => {},
   renderStatus = () => {},
-  showToastWithAction = () => {},
+  showToast = () => {},
   setTimeoutRef = setTimeout,
   clearTimeoutRef = clearTimeout,
 } = {}) {
@@ -197,13 +197,20 @@ export function createStartupController({
         try {
           const recoveryFiles = await api.getRecoveryFiles();
           const latest = Array.isArray(recoveryFiles) ? recoveryFiles[0] : null;
-          if (latest && latest.path) {
-            showToastWithAction(
-              `Emergency recovery copy available: ${latest.basename || latest.path}`,
-              "Open",
-              () => openRecentFile({ path: latest.path, basename: latest.basename, forceReload: true }),
-              12000,
-            );
+          if (latest && latest.path && typeof api.confirmRecovery === "function") {
+            const choice = await api.confirmRecovery(latest);
+            if (choice === "restore" && latest.originalPath && typeof api.restoreRecoveryFile === "function") {
+              const restored = await api.restoreRecoveryFile(latest.path, latest.originalPath);
+              if (restored && restored.ok) {
+                await openRecentFile({ path: latest.originalPath, forceReload: true });
+              } else {
+                showToast(`Recovery copy kept at: ${latest.path}`, 10000);
+              }
+            } else if (choice === "later") {
+              showToast(`Recovery copy kept at: ${latest.path}`, 10000);
+            }
+          } else if (latest && latest.path) {
+            showToast(`Recovery copy kept at: ${latest.path}`, 10000);
           }
         } catch {}
       }

@@ -1223,6 +1223,10 @@ const fileContentCache = createFileContentCache({
   maxEntries: 12,
   normalizePath: normalizeLibraryPath,
 });
+if (typeof window !== "undefined") {
+  window.__abcarusFileCacheStats = () => fileContentCache.getStats();
+  window.__abcarusResetFileCacheStats = () => fileContentCache.resetStats();
+}
 const fileOperationLocks = createFileOperationLocks({
   normalizePath: normalizeLibraryPath,
 });

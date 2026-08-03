@@ -1319,8 +1319,13 @@ const workingCopyConflictController = createWorkingCopyConflictController({
   },
   actions: {
     attachTuneUidsToLibraryFile,
+    confirmOverwrite,
+    fileExists: (filePath) => window.api && typeof window.api.fileExists === "function"
+      ? window.api.fileExists(filePath)
+      : Promise.resolve(false),
     refreshLibraryFile,
-    refreshWorkingCopySnapshot,
+    readFile,
+    writeFile,
     safeBasename,
     safeDirname,
     selectTune,

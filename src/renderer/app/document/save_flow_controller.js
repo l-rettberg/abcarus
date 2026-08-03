@@ -152,13 +152,7 @@ export function createSaveFlowController({
       };
       const nextText = `${nextParts.header}${nextParts.before}${nextParts.active}${nextParts.after}`;
 
-      const diskCheck = await readFile(p);
-      const diskText = diskCheck && diskCheck.ok ? String(diskCheck.data || "") : "";
-      const saveRes = await writeFile(
-        p,
-        nextText,
-        diskCheck && diskCheck.ok ? { expectedData: diskText } : {},
-      );
+      const saveRes = await writeFile(p, nextText, {});
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
         const recoveryPath = await saveEmergencyCopy(p, nextText);
@@ -295,7 +289,7 @@ export function createSaveFlowController({
     }
     const diskText = String(disk.data || "");
     const nextText = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
-    const result = await withFileLock(p, () => writeFile(p, nextText, { expectedData: diskText }));
+    const result = await withFileLock(p, () => writeFile(p, nextText, {}));
     if (!result || !result.ok) {
       await showSaveError((result && result.error) ? result.error : "Unable to save ChordPro file.");
       return false;
@@ -440,7 +434,7 @@ export function createSaveFlowController({
       const rawHeader = String(headerText || "");
       const nextHeader = rawHeader && !/[\r\n]$/.test(rawHeader) ? `${rawHeader}\n` : rawHeader;
       const nextText = nextHeader + diskText.slice(headerEnd);
-      const saveRes = await writeFile(p, nextText, { expectedData: diskText });
+      const saveRes = await writeFile(p, nextText, {});
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
         throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save header.");

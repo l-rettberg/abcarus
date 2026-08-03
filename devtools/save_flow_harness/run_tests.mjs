@@ -119,7 +119,7 @@ async function testDirectTuneSaveWritesExpectedData() {
     },
   });
   assert.equal(await direct.performSimpleTuneSave(sourcePath), true);
-  assert.deepEqual(writes, [[sourcePath, edited, { expectedData: baseline }]]);
+  assert.deepEqual(writes, [[sourcePath, edited, {}]]);
 }
 
 async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
@@ -135,7 +135,7 @@ async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
       readFile: async () => ({ ok: true, data: `${baseline}X:2\n` }),
       writeFile: async (path, data, options) => {
         assert.equal(path, "/tmp/source.abc");
-        assert.equal(options.expectedData, `${baseline}X:2\n`);
+        assert.deepEqual(options, {});
         assert.equal(data, baseline);
         return { ok: true };
       },
@@ -230,7 +230,7 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   });
   assert.equal(await controller.performSaveAsFlow(), true);
   assert.deepEqual(writes, [
-    [sourcePath, editedText, { expectedData: sourceText }],
+    [sourcePath, editedText, {}],
     [destinationPath, editedText, { expectedData: "old destination" }],
   ]);
   assert.deepEqual(calls.find(([kind]) => kind === "addRecentFolder"), ["addRecentFolder", { path: "/tmp", label: "/tmp" }]);
@@ -264,7 +264,7 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
     await controller.saveFileHeaderText(path, "%%MIDI program 2"),
     { ok: true, action: "saved" },
   );
-  assert.deepEqual(writes, [[path, "%%MIDI program 2\nX:1\nT:Song\nK:C\nC|\n", { expectedData: baseline }]]);
+  assert.deepEqual(writes, [[path, "%%MIDI program 2\nX:1\nT:Song\nK:C\nC|\n", {}]]);
 }
 
 async function testChordProSaveAsWritesDirectly() {

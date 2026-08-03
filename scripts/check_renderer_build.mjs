@@ -240,11 +240,8 @@ async function assertSaveIntentGuards() {
   if (!simpleSaveBody.includes("activeTuneMeta.documentParts")) {
     throw new Error("performSimpleTuneSave() must use the loaded four-part tune document.");
   }
-  if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
-    throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
-  }
-  if (!simpleSaveBody.includes("writeFile(") || !simpleSaveBody.includes("expectedData: diskText")) {
-    throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
+  if (!simpleSaveBody.includes("writeFile(p, nextText, {});")) {
+    throw new Error("performSimpleTuneSave() must write the composed document without a stale expected-data guard.");
   }
   if (!simpleSaveBody.includes("const nextParts =")) {
     throw new Error("performSimpleTuneSave() must update the loaded four-part document after editing.");

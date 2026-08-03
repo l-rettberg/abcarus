@@ -2353,6 +2353,9 @@ documentSessionController = createDocumentSessionController({
   },
   actions: {
     clearCurrentDocument,
+    addRecentFolder: (entry) => window.api && typeof window.api.addRecentFolder === "function"
+      ? window.api.addRecentFolder(entry)
+      : Promise.resolve(false),
     discardWorkingCopyChangesForActiveFile,
     flushLibraryPrefsSave,
     loadSingleLibraryFile,

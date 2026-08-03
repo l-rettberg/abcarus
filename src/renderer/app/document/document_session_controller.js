@@ -86,6 +86,7 @@ function createDocumentSessionController({
     showToast = () => {},
     showOpenDialog: showOpenDialogAction = null,
     clearCurrentDocument = () => {},
+    addRecentFolder = () => {},
     updateHeaderStateUI = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     safeDirname = () => "",
@@ -330,6 +331,8 @@ function createDocumentSessionController({
 
     const filePath = await showOpenDialog();
     if (!filePath) return;
+    const folder = safeDirname(filePath);
+    if (folder) addRecentFolder({ path: folder, label: folder });
 
     const readRes = await readFile(filePath);
     if (readRes && readRes.ok && (isChordProText(readRes.data) || isChordProFilePath(filePath))) {

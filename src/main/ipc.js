@@ -675,23 +675,6 @@ function registerIpcHandlers(ctx) {
     confirmDeleteTune(label)
   );
 
-  ipcMain.handle("dialog:confirm-save-conflict", async (event, filePath) => {
-    const parent = getParentForDialog(event, "confirm-save-conflict");
-    const p = String(filePath || "");
-    const base = p ? path.basename(p) : "file";
-    const response = dialog.showMessageBoxSync(parent || undefined, {
-      type: "warning",
-      buttons: ["Overwrite", "Save Copy As & Switch…", "Discard & Reload", "Cancel"],
-      defaultId: 1,
-      cancelId: 3,
-      message: "File changed on disk",
-      detail: `“${base}” was modified outside ABCarus. Choose what to do.`,
-    });
-    if (response === 0) return "overwrite";
-    if (response === 1) return "save_copy_as";
-    if (response === 2) return "discard_reload";
-    return "cancel";
-  });
 
   ipcMain.handle("dialog:confirm-missing-on-disk", async (event, filePath) => {
     const parent = getParentForDialog(event, "confirm-missing-on-disk");

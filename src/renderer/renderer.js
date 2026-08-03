@@ -1279,24 +1279,9 @@ const fileReloadController = createFileReloadController({
     getRawMode: () => isRawModeActive(),
   },
   actions: {
-    confirmOverwrite,
-    fileExists: (filePath) => window.api && typeof window.api.fileExists === "function"
-      ? window.api.fileExists(filePath)
-      : Promise.resolve(false),
     refreshLibraryFile,
     readFile,
-    writeFile,
-    safeBasename,
-    safeDirname,
     selectTune,
-    switchFileContext: (filePath, options = {}) => {
-      if (options && options.rawMode) {
-        documentLifecycleController.beginRawFullFileContext(filePath, options.source || "file_copy");
-        setRawModeFilePath(filePath);
-      } else {
-        activeContext.setActiveFilePath(filePath || null);
-      }
-    },
     setDirtyIndicator,
     setEditorValueClean: editorRuntime.setTextClean,
     setFileNameMeta,
@@ -1320,10 +1305,6 @@ async function confirmReloadFromDisk(filePath) { return fileReloadController.con
 async function discardAndReloadFileFromDisk(filePath, options = {}) {
   return fileReloadController.discardAndReloadFileFromDisk(filePath, options);
 }
-async function saveFileCopyAsAndSwitch(sourcePath, options = {}) {
-  return fileReloadController.saveFileCopyAsAndSwitch(sourcePath, options);
-}
-
 async function discardFileChangesForActiveFile() {
   const activeTuneMeta = activeContext.getActiveTuneMeta();
   if (isRawModeActive() || chordProFeature.isEnabled() || !activeTuneMeta || !activeTuneMeta.path) return false;

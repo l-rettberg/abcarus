@@ -31,8 +31,6 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("dialog:confirm-remove-sf2", label),
   confirmDeleteTune: async (label) =>
     ipcRenderer.invoke("dialog:confirm-delete-tune", label),
-  confirmSaveConflict: async (filePath) =>
-    ipcRenderer.invoke("dialog:confirm-save-conflict", filePath || ""),
   confirmReloadFromDisk: async (filePath) =>
     ipcRenderer.invoke("dialog:confirm-reload-from-disk", filePath || ""),
   confirmMissingOnDisk: async (filePath) =>

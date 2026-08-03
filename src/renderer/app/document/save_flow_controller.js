@@ -512,68 +512,28 @@ export function createSaveFlowController({
   async function saveFileHeaderText(filePath, headerText) {
     const p = String(filePath || "");
     if (!p) throw new Error("Missing file path.");
-    if (
-      !api
-      || typeof api.openWorkingCopy !== "function"
-      || typeof api.applyWorkingCopyHeaderText !== "function"
-      || typeof api.commitWorkingCopyToDisk !== "function"
-    ) {
-      throw new Error("Working copy header save is unavailable.");
-    }
-
     return withFileLock(p, async () => {
-      const opened = await api.openWorkingCopy(p);
-      if (!opened || !opened.ok) {
-        throw new Error((opened && opened.error) ? opened.error : "Unable to open working copy.");
+      const disk = await readFile(p);
+      if (!disk || !disk.ok) throw new Error(disk && disk.error ? disk.error : "Unable to read header file.");
+      const diskText = String(disk.data || "");
+      const baseline = getFileContentFromCache(p);
+      if (baseline == null) throw new Error("Unable to save safely: file baseline is missing. Re-open the file and try again.");
+      if (String(baseline) !== diskText) {
+        markDiskConflictPath(p, true);
+        throw new Error("File changed on disk. Reload it before saving the header.");
       }
-      const snapshotBefore = await refreshWorkingCopySnapshot();
-      if (!snapshotBefore || !snapshotBefore.path || !pathsEqual(snapshotBefore.path, p)) {
-        throw new Error("Working copy no longer matches the header file.");
-      }
-      const applyRes = await api.applyWorkingCopyHeaderText(String(headerText || ""), {
-        expectedPath: p,
-        expectedVersion: snapshotBefore.version,
-      });
-      if (!applyRes || !applyRes.ok) throw new Error((applyRes && applyRes.error) ? applyRes.error : "Unable to update header.");
-
-      const snapshotToSave = await refreshWorkingCopySnapshot();
-      if (!snapshotToSave || !snapshotToSave.path || !pathsEqual(snapshotToSave.path, p)) {
-        throw new Error("Working copy no longer matches the header file.");
-      }
-      const saveRes = await api.commitWorkingCopyToDisk({
-        force: false,
-        expectedPath: p,
-        expectedVersion: snapshotToSave.version,
-      });
-      if (saveRes && saveRes.missingOnDisk) {
-        const handled = await handleMissingWorkingCopySave(p);
-        if (handled && handled.ok) return { ok: true, action: "saved" };
-        return { ok: false, action: "cancel" };
-      }
+      const match = diskText.match(/^[\t ]*X:/m);
+      const headerEnd = match && Number.isFinite(match.index) ? match.index : diskText.length;
+      const rawHeader = String(headerText || "");
+      const nextHeader = rawHeader && !/[\r\n]$/.test(rawHeader) ? `${rawHeader}\n` : rawHeader;
+      const nextText = nextHeader + diskText.slice(headerEnd);
+      const saveRes = await writeFile(p, nextText, { expectedData: diskText });
       if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          const tuneIdToRestore = getRawMode() ? getActiveTuneId() : (getActiveTuneUid() || getActiveTuneId());
-          const resolved = await resolveWorkingCopySaveConflictDefault(p, { restoreTuneId: tuneIdToRestore });
-          if (resolved && resolved.ok && resolved.action === "overwrite") {
-            // continue below
-          } else if (resolved && resolved.ok && resolved.action === "save_copy_as") {
-            return { ok: true, action: "save_copy_as" };
-          } else {
-            if (resolved && resolved.error) throw new Error(resolved.error);
-            if (resolved && resolved.action === "discard_reload") return { ok: false, action: "discard_reload" };
-            return { ok: false, cancelled: true, action: "cancel" };
-          }
-        } else {
-          throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save header.");
-        }
+        if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
+        throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save header.");
       }
-
       markDiskConflictPath(p, false);
-      const snapshot = await refreshWorkingCopySnapshot();
-      if (snapshot && snapshot.path && pathsEqual(snapshot.path, p)) {
-        setFileContentInCache(p, snapshot.text);
-        attachTuneUidsToLibraryFile(p, snapshot);
-      }
+      setFileContentInCache(p, nextText);
       const updatedFile = await refreshLibraryFile(p, { force: true });
       try {
         if (updatedFile && updatedFile.path && pathsEqual(updatedFile.path, p) && isHeaderEditorFilePath(p)) {

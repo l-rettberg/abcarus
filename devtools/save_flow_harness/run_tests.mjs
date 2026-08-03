@@ -197,6 +197,39 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   ]);
 }
 
+async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
+  const path = "/tmp/header.abc";
+  const baseline = "%%MIDI program 1\n\nX:1\nT:Song\nK:C\nC|\n";
+  const writes = [];
+  const controller = createSaveFlowController({
+    state: {
+      getFileContentFromCache: () => baseline,
+      getActiveFilePath: () => path,
+      getActiveTuneMeta: () => ({ path, xNumber: "1" }),
+      getActiveTuneId: () => `${path}::1`,
+    },
+    actions: {
+      readFile: async () => ({ ok: true, data: baseline }),
+      writeFile: async (target, text, options) => {
+        writes.push([target, text, options]);
+        return { ok: true };
+      },
+      refreshLibraryFile: async () => ({ path, basename: "header.abc" }),
+      setFileContentInCache: () => {},
+      markDiskConflictPath: () => {},
+      updateHeaderStateUI: () => {},
+      markHeaderClean: () => {},
+      getActiveTuneMeta: () => ({ path }),
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+  assert.deepEqual(
+    await controller.saveFileHeaderText(path, "%%MIDI program 2"),
+    { ok: true, action: "saved" },
+  );
+  assert.deepEqual(writes, [[path, "%%MIDI program 2\nX:1\nT:Song\nK:C\nC|\n", { expectedData: baseline }]]);
+}
+
 async function testChordProSaveAsWritesDirectly() {
   const sourcePath = "/tmp/source.cho";
   const destinationPath = "/tmp/copy.cho";
@@ -256,4 +289,5 @@ await testCancelLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
 await testDirectTuneSaveRejectsExternalChange();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
+await testHeaderSaveWritesDirectlyWithDiskBaseline();
 console.log("save flow harness: all tests passed");

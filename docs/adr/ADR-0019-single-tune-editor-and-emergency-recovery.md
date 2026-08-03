@@ -44,7 +44,8 @@ are not a second mutable file authority.
 The active document also contains the file path, session-only tune identity,
 tune boundaries, dirty state, and optional header dirty state. The tune
 identity exists only for the current application session and is never written
-into ABC source files.
+into ABC source files. Tune identity and offsets are load/navigation metadata,
+not Save inputs: Save uses the already prepared four document parts.
 
 ### 2. Tune lifecycle
 
@@ -59,7 +60,9 @@ into ABC source files.
 #### Edit
 
 Editor changes affect only `Active Tune` or the explicitly editable header.
-The document becomes dirty. No hidden full-file synchronization occurs.
+The document is dirty exactly when its current editable text differs from the
+last loaded or successfully saved text. Undoing changes back to that text
+clears dirty state. No hidden full-file synchronization occurs.
 
 #### Save
 
@@ -77,7 +80,8 @@ into them and is not silently substituted for them.
 1. If the current document is clean, discard its buffers.
 2. If it is dirty, show `Save / Don't Save / Cancel`.
 3. On `Save`, complete Save before switching.
-4. On `Don't Save`, discard only the current tune document.
+4. On `Don't Save`, discard the entire current four-part document and all of
+   its unsaved editor/header changes.
 5. On `Cancel` or Save failure, keep the current tune active.
 6. Only then read the target file from disk and split the new tune.
 
@@ -115,6 +119,10 @@ renamed, or became inaccessible, ABCarus must:
 
 Emergency recovery is a failure path for the original write. It is not a
 Working Copy and must not become a parallel editing session.
+
+Creating an emergency copy does not change the active file path, does not
+select the emergency copy, and does not clear dirty state. The user must
+explicitly choose recovery before the copy becomes an active document.
 
 Emergency copies preserve the complete composed document. For Raw mode this
 is the complete Raw document; for ChordPro this is the complete hybrid file.
@@ -168,7 +176,8 @@ dirty state, tune switching, or conflict decisions.
 
 ## Verification
 
-Required tests include clean and dirty tune switching, four-part Save
+Required tests include clean and dirty tune switching, exact `Don't Save`
+discard behavior, dirty clearing after undo to the loaded text, four-part Save
 reconstruction, deleted-file recreation, external replacement overwrite,
 inaccessible-directory emergency copy and recovery, Raw Save/re-index,
 ChordPro component Save/switching, dirty structural-operation rejection,

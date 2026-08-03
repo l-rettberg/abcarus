@@ -1,6 +1,6 @@
 # ADR-0018 — Remove the Global Working Copy Model
 
-Status: Accepted
+Status: Accepted; refined by ADR-0019
 Date: 2026-08-02
 Decision Owner: Project architecture
 Supersedes: ADR-0006 for the active product architecture
@@ -97,20 +97,11 @@ the affected paths clearly.
 
 ## External Changes on Disk
 
-Before Save or a structural file operation, ABCarus may compare the current
-file fingerprint with the fingerprint captured when the active document was
-loaded. A changed file is not an application crash or a hidden merge case.
-
-The default policy is:
-
-- show the current on-disk content or a concise difference when practical;
-- let the user choose reload, overwrite with the current editor document, or
-  cancel;
-- never overwrite silently;
-- never discard the editor document without an explicit user action.
-
-This check uses file fingerprints and/or expected-content checks. It does not
-require a global Working Copy.
+The active Save and external-change policy is defined by ADR-0019. In
+particular, the current single-tune editor buffers are authoritative for Save;
+file fingerprints are not required, and external disk content is not merged
+into dirty editor state. If the original path is unavailable, ADR-0019
+requires an emergency copy.
 
 ## Raw Mode
 
@@ -190,4 +181,3 @@ Copy decision, JobManager assumption, and acceptance criteria that require a
 Working Copy are superseded by this ADR. Atomic writes, explicit user choice
 for destructive reload/overwrite, snapshot validation for long operations, and
 strict-write behavior remain required independently of that model.
-

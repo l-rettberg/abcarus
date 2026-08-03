@@ -21,6 +21,9 @@ const files = new Map([[sourcePath, source], [targetPath, target]]);
 const sourceStart = source.indexOf("X:2");
 const sourceEnd = source.length;
 const writes = [];
+const errors = [];
+let activeDirty = false;
+let activePath = "";
 let clipboard = {
   text: source.slice(sourceStart, sourceEnd),
   sourcePath,
@@ -30,14 +33,14 @@ let clipboard = {
 
 const action = createPasteMoveTuneAction({
   state: {
-    getActiveFilePath: () => "",
+    getActiveFilePath: () => activePath,
     getActiveTuneId: () => "unrelated-tune",
     getActiveTuneMeta: () => null,
     getClipboardTune: () => clipboard,
     getHeaderDirty: () => false,
     getIsNewTuneDraft: () => false,
-    hasGlobalUnsavedChanges: () => false,
-    isCurrentDocumentDirty: () => false,
+    hasGlobalUnsavedChanges: () => activeDirty,
+    isCurrentDocumentDirty: () => activeDirty,
   },
   actions: {
     clearClipboardTune: () => { clipboard = null; },
@@ -59,12 +62,12 @@ const action = createPasteMoveTuneAction({
     removeTuneFromContent: (text, start, end) => String(text).slice(0, start) + String(text).slice(end),
     renumberXInTextKeepingFirst: (text) => ({ ok: true, abcText: text }),
     requireCleanForFileOp: async () => true,
-    setActiveFilePath: () => {},
+    setActiveFilePath: (path) => { activePath = path; },
     setClipboardTune: (next) => { clipboard = next; },
     setFileContentInCache: () => {},
     setStatus: () => {},
     selectTune: async () => ({ ok: true }),
-    showSaveError: async (message) => { throw new Error(message); },
+    showSaveError: async (message) => { errors.push(String(message)); },
     withFileLocks: async (_paths, operation) => operation(),
     writeFile: async (filePath, data, options = {}) => {
       writes.push({ filePath, data, expectedData: options.expectedData });
@@ -85,5 +88,20 @@ assert.equal(writes[1].expectedData, source);
 assert.match(files.get(targetPath), /^X:9[\s\S]*X:10/m);
 assert.doesNotMatch(files.get(sourcePath), /T:Keep/);
 assert.equal(clipboard, null, "clipboard must clear only after both writes succeed");
+
+files.set(sourcePath, source);
+files.set(targetPath, target);
+writes.length = 0;
+errors.length = 0;
+clipboard = {
+  text: source.slice(sourceStart, sourceEnd),
+  sourcePath,
+  tuneId: "source-tune-2",
+  mode: "move",
+};
+activeDirty = true;
+await action.pasteClipboardToFile(targetPath);
+assert.equal(writes.length, 0, "dirty active tune must block structural move");
+assert.match(errors.join("\n"), /unsaved changes/i);
 
 console.log("library move harness: all tests passed");

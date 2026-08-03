@@ -70,7 +70,7 @@ function createDocumentSessionController({
   } = state;
 
   const {
-    discardWorkingCopyChangesForActiveFile = async () => false,
+    discardFileChangesForActiveFile = async () => false,
     flushLibraryPrefsSave = async () => {},
     loadSingleLibraryFile = async () => null,
     markHeaderClean = () => {},
@@ -245,7 +245,7 @@ function createDocumentSessionController({
       markHeaderClean();
       updateHeaderStateUI();
       if (tuneDirty) {
-        await discardWorkingCopyChangesForActiveFile();
+        await discardFileChangesForActiveFile();
       }
       return true;
     }

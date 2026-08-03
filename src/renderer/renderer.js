@@ -161,9 +161,9 @@ import { createSettingsSnapshotStore } from "./app/ui/settings_snapshot_store.js
 import { createMeasureNavigationController } from "./app/navigation/measure_navigation_controller.js";
 import { createDocumentLifecycleController } from "./app/document/document_lifecycle_controller.js";
 import { createSaveFlowController } from "./app/document/save_flow_controller.js";
-import { createWorkingCopySyncController } from "./app/document/working_copy_sync_controller.js";
-import { createWorkingCopyRuntimeController } from "./app/document/working_copy_runtime_controller.js";
-import { createWorkingCopyConflictController } from "./app/document/working_copy_conflict_controller.js";
+import { resolveTuneEntry } from "./app/document/tune_entry_resolver.js";
+import { createFileConflictState } from "./app/document/file_conflict_state.js";
+import { createFileReloadController } from "./app/document/file_reload_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import { createAppCommandsDomain } from "./app/commands/app_commands_domain.js";
 import {
@@ -363,7 +363,7 @@ let fileOperationGuard = null;
 let documentLifecycleController = null;
 let documentSessionController = null;
 let saveFlowController = null;
-let workingCopyRuntimeController = null;
+let fileConflictState = null;
 let libraryMetadataController = null;
 let libraryLifecycleController = null;
 let libraryShellController = null;
@@ -715,7 +715,6 @@ const chordProFeature = createChordProFeature({
   updateFileHeaderPanel,
   updateHeaderStateUI,
   suppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
-  refreshWorkingCopySnapshot,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
   setStatus,
   clearRenderOutput,
@@ -1059,7 +1058,6 @@ diagnosticsDomain = createDiagnosticsDomain({
     getHeaderCollapsed,
     getEditorValue,
     getHeaderEditorValue,
-    getWorkingCopySnapshot,
     getPlaybackPayload,
     getLastPlaybackPayloadCache: () => playbackDomain.getDiagnosticsSnapshot().lastPlaybackPayloadCache,
     getFollowPipelineVersion,
@@ -1266,50 +1264,46 @@ function setFileContentInCache(filePath, content) {
   fileContentCache.set(filePath, content);
 }
 
-workingCopyRuntimeController = createWorkingCopyRuntimeController({
-  api: window.api,
-  state: {
-    isFilePerfEnabled,
-  },
-  actions: {
-    attachTuneUidsToLibraryFile,
-    logErr,
-    logFilePerf,
-    perfNowMs,
-    recordRecentAction,
-    renderUnifiedStatus,
-    safeBasename,
-    scheduleRenderLibraryTree,
-  },
-  utils: {
-    normalizeLibraryPath,
-    pathsEqual,
-  },
-});
-
-function getWorkingCopySnapshot() {
-  return workingCopyRuntimeController ? workingCopyRuntimeController.getSnapshot() : null;
+async function refreshActiveTuneSnapshot() {
+  const meta = activeContext.getActiveTuneMeta();
+  const path = meta && meta.path ? String(meta.path) : "";
+  if (!path) return null;
+  let text = getFileContentFromCache(path);
+  if (text == null) {
+    const result = await readFile(path);
+    if (!result || !result.ok) return null;
+    text = String(result.data || "");
+    setFileContentInCache(path, text);
+  }
+  const file = (libraryRuntime.getFiles() || []).find((entry) => pathsEqual(entry && entry.path, path));
+  const tunes = file && Array.isArray(file.tunes) ? file.tunes.map((tune) => ({
+    tuneUid: tune.tuneUid || "",
+    xLabel: tune.xNumber != null ? `X:${tune.xNumber}` : "",
+    start: Number(tune.startOffset),
+    end: Number(tune.endOffset),
+  })) : [];
+  return { path, text: String(text), tunes, preambleSlice: { start: 0, end: Number(file && file.headerEndOffset) || 0 } };
 }
 
+fileConflictState = createFileConflictState({
+  normalizePath: normalizeLibraryPath,
+  onChange: () => { renderUnifiedStatus(); },
+});
+
 function markDiskConflictPath(filePath, hasConflict) {
-  if (workingCopyRuntimeController) workingCopyRuntimeController.markDiskConflictPath(filePath, hasConflict);
+  fileConflictState.mark(filePath, hasConflict);
 }
 
 function hasDiskConflictPath(filePath) {
-  return workingCopyRuntimeController ? workingCopyRuntimeController.hasDiskConflictPath(filePath) : false;
+  return fileConflictState.has(filePath);
 }
 
-async function refreshWorkingCopySnapshot() {
-  return workingCopyRuntimeController ? workingCopyRuntimeController.refreshSnapshot() : null;
-}
-
-const workingCopyConflictController = createWorkingCopyConflictController({
+const fileReloadController = createFileReloadController({
   api: window.api,
   state: {
     getRawMode: () => isRawModeActive(),
   },
   actions: {
-    attachTuneUidsToLibraryFile,
     confirmOverwrite,
     fileExists: (filePath) => window.api && typeof window.api.fileExists === "function"
       ? window.api.fileExists(filePath)
@@ -1320,9 +1314,9 @@ const workingCopyConflictController = createWorkingCopyConflictController({
     safeBasename,
     safeDirname,
     selectTune,
-    switchWorkingCopyFileContext: (filePath, options = {}) => {
+    switchFileContext: (filePath, options = {}) => {
       if (options && options.rawMode) {
-        documentLifecycleController.beginRawFullFileContext(filePath, options.source || "working_copy");
+        documentLifecycleController.beginRawFullFileContext(filePath, options.source || "file_copy");
         setRawModeFilePath(filePath);
       } else {
         activeContext.setActiveFilePath(filePath || null);
@@ -1348,42 +1342,30 @@ const workingCopyConflictController = createWorkingCopyConflictController({
   },
 });
 
-async function confirmReloadFromDisk(filePath) {
-  return workingCopyConflictController.confirmReloadFromDisk(filePath);
+async function confirmReloadFromDisk(filePath) { return fileReloadController.confirmReloadFromDisk(filePath); }
+async function resolveFileSaveConflictDefault(filePath, options = {}) {
+  return fileReloadController.resolveFileSaveConflictDefault(filePath, options);
+}
+async function discardAndReloadFileFromDisk(filePath, options = {}) {
+  return fileReloadController.discardAndReloadFileFromDisk(filePath, options);
+}
+async function saveFileCopyAsAndSwitch(sourcePath, options = {}) {
+  return fileReloadController.saveFileCopyAsAndSwitch(sourcePath, options);
 }
 
-async function resolveWorkingCopySaveConflictDefault(filePath, options = {}) {
-  return workingCopyConflictController.resolveWorkingCopySaveConflictDefault(filePath, options);
-}
-
-async function discardAndReloadWorkingCopyFromDisk(filePath, options = {}) {
-  return workingCopyConflictController.discardAndReloadWorkingCopyFromDisk(filePath, options);
-}
-
-async function saveWorkingCopyCopyAsAndSwitch(sourcePath, options = {}) {
-  return workingCopyConflictController.saveWorkingCopyCopyAsAndSwitch(sourcePath, options);
-}
-
-let workingCopySyncController = null;
-
-async function discardWorkingCopyChangesForActiveFile() {
-  return workingCopySyncController
-    ? workingCopySyncController.discardChangesForActiveFile()
-    : false;
-}
-
-function syncLibraryFileFromWorkingCopySnapshot(filePath, snapshot) {
-  return libraryMetadataController.syncLibraryFileFromWorkingCopySnapshot(filePath, snapshot);
-}
-
-function attachTuneUidsToLibraryFile(filePath, snapshot) {
-  return libraryMetadataController.attachTuneUidsToLibraryFile(filePath, snapshot);
+async function discardFileChangesForActiveFile() {
+  const activeTuneMeta = activeContext.getActiveTuneMeta();
+  if (isRawModeActive() || chordProFeature.isEnabled() || !activeTuneMeta || !activeTuneMeta.path) return false;
+  const res = await readFile(activeTuneMeta.path);
+  if (!res || !res.ok) return false;
+  setFileContentInCache(activeTuneMeta.path, String(res.data || ""));
+  markCurrentDocumentClean();
+  setDirtyIndicator(false);
+  return true;
 }
 
 function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset } = {}) {
-  return workingCopySyncController
-    ? workingCopySyncController.resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset })
-    : null;
+  return resolveTuneEntry(snapshot, { tuneUid, tuneIndex, startOffset });
 }
 libraryDocumentContext = createLibraryDocumentContext({
   activeTuneContext: activeContext,
@@ -1393,29 +1375,6 @@ libraryDocumentContext = createLibraryDocumentContext({
   setActiveTuneText,
   setCurrentDocument,
   setDirtyIndicator,
-});
-
-workingCopySyncController = createWorkingCopySyncController({
-  api: window.api,
-  state: {
-    getActiveFilePath: () => activeContext.getActiveFilePath(),
-    getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
-    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-    getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot,
-    isChordProEnabled: () => chordProFeature.isEnabled(),
-  },
-  actions: {
-    markCurrentDocumentClean,
-    patchCurrentDocument,
-    pathsEqual,
-    readFile,
-    refreshWorkingCopySnapshot,
-    setActiveTuneMetaOffsets: activeContext.setTuneMetaOffsets,
-    setDirtyIndicator,
-    setEditorValueClean: editorRuntime.setTextClean,
-    setFileContentInCache,
-  },
 });
 
 saveFlowController = createSaveFlowController({
@@ -1436,7 +1395,6 @@ saveFlowController = createSaveFlowController({
     getIsNewTuneDraft: activeContext.isNewTuneDraft,
     getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot,
     getChordProFullText: () => chordProFeature.getFullText(),
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
@@ -1444,7 +1402,6 @@ saveFlowController = createSaveFlowController({
     resolveSaveSession,
   },
   actions: {
-    attachTuneUidsToLibraryFile,
     addRecentFolder: (entry) => window.api && typeof window.api.addRecentFolder === "function"
       ? window.api.addRecentFolder(entry)
       : Promise.resolve(false),
@@ -1458,7 +1415,6 @@ saveFlowController = createSaveFlowController({
     confirmOverwrite,
     ensureXNumberInAbc,
     isHeaderEditorFilePath,
-    isWorkingCopyOpenForFile,
     loadLibraryFileIntoEditor,
     loadLibraryFromFolder,
     markCurrentDocumentClean,
@@ -1474,7 +1430,6 @@ saveFlowController = createSaveFlowController({
     recordRecentAction,
     refreshLibraryFile,
     readFile,
-    refreshWorkingCopySnapshot,
     resetHeaderEditorFilePath,
     resetTransposePreviewState,
     safeBasename,
@@ -1584,7 +1539,7 @@ const libraryUiDomain = createLibraryUiDomain({
     confirmReloadFromDisk,
     copyTuneById,
     deleteTuneById,
-    discardAndReloadWorkingCopyFromDisk,
+    discardAndReloadFileFromDisk,
     duplicateTuneById,
     enableDraggableModal,
     ensureFullLibraryIndex,
@@ -1605,7 +1560,6 @@ const libraryUiDomain = createLibraryUiDomain({
     hasGlobalUnsavedChanges,
     hasUnsavedChangesForFile,
     handleTemplatesContextMenuAction: (action, target) => templatesFeature.handleContextMenuAction(action, target),
-    isWorkingCopyOpenForFile,
     loadLibraryFromFolder,
     moveTuneToFile: (tuneId, targetPath) => pasteMoveTuneAction.moveTuneToFile(tuneId, targetPath),
     openTuneFromLibrarySelection,
@@ -1615,7 +1569,6 @@ const libraryUiDomain = createLibraryUiDomain({
     readFile,
     refreshLibraryFile,
     refreshLibraryIndex,
-    refreshWorkingCopySnapshot,
     renderBufferStatus,
     renameFile,
     renameLibraryFile,
@@ -1634,7 +1587,6 @@ const libraryUiDomain = createLibraryUiDomain({
     showOpenFolderDialog,
     showSaveError,
     showToast,
-    syncLibraryFileFromWorkingCopySnapshot,
     updateFileHeaderPanel,
     updateLibraryStatus,
     withFileLock,
@@ -1836,7 +1788,6 @@ editStateController = createEditStateController({
     getHeaderDirty,
     getIsNewTuneDraft: activeContext.isNewTuneDraft,
     getRawMode: () => isRawModeActive(),
-    getWorkingCopySnapshot,
   },
   actions: {
     renderUnifiedStatus: () => renderUnifiedStatus(),
@@ -1850,7 +1801,6 @@ editStateController = createEditStateController({
 fileOperationGuard = createFileOperationGuard({
   state: {
     getActiveEditFilePath,
-    getWorkingCopySnapshot,
     hasGlobalUnsavedChanges,
   },
   actions: {
@@ -2072,7 +2022,6 @@ libraryMetadataController = createLibraryMetadataController({
   state: {
     getLibraryIndex: libraryRuntime.getIndex,
     setLibraryIndex: libraryRuntime.setIndex,
-    getWorkingCopySnapshot,
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     setActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
@@ -2086,7 +2035,6 @@ libraryMetadataController = createLibraryMetadataController({
     getLibraryTextFilter: () => libraryUiDomain.getLibraryTextFilter(),
     isTuneErrorFilterActive,
     isTuneErrorScanInFlight,
-    isWorkingCopyOpenForFile,
     isStartupPerfEnabled,
   },
   actions: {
@@ -2153,14 +2101,12 @@ libraryCrudDomain = createLibraryCrudDomain({
     getSaveSession: resolveSaveSession,
     hasGlobalUnsavedChanges,
     isCurrentDocumentDirty,
-    isWorkingCopyOpenForFile,
   },
   actions: {
-    attachTuneUidsToLibraryFile,
     confirmAppendToFile,
     confirmDeleteTune,
     confirmOverwrite,
-    discardWorkingCopyChangesForActiveFile,
+    discardFileChangesForActiveFile,
     ensureCopyTitleInAbc,
     ensureSafeToAbandonCurrentDoc,
     ensureXNumberInAbc,
@@ -2171,7 +2117,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     getFileContentFromCache,
     getNextXNumber,
     getSuggestedBaseName,
-    getWorkingCopySnapshot,
     hasUnsavedChangesForFile,
     libraryDocumentContext,
     loadLibraryFileIntoEditor,
@@ -2185,7 +2130,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     pathsEqual,
     readFile,
     refreshLibraryFile,
-    refreshWorkingCopySnapshot,
     removeTuneFromContent,
     renumberXInTextKeepingFirst,
     renumberXLinesConsecutive,
@@ -2206,7 +2150,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     showSaveError,
     showToast,
     stripFileExtension,
-    syncLibraryFileFromWorkingCopySnapshot,
     updateFileContext,
     updateFileHeaderPanel,
     updateHeaderStateUI,
@@ -2232,7 +2175,6 @@ libraryLifecycleController = createLibraryLifecycleController({
   state: {
     getLibraryIndex: libraryRuntime.getIndex,
     setLibraryIndex: libraryRuntime.setIndex,
-    getWorkingCopySnapshot,
     getRawMode: () => isRawModeActive(),
     getFocusModeEnabled: isFocusModeEnabled,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -2243,13 +2185,11 @@ libraryLifecycleController = createLibraryLifecycleController({
     getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
     getSuppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
     isPayloadMode,
-    isWorkingCopyOpenForFile,
     isCurrentDocumentDirty,
   },
   actions: {
     abbreviatePathForLog,
     applyLibraryUiStateFromSettings: (settings) => libraryUiDomain.applyLibraryUiStateFromSettings(settings),
-    attachTuneUidsToLibraryFile,
     buildTuneMetaLabel,
     clearAbPlan,
     clearActiveErrorHighlight,
@@ -2286,7 +2226,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     recordRecentAction,
     refreshHeaderLayers: () => headerLayersController.refreshHeaderLayers(),
     refreshLibraryFile,
-    refreshWorkingCopySnapshot,
     reportStartupStatus,
     resetEditorSelectionToStart: editorRuntime.resetSelectionToStart,
     resetPlaybackState,
@@ -2356,7 +2295,7 @@ documentSessionController = createDocumentSessionController({
     addRecentFolder: (entry) => window.api && typeof window.api.addRecentFolder === "function"
       ? window.api.addRecentFolder(entry)
       : Promise.resolve(false),
-    discardWorkingCopyChangesForActiveFile,
+    discardFileChangesForActiveFile,
     flushLibraryPrefsSave,
     loadSingleLibraryFile,
     markHeaderClean,
@@ -2745,7 +2684,7 @@ microtonalDomain = createMicrotonalDomain({
     mapEditorOffsetToRenderIdx,
     maybeScrollRenderToNote,
     nowMs: perfNowMs,
-    refreshWorkingCopySnapshot,
+    refreshActiveTuneSnapshot,
     resolveTuneEntryFromSnapshot,
     showToast: (message, timeout) => showToast(message, timeout),
   },
@@ -3124,10 +3063,6 @@ function hasUnsavedChangesInActiveEditContext() {
 
 async function requireCleanForFileOp(targetPath, actionLabel) {
   return fileOperationGuard ? fileOperationGuard.requireCleanForFileOp(targetPath, actionLabel) : false;
-}
-
-function isWorkingCopyOpenForFile(filePath) {
-  return fileOperationGuard ? fileOperationGuard.isWorkingCopyOpenForFile(filePath) : false;
 }
 
 function showContextMenuAt(x, y, target) {
@@ -3568,7 +3503,7 @@ appCommandsDomain = createAppCommandsDomain({
     applyAbc2abcTransform,
     clearLibraryFilter,
     confirmReloadFromDisk,
-    discardAndReloadWorkingCopyFromDisk,
+    discardAndReloadFileFromDisk,
     dumpDebug: () => diagnosticsDomain.dumpDebugToFile().catch(() => {}),
     enterPayloadMode: () => payloadModeFeature.enter(),
     exitPayloadMode: () => payloadModeFeature.exit(),

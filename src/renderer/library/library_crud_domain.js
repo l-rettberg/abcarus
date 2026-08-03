@@ -157,7 +157,6 @@ function createLibraryCrudDomain({
       setFileContentInCache: actions.setFileContentInCache,
       setStatus: actions.setStatus,
       showSaveError: actions.showSaveError,
-      syncLibraryFileFromWorkingCopySnapshot: actions.syncLibraryFileFromWorkingCopySnapshot,
       withFileLock: actions.withFileLock,
       writeFile: actions.writeFile,
     },

@@ -297,7 +297,7 @@ export function createLibraryLifecycleController({
       key
       && selectTuneInFlightPromise
       && selectTuneInFlightKey === key
-      && !options._syncedFromWorkingCopy
+      && !options._syncedFromSource
       && !options._reparsed
     ) {
       if (isFilePerfEnabled()) logFilePerf("selectTune: coalesced", { tuneId: key });
@@ -305,7 +305,7 @@ export function createLibraryLifecycleController({
     }
 
     const runPromise = selectTuneImpl(tuneId, options);
-    if (key && !options._syncedFromWorkingCopy && !options._reparsed) {
+    if (key && !options._syncedFromSource && !options._reparsed) {
       selectTuneInFlightKey = key;
       selectTuneInFlightPromise = runPromise;
     }

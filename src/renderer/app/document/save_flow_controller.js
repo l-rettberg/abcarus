@@ -18,8 +18,6 @@ export function createSaveFlowController({
     getIsNewTuneDraft = () => false,
     getLibraryIndex = () => null,
     getRawMode = () => false,
-    getWorkingCopySnapshot = () => null,
-    getWorkingCopyOpenError = () => "",
     getChordProFullText = () => "",
     isChordProEnabled = () => false,
     isChordProFullView = () => false,
@@ -28,7 +26,6 @@ export function createSaveFlowController({
   } = state;
 
   const {
-    attachTuneUidsToLibraryFile = () => {},
     addRecentFolder = () => {},
     createNewFileAtPath = async () => false,
     getDefaultSaveDir = () => "",
@@ -36,9 +33,7 @@ export function createSaveFlowController({
     getSuggestedBaseName = () => "untitled",
     fileExists = async () => false,
     confirmOverwrite = async () => "cancel",
-    ensureWorkingCopyOpenForPath = async () => false,
     isHeaderEditorFilePath = () => false,
-    isWorkingCopyOpenForFile = () => false,
     loadLibraryFileIntoEditor = async () => null,
     loadLibraryFromFolder = async () => null,
     markCurrentDocumentClean = () => null,
@@ -52,7 +47,6 @@ export function createSaveFlowController({
     reconcileActiveTuneAfterSave = () => {},
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
     resetHeaderEditorFilePath = () => {},
     resetTransposePreviewState = () => {},
     safeBasename = (p) => String(p || "").split("/").pop() || "",
@@ -211,15 +205,12 @@ export function createSaveFlowController({
     const session = resolveSaveSession();
     const activeFilePath = getActiveFilePath();
     const activeTuneMeta = getActiveTuneMeta();
-    const workingCopySnapshot = getWorkingCopySnapshot();
-
     recordRecentAction("save.start", {
       currentDocPath: currentDocument.path ? String(currentDocument.path) : null,
       currentDocDirty: Boolean(currentDocument.dirty),
       headerDirty: getHeaderDirty(),
       isNewTuneDraft: Boolean(getIsNewTuneDraft()),
       activeTunePath: activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : null,
-      wcSnapshotPath: workingCopySnapshot && workingCopySnapshot.path ? String(workingCopySnapshot.path) : null,
       payloadMode: Boolean(isPayloadMode()),
       rawMode: Boolean(getRawMode()),
       focusMode: Boolean(getFocusModeEnabled()),
@@ -234,7 +225,7 @@ export function createSaveFlowController({
       || (activeTuneMeta && activeTuneMeta.path)
       || ""
     );
-    const combineHeaderWithWorkingCopySave = Boolean(
+    const combineHeaderWithTuneSave = Boolean(
       getHeaderDirty()
       && headerTargetPath
       && session.intent === SAVE_INTENT.REPLACE_TUNE
@@ -242,7 +233,7 @@ export function createSaveFlowController({
       && activeTuneMeta.path
       && pathsEqual(activeTuneMeta.path, headerTargetPath)
     );
-    if (getHeaderDirty() && headerTargetPath && !combineHeaderWithWorkingCopySave) {
+    if (getHeaderDirty() && headerTargetPath && !combineHeaderWithTuneSave) {
       try {
         const headerRes = await saveFileHeaderText(headerTargetPath, getHeaderEditorValue());
         if (headerRes && headerRes.ok) {
@@ -281,18 +272,14 @@ export function createSaveFlowController({
 
     if (session.intent === SAVE_INTENT.REPLACE_TUNE && activeTuneMeta && activeTuneMeta.path) {
       const ok = await performSimpleTuneSave(activeTuneMeta.path, {
-        includeHeader: Boolean(combineHeaderWithWorkingCopySave && getHeaderDirty()),
+        includeHeader: Boolean(combineHeaderWithTuneSave && getHeaderDirty()),
       });
       return Boolean(ok);
     }
 
     if (session.intent === SAVE_INTENT.FULL_FILE && getCurrentDocumentPath()) {
       const filePath = getCurrentDocumentPath();
-      await showSaveError(
-        isWorkingCopyOpenForFile(filePath)
-          ? "Internal error: full-file content was not routed through its working copy."
-          : "Unable to save safely: file context is missing. Re-open the file and try again."
-      );
+      await showSaveError("Unable to save safely: file context is missing. Re-open the file and try again.");
       return false;
     }
 

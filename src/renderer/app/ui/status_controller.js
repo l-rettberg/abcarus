@@ -89,7 +89,7 @@ function createStatusController({
     renderUnifiedStatus();
   }
 
-  function computeWorkingCopyFileState() {
+  function computeFileState() {
     const currentDoc = getCurrentDoc();
     const activeTuneMeta = getActiveTuneMeta();
     const filePath = getRawMode()
@@ -119,7 +119,7 @@ function createStatusController({
     const display = normalized === "OK" ? "Ready" : raw;
     const displayNorm = String(display || "").trim();
 
-    const fileState = computeWorkingCopyFileState();
+    const fileState = computeFileState();
 
     const isNeutral = !displayNorm || /^ready\b/i.test(displayNorm);
     const label = startupUiLoading && isNeutral
@@ -174,7 +174,7 @@ function createStatusController({
 
   return {
     buildTuneMetaLabel,
-    computeWorkingCopyFileState,
+    computeFileState,
     getBufferStatusText,
     markStartupAutoLoadStarted,
     markStartupRecentOpenStarted,

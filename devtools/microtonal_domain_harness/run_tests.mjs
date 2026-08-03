@@ -66,7 +66,7 @@ const domain = createMicrotonalDomain({
     findMeasureRangeAt: () => null,
     getEditorView: () => null,
     getOutputElement: () => null,
-    refreshWorkingCopySnapshot: async () => null,
+    refreshActiveTuneSnapshot: async () => null,
     resolveTuneEntryFromSnapshot: () => null,
     showToast: (message) => toasts.push(message),
   },

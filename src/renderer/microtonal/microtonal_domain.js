@@ -116,7 +116,7 @@ function createMicrotonalDomain({
           logError,
           logPerf: host.logPerf,
           nowMs: host.nowMs,
-          refreshWorkingCopySnapshot: host.refreshWorkingCopySnapshot,
+          refreshActiveTuneSnapshot: host.refreshActiveTuneSnapshot,
           resolveActiveTune,
           scrollToCurrentHighlight: rendererBridge.scrollToCurrentHighlight,
           setHighlightRanges: rendererBridge.setHighlightRanges,

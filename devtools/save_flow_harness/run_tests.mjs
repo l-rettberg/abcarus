@@ -32,9 +32,9 @@ function makeController({
   };
   const api = {
     fileExists: async () => false,
-    applyWorkingCopyHeaderText: async () => headerResult,
-    writeWorkingCopyToPathAndSwitch: async (path, context) => {
-      calls.push(["writeWorkingCopyToPathAndSwitch", path, context]);
+    applyHeaderText: async () => headerResult,
+    writeFileCopyAndSwitch: async (path, context) => {
+      calls.push(["writeFileCopyAndSwitch", path, context]);
       return writeResult;
     },
   };
@@ -52,14 +52,10 @@ function makeController({
       getHeaderEditorValue: () => "T: Source\n",
       getIsNewTuneDraft: () => false,
       getRawMode: () => false,
-      getWorkingCopySnapshot: () => snapshot,
-      getWorkingCopyOpenError: () => "",
       isChordProEnabled: () => chordPro,
       isChordProFullView: () => true,
     },
     actions: {
-      ensureWorkingCopyOpenForPath: async () => ({ ok: true }),
-      flushWorkingCopyFullSync: async () => flushFullResult,
       fileExists: api.fileExists,
       confirmOverwrite: async () => "replace",
       getDefaultSaveDir: () => "/tmp",
@@ -67,11 +63,9 @@ function makeController({
       getEditorValue: () => snapshot.text,
       getChordProFullText: () => snapshot.text,
       getLibraryIndex: () => null,
-      isWorkingCopyOpenForFile: () => true,
       loadLibraryFileIntoEditor: async () => ({ ok: true }),
       normalizeLibraryPath: (value) => String(value || ""),
       pathsEqual: (a, b) => String(a || "") === String(b || ""),
-      refreshWorkingCopySnapshot: async () => snapshot,
       setDirtyIndicator: (value) => calls.push(["setDirtyIndicator", value]),
       showSaveDialog: async () => {
         calls.push(["showSaveDialog"]);
@@ -275,7 +269,7 @@ async function testCancelLeavesSourceUntouched() {
   const { controller, calls, snapshot, sourcePath } = makeController({ destination: null });
   const result = await controller.performSaveAsFlow();
   assert.equal(result, false);
-  assert.equal(calls.some(([kind]) => kind === "writeWorkingCopyToPathAndSwitch"), false);
+  assert.equal(calls.some(([kind]) => kind === "writeFileCopyAndSwitch"), false);
   assert.equal(calls.some(([kind]) => kind === "setActiveFilePath"), false);
   assert.equal(calls.some(([kind]) => kind === "patchCurrentDocument"), false);
   assert.deepEqual(
@@ -286,7 +280,7 @@ async function testCancelLeavesSourceUntouched() {
       version: 4,
       dirty: true,
     },
-    "Save As cancel must preserve the complete source working-copy state"
+    "Save As cancel must preserve the complete source baseline"
   );
 }
 

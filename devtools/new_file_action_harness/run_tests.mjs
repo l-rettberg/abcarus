@@ -16,9 +16,7 @@ const { createNewFileAction } = await import(`data:text/javascript;base64,${enco
 const paths = ["/music/new.abc", "/music/template.abc"];
 const writes = [];
 const action = createNewFileAction({
-  api: {
-    openWorkingCopy: async () => ({ ok: true }),
-  },
+  api: {},
   actions: {
     ensureSafeToAbandonCurrentDoc: async () => true,
     ensureXNumberInAbc: (text, number) => String(text).replace(/^X:\s*\d+/m, `X:${number}`),
@@ -28,7 +26,6 @@ const action = createNewFileAction({
     loadLibraryFileIntoEditor: async () => ({ ok: true }),
     mkdirp: async () => {},
     refreshLibraryFile: async () => null,
-    refreshWorkingCopySnapshot: async () => null,
     safeBasename: (path) => String(path).split("/").pop(),
     safeDirname: () => "/music",
     showSaveDialog: async () => paths.shift(),

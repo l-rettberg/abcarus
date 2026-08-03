@@ -13,7 +13,6 @@ function createRenameFileController({
     getActiveEditFilePath = () => "",
     hasGlobalUnsavedChanges = () => false,
     hasUnsavedChangesForFile = () => false,
-    isWorkingCopyOpenForFile = () => false,
   } = state;
 
   const {
@@ -67,10 +66,6 @@ function createRenameFileController({
       showToast("Save/Discard changes before renaming files.", 2600);
       return;
     }
-    if (isWorkingCopyOpenForFile(filePath)) {
-      showToast("Close the file in the editor before renaming it.", 2600);
-      return;
-    }
     renamingFilePath = filePath;
     renderLibraryTree();
     requestAnimationFrame(() => {
@@ -98,12 +93,6 @@ function createRenameFileController({
       }
       if (hasUnsavedChangesForFile(oldPath)) {
         await showSaveError("Refusing to rename: the file has unsaved changes. Save/Discard them and try again.");
-        renamingFilePath = null;
-        renderLibraryTree();
-        return;
-      }
-      if (isWorkingCopyOpenForFile(oldPath)) {
-        await showSaveError("Refusing to rename: the file is open in the editor. Close it and try again.");
         renamingFilePath = null;
         renderLibraryTree();
         return;

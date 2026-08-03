@@ -1,4 +1,4 @@
-function createWorkingCopyConflictController({ api = null, state = {}, actions = {}, utils = {} } = {}) {
+function createFileReloadController({ api = null, state = {}, actions = {}, utils = {} } = {}) {
   const { getRawMode = () => false } = state;
   const {
     refreshLibraryFile = async () => null,
@@ -9,7 +9,7 @@ function createWorkingCopyConflictController({ api = null, state = {}, actions =
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
     selectTune = async () => {},
-    switchWorkingCopyFileContext = () => {},
+    switchFileContext = () => {},
     setDirtyIndicator = () => {},
     setEditorValueClean = () => {},
     setFileContentInCache = () => {},
@@ -31,7 +31,7 @@ function createWorkingCopyConflictController({ api = null, state = {}, actions =
     return Boolean(await api.confirmReloadFromDisk(filePath));
   }
 
-  async function discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId = null } = {}) {
+  async function discardAndReloadFileFromDisk(filePath, { restoreTuneId = null } = {}) {
     const p = String(filePath || "");
     if (!p) return { ok: false, error: "Missing file path." };
     const disk = await readFile(p);
@@ -56,19 +56,12 @@ function createWorkingCopyConflictController({ api = null, state = {}, actions =
     return { ok: true, updatedFile };
   }
 
-  async function saveWorkingCopyCopyAsAndSwitch(sourcePath, { restoreTuneId = null } = {}) {
+  async function saveFileCopyAsAndSwitch(sourcePath, { restoreTuneId = null } = {}) {
     const fromPath = String(sourcePath || "");
-    if (!fromPath || !api || typeof api.showSaveDialog !== "function") {
-      return { ok: false, error: "Save Copy As is unavailable." };
-    }
-    const targetPath = await api.showSaveDialog(
-      `${stripFileExtension(safeBasename(fromPath)) || "Untitled"}_Copy.abc`,
-      safeDirname(fromPath) || undefined,
-    );
+    if (!fromPath || !api || typeof api.showSaveDialog !== "function") return { ok: false, error: "Save Copy As is unavailable." };
+    const targetPath = await api.showSaveDialog(`${stripFileExtension(safeBasename(fromPath)) || "Untitled"}_Copy.abc`, safeDirname(fromPath) || undefined);
     if (!targetPath) return { ok: false, cancelled: true };
-    if (await fileExists(targetPath) && (await confirmOverwrite(targetPath)) !== "replace") {
-      return { ok: false, cancelled: true };
-    }
+    if (await fileExists(targetPath) && (await confirmOverwrite(targetPath)) !== "replace") return { ok: false, cancelled: true };
     const source = await readFile(fromPath);
     if (!source || !source.ok) return { ok: false, error: source && source.error ? source.error : "Unable to read source file." };
     const sourceText = String(source.data || "");
@@ -78,7 +71,7 @@ function createWorkingCopyConflictController({ api = null, state = {}, actions =
       setFileContentInCache(targetPath, sourceText);
       const updatedFile = await refreshLibraryFile(targetPath, { force: true });
       if (updatedFile && updatedFile.basename) setFileNameMeta(stripFileExtension(updatedFile.basename));
-      switchWorkingCopyFileContext(targetPath, { rawMode: getRawMode(), source: "save_copy_as" });
+      switchFileContext(targetPath, { rawMode: getRawMode(), source: "save_copy_as" });
       if (getRawMode()) {
         const parts = splitFileIntoHeaderAndBody(sourceText);
         setHeaderEditorValueClean(parts.headerText);
@@ -97,17 +90,12 @@ function createWorkingCopyConflictController({ api = null, state = {}, actions =
     });
   }
 
-  async function resolveWorkingCopySaveConflictDefault(filePath) {
+  async function resolveFileSaveConflictDefault(filePath) {
     markDiskConflictPath(filePath, true);
     return { ok: false, cancelled: true, action: "cancel", error: "File changed on disk. Reload it before saving." };
   }
 
-  return {
-    confirmReloadFromDisk,
-    discardAndReloadWorkingCopyFromDisk,
-    resolveWorkingCopySaveConflictDefault,
-    saveWorkingCopyCopyAsAndSwitch,
-  };
+  return { confirmReloadFromDisk, discardAndReloadFileFromDisk, resolveFileSaveConflictDefault, saveFileCopyAsAndSwitch };
 }
 
-export { createWorkingCopyConflictController };
+export { createFileReloadController };

@@ -619,7 +619,7 @@ function createIntonationExplorerFeature({
     setStatus("Refreshing...");
     try {
       const tSnap0 = perfOn ? nowMs() : 0;
-      const snapshot = typeof host.refreshWorkingCopySnapshot === "function" ? await host.refreshWorkingCopySnapshot() : null;
+      const snapshot = typeof host.refreshActiveTuneSnapshot === "function" ? await host.refreshActiveTuneSnapshot() : null;
       if (perfOn) logPerf("snapshot", { ms: Math.round(nowMs() - tSnap0) });
       if (!snapshot || snapshot.text == null) {
         rows = [];
@@ -631,7 +631,7 @@ function createIntonationExplorerFeature({
         setDnaUi({ dnaText: "", pitchSetText: "" });
         renderCandidates([]);
         clearPlot();
-        setStatus("Unable to load working copy snapshot.", { error: true });
+        setStatus("Unable to load the active tune.", { error: true });
         return;
       }
 

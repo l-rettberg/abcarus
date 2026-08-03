@@ -174,7 +174,7 @@ async function testConcurrentRawEnterIsIgnored() {
 async function testRawSaveUsesDiskBaseline() {
   const h = createHarness();
   await h.feature.enter();
-  assert.equal(await h.feature.save(), true, "raw save should succeed without a working copy");
+  assert.equal(await h.feature.save(), true, "raw save should succeed without a hidden file buffer");
   assert.equal(h.writes.length, 1, "raw save should perform one direct file write");
 }
 

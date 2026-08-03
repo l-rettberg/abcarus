@@ -16,7 +16,6 @@ function createEditStateController({
     getHeaderDirty = () => false,
     getIsNewTuneDraft = () => false,
     getRawMode = () => false,
-    getWorkingCopySnapshot = () => null,
   } = state;
 
   const {
@@ -97,8 +96,6 @@ function createEditStateController({
     const activePath = getActiveEditFilePath();
     const activeDirty = hasGlobalUnsavedChanges();
     if (activeDirty && activePath && pathsEqual(activePath, p)) return true;
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    if (workingCopySnapshot && workingCopySnapshot.dirty && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p)) return true;
     return false;
   }
 

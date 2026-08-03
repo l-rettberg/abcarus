@@ -6,7 +6,6 @@ export function createLibraryMetadataController({
   const {
     getLibraryIndex = () => null,
     setLibraryIndex = () => {},
-    getWorkingCopySnapshot = () => null,
     getActiveFilePath = () => "",
     setActiveFilePath = () => {},
     getActiveTuneMeta = () => null,
@@ -20,7 +19,6 @@ export function createLibraryMetadataController({
     getLibraryTextFilter = () => "",
     isTuneErrorFilterActive = () => false,
     isTuneErrorScanInFlight = () => false,
-    isWorkingCopyOpenForFile = () => false,
     isStartupPerfEnabled = () => false,
   } = state;
 
@@ -154,35 +152,35 @@ export function createLibraryMetadataController({
     return operation;
   }
 
-  function attachTuneUidsToLibraryFile(filePath, snapshot) {
+  function attachTuneEntries(filePath, snapshot) {
     const libraryIndex = getLibraryIndex();
     if (!libraryIndex || !libraryIndex.files || !filePath || !snapshot) return;
     const fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, filePath));
     if (!fileEntry || !Array.isArray(fileEntry.tunes)) return;
-    const wcTunes = Array.isArray(snapshot.tunes) ? snapshot.tunes : [];
-    if (!wcTunes.length) return;
-    if (fileEntry.tunes.length !== wcTunes.length) return;
+    const snapshotTunes = Array.isArray(snapshot.tunes) ? snapshot.tunes : [];
+    if (!snapshotTunes.length) return;
+    if (fileEntry.tunes.length !== snapshotTunes.length) return;
     for (let i = 0; i < fileEntry.tunes.length; i += 1) {
       const tune = fileEntry.tunes[i];
-      const wcTune = wcTunes[i];
-      if (!tune || !wcTune) continue;
+      const snapshotTune = snapshotTunes[i];
+      if (!tune || !snapshotTune) continue;
       tune.tuneIndex = i;
-      tune.tuneUid = wcTune.tuneUid;
+      tune.tuneUid = snapshotTune.tuneUid;
       try {
-        const xMatch = String(wcTune.xLabel || "").match(/^\s*X:\s*(\d+)/);
+        const xMatch = String(snapshotTune.xLabel || "").match(/^\s*X:\s*(\d+)/);
         if (xMatch) tune.xNumber = xMatch[1];
       } catch {}
     }
   }
 
-  function syncLibraryFileFromWorkingCopySnapshot(filePath, snapshot) {
+  function syncLibraryFileFromSnapshot(filePath, snapshot) {
     const libraryIndex = getLibraryIndex();
     if (!libraryIndex || !libraryIndex.files || !filePath || !snapshot) return null;
     const fileEntry = libraryIndex.files.find((f) => pathsEqual(f.path, filePath));
     if (!fileEntry) return null;
 
     const fullText = String(snapshot.text || "");
-    const wcTunes = Array.isArray(snapshot.tunes) ? snapshot.tunes : [];
+    const snapshotTunes = Array.isArray(snapshot.tunes) ? snapshot.tunes : [];
     const preambleEnd = snapshot.preambleSlice && Number.isFinite(Number(snapshot.preambleSlice.end))
       ? Number(snapshot.preambleSlice.end)
       : 0;
@@ -212,17 +210,17 @@ export function createLibraryMetadataController({
     };
 
     const nextTunes = [];
-    for (let i = 0; i < wcTunes.length; i += 1) {
-      const wcTune = wcTunes[i];
-      if (!wcTune) continue;
-      const startOffset = Number(wcTune.start) || 0;
-      const endOffset = Number(wcTune.end) || 0;
+    for (let i = 0; i < snapshotTunes.length; i += 1) {
+      const snapshotTune = snapshotTunes[i];
+      if (!snapshotTune) continue;
+      const startOffset = Number(snapshotTune.start) || 0;
+      const endOffset = Number(snapshotTune.end) || 0;
       const tuneText = fullText.slice(startOffset, Math.min(fullText.length, Math.max(startOffset, endOffset)));
       const parsed = (() => {
         try { return parseTuneIdentityFields(tuneText); } catch { return null; }
       })();
-      const xMatch = String(wcTune.xLabel || "").match(/^\s*X:\s*(\d+)/);
-      const existing = wcTune.tuneUid ? prevByUid.get(String(wcTune.tuneUid)) : null;
+      const xMatch = String(snapshotTune.xLabel || "").match(/^\s*X:\s*(\d+)/);
+      const existing = snapshotTune.tuneUid ? prevByUid.get(String(snapshotTune.tuneUid)) : null;
 
       const title = (existing && existing.title) ? String(existing.title) : (parsed && parsed.title ? String(parsed.title) : "");
       const composer = (existing && existing.composer) ? String(existing.composer) : (parsed && parsed.composer ? String(parsed.composer) : "");
@@ -252,7 +250,7 @@ export function createLibraryMetadataController({
         id: `${filePath}::${startOffset}`,
         indexInFile: i + 1,
         tuneIndex: i,
-        tuneUid: wcTune.tuneUid || null,
+        tuneUid: snapshotTune.tuneUid || null,
         xNumber,
         title,
         composer,
@@ -310,7 +308,7 @@ export function createLibraryMetadataController({
   async function refreshLibraryFile(filePath, options) {
     if (!api || typeof api.parseLibraryFile !== "function") return null;
     if (!await fileExists(filePath)) {
-      if (!isWorkingCopyOpenForFile(filePath)) dropLibraryFileEntry(filePath);
+      dropLibraryFileEntry(filePath);
       return null;
     }
     const res = await api.parseLibraryFile(filePath, options);
@@ -435,8 +433,8 @@ export function createLibraryMetadataController({
     hasFullLibraryIndex,
     ensureFullLibraryIndex,
     updateLibraryStatus,
-    attachTuneUidsToLibraryFile,
-    syncLibraryFileFromWorkingCopySnapshot,
+    attachTuneEntries,
+    syncLibraryFileFromSnapshot,
     dropLibraryFileEntry,
     refreshLibraryFile,
     renameLibraryFile,

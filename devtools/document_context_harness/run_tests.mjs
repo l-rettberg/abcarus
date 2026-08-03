@@ -25,9 +25,6 @@ const { createLibraryDocumentContext } = await importRendererModule(
 const { createActiveTuneContextStore } = await importRendererModule(
   resolve("src/renderer/app/document/active_tune_context_store.js")
 );
-const { createWorkingCopySyncController } = await importRendererModule(
-  resolve("src/renderer/app/document/working_copy_sync_controller.js")
-);
 const { createSaveFlowController } = await importRendererModule(
   resolve("src/renderer/app/document/save_flow_controller.js")
 );

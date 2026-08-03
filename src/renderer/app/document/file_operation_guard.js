@@ -5,7 +5,6 @@ function createFileOperationGuard({
 } = {}) {
   const {
     getActiveEditFilePath = () => "",
-    getWorkingCopySnapshot = () => null,
     hasGlobalUnsavedChanges = () => false,
   } = state;
 
@@ -16,13 +15,6 @@ function createFileOperationGuard({
   const {
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
   } = utils;
-
-  function isWorkingCopyOpenForFile(filePath) {
-    const p = String(filePath || "");
-    if (!p) return false;
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    return Boolean(workingCopySnapshot && workingCopySnapshot.path && pathsEqual(workingCopySnapshot.path, p));
-  }
 
   async function requireCleanForFileOp(targetPath, actionLabel) {
     const p = String(targetPath || "");
@@ -38,7 +30,6 @@ function createFileOperationGuard({
   }
 
   return {
-    isWorkingCopyOpenForFile,
     requireCleanForFileOp,
   };
 }

@@ -93,7 +93,7 @@ function createAppCommandsDomain({
       applyAbc2abcTransform: actions.applyAbc2abcTransform,
       clearLibraryFilter: actions.clearLibraryFilter,
       confirmReloadFromDisk: actions.confirmReloadFromDisk,
-      discardAndReloadWorkingCopyFromDisk: actions.discardAndReloadWorkingCopyFromDisk,
+      discardAndReloadFileFromDisk: actions.discardAndReloadFileFromDisk,
       dumpDebug: actions.dumpDebug,
       enterPayloadMode: actions.enterPayloadMode,
       exitPayloadMode: actions.exitPayloadMode,

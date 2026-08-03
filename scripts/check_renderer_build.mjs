@@ -25,10 +25,6 @@ async function assertSaveIntentGuards() {
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
   const saveFlowPath = "src/renderer/app/document/save_flow_controller.js";
   const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
-  const saveVerificationPath = "src/renderer/app/document/save_verification.js";
-  const saveVerification = await readFile(saveVerificationPath, "utf8").catch(() => "");
-  const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
-  const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
   const playbackUiPath = "src/renderer/app/ui/playback_ui_controller.js";
   const playbackUi = await readFile(playbackUiPath, "utf8").catch(() => "");
   const layoutControllerPath = "src/renderer/app/ui/layout_controller.js";
@@ -107,13 +103,6 @@ async function assertSaveIntentGuards() {
   if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
     throw new Error("Missing resolveSaveSession() document-session boundary.");
   }
-  if (
-    !src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
-    && !saveVerification.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
-  ) {
-    throw new Error("Missing post-commit working-copy save verification.");
-  }
-
   const saveOwner = saveFlow.includes("async function performSaveFlow()") ? saveFlow : src;
   const saveStart = saveOwner.indexOf("async function performSaveFlow()");
   const saveEnd = saveOwner.indexOf("async function performSaveAsFlow()", saveStart);
@@ -234,16 +223,10 @@ async function assertSaveIntentGuards() {
   if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")) {
-    throw new Error("openRecentFile() must reload directly from disk, without working copy state.");
-  }
   if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 
-  if (workingCopySync.includes("applyWorkingCopyTuneText") || workingCopySync.includes("scheduleTuneSync")) {
-    throw new Error("Normal ABC editing must not synchronize editor changes into a working copy.");
-  }
   if (!saveFlow.includes("async function performSimpleTuneSave(filePath")) {
     throw new Error("Save flow controller must own the simple tune save path.");
   }

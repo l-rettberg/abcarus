@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [1.1.0] - 2026-08-03
 ### Added
 - Recent Folders now remembers directories used to open files or complete Save As operations, while preserving previously used folders.
 
@@ -17,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Save and file-operation flows no longer maintain a hidden second editable copy of the document, reducing stale-state and lost-edit risks.
-
 
 ## [1.0.0] - 2026-08-01
 ### Added

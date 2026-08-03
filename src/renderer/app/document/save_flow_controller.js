@@ -29,6 +29,7 @@ export function createSaveFlowController({
 
   const {
     attachTuneUidsToLibraryFile = () => {},
+    addRecentFolder = () => {},
     createNewFileAtPath = async () => false,
     getDefaultSaveDir = () => "",
     getEditorValue = () => "",
@@ -79,6 +80,11 @@ export function createSaveFlowController({
     ensureXNumberInAbc = (text) => String(text || ""),
     withFileLock = async (_path, fn) => fn(),
   } = actions;
+
+  function rememberSavedFolder(filePath) {
+    const folder = safeDirname(String(filePath || ""));
+    if (folder) addRecentFolder({ path: folder, label: folder });
+  }
 
   function isPermissionDeniedSaveError(error) {
     const msg = String(error || "");
@@ -352,6 +358,7 @@ export function createSaveFlowController({
       const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
       if (!saved) return false;
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+      rememberSavedFolder(filePath);
       resetTransposePreviewState();
       setActiveFilePath(filePath);
       setFileNameMeta(stripFileExtension(safeBasename(filePath)));
@@ -415,6 +422,7 @@ export function createSaveFlowController({
         patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
         setDirtyIndicator(false);
       }
+      rememberSavedFolder(filePath);
       updateFileHeaderPanel();
       updateWindowTitle();
       return true;
@@ -434,6 +442,7 @@ export function createSaveFlowController({
     const content = serializeDocument(currentDocument);
     const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
     if (!saved) return false;
+    rememberSavedFolder(filePath);
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
     setFileContentInCache(filePath, content);
     patchCurrentDocument({ path: filePath, dirty: false }, { create: false });

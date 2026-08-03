@@ -120,6 +120,8 @@ async function testDirectTuneSaveWritesExpectedData() {
       reconcileActiveTuneAfterSave: () => {},
       setDirtyIndicator: () => {},
       setActiveFilePath: () => {},
+      addRecentFolder: (entry) => calls.push(["addRecentFolder", entry]),
+      safeDirname: () => "/tmp",
       withFileLock: async (_path, fn) => fn(),
     },
   });
@@ -152,6 +154,7 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   const sourceText = "X:1\nT:Source\nK:C\nC |]\n";
   const editedText = "X:1\nT:Saved\nK:C\nD |]\n";
   const writes = [];
+  const calls = [];
   let diskSourceText = sourceText;
   let currentDocument = { path: sourcePath, content: editedText, dirty: true };
   const controller = createSaveFlowController({
@@ -183,6 +186,8 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
       loadLibraryFileIntoEditor: async () => ({ ok: true }),
       setDirtyIndicator: () => {},
       setActiveFilePath: () => {},
+      addRecentFolder: (entry) => calls.push(["addRecentFolder", entry]),
+      safeDirname: () => "/tmp",
       setFileNameMeta: () => {},
       updateFileHeaderPanel: () => {},
       updateWindowTitle: () => {},
@@ -195,6 +200,7 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
     [sourcePath, editedText, { expectedData: sourceText }],
     [destinationPath, editedText, { expectedData: "old destination" }],
   ]);
+  assert.deepEqual(calls.find(([kind]) => kind === "addRecentFolder"), ["addRecentFolder", { path: "/tmp", label: "/tmp" }]);
 }
 
 async function testHeaderSaveWritesDirectlyWithDiskBaseline() {

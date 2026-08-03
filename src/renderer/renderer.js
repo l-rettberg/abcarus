@@ -1445,6 +1445,9 @@ saveFlowController = createSaveFlowController({
   },
   actions: {
     attachTuneUidsToLibraryFile,
+    addRecentFolder: (entry) => window.api && typeof window.api.addRecentFolder === "function"
+      ? window.api.addRecentFolder(entry)
+      : Promise.resolve(false),
     createNewFileAtPath,
     getDefaultSaveDir,
     getEditorValue,

@@ -15,6 +15,7 @@ export function createStartupController({
   markRecentOpenStarted = () => {},
   markUiReady = () => {},
   renderStatus = () => {},
+  showToastWithAction = () => {},
   setTimeoutRef = setTimeout,
   clearTimeoutRef = clearTimeout,
 } = {}) {
@@ -192,6 +193,20 @@ export function createStartupController({
     });
     try {
       const didStart = await restoreRecentEntry();
+      if (api && typeof api.getRecoveryFiles === "function") {
+        try {
+          const recoveryFiles = await api.getRecoveryFiles();
+          const latest = Array.isArray(recoveryFiles) ? recoveryFiles[0] : null;
+          if (latest && latest.path) {
+            showToastWithAction(
+              `Emergency recovery copy available: ${latest.basename || latest.path}`,
+              "Open",
+              () => openRecentFile({ path: latest.path, basename: latest.basename, forceReload: true }),
+              12000,
+            );
+          }
+        } catch {}
+      }
       if (!didStart && !(api && typeof api.getSettings === "function")) markUiReady();
       else renderStatus();
       return didStart;

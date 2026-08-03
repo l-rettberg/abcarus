@@ -18,6 +18,7 @@ function isCriticalToast(message) {
     "No file open",
     "No active file selected",
     "No file selected",
+    "Emergency recovery copy available",
     "Save the active file first",
     "Close the file in the editor before renaming it",
     "Invalid measure number",

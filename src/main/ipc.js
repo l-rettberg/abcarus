@@ -1476,6 +1476,27 @@ function registerIpcHandlers(ctx) {
       return "";
     }
   });
+  ipcMain.handle("app:recovery-files", async () => {
+    try {
+      const userData = app && typeof app.getPath === "function" ? app.getPath("userData") : "";
+      if (!userData) return [];
+      const recoveryDir = path.join(userData, "recovery");
+      const names = await fs.promises.readdir(recoveryDir);
+      const files = [];
+      for (const name of names) {
+        if (!/\.recovery-[0-9]+\.[^.]+$/i.test(name)) continue;
+        const filePath = path.join(recoveryDir, name);
+        try {
+          const stat = await fs.promises.stat(filePath);
+          if (!stat.isFile()) continue;
+          files.push({ path: filePath, basename: name, mtimeMs: stat.mtimeMs, size: stat.size });
+        } catch {}
+      }
+      return files.sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
+    } catch {
+      return [];
+    }
+  });
   ipcMain.handle("app:cancel-quit", async (event) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender);

@@ -366,17 +366,10 @@ export function createSaveFlowController({
       }
 
       const destinationExists = await fileExists(filePath);
-      let destinationOptions = {};
       if (destinationExists) {
         if ((await confirmOverwrite(filePath)) !== "replace") return false;
-        const destinationRead = await readFile(filePath);
-        if (!destinationRead || !destinationRead.ok) {
-          await showSaveError((destinationRead && destinationRead.error) || "Unable to read existing Save As destination.");
-          return false;
-        }
-        destinationOptions = { expectedData: String(destinationRead.data || "") };
       }
-      const out = await writeFile(filePath, String(sourceRead.data || ""), destinationOptions);
+      const out = await writeFile(filePath, String(sourceRead.data || ""), {});
       if (!out || !out.ok) {
         await showSaveError((out && out.error) ? out.error : "Unable to save file.");
         return false;

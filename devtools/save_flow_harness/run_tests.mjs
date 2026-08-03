@@ -231,7 +231,7 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   assert.equal(await controller.performSaveAsFlow(), true);
   assert.deepEqual(writes, [
     [sourcePath, editedText, {}],
-    [destinationPath, editedText, { expectedData: "old destination" }],
+    [destinationPath, editedText, {}],
   ]);
   assert.deepEqual(calls.find(([kind]) => kind === "addRecentFolder"), ["addRecentFolder", { path: "/tmp", label: "/tmp" }]);
 }

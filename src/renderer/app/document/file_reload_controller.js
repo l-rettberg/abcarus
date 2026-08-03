@@ -87,12 +87,7 @@ function createFileReloadController({ api = null, state = {}, actions = {}, util
     });
   }
 
-  async function resolveFileSaveConflictDefault(filePath) {
-    markDiskConflictPath(filePath, true);
-    return { ok: false, cancelled: true, action: "cancel", error: "File changed on disk. Reload it before saving." };
-  }
-
-  return { confirmReloadFromDisk, discardAndReloadFileFromDisk, resolveFileSaveConflictDefault, saveFileCopyAsAndSwitch };
+  return { confirmReloadFromDisk, discardAndReloadFileFromDisk, saveFileCopyAsAndSwitch };
 }
 
 export { createFileReloadController };

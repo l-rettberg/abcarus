@@ -159,7 +159,7 @@ function createDocumentSessionController({
     return api.showOpenDialog();
   }
 
-  function resolveSaveSession() {
+  function resolveSaveIntent() {
     const currentDoc = getCurrentDoc();
     const activeFilePath = String(getActiveFilePath() || "");
     const activeTuneMeta = getActiveTuneMeta();
@@ -336,7 +336,7 @@ function createDocumentSessionController({
     markCurrentDocumentClean,
     patchCurrentDocument,
     replaceCurrentDocument,
-    resolveSaveSession,
+    resolveSaveIntent,
     requestCloseDocument,
     requestQuitApplication,
     serializeDocument,

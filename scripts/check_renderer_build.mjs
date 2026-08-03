@@ -100,16 +100,16 @@ async function assertSaveIntentGuards() {
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
   }
-  if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
-    throw new Error("Missing resolveSaveSession() document-session boundary.");
+  if (!src.includes("function resolveSaveIntent()") || !documentSession.includes("function resolveSaveIntent()")) {
+    throw new Error("Missing resolveSaveIntent() document-session boundary.");
   }
   const saveOwner = saveFlow.includes("async function performSaveFlow()") ? saveFlow : src;
   const saveStart = saveOwner.indexOf("async function performSaveFlow()");
   const saveEnd = saveOwner.indexOf("async function performSaveAsFlow()", saveStart);
   if (saveStart < 0 || saveEnd < 0) throw new Error("Unable to isolate performSaveFlow().");
   const saveBody = saveOwner.slice(saveStart, saveEnd);
-  if (!saveBody.includes("const session = resolveSaveSession();")) {
-    throw new Error("performSaveFlow() must route by resolveSaveSession().");
+  if (!saveBody.includes("const session = resolveSaveIntent();")) {
+    throw new Error("performSaveFlow() must route by resolveSaveIntent().");
   }
   if (!saveBody.includes("session.intent === SAVE_INTENT.APPEND_TO_FILE")) {
     throw new Error("performSaveFlow() must handle explicit append intent.");

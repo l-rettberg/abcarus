@@ -21,7 +21,7 @@ export function createSaveFlowController({
     isChordProEnabled = () => false,
     isChordProFullView = () => false,
     isPayloadMode = () => false,
-    resolveSaveSession = () => ({ intent: SAVE_INTENT.NONE }),
+    resolveSaveIntent = () => ({ intent: SAVE_INTENT.NONE }),
   } = state;
 
   const {
@@ -186,7 +186,7 @@ export function createSaveFlowController({
   async function performSaveFlow() {
     const currentDocument = getCurrentDocument();
     if (!currentDocument) return false;
-    const session = resolveSaveSession();
+    const session = resolveSaveIntent();
     const activeFilePath = getActiveFilePath();
     const activeTuneMeta = getActiveTuneMeta();
     recordRecentAction("save.start", {

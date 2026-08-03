@@ -1317,9 +1317,6 @@ const fileReloadController = createFileReloadController({
 });
 
 async function confirmReloadFromDisk(filePath) { return fileReloadController.confirmReloadFromDisk(filePath); }
-async function resolveFileSaveConflictDefault(filePath, options = {}) {
-  return fileReloadController.resolveFileSaveConflictDefault(filePath, options);
-}
 async function discardAndReloadFileFromDisk(filePath, options = {}) {
   return fileReloadController.discardAndReloadFileFromDisk(filePath, options);
 }
@@ -1370,7 +1367,7 @@ saveFlowController = createSaveFlowController({
     isChordProEnabled: () => chordProFeature.isEnabled(),
     isChordProFullView: () => chordProFeature.isFullView(),
     isPayloadMode,
-    resolveSaveSession,
+    resolveSaveIntent,
   },
   actions: {
     addRecentFolder: (entry) => window.api && typeof window.api.addRecentFolder === "function"
@@ -1644,9 +1641,9 @@ function getCurrentNavFilePath() {
   return "";
 }
 
-function resolveSaveSession() {
+function resolveSaveIntent() {
   return documentSessionController
-    ? documentSessionController.resolveSaveSession()
+    ? documentSessionController.resolveSaveIntent()
     : { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "none" };
 }
 

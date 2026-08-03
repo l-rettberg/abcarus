@@ -38,10 +38,6 @@ function createDebugDumpFeature(host = {}) {
       headerCollapsed: Boolean(call(h.getHeaderCollapsed)),
       getEditorValue: h.getEditorValue,
       getHeaderEditorValue: h.getHeaderEditorValue,
-      workingCopySnapshot: call(h.getWorkingCopySnapshot),
-      getWorkingCopyMeta: () => api && typeof api.getWorkingCopyMeta === "function"
-        ? api.getWorkingCopyMeta()
-        : { ok: false, error: "unavailable" },
       getPlaybackPayload: h.getPlaybackPayload,
       lastPlaybackPayloadCache: call(h.getLastPlaybackPayloadCache),
       followPipelineVersion: call(h.getFollowPipelineVersion),

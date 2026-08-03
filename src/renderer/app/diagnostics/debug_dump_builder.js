@@ -35,8 +35,6 @@ export async function buildDebugDumpSnapshot({
   headerCollapsed = false,
   getEditorValue = () => "",
   getHeaderEditorValue = () => "",
-  workingCopySnapshot = null,
-  getWorkingCopyMeta = null,
   getPlaybackPayload = () => ({ text: "", offset: 0 }),
   lastPlaybackPayloadCache = null,
   followPipelineVersion = null,
@@ -125,16 +123,6 @@ export async function buildDebugDumpSnapshot({
     }
   })();
 
-  const workingCopyMeta = await (async () => {
-    try {
-      if (typeof getWorkingCopyMeta !== "function") return { ok: false, error: "unavailable" };
-      const res = await getWorkingCopyMeta();
-      if (!res || !res.ok || !res.meta) return { ok: false, error: (res && res.error) ? String(res.error) : "No working copy open." };
-      return { ok: true, meta: res.meta };
-    } catch (e) {
-      return { ok: false, error: (e && e.message) ? e.message : String(e) };
-    }
-  })();
 
   return {
     kind: "abcarus-debug-dump",
@@ -176,16 +164,6 @@ export async function buildDebugDumpSnapshot({
       },
       editorText: safeString(getEditorValue(), 350000),
       headerText: safeString(getHeaderEditorValue(), 250000),
-    },
-    workingCopy: {
-      snapshot: workingCopySnapshot ? {
-        path: workingCopySnapshot.path || null,
-        version: workingCopySnapshot.version || null,
-        dirty: Boolean(workingCopySnapshot.dirty),
-        encoding: workingCopySnapshot.encoding || null,
-        tuneCount: Array.isArray(workingCopySnapshot.tunes) ? workingCopySnapshot.tunes.length : null,
-      } : null,
-      meta: workingCopyMeta,
     },
     playback: {
       followPipelineVersion,

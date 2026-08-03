@@ -1,6 +1,5 @@
 function createLibraryDocumentContext({
   activeTuneContext = null,
-  clearSaveSession = () => {},
   markActiveTuneButton = () => {},
   markCurrentDocumentClean = () => {},
   setActiveFilePath = () => {},
@@ -48,7 +47,6 @@ function createLibraryDocumentContext({
     setActiveTuneTextForLibrary(text, null, { suppressRecent: true });
     setCurrentDocument({ path: filePath || null, dirty: false, content: text });
     clearActiveTune();
-    clearSaveSession();
     markCurrentDocumentClean();
     setDirtyIndicator(false);
     markActiveTuneButton(null);

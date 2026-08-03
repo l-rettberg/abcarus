@@ -38,7 +38,6 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: () => calls.push("clearActiveTuneState"),
-      clearSaveSession: () => calls.push("clearSaveSession"),
       setActiveFilePath: (path) => { activeFilePath = path || ""; },
       setCurrentDocument: (doc) => { currentDocument = doc; },
       setDirtyIndicator: (next) => { dirtyIndicator = Boolean(next); },
@@ -69,7 +68,6 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   });
   assert.equal(dirtyIndicator, false);
   assert.ok(calls.includes("clearActiveTuneState"), "active tune state must be reset before opening a clean file document");
-  assert.ok(calls.includes("clearSaveSession"), "stale save session must be cleared before opening a clean file document");
   assert.ok(calls.includes("markHeaderClean"), "header state should be clean for a clean file document");
 }
 
@@ -78,8 +76,6 @@ function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: (path) => calls.push(["clearActiveTuneState", path]),
-      clearSaveSession: () => calls.push(["clearSaveSession"]),
-      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
     },
   });
 
@@ -87,8 +83,6 @@ function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
 
   assert.deepEqual(calls, [
     ["clearActiveTuneState", "/tmp/song.pro"],
-    ["clearSaveSession"],
-    ["setFullFileSaveSession", "/tmp/song.pro", "chordpro_open"],
   ]);
 }
 
@@ -97,9 +91,7 @@ function testBeginRawFullFileContextPreservesTuneState() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: () => calls.push(["clearActiveTuneState"]),
-      clearSaveSession: () => calls.push(["clearSaveSession"]),
       setActiveFilePath: (path) => calls.push(["setActiveFilePath", path]),
-      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
     },
   });
 
@@ -107,8 +99,6 @@ function testBeginRawFullFileContextPreservesTuneState() {
 
   assert.deepEqual(calls, [
     ["setActiveFilePath", "/tmp/raw.abc"],
-    ["clearSaveSession"],
-    ["setFullFileSaveSession", "/tmp/raw.abc", "raw_mode"],
   ]);
 }
 
@@ -137,7 +127,6 @@ function testSetRawActiveTuneContextClearsStaleUidAndIndex() {
 function testLibraryDocumentContextShowsCleanFileDocument() {
   const calls = [];
   const context = createLibraryDocumentContext({
-    clearSaveSession: () => calls.push(["clearSaveSession"]),
     markActiveTuneButton: (id) => calls.push(["markActiveTuneButton", id]),
     markCurrentDocumentClean: () => calls.push(["markCurrentDocumentClean"]),
     setActiveTuneId: (id) => calls.push(["setActiveTuneId", id]),
@@ -158,7 +147,6 @@ function testLibraryDocumentContextShowsCleanFileDocument() {
     ["setActiveTuneUid", null],
     ["setActiveTuneIndex", null],
     ["setActiveTuneMeta", null],
-    ["clearSaveSession"],
     ["markCurrentDocumentClean"],
     ["setDirtyIndicator", false],
     ["markActiveTuneButton", null],
@@ -204,7 +192,6 @@ function testDropActiveLibraryFileClearsSaveSession() {
   let activeTuneIndex = 0;
   let currentDocumentPath = activePath;
   let patchedDocument = null;
-  let clearSaveCalls = 0;
 
   const controller = createLibraryMetadataController({
     state: {
@@ -220,7 +207,6 @@ function testDropActiveLibraryFileClearsSaveSession() {
       setActiveTuneIndex: (next) => { activeTuneIndex = next; },
     },
     actions: {
-      clearSaveSession: () => { clearSaveCalls += 1; },
       invalidateLibraryView: () => {},
       patchCurrentDocument: (patch) => {
         patchedDocument = patch;
@@ -243,7 +229,6 @@ function testDropActiveLibraryFileClearsSaveSession() {
   assert.equal(activeTuneUid, null);
   assert.equal(activeTuneIndex, null);
   assert.deepEqual(patchedDocument, { path: null, content: "", dirty: false });
-  assert.equal(clearSaveCalls, 1, "dropping the active file must clear stale save session");
 }
 
 function testDropInactiveLibraryFileDoesNotClearSaveSession() {
@@ -267,7 +252,6 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
       getCurrentDocumentPath: () => activePath,
     },
     actions: {
-      clearSaveSession: () => { clearSaveCalls += 1; },
       invalidateLibraryView: () => {},
       patchCurrentDocument: () => {},
       pathsEqual: (a, b) => String(a || "") === String(b || ""),
@@ -281,7 +265,6 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 
   assert.equal(dropped, true);
   assert.equal(libraryIndex.files.length, 1);
-  assert.equal(clearSaveCalls, 0, "dropping an inactive file should not disturb current save session");
 }
 
 function testLibraryReconcilesSavedTuneByStableIdentity() {
@@ -293,7 +276,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
     xNumber: "2",
     title: "Second",
   };
-  let saveSession = null;
   const controller = createLibraryLifecycleController({
     state: {
       getActiveTuneId: () => activeId,
@@ -310,7 +292,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
       setActiveTuneMeta: (value) => { activeMeta = value; },
       setActiveTuneUid: (value) => { activeUid = value; },
       setFileNameMeta: () => {},
-      setSaveSession: (value) => { saveSession = value; },
       setTuneMetaText: () => {},
       stripFileExtension: (name) => String(name).replace(/\.[^.]+$/, ""),
     },
@@ -332,7 +313,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
   assert.equal(activeUid, "uid-second");
   assert.equal(activeIndex, 1);
   assert.equal(activeMeta.startOffset, 22);
-  assert.equal(saveSession.targetTuneUid, "uid-second");
 }
 
 async function testSimpleTuneSaveIsOwnedBySaveController() {
@@ -375,9 +355,7 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
   assert.deepEqual(writePayload, {
     path: filePath,
     data: editedText,
-    options: {
-      expectedData: sourceText,
-    },
+    options: {},
   });
   assert.deepEqual(patched, {
     path: filePath,

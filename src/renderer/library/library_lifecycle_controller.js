@@ -30,7 +30,6 @@ export function createLibraryLifecycleController({
     clearAbPlan = () => {},
     clearActiveErrorHighlight = () => {},
     clearLibraryFilter = () => {},
-    clearSaveSession = () => {},
     countLines = () => 1,
     ensureFullLibraryIndex = async () => {},
     ensureSafeToAbandonCurrentDoc = async () => true,
@@ -77,7 +76,6 @@ export function createLibraryLifecycleController({
     setIsNewTuneDraft = () => {},
     setLibraryActiveFilePath = () => {},
     setPlaybackRange = () => {},
-    setSaveSession = () => {},
     setScanStatus = () => {},
     setSuppressDirty = () => {},
     setTuneMetaText = () => {},
@@ -96,7 +94,6 @@ export function createLibraryLifecycleController({
   } = actions;
 
   const {
-    SAVE_INTENT = {},
     UNTITLED_UNSAVED_LABEL = "Untitled (unsaved)",
   } = constants;
 
@@ -164,12 +161,6 @@ export function createLibraryLifecycleController({
     markActiveTuneButton(nextUid || nextId);
     setTuneMetaText(buildTuneMetaLabel(nextMeta));
     setFileNameMeta(stripFileExtension(nextMeta.basename || safeBasename(filePath)));
-    setSaveSession({
-      intent: SAVE_INTENT.REPLACE_TUNE,
-      targetPath: String(filePath || ""),
-      targetTuneUid: String(nextUid || ""),
-      source: "simple_tune_save",
-    });
     return true;
   }
 
@@ -247,12 +238,6 @@ export function createLibraryLifecycleController({
       updateFileContext();
       logStep("file context");
       setDirtyIndicator(false);
-      setSaveSession({
-        intent: SAVE_INTENT.REPLACE_TUNE,
-        targetPath: String(metadata.path || ""),
-        targetTuneUid: String(metadata.tuneUid || getActiveTuneUid() || ""),
-        source: "setActiveTuneText.metadata",
-      });
       logStep("dirty/save session");
     } else {
       const markDirty = Boolean(options && options.markDirty);
@@ -271,7 +256,6 @@ export function createLibraryLifecycleController({
       setDirtyIndicator(markDirty);
       markHeaderClean();
       updateHeaderStateUI();
-      clearSaveSession();
     }
 
     updateFileHeaderPanel();
@@ -635,7 +619,6 @@ export function createLibraryLifecycleController({
     setEditorValue("");
     setSuppressDirty(false);
     patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
-    clearSaveSession();
     setDirtyIndicator(false);
 
     try {

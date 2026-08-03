@@ -25,7 +25,6 @@ export function createLibraryMetadataController({
   const {
     buildTuneMetaLabel = () => "",
     clearLibraryFilter = () => {},
-    clearSaveSession = () => {},
     countLines = () => 1,
     fileExists = async () => false,
     invalidateLibraryView = () => {},
@@ -295,7 +294,6 @@ export function createLibraryMetadataController({
       patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
       droppedActiveContext = true;
     }
-    if (droppedActiveContext) clearSaveSession();
     setDirtyIndicator(false);
     updateLibraryStatus();
     scheduleRenderLibraryTree();

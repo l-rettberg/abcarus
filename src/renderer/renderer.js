@@ -1342,7 +1342,6 @@ function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffse
 }
 libraryDocumentContext = createLibraryDocumentContext({
   activeTuneContext: activeContext,
-  clearSaveSession,
   markActiveTuneButton,
   markCurrentDocumentClean,
   setActiveTuneText,
@@ -1643,14 +1642,6 @@ function getCurrentNavFilePath() {
     }
   } catch {}
   return "";
-}
-
-function clearSaveSession() {
-  if (documentSessionController) documentSessionController.clearSaveSession();
-}
-
-function setSaveSession(next) {
-  if (documentSessionController) documentSessionController.setSaveSession(next);
 }
 
 function resolveSaveSession() {
@@ -1959,13 +1950,6 @@ documentLifecycleController = createDocumentLifecycleController({
     clearActiveTuneState: (filePath = null) => {
       activeContext.clear({ nextFilePath: filePath });
     },
-    clearSaveSession,
-    setFullFileSaveSession: (filePath, source) => setSaveSession({
-      intent: SAVE_INTENT.FULL_FILE,
-      targetPath: String(filePath || ""),
-      targetTuneUid: "",
-      source: source || "full_file_mode",
-    }),
     markHeaderClean,
     setTuneMetaText,
     setFileNameMeta,
@@ -2012,7 +1996,6 @@ libraryMetadataController = createLibraryMetadataController({
     buildTuneMetaLabel,
     clearErrorsIndex: () => errorsFeature.clearIndex(),
     clearLibraryFilter,
-    clearSaveSession,
     countLines,
     fileExists,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -2049,7 +2032,6 @@ libraryMetadataController = createLibraryMetadataController({
 
 libraryCrudDomain = createLibraryCrudDomain({
   api: window.api,
-  SAVE_INTENT,
   state: {
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -2063,7 +2045,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     getIsNewTuneDraft: activeContext.isNewTuneDraft,
     getLibraryIndex: libraryRuntime.getIndex,
     getRawMode: () => isRawModeActive(),
-    getSaveSession: resolveSaveSession,
     hasGlobalUnsavedChanges,
     isCurrentDocumentDirty,
   },
@@ -2107,7 +2088,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     setDirtyIndicator,
     setFileNameMeta,
     setIsNewTuneDraft: activeContext.setNewTuneDraft,
-    setSaveSession,
     setStatus,
     showSaveDialog,
     showSaveError,
@@ -2157,7 +2137,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     clearAbPlan,
     clearActiveErrorHighlight,
     clearLibraryFilter,
-    clearSaveSession,
     countLines,
     ensureFullLibraryIndex,
     ensureSafeToAbandonCurrentDoc,
@@ -2212,7 +2191,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     setIsNewTuneDraft: activeContext.setNewTuneDraft,
     setLibraryActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
     setPlaybackRange,
-    setSaveSession,
     setScanStatus,
     setSuppressDirty: editorRuntime.setDirtySuppressed,
     setTuneMetaText,
@@ -2227,7 +2205,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     updateLibraryStatus,
   },
   constants: {
-    SAVE_INTENT,
     UNTITLED_UNSAVED_LABEL,
   },
 });

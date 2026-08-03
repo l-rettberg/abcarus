@@ -15,7 +15,6 @@ function buildNewTuneDraftTemplate(nextX) {
 
 export function createAppendCurrentTuneAction({
   api = null,
-  SAVE_INTENT = {},
   state = {},
   actions = {},
 } = {}) {
@@ -26,7 +25,6 @@ export function createAppendCurrentTuneAction({
     getCurrentDocumentPath = () => "",
     getCurrentNavFilePath = () => "",
     getEditorText = () => "",
-    getSaveSession = () => ({}),
   } = state;
 
   const {
@@ -44,7 +42,6 @@ export function createAppendCurrentTuneAction({
     selectTune = async () => {},
     setActiveFilePath = () => {},
     setIsNewTuneDraft = () => {},
-    setSaveSession = () => {},
     setStatus = () => {},
     setDirtyIndicator = () => {},
     showSaveError = async () => {},
@@ -97,8 +94,7 @@ export function createAppendCurrentTuneAction({
   }
 
   async function performAppendFlow() {
-    const session = getSaveSession();
-    const filePath = String(session.targetPath || getActiveFilePath() || getCurrentNavFilePath() || "");
+    const filePath = String(getActiveFilePath() || getCurrentNavFilePath() || getCurrentDocumentPath() || "");
     if (!filePath) {
       await showSaveError("Select a target file in the Library panel first.");
       return false;
@@ -124,12 +120,6 @@ export function createAppendCurrentTuneAction({
 
     const ok = await appendTextToFileNow(filePath, editorText);
     if (!ok) return false;
-    setSaveSession({
-      intent: SAVE_INTENT.REPLACE_TUNE,
-      targetPath: filePath,
-      targetTuneUid: String(getActiveTuneUid() || ""),
-      source: "append_saved",
-    });
     return true;
   }
 

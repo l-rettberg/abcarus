@@ -25,26 +25,6 @@ function deserializeToDocument(data) {
   };
 }
 
-function createEmptySaveSession() {
-  return {
-    intent: SAVE_INTENT.NONE,
-    targetPath: "",
-    targetTuneUid: "",
-    source: "",
-  };
-}
-
-function normalizeSaveSession(next = {}) {
-  const n = next || {};
-  const intent = String(n.intent || SAVE_INTENT.NONE);
-  return {
-    intent: Object.values(SAVE_INTENT).includes(intent) ? intent : SAVE_INTENT.NONE,
-    targetPath: String(n.targetPath || ""),
-    targetTuneUid: String(n.targetTuneUid || ""),
-    source: String(n.source || ""),
-  };
-}
-
 function createDocumentSessionController({
   api = null,
   state = {},
@@ -92,7 +72,6 @@ function createDocumentSessionController({
     safeDirname = () => "",
   } = actions;
 
-  let saveSession = createEmptySaveSession();
   let abandonFlowInProgress = false;
   let currentDocument = null;
 
@@ -180,14 +159,6 @@ function createDocumentSessionController({
     return api.showOpenDialog();
   }
 
-  function clearSaveSession() {
-    saveSession = createEmptySaveSession();
-  }
-
-  function setSaveSession(next) {
-    saveSession = normalizeSaveSession(next);
-  }
-
   function resolveSaveSession() {
     const currentDoc = getCurrentDoc();
     const activeFilePath = String(getActiveFilePath() || "");
@@ -221,10 +192,7 @@ function createDocumentSessionController({
     if (currentDoc && currentDoc.path) {
       return { intent: SAVE_INTENT.FULL_FILE, targetPath: String(currentDoc.path), targetTuneUid: "", source: "doc_path" };
     }
-    if (saveSession && saveSession.intent && saveSession.intent !== SAVE_INTENT.NONE) {
-      return { ...saveSession };
-    }
-    return createEmptySaveSession();
+    return { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "" };
   }
 
   async function confirmUnsavedChanges(contextLabel) {
@@ -352,7 +320,6 @@ function createDocumentSessionController({
   }
 
   return {
-    clearSaveSession,
     confirmAbandonIfDirty,
     confirmUnsavedChanges,
     deserializeToDocument,
@@ -375,7 +342,6 @@ function createDocumentSessionController({
     serializeDocument,
     setCurrentDocumentContent,
     setCurrentDocumentDirty,
-    setSaveSession,
   };
 }
 

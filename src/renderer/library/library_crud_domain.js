@@ -8,7 +8,6 @@ import { createTuneClipboardController } from "./tune_clipboard_controller.js";
 
 function createLibraryCrudDomain({
   api = null,
-  SAVE_INTENT = {},
   state = {},
   actions = {},
 } = {}) {
@@ -44,7 +43,6 @@ function createLibraryCrudDomain({
 
   const appendCurrentTuneAction = createAppendCurrentTuneAction({
     api,
-    SAVE_INTENT,
     state: {
       getActiveFilePath: state.getActiveFilePath,
       getActiveTuneMeta: state.getActiveTuneMeta,
@@ -52,7 +50,6 @@ function createLibraryCrudDomain({
       getCurrentDocumentPath: state.getCurrentDocumentPath,
       getCurrentNavFilePath: state.getCurrentNavFilePath,
       getEditorText: state.getEditorText,
-      getSaveSession: state.getSaveSession,
     },
     actions: {
       confirmAppendToFile: actions.confirmAppendToFile,
@@ -69,7 +66,6 @@ function createLibraryCrudDomain({
       selectTune: actions.selectTune,
       setActiveFilePath: actions.libraryDocumentContext.setActiveFile,
       setIsNewTuneDraft: actions.setIsNewTuneDraft,
-      setSaveSession: actions.setSaveSession,
       setStatus: actions.setStatus,
       setDirtyIndicator: actions.setDirtyIndicator,
       showSaveError: actions.showSaveError,

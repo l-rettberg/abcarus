@@ -49,6 +49,7 @@
     "test:soundfont": "node devtools/soundfont_harness/run_tests.mjs",
     "test:app-commands": "node devtools/app_commands_harness/run_tests.mjs",
     "test:document-context": "node devtools/document_context_harness/run_tests.mjs",
+    "test:file-runtime": "node devtools/file_runtime_harness/run_tests.mjs",
     "test:active-tune-context": "node devtools/active_tune_context_harness/run_tests.mjs",
     "test:save-flow": "node devtools/save_flow_harness/run_tests.mjs",
     "test:state-store": "node devtools/state_store_harness/run_tests.js",

@@ -22,6 +22,7 @@ export function createFileContentCache({
 } = {}) {
   const cache = new Map();
   const limit = Math.max(1, Number(maxEntries) || 1);
+  const stats = { hits: 0, misses: 0, evictions: 0, reads: 0, readMs: 0, bytesRead: 0 };
 
   function normalizeKey(filePath) {
     return normalizePath(filePath || "");
@@ -30,21 +31,32 @@ export function createFileContentCache({
   function get(filePath) {
     const key = normalizeKey(filePath);
     if (!key) return undefined;
-    return lruGet(cache, key);
+    const value = lruGet(cache, key);
+    if (value === undefined) stats.misses += 1;
+    else stats.hits += 1;
+    return value;
   }
 
   function set(filePath, content) {
     const key = normalizeKey(filePath);
     if (!key) return;
+    const hadKey = cache.has(key);
+    const wasFull = cache.size >= limit;
     lruSet(cache, key, content, limit);
+    if (!hadKey && wasFull) stats.evictions += 1;
   }
 
   async function getCached(filePath, readFile) {
     let content = get(filePath);
     if (content == null) {
+      const started = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
       const res = await readFile(filePath);
       if (!res.ok) return res;
       content = res.data;
+      const finished = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+      stats.reads += 1;
+      stats.readMs += Math.max(0, finished - started);
+      stats.bytesRead += typeof content === "string" ? content.length : 0;
       set(filePath, content);
     }
     return { ok: true, data: content };
@@ -55,8 +67,17 @@ export function createFileContentCache({
     deleteKey: (key) => cache.delete(key),
     get,
     getCached,
+    getStats: () => ({ ...stats, entries: cache.size, maxEntries: limit }),
     hasKey: (key) => cache.has(key),
     normalizeKey,
+    resetStats: () => {
+      stats.hits = 0;
+      stats.misses = 0;
+      stats.evictions = 0;
+      stats.reads = 0;
+      stats.readMs = 0;
+      stats.bytesRead = 0;
+    },
     set,
   };
 }

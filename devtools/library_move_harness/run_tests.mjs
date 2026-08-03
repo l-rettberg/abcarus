@@ -64,7 +64,6 @@ const action = createPasteMoveTuneAction({
     requireCleanForFileOp: async () => true,
     setActiveFilePath: (path) => { activePath = path; },
     setClipboardTune: (next) => { clipboard = next; },
-    setFileContentInCache: () => {},
     setStatus: () => {},
     selectTune: async () => ({ ok: true }),
     showSaveError: async (message) => { errors.push(String(message)); },

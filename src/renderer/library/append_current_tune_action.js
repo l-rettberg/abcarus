@@ -43,7 +43,6 @@ export function createAppendCurrentTuneAction({
     readFile = async () => ({ ok: false }),
     selectTune = async () => {},
     setActiveFilePath = () => {},
-    setFileContentInCache = () => {},
     setIsNewTuneDraft = () => {},
     setSaveSession = () => {},
     setStatus = () => {},
@@ -79,7 +78,6 @@ export function createAppendCurrentTuneAction({
         return false;
       }
 
-      setFileContentInCache(p, updated);
 
       const updatedFile = await refreshLibraryFile(p, { force: true });
       setActiveFilePath(p);

@@ -161,9 +161,11 @@ The active architecture must not contain:
 - repeated tune search during Save when four-part boundaries are valid;
 - automatic merging of external file content.
 
-A file-content cache may temporarily exist for non-critical Library or
-diagnostic performance work, but it must not participate in Save authority,
-dirty state, tune switching, or conflict decisions.
+No app-managed full-text file cache is part of the document model. Library,
+diagnostic scans, print workflows, and snapshot helpers read the current file
+from disk when they need non-active-file content. This keeps disk state as the
+only authority outside the active editor buffers and avoids a cache becoming a
+Working Copy under another name.
 
 ## File-write requirements
 

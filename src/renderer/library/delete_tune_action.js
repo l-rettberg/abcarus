@@ -21,7 +21,6 @@ export function createDeleteTuneAction({
     selectTune = async () => {},
     setActiveFilePath = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     showCleanFileDocument = () => {},
     showSaveError = async () => {},
     writeFile = async () => ({ ok: false }),
@@ -64,7 +63,6 @@ export function createDeleteTuneAction({
           if (writeRes && writeRes.conflict) throw new Error("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
           throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to delete tune.");
         }
-        setFileContentInCache(fileMeta.path, updatedContent);
         const updatedFile = await refreshLibraryFile(fileMeta.path, { force: true });
         return { updatedContent, updatedFile };
       });

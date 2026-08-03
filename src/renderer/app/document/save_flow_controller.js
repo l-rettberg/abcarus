@@ -56,7 +56,6 @@ export function createSaveFlowController({
     setActiveFilePath = () => {},
     setActiveTuneMeta = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     readFile = async () => ({ ok: false }),
     writeFile = async () => ({ ok: false }),
     setFileNameMeta = () => {},
@@ -170,7 +169,6 @@ export function createSaveFlowController({
         return false;
       }
 
-      setFileContentInCache(p, nextText);
       setActiveTuneMeta({ ...activeTuneMeta, documentParts: nextParts });
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
@@ -302,7 +300,6 @@ export function createSaveFlowController({
       await showSaveError((result && result.error) ? result.error : "Unable to save ChordPro file.");
       return false;
     }
-    setFileContentInCache(p, nextText);
     markCurrentDocumentClean();
     setDirtyIndicator(false);
     updateWindowTitle();
@@ -384,7 +381,6 @@ export function createSaveFlowController({
         await showSaveError((out && out.error) ? out.error : "Unable to save file.");
         return false;
       }
-      setFileContentInCache(filePath, String(sourceRead.data || ""));
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
       setDirtyIndicator(false);
       resetTransposePreviewState();
@@ -418,7 +414,6 @@ export function createSaveFlowController({
     if (!saved) return false;
     rememberSavedFolder(filePath);
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
-    setFileContentInCache(filePath, content);
     patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
     setDirtyIndicator(false);
     setActiveFilePath(filePath);
@@ -451,7 +446,6 @@ export function createSaveFlowController({
         throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save header.");
       }
       markDiskConflictPath(p, false);
-      setFileContentInCache(p, nextText);
       const updatedFile = await refreshLibraryFile(p, { force: true });
       try {
         if (updatedFile && updatedFile.path && pathsEqual(updatedFile.path, p) && isHeaderEditorFilePath(p)) {

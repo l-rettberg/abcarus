@@ -51,7 +51,6 @@ const current = createAppendCurrentTuneAction({
     readFile,
     writeFile,
     withFileLock: async (_path, fn) => fn(),
-    setFileContentInCache: () => {},
     refreshLibraryFile: async () => ({ tunes: [{ id: "target:1" }, { id: "target:2" }] }),
     selectTune: async () => {},
   },

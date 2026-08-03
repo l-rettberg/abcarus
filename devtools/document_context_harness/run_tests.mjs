@@ -366,7 +366,6 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
       setActiveFilePath: () => {},
       setActiveTuneMeta: () => {},
       setDirtyIndicator: () => {},
-      setFileContentInCache: () => {},
       updateFileHeaderPanel: () => {},
       withFileLock: async (_path, fn) => fn(),
     },

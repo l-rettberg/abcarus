@@ -36,7 +36,6 @@ export function createLibraryLifecycleController({
     ensureSafeToAbandonCurrentDoc = async () => true,
     errorsClearIndex = () => {},
     errorsHasActiveHighlight = () => false,
-    getFileContentFromCache = () => null,
     isChordProFilePath = () => false,
     isChordProText = () => false,
     isFilePerfEnabled = () => false,
@@ -74,7 +73,6 @@ export function createLibraryLifecycleController({
     setChordProMode = () => {},
     setDirtyIndicator = () => {},
     setEditorValue = () => {},
-    setFileContentInCache = () => {},
     setFileNameMeta = () => {},
     setIsNewTuneDraft = () => {},
     setLibraryActiveFilePath = () => {},
@@ -365,23 +363,15 @@ export function createLibraryLifecycleController({
     logStep("find tune", { file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "" });
 
     let content = null;
-    let contentCacheHit = false;
     let sliceStart = Number(selected.startOffset) || 0;
     let sliceEnd = Number(selected.endOffset) || 0;
-    content = getFileContentFromCache(fileMeta.path);
-    contentCacheHit = content != null;
-    if (content == null) {
-      const res = await readFile(fileMeta.path);
-      if (!res.ok) {
-        logErr(res.error || "Unable to read file.");
-        return { ok: false, error: res.error || "Unable to read file." };
-      }
-      content = res.data;
-      setFileContentInCache(fileMeta.path, content);
+    const res = await readFile(fileMeta.path);
+    if (!res || !res.ok) {
+      logErr(res && res.error ? res.error : "Unable to read file.");
+      return { ok: false, error: res && res.error ? res.error : "Unable to read file." };
     }
-    if (perfOn) logFilePerf("selectTune: content cache", { hit: contentCacheHit, file: safeBasename(fileMeta.path) });
+    content = String(res.data || "");
     logStep("load content", {
-      cacheHit: contentCacheHit,
       chars: content == null ? 0 : String(content || "").length,
     });
 
@@ -570,7 +560,6 @@ export function createLibraryLifecycleController({
       logErr(res.error || "Unable to read file.");
       return { ok: false, error: res.error || "Unable to read file." };
     }
-    setFileContentInCache(entry.path, res.data);
     const startOffset = entry.startOffset || 0;
     const endOffset = entry.endOffset || res.data.length;
     const tuneText = res.data.slice(startOffset, endOffset);
@@ -638,7 +627,6 @@ export function createLibraryLifecycleController({
     });
     const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setScanStatus("Scanning…");
-    actions.clearFileContentCache?.();
     errorsClearIndex();
     setActiveTuneId(null);
     setTuneMetaText("No tune selected.");
@@ -718,9 +706,6 @@ export function createLibraryLifecycleController({
     const perfOn = isFilePerfEnabled();
     const t0 = perfOn ? perfNowMs() : 0;
     if (perfOn) logFilePerf("loadSingleLibraryFile: start", { file: safeBasename(p) });
-    if (Object.prototype.hasOwnProperty.call(options, "content") && options.content != null) {
-      setFileContentInCache(p, options.content);
-    }
     try {
       const res = await api.parseLibraryFile(p, { force: Boolean(options.force) });
       if (!res || !Array.isArray(res.files) || !res.files.length) return null;
@@ -774,12 +759,8 @@ export function createLibraryLifecycleController({
       suppressRecent: Boolean(options.suppressRecent),
     };
     let chordproText = null;
-    const cached = getFileContentFromCache(filePath);
-    if (cached != null) chordproText = String(cached || "");
-    if (!chordproText && isChordProFilePath(filePath)) {
-      const readRes = await readFile(filePath);
-      if (readRes && readRes.ok) chordproText = String(readRes.data || "");
-    }
+    const readRes = await readFile(filePath);
+    if (readRes && readRes.ok) chordproText = String(readRes.data || "");
     if (chordproText && (isChordProText(chordproText) || isChordProFilePath(filePath))) {
       await openChordPro(filePath, chordproText, { suppressRecent: true });
       return { ok: true, chordpro: true };

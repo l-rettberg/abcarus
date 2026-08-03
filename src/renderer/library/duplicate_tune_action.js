@@ -14,7 +14,6 @@ export function createDuplicateTuneAction({
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
     setActiveTuneText = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     showSaveError = async () => {},
     withFileLock = async (_path, fn) => fn(),
@@ -69,7 +68,6 @@ export function createDuplicateTuneAction({
         const updatedContent = renum.abcText;
         const writeRes = await writeFile(res.file.path, updatedContent, { expectedData: content });
         if (!writeRes || !writeRes.ok) throw new Error(writeRes && writeRes.error ? writeRes.error : "Unable to duplicate tune.");
-        setFileContentInCache(res.file.path, updatedContent);
         const updatedFile = await refreshLibraryFile(res.file.path, { force: true });
         return { updatedContent, updatedFile };
       });

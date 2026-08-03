@@ -32,7 +32,6 @@ export function createPasteMoveTuneAction({
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
     setClipboardTune = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     selectTune = async () => ({ ok: false }),
     showSaveError = async () => {},
@@ -80,7 +79,6 @@ export function createPasteMoveTuneAction({
     const updated = appendTuneToContent(before, prepared);
     const writeRes = await writeFile(filePath, updated, { expectedData: before });
     if (!writeRes.ok) throw new Error(writeRes.error || "Unable to append to file.");
-    setFileContentInCache(filePath, updated);
     return updated;
   }
 
@@ -214,8 +212,6 @@ export function createPasteMoveTuneAction({
             : "Unable to update source file (rollback failed; the tune may now be duplicated)");
         }
 
-        setFileContentInCache(targetPath, finalTarget);
-        setFileContentInCache(sourcePath, finalSource);
         const updatedTargetFile = await refreshLibraryFile(targetPath, { force: true });
         await refreshLibraryFile(sourcePath, { force: true });
         setActiveFilePath(targetPath);

@@ -5,7 +5,7 @@ function createErrorsTuneScanController({
   isDirty,
   confirmUnsavedChanges,
   performSaveFlow,
-  getFileContentCached,
+  getFileContent,
   selectTune,
   getActiveTuneId,
   getEditorScroll,
@@ -92,7 +92,7 @@ function createErrorsTuneScanController({
     if (typeof setScanButtonActive === "function") setScanButtonActive(scanState.isFilterActive());
     clearIndexForFile(entry);
 
-    const contentRes = typeof getFileContentCached === "function" ? await getFileContentCached(entry.path) : { ok: true };
+    const contentRes = typeof getFileContent === "function" ? await getFileContent(entry.path) : { ok: true };
     if (!contentRes || !contentRes.ok) {
       finishScanUi();
       return;

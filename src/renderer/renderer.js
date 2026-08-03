@@ -56,7 +56,7 @@ import { createLibraryUiDomain } from "./library/library_ui_domain.js";
 import { createLibraryRuntimeStore } from "./library/library_runtime_store.js";
 import { normalizeLibraryPath, pathsEqual } from "./library/path_utils.js";
 import { fileExists, mkdirp, readFile, renameFile, safeBasename, safeDirname, writeFile } from "./io/file_ops.js";
-import { createFileContentCache, createFileOperationLocks } from "./io/file_runtime.js";
+import { createFileOperationLocks } from "./io/file_runtime.js";
 import { createActiveTuneContextStore } from "./app/document/active_tune_context_store.js";
 import {
   alignBarsInText,
@@ -711,7 +711,6 @@ const chordProFeature = createChordProFeature({
   clearErrors,
   beginFullFileModeContext: (filePath, source) => documentLifecycleController.beginFullFileModeContext(filePath, source),
   setDirtyIndicator,
-  setFileContentInCache,
   updateFileHeaderPanel,
   updateHeaderStateUI,
   suppressRecentEntries: libraryRuntime.areRecentEntriesSuppressed,
@@ -776,7 +775,7 @@ const printAllFeature = createPrintAllFeature({
   getCurrentDocDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
   performSaveFlow,
-  getFileContent: getFileContentCached,
+  getFileContent,
   getEffectiveHeaderText: () => getHeaderEditorValue(),
   sanitizeHeaderText: sanitizeFileHeaderForPerTuneRender,
   buildHeaderPrefix,
@@ -996,7 +995,7 @@ const errorsFeature = createErrorsFeature({
   isDirty: isCurrentDocumentDirty,
   confirmUnsavedChanges,
   performSaveFlow,
-  getFileContentCached,
+  getFileContent,
   getActiveFileEntry,
   selectTune,
   getActiveTuneId: () => activeContext.getActiveTuneId(),
@@ -1215,14 +1214,6 @@ function isNormalModeForSplitToggle() {
 }
 
 let headerLayersController = null;
-const fileContentCache = createFileContentCache({
-  maxEntries: 12,
-  normalizePath: normalizeLibraryPath,
-});
-if (typeof window !== "undefined") {
-  window.__abcarusFileCacheStats = () => fileContentCache.getStats();
-  window.__abcarusResetFileCacheStats = () => fileContentCache.resetStats();
-}
 const fileOperationLocks = createFileOperationLocks({
   normalizePath: normalizeLibraryPath,
 });
@@ -1252,29 +1243,13 @@ renderRuntime.initializePayload({
   buildHeaderPrefix,
 });
 
-function normalizeFileContentCacheKey(filePath) {
-  return fileContentCache.normalizeKey(filePath);
-}
-
-function getFileContentFromCache(filePath) {
-  return fileContentCache.get(filePath);
-}
-
-function setFileContentInCache(filePath, content) {
-  fileContentCache.set(filePath, content);
-}
-
 async function refreshActiveTuneSnapshot() {
   const meta = activeContext.getActiveTuneMeta();
   const path = meta && meta.path ? String(meta.path) : "";
   if (!path) return null;
-  let text = getFileContentFromCache(path);
-  if (text == null) {
-    const result = await readFile(path);
-    if (!result || !result.ok) return null;
-    text = String(result.data || "");
-    setFileContentInCache(path, text);
-  }
+  const result = await readFile(path);
+  if (!result || !result.ok) return null;
+  const text = String(result.data || "");
   const file = (libraryRuntime.getFiles() || []).find((entry) => pathsEqual(entry && entry.path, path));
   const tunes = file && Array.isArray(file.tunes) ? file.tunes.map((tune) => ({
     tuneUid: tune.tuneUid || "",
@@ -1324,7 +1299,6 @@ const fileReloadController = createFileReloadController({
     },
     setDirtyIndicator,
     setEditorValueClean: editorRuntime.setTextClean,
-    setFileContentInCache,
     setFileNameMeta,
     setHeaderClean: markHeaderClean,
     setHeaderEditorValueClean: (text) => fileHeaderController.setEditorValueClean(text),
@@ -1358,7 +1332,6 @@ async function discardFileChangesForActiveFile() {
   if (isRawModeActive() || chordProFeature.isEnabled() || !activeTuneMeta || !activeTuneMeta.path) return false;
   const res = await readFile(activeTuneMeta.path);
   if (!res || !res.ok) return false;
-  setFileContentInCache(activeTuneMeta.path, String(res.data || ""));
   markCurrentDocumentClean();
   setDirtyIndicator(false);
   return true;
@@ -1439,7 +1412,6 @@ saveFlowController = createSaveFlowController({
     setActiveFilePath: (value) => { activeContext.setActiveFilePath(value); },
     setActiveTuneMeta: (value) => { activeContext.setActiveTuneMeta(value); },
     setDirtyIndicator,
-    setFileContentInCache,
     setFileNameMeta,
     setStatus,
     showSaveDialog,
@@ -1580,7 +1552,6 @@ const libraryUiDomain = createLibraryUiDomain({
     scheduleSaveLibraryPrefs,
     selectTune,
     setPaneSizes: (leftWidth) => layoutController.setPaneSizes(leftWidth),
-    setFileContentInCache,
     setStatus,
     showContextMenuAt,
     showHoverStatus,
@@ -2040,21 +2011,16 @@ libraryMetadataController = createLibraryMetadataController({
   actions: {
     buildTuneMetaLabel,
     clearErrorsIndex: () => errorsFeature.clearIndex(),
-    clearFileContentCache: () => fileContentCache.clear(),
     clearLibraryFilter,
     clearSaveSession,
     countLines,
-    deleteFileContentCacheKey: (key) => fileContentCache.deleteKey(key),
     fileExists,
     getActiveTuneId: () => activeContext.getActiveTuneId(),
-    getFileContentFromCache,
-    hasFileContentCacheKey: (key) => fileContentCache.hasKey(key),
     invalidateLibraryView: () => libraryUiDomain.invalidateView(),
     isLibraryDisabled: () => chordProFeature.isEnabled(),
     logErr,
     logStartupPerf,
     markActiveTuneButton,
-    normalizeFileContentCacheKey,
     parseTuneIdentityFields,
     patchCurrentDocument,
     pathsEqual,
@@ -2064,7 +2030,6 @@ libraryMetadataController = createLibraryMetadataController({
     scheduleRenderLibraryTree,
     scheduleSaveLibraryUiState,
     setDirtyIndicator,
-    setFileContentInCache,
     setFileNameMeta,
     setScanStatus,
     setStatus,
@@ -2114,7 +2079,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     getActiveEditFilePath,
     getActiveFileEntry,
     getDefaultSaveDir,
-    getFileContentFromCache,
     getNextXNumber,
     getSuggestedBaseName,
     hasUnsavedChangesForFile,
@@ -2141,7 +2105,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     selectTune,
     setBufferStatus,
     setDirtyIndicator,
-    setFileContentInCache,
     setFileNameMeta,
     setIsNewTuneDraft: activeContext.setNewTuneDraft,
     setSaveSession,
@@ -2193,7 +2156,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     buildTuneMetaLabel,
     clearAbPlan,
     clearActiveErrorHighlight,
-    clearFileContentCache: () => fileContentCache.clear(),
     clearLibraryFilter,
     clearSaveSession,
     countLines,
@@ -2202,7 +2164,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     errorsClearIndex: () => errorsFeature.clearIndex(),
     errorsHasActiveHighlight: () => errorsFeature.hasActiveHighlight(),
     expandInitialCollapsedState: () => libraryUiDomain.expandInitialCollapsedState(),
-    getFileContentFromCache,
     getLatestSettingsSnapshot: settingsSnapshot.get,
     invalidateLibraryView: () => libraryUiDomain.invalidateView(),
     isChordProFilePath,
@@ -2247,7 +2208,6 @@ libraryLifecycleController = createLibraryLifecycleController({
     setChordProMode: (next) => chordProFeature.setMode(Boolean(next)),
     setDirtyIndicator,
     setEditorValue,
-    setFileContentInCache,
     setFileNameMeta,
     setIsNewTuneDraft: activeContext.setNewTuneDraft,
     setLibraryActiveFilePath: (next) => { activeContext.setActiveFilePath(next); },
@@ -2425,7 +2385,6 @@ const importExportFeature = createImportExportFeature({
       endOffset: tune.endOffset,
     });
   },
-  setFileContentInCache,
   refreshLibraryFile,
   markDiskConflictPath,
   getNextXNumber,
@@ -2589,7 +2548,6 @@ rawModeFeature = createRawModeFeature({
   },
   selectTune,
   stopPlaybackTransport,
-  setFileContentInCache,
   writeFile,
   updateHeaderStateUI,
   updateFileHeaderPanel,
@@ -3165,8 +3123,8 @@ function getSongbookSuggestedBaseName() {
   });
 }
 
-async function getFileContentCached(filePath) {
-  return fileContentCache.getCached(filePath, readFile);
+async function getFileContent(filePath) {
+  return readFile(filePath);
 }
 
 renderRuntime.initializePipeline({

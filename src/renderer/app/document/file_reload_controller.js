@@ -12,7 +12,6 @@ function createFileReloadController({ api = null, state = {}, actions = {}, util
     switchFileContext = () => {},
     setDirtyIndicator = () => {},
     setEditorValueClean = () => {},
-    setFileContentInCache = () => {},
     setFileNameMeta = () => {},
     setHeaderClean = () => {},
     setHeaderEditorValueClean = () => {},
@@ -37,7 +36,6 @@ function createFileReloadController({ api = null, state = {}, actions = {}, util
     const disk = await readFile(p);
     if (!disk || !disk.ok) return { ok: false, error: disk && disk.error ? disk.error : "Unable to read file from disk." };
     const text = String(disk.data || "");
-    setFileContentInCache(p, text);
     const updatedFile = await refreshLibraryFile(p, { force: true });
     if (updatedFile && Number.isFinite(updatedFile.headerEndOffset)) setRawModeHeaderEndOffset(updatedFile.headerEndOffset);
     if (getRawMode()) {
@@ -68,7 +66,6 @@ function createFileReloadController({ api = null, state = {}, actions = {}, util
     return withFileLock(targetPath, async () => {
       const writeRes = await writeFile(targetPath, sourceText, { expectedData: null });
       if (!writeRes || !writeRes.ok) return { ok: false, error: writeRes && writeRes.error ? writeRes.error : "Unable to save copy." };
-      setFileContentInCache(targetPath, sourceText);
       const updatedFile = await refreshLibraryFile(targetPath, { force: true });
       if (updatedFile && updatedFile.basename) setFileNameMeta(stripFileExtension(updatedFile.basename));
       switchFileContext(targetPath, { rawMode: getRawMode(), source: "save_copy_as" });

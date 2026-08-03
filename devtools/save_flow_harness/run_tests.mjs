@@ -77,7 +77,6 @@ function makeController({
       markHeaderClean: () => calls.push(["markHeaderClean"]),
       resetTransposePreviewState: () => {},
       refreshLibraryFile: async () => null,
-      setFileContentInCache: () => {},
       setFileNameMeta: () => {},
       setActiveFilePath: () => calls.push(["setActiveFilePath"]),
       patchCurrentDocument: () => calls.push(["patchCurrentDocument"]),
@@ -110,7 +109,6 @@ async function testDirectTuneSaveWritesExpectedData() {
         return { ok: true };
       },
       patchCurrentDocument: () => calls.push(["patchCurrentDocument"]),
-      setFileContentInCache: () => {},
       refreshLibraryFile: async () => null,
       reconcileActiveTuneAfterSave: () => {},
       setDirtyIndicator: () => {},
@@ -217,7 +215,6 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
       getDefaultSaveDir: () => "/tmp",
       showSaveDialog: async () => destinationPath,
       patchCurrentDocument: (patch) => { currentDocument = { ...currentDocument, ...patch }; },
-      setFileContentInCache: () => {},
       refreshLibraryFile: async () => null,
       loadLibraryFileIntoEditor: async () => ({ ok: true }),
       setDirtyIndicator: () => {},
@@ -256,7 +253,6 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
         return { ok: true };
       },
       refreshLibraryFile: async () => ({ path, basename: "header.abc" }),
-      setFileContentInCache: () => {},
       markDiskConflictPath: () => {},
       updateHeaderStateUI: () => {},
       markHeaderClean: () => {},

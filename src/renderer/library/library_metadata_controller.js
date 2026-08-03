@@ -28,12 +28,10 @@ export function createLibraryMetadataController({
     clearSaveSession = () => {},
     countLines = () => 1,
     fileExists = async () => false,
-    getFileContentFromCache = () => null,
     invalidateLibraryView = () => {},
     logErr = () => {},
     logStartupPerf = () => {},
     markActiveTuneButton = () => {},
-    normalizeFileContentCacheKey = (p) => String(p || ""),
     parseTuneIdentityFields = () => null,
     patchCurrentDocument = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
@@ -43,7 +41,6 @@ export function createLibraryMetadataController({
     scheduleRenderLibraryTree = () => {},
     scheduleSaveLibraryUiState = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     setFileNameMeta = () => {},
     setScanStatus = () => {},
     setTuneMetaText = () => {},
@@ -346,15 +343,6 @@ export function createLibraryMetadataController({
       invalidateLibraryView();
     }
 
-    const oldCacheKey = normalizeFileContentCacheKey(oldPath);
-    if (oldCacheKey && actions.hasFileContentCacheKey?.(oldCacheKey)) {
-      const cached = getFileContentFromCache(oldPath);
-      if (cached != null) {
-        setFileContentInCache(newPath, cached);
-        actions.deleteFileContentCacheKey?.(oldCacheKey);
-      }
-    }
-
     if (pathsEqual(getActiveFilePath(), oldPath)) setActiveFilePath(newPath);
 
     const activeTuneMeta = getActiveTuneMeta();
@@ -394,7 +382,6 @@ export function createLibraryMetadataController({
     const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const rootAtStart = libraryIndex.root;
     setScanStatus("Refreshing…");
-    actions.clearFileContentCache?.();
     actions.clearErrorsIndex?.();
     if (libraryIndex && libraryIndex.root) {
       setFileNameMeta(actions.stripFileExtension ? actions.stripFileExtension(safeBasename(libraryIndex.root)) : safeBasename(libraryIndex.root));

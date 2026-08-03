@@ -45,7 +45,6 @@ function createRawModeFeature({
   safeFirstTuneId = () => "",
   selectTune = async () => ({ ok: false }),
   stopPlaybackTransport = () => {},
-  setFileContentInCache = () => {},
   updateHeaderStateUI = () => {},
   updateFileHeaderPanel = () => {},
   updateFileContext = () => {},
@@ -144,7 +143,6 @@ function createRawModeFeature({
         return false;
       }
 
-      setFileContentInCache(filePath, fullText);
       setHeaderClean();
       updateHeaderStateUI();
       patchCurrentDoc({ path: filePath, content: bodyText, dirty: false });
@@ -265,7 +263,6 @@ function createRawModeFeature({
       try { stopPlaybackTransport(); } catch {}
 
       beginRawFullFileContext(filePath, "raw_mode");
-      setFileContentInCache(filePath, fullText);
       const updatedFile = await refreshLibraryFile(filePath, { force: true });
       const entry = updatedFile || getActiveFileEntry();
       const headerEndOffset = entry && Number.isFinite(entry.headerEndOffset)

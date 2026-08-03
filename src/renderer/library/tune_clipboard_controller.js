@@ -9,7 +9,6 @@ export function createTuneClipboardController({
   const {
     readFile = async () => ({ ok: false }),
     setBufferStatus = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     showSaveError = async () => {},
   } = actions;
@@ -45,7 +44,6 @@ export function createTuneClipboardController({
     const res = await readFile(fileMeta.path);
     if (!res.ok) throw new Error(res.error || "Unable to read file.");
     const content = String(res.data || "");
-    setFileContentInCache(fileMeta.path, content);
     const start = Number(tune && tune.startOffset);
     const end = Number(tune && tune.endOffset);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > content.length) {

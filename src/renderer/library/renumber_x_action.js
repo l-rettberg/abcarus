@@ -21,7 +21,6 @@ export function createRenumberXAction({
     refreshLibraryFile = async () => null,
     renumberXLinesConsecutive = () => ({ ok: false }),
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     showSaveError = async () => {},
     showToast = () => {},
@@ -58,7 +57,6 @@ export function createRenumberXAction({
           if (writeRes && writeRes.conflict) throw new Error("Refusing to renumber: file changed on disk. Refresh/reopen and try again.");
           throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write file.");
         }
-        setFileContentInCache(filePath, ren.text);
       });
       await refreshLibraryFile(filePath, { force: true });
       setStatus("Renumbered X.");

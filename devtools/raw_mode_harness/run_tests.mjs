@@ -121,7 +121,6 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
     updateHeaderStateUI: () => {},
     updateFileHeaderPanel: () => {},
     updateFileContext: () => { fileContextUpdates += 1; },
-    setFileContentInCache: () => {},
   });
 
   return {

@@ -386,7 +386,6 @@ function createChordProFeature(host) {
       setCurrentDoc(nextDoc);
     }
     call(h.setDirtyIndicator, false);
-    call(h.setFileContentInCache, p, String(text || ""));
     call(h.setFileNameMeta, call(h.stripFileExtension, call(h.safeBasename, p)));
     updateBadge();
     updateSelectOptions();

@@ -45,24 +45,6 @@ contextBridge.exposeInMainWorld("api", {
   getMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:get"),
   saveMakamDnaUser: async (text) => ipcRenderer.invoke("makam-dna:user:save", { text: text == null ? "" : String(text) }),
   clearMakamDnaUser: async () => ipcRenderer.invoke("makam-dna:user:clear"),
-  openWorkingCopy: async (filePath) => ipcRenderer.invoke("workingcopy:open", filePath),
-  closeWorkingCopy: async (context) => ipcRenderer.invoke("workingcopy:close", context || {}),
-  getWorkingCopySnapshot: async () => ipcRenderer.invoke("workingcopy:get"),
-  getWorkingCopyMeta: async () => ipcRenderer.invoke("workingcopy:get-meta"),
-  reloadWorkingCopyFromDisk: async (payload) => ipcRenderer.invoke("workingcopy:reload", payload || {}),
-  commitWorkingCopyToDisk: async (payload) => ipcRenderer.invoke("workingcopy:commit", payload || {}),
-  writeWorkingCopyToPath: async (filePath, context) =>
-    ipcRenderer.invoke("workingcopy:write-to-path", { filePath: filePath || "", ...(context || {}) }),
-  writeWorkingCopyToPathAndSwitch: async (filePath, context) =>
-    ipcRenderer.invoke("workingcopy:write-to-path-and-switch", { filePath: filePath || "", ...(context || {}) }),
-  applyWorkingCopyHeaderText: async (text, context) =>
-    ipcRenderer.invoke("workingcopy:apply-header-text", { text: text == null ? "" : String(text), ...(context || {}) }),
-  applyWorkingCopyFullText: async (text, context) =>
-    ipcRenderer.invoke("workingcopy:apply-full-text", { text: text == null ? "" : String(text), ...(context || {}) }),
-  insertWorkingCopyTuneAfter: async (payload) => ipcRenderer.invoke("workingcopy:insert-tune-after", payload || {}),
-  renumberWorkingCopyXStartingAt1: async (context) => ipcRenderer.invoke("workingcopy:renumber-x", context || {}),
-  deleteWorkingCopyTune: async (payload) => ipcRenderer.invoke("workingcopy:delete-tune", payload || {}),
-  applyWorkingCopyTuneText: async (payload) => ipcRenderer.invoke("workingcopy:apply-tune-text", payload),
   showSaveError: async (message) =>
     ipcRenderer.invoke("dialog:show-save-error", message),
   showTransformError: async (message) =>

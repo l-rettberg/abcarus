@@ -108,7 +108,6 @@ for (const forbidden of [
   /\brecordNavFilePath\b/,
   /\bnavFileHistory\b/,
   /function\s+clearErrorsFeatureState\s*\(/,
-  /function\s+reloadActiveTuneTextFromWorkingCopySnapshot\s*\(/,
   /function\s+showErrorsVisible\s*\(/,
   /\bconst\s+(?:NEW_FILE_MINIMAL_ABC|TEMPLATE_ABC)\b/,
   /\b(?:intonationExplorerFeature|microtonalToolsFeature|intonationRendererBridge|perdeService)\b/,

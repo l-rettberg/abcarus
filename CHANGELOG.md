@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Recent Folders now remembers directories used to open files or complete Save As operations, while preserving previously used folders.
+
+### Changed
+- File, tune, header, import, export, Raw, ChordPro, Library, and revert operations now use direct disk reads and atomic writes with on-disk baseline checks.
+
+### Removed
+- Removed the global Working Copy architecture, its IPC bridge, preload API, persistence store, and related mutation paths.
+
+### Fixed
+- Save and file-operation flows no longer maintain a hidden second editable copy of the document, reducing stale-state and lost-edit risks.
 
 
 ## [1.0.0] - 2026-08-01

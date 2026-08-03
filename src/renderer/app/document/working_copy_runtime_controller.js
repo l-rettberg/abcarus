@@ -5,9 +5,6 @@ export function createWorkingCopyRuntimeController({
   utils = {},
 } = {}) {
   const {
-    getActiveTuneMeta = () => null,
-    isCurrentDocumentDirty = () => false,
-    isDirectDiskSaveMode = () => false,
   } = state;
 
   const {
@@ -20,7 +17,6 @@ export function createWorkingCopyRuntimeController({
     renderUnifiedStatus = () => {},
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     scheduleRenderLibraryTree = () => {},
-    scheduleWorkingCopyTuneSync = () => {},
   } = actions;
 
   const {
@@ -156,16 +152,6 @@ export function createWorkingCopyRuntimeController({
       scheduleRenderLibraryTree();
       if (perfOn) logFilePerf("lazyWorkingCopyOpen: done", { ms: Math.round(perfNowMs() - t0), file: safeBasename(p) });
 
-      const activeTuneMeta = getActiveTuneMeta();
-      if (
-        activeTuneMeta
-        && activeTuneMeta.path
-        && pathsEqual(activeTuneMeta.path, p)
-        && isCurrentDocumentDirty()
-        && !isDirectDiskSaveMode()
-      ) {
-        scheduleWorkingCopyTuneSync();
-      }
     }).catch((err) => {
       if (perfOn) logFilePerf("lazyWorkingCopyOpen: error", {
         ms: Math.round(perfNowMs() - t0),

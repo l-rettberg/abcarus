@@ -563,7 +563,6 @@ async function testRendererWorkingCopyMutationsAreContextBound() {
     "insertWorkingCopyTuneAfter",
     "renumberWorkingCopyXStartingAt1",
     "deleteWorkingCopyTune",
-    "applyWorkingCopyTuneText",
     "reloadWorkingCopyFromDisk",
   ];
   const violations = [];

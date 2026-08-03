@@ -559,7 +559,6 @@ const fileHeaderController = createFileHeaderController({
   setDirtyIndicator: () => setDirtyIndicator(isCurrentDocumentDirty()),
   logError: (...args) => console.error(...args),
   actions: {
-    flushWorkingCopyTuneSync,
     saveFileHeaderText,
     setStatus,
     showSaveError,
@@ -1272,13 +1271,6 @@ function setFileContentInCache(filePath, content) {
 workingCopyRuntimeController = createWorkingCopyRuntimeController({
   api: window.api,
   state: {
-    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-    isCurrentDocumentDirty,
-    isDirectDiskSaveMode: () => Boolean(
-      !isRawModeActive()
-      && !isPayloadMode()
-      && !chordProFeature.isEnabled()
-    ),
     isFilePerfEnabled,
   },
   actions: {
@@ -1290,7 +1282,6 @@ workingCopyRuntimeController = createWorkingCopyRuntimeController({
     renderUnifiedStatus,
     safeBasename,
     scheduleRenderLibraryTree,
-    scheduleWorkingCopyTuneSync,
   },
   utils: {
     normalizeLibraryPath,
@@ -1331,7 +1322,6 @@ const workingCopyConflictController = createWorkingCopyConflictController({
     attachTuneUidsToLibraryFile,
     refreshLibraryFile,
     refreshWorkingCopySnapshot,
-    resetWorkingCopyTuneSyncDebounce,
     safeBasename,
     safeDirname,
     selectTune,
@@ -1381,26 +1371,6 @@ async function saveWorkingCopyCopyAsAndSwitch(sourcePath, options = {}) {
 
 let workingCopySyncController = null;
 
-function scheduleWorkingCopyTuneSync() {
-  if (workingCopySyncController) workingCopySyncController.scheduleTuneSync();
-}
-
-function tryResolveActiveTuneUidFromWorkingCopySnapshot() {
-  return workingCopySyncController
-    ? workingCopySyncController.tryResolveActiveTuneUidFromSnapshot()
-    : false;
-}
-
-async function flushWorkingCopyTuneSync() {
-  return workingCopySyncController
-    ? workingCopySyncController.flushTuneSync()
-    : { ok: false, error: "Working copy sync controller is unavailable." };
-}
-
-function resetWorkingCopyTuneSyncDebounce() {
-  if (workingCopySyncController) workingCopySyncController.resetTuneSyncDebounce();
-}
-
 async function discardWorkingCopyChangesForActiveFile() {
   return workingCopySyncController
     ? workingCopySyncController.discardChangesForActiveFile()
@@ -1436,25 +1406,16 @@ workingCopySyncController = createWorkingCopySyncController({
     getActiveFilePath: () => activeContext.getActiveFilePath(),
     getActiveTuneIndex: () => activeContext.getActiveTuneIndex(),
     getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
-    getActiveTuneUid: () => activeContext.getActiveTuneUid(),
-    getChordProFullText: () => chordProFeature.getFullText(),
-    getCurrentDocumentPath,
     getRawMode: () => isRawModeActive(),
     getWorkingCopySnapshot,
     isChordProEnabled: () => chordProFeature.isEnabled(),
-    isChordProFullView: () => chordProFeature.isFullView(),
-    isPayloadMode,
   },
   actions: {
-    ensureXNumberInAbc,
-    getEditorValue,
     markCurrentDocumentClean,
     patchCurrentDocument,
     pathsEqual,
     refreshWorkingCopySnapshot,
-    setActiveTuneIndex: (value) => { activeContext.setActiveTuneIndex(value); },
     setActiveTuneMetaOffsets: activeContext.setTuneMetaOffsets,
-    setActiveTuneUid: (value) => { activeContext.setActiveTuneUid(value); },
     setDirtyIndicator,
     setEditorValueClean: editorRuntime.setTextClean,
     setFileContentInCache,
@@ -1492,7 +1453,6 @@ saveFlowController = createSaveFlowController({
   actions: {
     attachTuneUidsToLibraryFile,
     createNewFileAtPath,
-    flushWorkingCopyTuneSync,
     getDefaultSaveDir,
     getEditorValue,
     getSuggestedBaseName,
@@ -1520,7 +1480,6 @@ saveFlowController = createSaveFlowController({
     refreshLibraryFile,
     readFile,
     refreshWorkingCopySnapshot,
-    resetWorkingCopyTuneSyncDebounce,
     resetHeaderEditorFilePath,
     resetTransposePreviewState,
     resolveWorkingCopySaveConflictDefault,
@@ -1539,7 +1498,6 @@ saveFlowController = createSaveFlowController({
     showSaveError,
     showToastWithAction,
     stripFileExtension,
-    tryResolveActiveTuneUid: tryResolveActiveTuneUidFromWorkingCopySnapshot,
     updateFileHeaderPanel,
     updateHeaderStateUI,
     updateLibraryStatus,
@@ -2213,7 +2171,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     ensureSafeToAbandonCurrentDoc,
     ensureXNumberInAbc,
     fileExists,
-    flushWorkingCopyTuneSync,
     getActiveEditFilePath,
     getActiveFileEntry,
     getDefaultSaveDir,
@@ -2239,7 +2196,6 @@ libraryCrudDomain = createLibraryCrudDomain({
     renumberXInTextKeepingFirst,
     renumberXLinesConsecutive,
     requireCleanForFileOp,
-    resetWorkingCopyTuneSyncDebounce,
     resolveTuneEntryFromSnapshot,
     resolveWorkingCopySaveConflictDefault,
     safeBasename,
@@ -2943,13 +2899,6 @@ function initEditor() {
       isChordProFullView: () => chordProFeature.isFullView(),
       handleChordProDocChanged: (content) => chordProFeature.handleEditorDocChanged(content),
       handleChordProSelectionOffset: (index) => chordProFeature.handleSelectionOffset(index),
-      getActiveTuneUid: () => activeContext.getActiveTuneUid(),
-      isDirectDiskSaveMode: () => Boolean(
-        !isRawModeActive()
-        && !isPayloadMode()
-        && !chordProFeature.isEnabled()
-      ),
-      scheduleWorkingCopyTuneSync,
       isRawMode: () => isRawModeActive(),
       scheduleRender: () => scheduleRenderNow(),
       scheduleSourceLinkUpdate: () => sourceLinkFeature.scheduleUpdate(),

@@ -15,9 +15,6 @@ export function createMainEditorUpdateRuntime({
   isChordProFullView = () => false,
   handleChordProDocChanged = () => {},
   handleChordProSelectionOffset = () => {},
-  getActiveTuneUid = () => "",
-  isDirectDiskSaveMode = () => false,
-  scheduleWorkingCopyTuneSync = () => {},
   isRawMode = () => false,
   scheduleRender = () => {},
   scheduleSourceLinkUpdate = () => {},
@@ -64,8 +61,6 @@ export function createMainEditorUpdateRuntime({
       if (!isDirtySuppressed() && hasCurrentDocument() && !isPayloadMode()) {
         if (isChordProEnabled()) {
           handleChordProDocChanged(update.state.doc.toString());
-        } else if (getActiveTuneUid() && !isDirectDiskSaveMode()) {
-          scheduleWorkingCopyTuneSync();
         }
       }
       if (!isDirtySuppressed() && !isRawMode() && !isChordProFullView()) {

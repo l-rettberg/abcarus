@@ -15,7 +15,6 @@ const { createSaveFlowController } = await importRendererModule(
 
 function makeController({
   chordPro = false,
-  flushTuneResult = { ok: true },
   flushFullResult = { ok: true },
   headerDirty = false,
   headerResult = { ok: true },
@@ -60,7 +59,6 @@ function makeController({
     },
     actions: {
       ensureWorkingCopyOpenForPath: async () => ({ ok: true }),
-      flushWorkingCopyTuneSync: async () => flushTuneResult,
       flushWorkingCopyFullSync: async () => flushFullResult,
       fileExists: api.fileExists,
       confirmOverwrite: async () => "replace",
@@ -122,13 +120,11 @@ async function testDirectTuneSaveWritesExpectedData() {
       reconcileActiveTuneAfterSave: () => {},
       setDirtyIndicator: () => {},
       setActiveFilePath: () => {},
-      resetWorkingCopyTuneSyncDebounce: () => calls.push(["resetWorkingCopyTuneSyncDebounce"]),
       withFileLock: async (_path, fn) => fn(),
     },
   });
   assert.equal(await direct.performSimpleTuneSave(sourcePath), true);
   assert.deepEqual(writes, [[sourcePath, edited, { expectedData: baseline }]]);
-  assert.equal(calls.filter(([kind]) => kind === "resetWorkingCopyTuneSyncDebounce").length, 2);
 }
 
 async function testDirectTuneSaveRejectsExternalChange() {
@@ -201,21 +197,6 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   ]);
 }
 
-async function testTuneSyncFailureStopsBeforeDialog() {
-  const { controller, calls } = makeController({ flushTuneResult: { ok: false, error: "tune sync failed" } });
-  const result = await controller.performSaveAsFlow();
-  assert.equal(result, false);
-  assert.equal(calls.some(([kind]) => kind === "showSaveDialog"), false);
-  assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /tune sync failed/);
-}
-
-async function testHeaderFailureStopsBeforeDialog() {
-  const { controller, calls } = makeController({ headerDirty: true, headerResult: { ok: false, error: "header sync failed" } });
-  const result = await controller.performSaveAsFlow();
-  assert.equal(result, false);
-  assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /header sync failed/);
-}
-
 async function testChordProSaveAsWritesDirectly() {
   const sourcePath = "/tmp/source.cho";
   const destinationPath = "/tmp/copy.cho";
@@ -270,30 +251,8 @@ async function testCancelLeavesSourceUntouched() {
   );
 }
 
-async function testDestinationFailureLeavesSourceUntouched() {
-  const { controller, calls, snapshot, sourcePath } = makeController({ writeResult: { ok: false, error: "destination write failed" } });
-  const result = await controller.performSaveAsFlow();
-  assert.equal(result, false);
-  assert.match(calls.find(([kind]) => kind === "showSaveError")?.[1] || "", /destination write failed/);
-  assert.equal(calls.some(([kind]) => kind === "setActiveFilePath"), false);
-  assert.equal(calls.some(([kind]) => kind === "patchCurrentDocument"), false);
-  assert.deepEqual(
-    snapshot,
-    {
-      path: sourcePath,
-      text: "X:1\nT:Source\nK:C\nC |]\n",
-      version: 4,
-      dirty: true,
-    },
-    "Destination write failure must preserve the complete source working-copy state"
-  );
-}
-
-await testTuneSyncFailureStopsBeforeDialog();
-await testHeaderFailureStopsBeforeDialog();
 await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
-await testDestinationFailureLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
 await testDirectTuneSaveRejectsExternalChange();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();

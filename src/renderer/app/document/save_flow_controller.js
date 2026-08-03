@@ -30,7 +30,6 @@ export function createSaveFlowController({
   const {
     attachTuneUidsToLibraryFile = () => {},
     createNewFileAtPath = async () => false,
-    flushWorkingCopyTuneSync = async () => {},
     getDefaultSaveDir = () => "",
     getEditorValue = () => "",
     getSuggestedBaseName = () => "untitled",
@@ -53,7 +52,6 @@ export function createSaveFlowController({
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
     refreshWorkingCopySnapshot = async () => null,
-    resetWorkingCopyTuneSyncDebounce = () => {},
     resetHeaderEditorFilePath = () => {},
     resetTransposePreviewState = () => {},
     resolveWorkingCopySaveConflictDefault = async () => null,
@@ -164,7 +162,6 @@ export function createSaveFlowController({
       return false;
     }
     return withFileLock(p, async () => {
-      resetWorkingCopyTuneSyncDebounce();
       const activeTuneMeta = getActiveTuneMeta();
       if (!activeTuneMeta || !pathsEqual(activeTuneMeta.path, p)) {
         await showSaveError("Unable to save: active tune context is missing or stale.");
@@ -241,7 +238,6 @@ export function createSaveFlowController({
       }
 
       setFileContentInCache(p, nextText);
-      resetWorkingCopyTuneSyncDebounce();
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
         markHeaderClean();
@@ -483,48 +479,6 @@ export function createSaveFlowController({
       return true;
     }
 
-    let tuneSyncResult;
-    try {
-      tuneSyncResult = await flushWorkingCopyTuneSync();
-    } catch (err) {
-      await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
-      return false;
-    }
-    if (!tuneSyncResult || !tuneSyncResult.ok) {
-      await showSaveError(
-        `Unable to prepare Save As: ${(tuneSyncResult && tuneSyncResult.error) || "Tune changes could not be synchronized."}`
-      );
-      return false;
-    }
-
-    if (getHeaderDirty()) {
-      if (!api || typeof api.applyWorkingCopyHeaderText !== "function") {
-        await showSaveError("Unable to prepare Save As: header synchronization is unavailable.");
-        return false;
-      }
-      try {
-        const headerSnapshot = await refreshWorkingCopySnapshot();
-        const headerPath = headerSnapshot && headerSnapshot.path ? String(headerSnapshot.path) : "";
-        if (!headerSnapshot || !headerPath) {
-          await showSaveError("Unable to prepare Save As: header working-copy context is missing.");
-          return false;
-        }
-        const res = await api.applyWorkingCopyHeaderText(getHeaderEditorValue(), {
-          expectedPath: headerPath,
-          expectedVersion: headerSnapshot.version,
-        });
-        if (!res || !res.ok) {
-          await showSaveError((res && res.error) || "Header changes could not be synchronized.");
-          return false;
-        }
-        markHeaderClean();
-        updateHeaderStateUI();
-      } catch (err) {
-        await showSaveError(`Unable to prepare Save As: ${err && err.message ? err.message : String(err)}`);
-        return false;
-      }
-    }
-
     const suggestedName = `${getSuggestedBaseName()}.abc`;
     const suggestedDir = getDefaultSaveDir();
     const filePath = await showSaveDialog(suggestedName, suggestedDir);
@@ -536,77 +490,21 @@ export function createSaveFlowController({
     }
     if (await fileExists(filePath) && (await confirmOverwrite(filePath)) !== "replace") return false;
 
-    const activeTuneMeta = getActiveTuneMeta();
-    const workingCopySnapshot = getWorkingCopySnapshot();
-    const hasWorkingCopy = Boolean(
-      activeTuneMeta
-      && activeTuneMeta.path
-      && workingCopySnapshot
-      && workingCopySnapshot.path
-      && pathsEqual(workingCopySnapshot.path, activeTuneMeta.path)
-      && api
-      && typeof api.writeWorkingCopyToPathAndSwitch === "function"
-    );
-    if (!hasWorkingCopy) {
-      const content = serializeDocument(currentDocument);
-      const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
-      if (!saved) return false;
-      const libraryIndex = getLibraryIndex();
-      const root = libraryIndex && libraryIndex.root ? normalizeLibraryPath(libraryIndex.root) : "";
-      const normalizedDest = normalizeLibraryPath(filePath);
-      const inRoot = Boolean(
-        root
-        && (normalizedDest === root || normalizedDest.startsWith(root.endsWith("/") ? root : `${root}/`))
-      );
-      if (!inRoot) {
-        const dirPath = safeDirname(filePath);
-        showToastWithAction(
-          "Saved file outside current Library.",
-          "Load folder…",
-          () => { loadLibraryFromFolder(dirPath).catch(() => {}); },
-          8000
-        );
-      }
-      setFileContentInCache(filePath, content);
-      patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
-      setDirtyIndicator(false);
-      setFileNameMeta(stripFileExtension(safeBasename(filePath)));
-      updateFileHeaderPanel();
-      updateWindowTitle();
-      return true;
-    }
-
-    const out = await api.writeWorkingCopyToPathAndSwitch(filePath, {
-      expectedPath: activeTuneMeta.path,
-      expectedVersion: workingCopySnapshot.version,
-    });
-    if (!out || !out.ok) {
-      await showSaveError((out && out.error) ? out.error : "Unable to save file.");
-      return false;
-    }
-    try {
-      await refreshLibraryFile(filePath, { force: true });
-    } catch {}
-
+    const content = serializeDocument(currentDocument);
+    const saved = await createNewFileAtPath(filePath, content, { confirmOverwrite: false });
+    if (!saved) return false;
+    try { await refreshLibraryFile(filePath, { force: true }); } catch {}
+    setFileContentInCache(filePath, content);
+    patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+    setDirtyIndicator(false);
+    setActiveFilePath(filePath);
+    setFileNameMeta(stripFileExtension(safeBasename(filePath)));
+    updateFileHeaderPanel();
+    updateWindowTitle();
     const switched = await loadLibraryFileIntoEditor(filePath, { skipConfirm: true });
     if (switched && switched.ok) {
-      const libraryIndex = getLibraryIndex();
-      const root = libraryIndex && libraryIndex.root ? normalizeLibraryPath(libraryIndex.root) : "";
-      const normalizedDest = normalizeLibraryPath(filePath);
-      const inRoot = Boolean(
-        root
-        && (normalizedDest === root || normalizedDest.startsWith(root.endsWith("/") ? root : `${root}/`))
-      );
-      if (!inRoot) {
-        const dir = safeDirname(filePath);
-        showToastWithAction(
-          "Saved file outside current Library.",
-          "Load folder…",
-          () => { loadLibraryFromFolder(dir).catch(() => {}); },
-          8000
-        );
-      }
-      return true;
+      patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
+      setDirtyIndicator(false);
     }
     return true;
   }

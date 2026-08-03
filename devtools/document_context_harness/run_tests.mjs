@@ -287,81 +287,6 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
   assert.equal(clearSaveCalls, 0, "dropping an inactive file should not disturb current save session");
 }
 
-function testWorkingCopyUidRecoveryRequiresTuneIdentity() {
-  const text = "X:1\nT:First\nK:C\nC|\n\nX:2\nT:Second\nK:G\nG|\n";
-  const secondStart = text.indexOf("X:2");
-  let activeUid = "";
-  let activeIndex = 1;
-  let activeOffsets = null;
-  const snapshot = {
-    path: "/tmp/tunes.abc",
-    text,
-    version: 0,
-    tunes: [
-      { tuneUid: "uid-first", start: 0, end: secondStart },
-      { tuneUid: "uid-second", start: secondStart, end: text.length },
-    ],
-  };
-  const controller = createWorkingCopySyncController({
-    state: {
-      getActiveTuneIndex: () => activeIndex,
-      getActiveTuneMeta: () => ({
-        path: snapshot.path,
-        xNumber: "2",
-        title: "Second",
-        startOffset: secondStart,
-      }),
-      getActiveTuneUid: () => activeUid,
-      getWorkingCopySnapshot: () => snapshot,
-    },
-    actions: {
-      pathsEqual: (a, b) => a === b,
-      setActiveTuneIndex: (value) => { activeIndex = value; },
-      setActiveTuneMetaOffsets: (start, end) => { activeOffsets = [start, end]; },
-      setActiveTuneUid: (value) => { activeUid = value; },
-    },
-  });
-
-  assert.equal(controller.tryResolveActiveTuneUidFromSnapshot(), true);
-  assert.equal(activeUid, "uid-second");
-  assert.equal(activeIndex, 1);
-  assert.deepEqual(activeOffsets, [secondStart, text.length]);
-}
-
-function testWorkingCopyUidRecoveryRejectsStaleFirstTuneIndex() {
-  const text = "X:1\nT:Replacement\nK:C\nC|\n\nX:2\nT:Second\nK:G\nG|\n";
-  const secondStart = text.indexOf("X:2");
-  let activeUid = "";
-  const controller = createWorkingCopySyncController({
-    state: {
-      getActiveTuneIndex: () => 0,
-      getActiveTuneMeta: () => ({
-        path: "/tmp/tunes.abc",
-        xNumber: "9",
-        title: "Missing Original",
-        startOffset: 0,
-      }),
-      getActiveTuneUid: () => activeUid,
-      getWorkingCopySnapshot: () => ({
-        path: "/tmp/tunes.abc",
-        text,
-        version: 0,
-        tunes: [
-          { tuneUid: "uid-replacement", start: 0, end: secondStart },
-          { tuneUid: "uid-second", start: secondStart, end: text.length },
-        ],
-      }),
-    },
-    actions: {
-      pathsEqual: (a, b) => a === b,
-      setActiveTuneUid: (value) => { activeUid = value; },
-    },
-  });
-
-  assert.equal(controller.tryResolveActiveTuneUidFromSnapshot(), false);
-  assert.equal(activeUid, "", "a stale first-tune position must not acquire the replacement tune UID");
-}
-
 function testLibraryReconcilesSavedTuneByStableIdentity() {
   let activeId = "/tmp/tunes.abc::10";
   let activeUid = "uid-second";
@@ -475,8 +400,6 @@ testLibraryDocumentContextShowsCleanFileDocument();
 testLibraryDocumentContextUsesAtomicActiveContextClear();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
-testWorkingCopyUidRecoveryRequiresTuneIdentity();
-testWorkingCopyUidRecoveryRejectsStaleFirstTuneIndex();
 testLibraryReconcilesSavedTuneByStableIdentity();
 await testSimpleTuneSaveIsOwnedBySaveController();
 

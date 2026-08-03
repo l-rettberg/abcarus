@@ -198,9 +198,6 @@ function createFileHeaderController({
       return;
     }
     try {
-      try {
-        if (typeof actions.flushWorkingCopyTuneSync === "function") await actions.flushWorkingCopyTuneSync();
-      } catch {}
       const headerRes = typeof actions.saveFileHeaderText === "function"
         ? await actions.saveFileHeaderText(entry.path, getEditorValue())
         : null;

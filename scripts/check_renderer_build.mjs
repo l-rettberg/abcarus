@@ -241,22 +241,8 @@ async function assertSaveIntentGuards() {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 
-  const syncOwner = workingCopySync.includes("async function flushTuneSync()") ? workingCopySync : src;
-  const syncStart = syncOwner.indexOf("async function flushTuneSync()");
-  const syncEnd = syncOwner.indexOf("function resetTuneSyncDebounce()", syncStart);
-  if (syncStart < 0 || syncEnd < 0) throw new Error("Unable to isolate flushWorkingCopyTuneSync().");
-  const syncBody = syncOwner.slice(syncStart, syncEnd);
-  if (!syncBody.includes("ensureXNumberInAbc(tuneTextRaw")) {
-    throw new Error("flushWorkingCopyTuneSync() must normalize tune text via ensureXNumberInAbc().");
-  }
-  if (!syncBody.includes("tuneSyncRunPromise")) {
-    throw new Error("flushWorkingCopyTuneSync() must wait for in-flight sync before save commits.");
-  }
-  if (!syncBody.includes("result = { ok: true, path: filePath };")) {
-    throw new Error("flushWorkingCopyTuneSync() must report successful tune sync explicitly.");
-  }
-  if (!syncBody.includes("Stable active tune identity is missing")) {
-    throw new Error("flushWorkingCopyTuneSync() must fail closed when stable tune identity is missing.");
+  if (workingCopySync.includes("applyWorkingCopyTuneText") || workingCopySync.includes("scheduleTuneSync")) {
+    throw new Error("Normal ABC editing must not synchronize editor changes into a working copy.");
   }
   if (!saveFlow.includes("async function performSimpleTuneSave(filePath")) {
     throw new Error("Save flow controller must own the simple tune save path.");

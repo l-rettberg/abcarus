@@ -21,7 +21,10 @@ const files = new Map([[sourcePath, source], [targetPath, target]]);
 const sourceStart = source.indexOf("X:2");
 const sourceEnd = source.length;
 const writes = [];
+const refreshes = [];
+const conflicts = [];
 const errors = [];
+let failSourceWrite = false;
 let activeDirty = false;
 let activePath = "";
 let clipboard = {
@@ -58,7 +61,8 @@ const action = createPasteMoveTuneAction({
     getTuneText: async () => source.slice(sourceStart, sourceEnd),
     pathsEqual: (left, right) => left === right,
     readFile: async (filePath) => ({ ok: true, data: files.get(filePath) }),
-    refreshLibraryFile: async () => null,
+    markDiskConflictPath: (path, hasConflict) => conflicts.push([path, hasConflict]),
+    refreshLibraryFile: async (path, options) => { refreshes.push([path, options]); return null; },
     removeTuneFromContent: (text, start, end) => String(text).slice(0, start) + String(text).slice(end),
     renumberXInTextKeepingFirst: (text) => ({ ok: true, abcText: text }),
     requireCleanForFileOp: async () => true,
@@ -70,6 +74,10 @@ const action = createPasteMoveTuneAction({
     withFileLocks: async (_paths, operation) => operation(),
     writeFile: async (filePath, data, options = {}) => {
       writes.push({ filePath, data, expectedData: options.expectedData });
+      if (filePath === sourcePath && failSourceWrite) {
+        failSourceWrite = false;
+        return { ok: false, conflict: true, error: "File changed on disk." };
+      }
       if (files.get(filePath) !== options.expectedData) return { ok: false, conflict: true, error: "File changed on disk." };
       files.set(filePath, String(data));
       return { ok: true };
@@ -87,6 +95,33 @@ assert.equal(writes[1].expectedData, source);
 assert.match(files.get(targetPath), /^X:9[\s\S]*X:10/m);
 assert.doesNotMatch(files.get(sourcePath), /T:Keep/);
 assert.equal(clipboard, null, "clipboard must clear only after both writes succeed");
+
+files.set(sourcePath, source);
+files.set(targetPath, target);
+writes.length = 0;
+refreshes.length = 0;
+conflicts.length = 0;
+errors.length = 0;
+clipboard = {
+  text: source.slice(sourceStart, sourceEnd),
+  sourcePath,
+  tuneId: "source-tune-2",
+  mode: "move",
+};
+failSourceWrite = true;
+await action.pasteClipboardToFile(targetPath);
+assert.equal(files.get(targetPath), target, "successful target write must be rolled back when source write fails");
+assert.equal(files.get(sourcePath), source, "source must remain unchanged after failed move");
+assert.deepEqual(refreshes, [
+  [targetPath, { force: true }],
+  [sourcePath, { force: true }],
+], "Library must refresh both files after rollback");
+assert.deepEqual(conflicts, [
+  [sourcePath, true],
+  [targetPath, false],
+], "only the externally conflicting source remains marked");
+assert.match(errors.join("\n"), /File changed on disk/i);
+assert.equal(clipboard.mode, "move", "failed move must keep clipboard state for retry");
 
 files.set(sourcePath, source);
 files.set(targetPath, target);

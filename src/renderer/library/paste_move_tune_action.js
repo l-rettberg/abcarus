@@ -213,8 +213,12 @@ export function createPasteMoveTuneAction({
           if (writeSourceRes.conflict) markDiskConflictPath(sourcePath, true);
           const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
           if (rollback && rollback.ok) {
+            markDiskConflictPath(targetPath, false);
+            await refreshLibraryFile(targetPath, { force: true });
+            await refreshLibraryFile(sourcePath, { force: true });
             throw new Error(writeSourceRes.error || "Unable to update source file.");
           }
+          markDiskConflictPath(targetPath, true);
           throw new Error((writeSourceRes && writeSourceRes.error)
             ? `${writeSourceRes.error} (rollback failed; the tune may now be duplicated)`
             : "Unable to update source file (rollback failed; the tune may now be duplicated)");

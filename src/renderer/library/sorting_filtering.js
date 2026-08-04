@@ -190,7 +190,7 @@ function sortLibraryFiles(files, options = {}) {
       file.tunes = sortTunes(file.tunes, options.tuneSortMode, options);
     }
   }
-  promoteActiveFile(list, options.activeFilePath, options);
+  if (groupMode === "file") promoteActiveFile(list, options.activeFilePath, options);
   return list;
 }
 

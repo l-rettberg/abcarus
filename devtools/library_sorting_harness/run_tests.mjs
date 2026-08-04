@@ -29,6 +29,11 @@ assert.deepEqual(
   ["/music/active.abc", "/music/new.abc", "/music/old.abc"],
   "active file must lead name sorting",
 );
+assert.deepEqual(
+  sortLibraryFiles(files, { ...options, groupMode: "composer", sortMode: "name_desc" }).map((file) => file.path),
+  ["/music/old.abc", "/music/new.abc", "/music/active.abc"],
+  "non-file grouping must retain the selected file ordering without active-file promotion",
+);
 
 const entries = sortGroupEntries(
   sortLibraryFiles(files, { ...options, sortMode: "name_desc" }).map((file) => ({

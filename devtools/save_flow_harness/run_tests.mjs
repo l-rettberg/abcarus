@@ -149,6 +149,7 @@ async function testFailedPrimarySaveCreatesEmergencyCopy() {
   const filePath = "/missing/tunes.abc";
   const text = "X:1\nT:Recovered\nK:C\nC|\n";
   const writes = [];
+  const stateCalls = [];
   let errorMessage = "";
   const controller = createSaveFlowController({
     api: {
@@ -160,6 +161,7 @@ async function testFailedPrimarySaveCreatesEmergencyCopy() {
       getActiveTuneMeta: () => ({ path: filePath, xNumber: "1", documentParts: {
         header: "", before: "", active: text, after: "",
       } }),
+      getCurrentDocument: () => ({ path: filePath, content: text, dirty: true }),
     },
     actions: {
       getEditorValue: () => text,
@@ -169,6 +171,9 @@ async function testFailedPrimarySaveCreatesEmergencyCopy() {
         return path === filePath ? { ok: false, error: "ENOENT: missing directory" } : { ok: true };
       },
       safeBasename: () => "tunes.abc",
+      patchCurrentDocument: () => stateCalls.push("patchCurrentDocument"),
+      setActiveFilePath: () => stateCalls.push("setActiveFilePath"),
+      setDirtyIndicator: (value) => stateCalls.push(["setDirtyIndicator", value]),
       showSaveError: async (message) => { errorMessage = String(message); },
       withFileLock: async (_path, fn) => fn(),
     },
@@ -179,6 +184,7 @@ async function testFailedPrimarySaveCreatesEmergencyCopy() {
   assert.match(writes[1].path, /userData\/recovery\/tunes\.recovery-.*\.abc$/);
   assert.match(errorMessage, /Emergency copy saved/);
   assert.match(errorMessage, /remain unsaved/);
+  assert.deepEqual(stateCalls, [], "failed save must keep active path and dirty state untouched");
 }
 
 async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {

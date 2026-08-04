@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [1.2.0] - 2026-08-04
 ### Added
 - Portable settings export now carries Global Header data in the single `abcarus.properties` file.
 - Emergency recovery and failed-save handling preserve the active document when the original path becomes unavailable.
@@ -17,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Prevented stale document and library context from causing lost edits or failed repeated saves.
 - Removed obsolete template file-cache behavior and tightened document, Library, and ChordPro lifecycle checks.
-
-
 
 ## [1.1.0] - 2026-08-03
 ### Added

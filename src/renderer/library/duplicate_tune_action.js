@@ -5,6 +5,7 @@ export function createDuplicateTuneAction({
     ensureCopyTitleInAbc = (text) => text,
     findTuneById = () => null,
     markActiveTuneButton = () => {},
+    markDiskConflictPath = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
@@ -67,7 +68,10 @@ export function createDuplicateTuneAction({
         }
         const updatedContent = renum.abcText;
         const writeRes = await writeFile(res.file.path, updatedContent, { expectedData: content });
-        if (!writeRes || !writeRes.ok) throw new Error(writeRes && writeRes.error ? writeRes.error : "Unable to duplicate tune.");
+        if (!writeRes || !writeRes.ok) {
+          if (writeRes && writeRes.conflict) markDiskConflictPath(res.file.path, true);
+          throw new Error(writeRes && writeRes.error ? writeRes.error : "Unable to duplicate tune.");
+        }
         const updatedFile = await refreshLibraryFile(res.file.path, { force: true });
         return { updatedContent, updatedFile };
       });

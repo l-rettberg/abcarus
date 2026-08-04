@@ -34,6 +34,7 @@ export function createAppendCurrentTuneAction({
     getActiveFileEntry = () => null,
     getNextXNumber = () => 1,
     markHeaderClean = () => {},
+    markDiskConflictPath = () => {},
     parseTuneIdentityFields = () => null,
     patchCurrentDocument = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
@@ -71,6 +72,7 @@ export function createAppendCurrentTuneAction({
       const updated = `${before}${separator}${tune}${newline}`;
       const saveRes = await writeFile(p, updated, { expectedData: before });
       if (!saveRes || !saveRes.ok) {
+        if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         return false;
       }

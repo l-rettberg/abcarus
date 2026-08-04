@@ -23,6 +23,7 @@ export function createPasteMoveTuneAction({
     getActiveEditFilePath = () => "",
     getNextXNumber = () => 1,
     getTuneText = async () => "",
+    markDiskConflictPath = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
@@ -78,7 +79,10 @@ export function createPasteMoveTuneAction({
     const prepared = ensureXNumberInAbc(text, nextX);
     const updated = appendTuneToContent(before, prepared);
     const writeRes = await writeFile(filePath, updated, { expectedData: before });
-    if (!writeRes.ok) throw new Error(writeRes.error || "Unable to append to file.");
+    if (!writeRes.ok) {
+      if (writeRes.conflict) markDiskConflictPath(filePath, true);
+      throw new Error(writeRes.error || "Unable to append to file.");
+    }
     return updated;
   }
 
@@ -199,10 +203,14 @@ export function createPasteMoveTuneAction({
         }
 
         const writeTargetRes = await writeFile(targetPath, finalTarget, { expectedData: targetContent });
-        if (!writeTargetRes.ok) throw new Error(writeTargetRes.error || "Unable to update target file.");
+        if (!writeTargetRes.ok) {
+          if (writeTargetRes.conflict) markDiskConflictPath(targetPath, true);
+          throw new Error(writeTargetRes.error || "Unable to update target file.");
+        }
 
         const writeSourceRes = await writeFile(sourcePath, finalSource, { expectedData: sourceContent });
         if (!writeSourceRes.ok) {
+          if (writeSourceRes.conflict) markDiskConflictPath(sourcePath, true);
           const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
           if (rollback && rollback.ok) {
             throw new Error(writeSourceRes.error || "Unable to update source file.");

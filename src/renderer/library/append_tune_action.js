@@ -15,6 +15,7 @@ function createAppendTuneToActiveFileAction({
   selectTune = async () => {},
   getNextXNumber = () => 1,
   ensureXNumberInAbc = (text) => text,
+  markDiskConflictPath = () => {},
   confirmAppendToFile = async () => false,
   requireCleanForFileOp = async () => true,
   showToast = () => {},
@@ -71,6 +72,7 @@ function createAppendTuneToActiveFileAction({
         const updated = `${before}${separator}${tune}${newline}`;
         const saveRes = await writeFile(targetPath, updated, { expectedData: before });
         if (!saveRes || !saveRes.ok) {
+          if (saveRes && saveRes.conflict) markDiskConflictPath(targetPath, true);
           throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         }
       });

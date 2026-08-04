@@ -207,4 +207,59 @@ const { createStartupController } = await importRendererModule(
   ]);
 }
 
+{
+  const events = [];
+  const controller = createStartupController({
+    api: {
+      getRecentCandidates: async () => [],
+      getRecoveryFiles: async () => [{
+        path: "/app/recovery/song.recovery-20260803.abc",
+        originalPath: "/music/song.abc",
+      }],
+      getSettings: async () => ({}),
+      confirmRecovery: async () => "restore",
+      restoreRecoveryFile: async (recoveryPath, originalPath) => {
+        events.push(["restore", recoveryPath, originalPath]);
+        return { ok: true, path: originalPath };
+      },
+    },
+    openRecentFile: async (entry) => {
+      events.push(["open-restored", entry]);
+      return { ok: true };
+    },
+    renderStatus: () => events.push(["render-status"]),
+  });
+
+  assert.equal(await controller.start(), false, "recovery restore should not claim a recent-document startup");
+  assert.deepEqual(events, [
+    ["restore", "/app/recovery/song.recovery-20260803.abc", "/music/song.abc"],
+    ["open-restored", { path: "/music/song.abc", forceReload: true }],
+    ["render-status"],
+  ]);
+}
+
+{
+  const events = [];
+  const controller = createStartupController({
+    api: {
+      getRecentCandidates: async () => [],
+      getRecoveryFiles: async () => [{
+        path: "/app/recovery/song.recovery-20260803.abc",
+        originalPath: "/music/song.abc",
+      }],
+      getSettings: async () => ({}),
+      confirmRecovery: async () => "restore",
+      restoreRecoveryFile: async () => ({ ok: false, error: "permission denied" }),
+    },
+    showToast: (message) => events.push(["recovery-toast", message]),
+    renderStatus: () => events.push(["render-status"]),
+  });
+
+  assert.equal(await controller.start(), false, "failed recovery should leave startup without a recent document");
+  assert.deepEqual(events, [
+    ["recovery-toast", "Recovery copy kept at: /app/recovery/song.recovery-20260803.abc"],
+    ["render-status"],
+  ]);
+}
+
 console.log("startup harness: all tests passed");

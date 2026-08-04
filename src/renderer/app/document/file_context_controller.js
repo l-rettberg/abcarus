@@ -21,7 +21,7 @@ function createFileContextController({
     isEnabled: isChordProEnabled = () => false,
     updateSelectOptions: updateChordProSelectOptions = () => {},
     getActiveIndex: getChordProActiveIndex = () => 0,
-    setActiveBlock: setChordProActiveBlock = () => {},
+    setActiveBlock: setChordProActiveBlock = async () => false,
   } = chordPro;
 
   const {
@@ -143,7 +143,7 @@ function createFileContextController({
 
   async function navigateTuneByDelta(delta) {
     if (isChordProEnabled()) {
-      setChordProActiveBlock(getChordProActiveIndex() + delta, { scroll: true });
+      await setChordProActiveBlock(getChordProActiveIndex() + delta, { scroll: true });
       return;
     }
     if (getRawMode()) {
@@ -234,7 +234,7 @@ function createFileContextController({
     await selectTune(nextId);
   }
 
-  function handleTuneSelectChange() {
+  async function handleTuneSelectChange() {
     if (!tuneSelect) return;
     const tuneId = tuneSelect.value;
     if (tuneId === "__new__") return;
@@ -242,7 +242,7 @@ function createFileContextController({
     if (!tuneId) return;
     if (isChordProEnabled()) {
       const idx = Number(tuneId);
-      if (Number.isFinite(idx)) setChordProActiveBlock(idx, { scroll: true });
+      if (Number.isFinite(idx)) await setChordProActiveBlock(idx, { scroll: true });
       return;
     }
     if (isPayloadMode()) {

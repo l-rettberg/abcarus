@@ -145,12 +145,19 @@ function createChordProFeature(host) {
     select.value = next;
   }
 
-  function setActiveBlock(index, { scroll = false } = {}) {
-    if (!mode) return;
+  async function setActiveBlock(index, { scroll = false } = {}) {
+    if (!mode) return false;
     const total = blocks.length;
-    if (!total) return;
+    if (!total) return false;
     const next = Math.max(0, Math.min(total - 1, Number(index) || 0));
-    if (next === activeIndex && !scroll) return;
+    if (next === activeIndex && !scroll) return true;
+    if (next !== activeIndex) {
+      const safe = await call(h.ensureSafeToAbandonCurrentDoc, "switching ChordPro ABC block");
+      if (!safe) {
+        updateSelectOptions();
+        return false;
+      }
+    }
     activeIndex = next;
     updateSelectOptions();
     updateBadge();
@@ -162,6 +169,7 @@ function createChordProFeature(host) {
       call(h.scrollToPosInEditor, block.startOffset, { y: "start" });
     }
     call(h.scheduleRenderNow, { clearOutput: true });
+    return true;
   }
 
   function findBlockIndexAtOffset(offset) {
@@ -349,6 +357,33 @@ function createChordProFeature(host) {
     }
   }
 
+  async function discardChanges() {
+    if (!mode) return false;
+    const currentDoc = getCurrentDoc();
+    const filePath = currentDoc && currentDoc.path ? String(currentDoc.path) : "";
+    if (!filePath) return false;
+    const readRes = await call(h.readFile, filePath);
+    if (!readRes || !readRes.ok) {
+      call(h.showSaveError, (readRes && readRes.error) ? readRes.error : "Unable to reload ChordPro file.");
+      return false;
+    }
+    const previousIndex = activeIndex;
+    fullText = String(readRes.data || "");
+    updateStateFromFullText(fullText);
+    activeIndex = Math.max(0, Math.min(blocks.length - 1, previousIndex));
+    const active = getActiveBlock();
+    const content = fullView ? fullText : (active ? String(active.text || "") : fullText);
+    setEditorValueSilently(content);
+    setCurrentDocContent(content);
+    call(h.markCurrentDocumentClean);
+    call(h.setDirtyIndicator, false);
+    updateSelectOptions();
+    updateBadge();
+    call(h.updateFileHeaderPanel);
+    call(h.scheduleRenderNow, { clearOutput: true });
+    return true;
+  }
+
   async function open(filePath, content, { suppressRecent = false } = {}) {
     const p = String(filePath || "");
     if (!p) return { ok: false, error: "Missing file path." };
@@ -447,6 +482,7 @@ function createChordProFeature(host) {
     handleEditorDocChanged,
     handleSelectionOffset,
     applyTransformedText,
+    discardChanges,
     getAvailability,
     refreshPdfButtonState,
     open,

@@ -12,10 +12,13 @@ const {
   isChordProText,
   parseChordProBlocks,
 } = await importBundledModule("src/renderer/tools/chordpro/chordpro_model.js");
+const { createChordProFeature } = await importBundledModule("src/renderer/tools/chordpro/chordpro_feature.js");
 
+const pendingTests = [];
 function test(name, fn) {
-  fn();
-  console.log(`% PASS ${name}`);
+  pendingTests.push(Promise.resolve().then(fn).then(() => {
+    console.log(`% PASS ${name}`);
+  }));
 }
 
 test("detects ChordPro text markers and file extensions", () => {
@@ -72,3 +75,64 @@ test("reports malformed marker pairs without dropping content", () => {
   assert.deepEqual(endOnly.warnings.map((warning) => warning.kind), ["abc-end-without-start"]);
   assert.equal(endOnly.blocks.length, 0);
 });
+
+test("guards block navigation and restores the active block from disk", async () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    body: { classList: { toggle() {} } },
+  };
+
+  const diskText = [
+    "{title: Song}",
+    "{start_of_abc: One}",
+    "X:1",
+    "T:One",
+    "{end_of_abc}",
+    "{start_of_abc: Two}",
+    "X:2",
+    "T:Two",
+    "{end_of_abc}",
+  ].join("\n");
+  let currentDoc = null;
+  let editorValue = "";
+  let allowNavigation = false;
+  let cleanCalls = 0;
+  const feature = createChordProFeature({
+    getCurrentDoc: () => currentDoc,
+    setCurrentDoc: (doc) => { currentDoc = doc; },
+    setCurrentDocContent: (content) => { if (currentDoc) currentDoc.content = content; },
+    getEditorValue: () => editorValue,
+    setEditorValue: (content) => { editorValue = content; },
+    setSuppressDirty() {},
+    ensureSafeToAbandonCurrentDoc: async () => allowNavigation,
+    readFile: async () => ({ ok: true, data: diskText }),
+    markCurrentDocumentClean: () => { cleanCalls += 1; if (currentDoc) currentDoc.dirty = false; },
+    setDirtyIndicator() {},
+    scheduleRenderNow() {},
+    updateFileHeaderPanel() {},
+  });
+
+  try {
+    await feature.open("/tmp/song.cho", diskText, { suppressRecent: true });
+    assert.equal(feature.getActiveIndex(), 0);
+    currentDoc.dirty = true;
+    assert.equal(await feature.setActiveBlock(1), false);
+    assert.equal(feature.getActiveIndex(), 0);
+
+    allowNavigation = true;
+    assert.equal(await feature.setActiveBlock(1), true);
+    assert.equal(feature.getActiveIndex(), 1);
+
+    feature.handleEditorDocChanged("X:2\nT:Edited\n");
+    currentDoc.dirty = true;
+    assert.equal(await feature.discardChanges(), true);
+    assert.equal(feature.getActiveIndex(), 1);
+    assert.match(currentDoc.content, /T:Two/);
+    assert.equal(currentDoc.dirty, false);
+    assert.equal(cleanCalls, 1);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+await Promise.all(pendingTests);

@@ -155,6 +155,30 @@ async function testDontSaveRequiresSuccessfulTuneReload() {
     },
   });
   assert.equal(await failed.confirmAbandonIfDirty("switching tunes"), false, "failed discard must block navigation");
+
+  let headerReloadCalls = 0;
+  const headerOnly = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => ({ path: "/tmp/song.abc", content: "from disk", dirty: false }),
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => true,
+      hasUnsavedChangesInActiveEditContext: () => true,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => {
+        headerReloadCalls += 1;
+        return true;
+      },
+      markHeaderClean: () => { throw new Error("header-only discard must reload before clearing header state"); },
+      updateHeaderStateUI: () => {},
+    },
+  });
+  assert.equal(await headerOnly.confirmAbandonIfDirty("switching tunes"), true);
+  assert.equal(headerReloadCalls, 1, "header-only discard must reload the file context");
 }
 
 function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {

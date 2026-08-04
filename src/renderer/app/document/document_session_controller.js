@@ -210,11 +210,13 @@ function createDocumentSessionController({
     const choice = await confirmUnsavedChanges(contextLabel);
     if (choice === "cancel") return false;
     if (choice === "dont_save") {
-      markHeaderClean();
-      updateHeaderStateUI();
-      if (tuneDirty) {
+      const isSpecialFileMode = isRawMode() || isChordProEnabled();
+      if (!isSpecialFileMode && (tuneDirty || hdrDirty)) {
         const discarded = await discardFileChangesForActiveFile();
         if (!discarded) return false;
+      } else {
+        markHeaderClean();
+        updateHeaderStateUI();
       }
       return true;
     }

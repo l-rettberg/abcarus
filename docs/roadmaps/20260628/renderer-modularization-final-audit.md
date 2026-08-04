@@ -1,12 +1,12 @@
 # Renderer Modularization Final Audit
 
-Date: 2026-07-30
+Date: 2026-08-04
 
-Branch: `renderer-modularization`
+Branch: `single-tune-editor`
 
 Baseline: approximately 32,000 lines in `src/renderer/renderer.js`
 
-Audited state: 3,865 physical lines in `src/renderer/renderer.js`
+Audited state: 3,654 physical lines in `src/renderer/renderer.js`
 
 ## Result
 
@@ -30,7 +30,7 @@ ownership.
 | Domain | Primary owner | Renderer tail classification | Status |
 | --- | --- | --- | --- |
 | Library | `src/renderer/library/` and `library_ui_domain.js` / `library_crud_domain.js` | DOM inputs, facade construction, command callbacks | Complete |
-| Document, file, save, working copy | `src/renderer/app/document/` | Controller construction and explicit cross-domain adapters | Complete |
+| Document, file, and save | `src/renderer/app/document/` | Controller construction and explicit cross-domain adapters | Complete |
 | Render | `src/renderer/render/` | Pipeline construction, DOM output target, callbacks into errors/playback | Complete |
 | Playback, Focus, Follow | `src/renderer/playback/playback_domain.js` and `playback_composition.js` | One domain construction/initialization call, DOM map, host adapters, facade calls | Complete |
 | Editor and errors | `src/renderer/editor/` | Editor host construction and callbacks into render/library | Complete |
@@ -64,7 +64,6 @@ The large mutable state clusters have explicit owners:
 
 - active tune/file identity: `active_tune_context_store.js`;
 - current document and dirty state: document controllers;
-- working-copy snapshot/conflict/sync: working-copy controllers;
 - library index/visibility: `library_runtime_store.js`;
 - settings snapshot: `settings_snapshot_store.js`;
 - playback transport/follow/range/A-B state: playback domain/controllers;
@@ -75,6 +74,11 @@ The large mutable state clusters have explicit owners:
 features. Playback controller construction is internal to
 `playback_composition.js`; renderer supplies DOM and cross-domain host adapters
 without receiving mutable playback runtime objects.
+
+The former Working Copy state is no longer part of the ownership map. The
+single-tune document controllers own the active editor buffer and dirty state;
+the Library owns saved/indexed disk state. Raw and ChordPro use the same
+document lifecycle with full-file or embedded-block segmentation respectively.
 
 ## Guardrails
 
@@ -111,4 +115,6 @@ Future work should be ordinary maintenance:
   modularization.
 
 Any proposed new extraction must identify actual domain logic still owned by
-`renderer.js`. A line-count-only proposal should be rejected.
+`renderer.js`. A line-count-only proposal should be rejected. The remaining
+release work is verification and documentation consistency, not another broad
+renderer extraction.

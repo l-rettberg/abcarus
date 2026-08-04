@@ -1965,6 +1965,8 @@ libraryMetadataController = createLibraryMetadataController({
     setActiveTuneUid: (next) => { activeContext.setActiveTuneUid(next); },
     setActiveTuneIndex: (next) => { activeContext.setActiveTuneIndex(next); },
     getCurrentDocumentPath,
+    isCurrentDocumentDirty,
+    getHeaderDirty,
     getLibraryFilterLabel: () => libraryUiDomain.getLibraryFilterLabel(),
     getLibraryTextFilter: () => libraryUiDomain.getLibraryTextFilter(),
     isTuneErrorFilterActive,

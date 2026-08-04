@@ -15,6 +15,8 @@ export function createLibraryMetadataController({
     setActiveTuneUid = () => {},
     setActiveTuneIndex = () => {},
     getCurrentDocumentPath = () => "",
+    isCurrentDocumentDirty = () => false,
+    getHeaderDirty = () => false,
     getLibraryFilterLabel = () => "",
     getLibraryTextFilter = () => "",
     isTuneErrorFilterActive = () => false,
@@ -276,25 +278,32 @@ export function createLibraryMetadataController({
       libraryIndex.files.splice(idx, 1);
       invalidateLibraryView();
     }
+    const currentDocumentPath = getCurrentDocumentPath();
+    const preserveDirtyDocument = Boolean(
+      currentDocumentPath
+      && pathsEqual(currentDocumentPath, p)
+      && (isCurrentDocumentDirty() || getHeaderDirty())
+    );
     let droppedActiveContext = false;
-    if (getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) {
+    if (!preserveDirtyDocument && getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) {
       setActiveFilePath(null);
       droppedActiveContext = true;
     }
     const activeTuneMeta = getActiveTuneMeta();
-    if (activeTuneMeta && pathsEqual(activeTuneMeta.path, p)) {
+    if (!preserveDirtyDocument && activeTuneMeta && pathsEqual(activeTuneMeta.path, p)) {
       setActiveTuneMeta(null);
       setActiveTuneId(null);
       setActiveTuneUid(null);
       setActiveTuneIndex(null);
       droppedActiveContext = true;
     }
-    const currentDocumentPath = getCurrentDocumentPath();
     if (currentDocumentPath && pathsEqual(currentDocumentPath, p)) {
-      patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
-      droppedActiveContext = true;
+      if (!preserveDirtyDocument) {
+        patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
+        droppedActiveContext = true;
+      }
     }
-    setDirtyIndicator(false);
+    if (!isCurrentDocumentDirty() && !getHeaderDirty()) setDirtyIndicator(false);
     updateLibraryStatus();
     scheduleRenderLibraryTree();
     return true;

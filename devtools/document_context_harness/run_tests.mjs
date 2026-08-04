@@ -358,7 +358,9 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
       getLibraryIndex: () => libraryIndex,
       setLibraryIndex: (next) => { libraryIndex = next; },
       getActiveFilePath: () => activePath,
+      setActiveFilePath: () => { throw new Error("dirty document active path must be preserved"); },
       getActiveTuneMeta: () => ({ path: activePath, tuneUid: "abc123" }),
+      setActiveTuneMeta: () => { throw new Error("dirty document tune context must be preserved"); },
       getCurrentDocumentPath: () => activePath,
     },
     actions: {
@@ -375,6 +377,40 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 
   assert.equal(dropped, true);
   assert.equal(libraryIndex.files.length, 1);
+}
+
+function testDropDeletedActiveFilePreservesDirtyDocument() {
+  const activePath = "/tmp/library/active.abc";
+  let libraryIndex = {
+    root: "/tmp/library",
+    files: [{ path: activePath, basename: "active.abc", tunes: [] }],
+  };
+  let patched = null;
+  let dirtyIndicatorCalls = 0;
+  const controller = createLibraryMetadataController({
+    state: {
+      getLibraryIndex: () => libraryIndex,
+      setLibraryIndex: (next) => { libraryIndex = next; },
+      getActiveFilePath: () => activePath,
+      getActiveTuneMeta: () => ({ path: activePath, tuneUid: "abc123" }),
+      getCurrentDocumentPath: () => activePath,
+      isCurrentDocumentDirty: () => true,
+      getHeaderDirty: () => false,
+    },
+    actions: {
+      invalidateLibraryView: () => {},
+      patchCurrentDocument: (patch) => { patched = patch; },
+      pathsEqual: (a, b) => String(a || "") === String(b || ""),
+      setDirtyIndicator: () => { dirtyIndicatorCalls += 1; },
+      updateLibraryStatus: () => {},
+      scheduleRenderLibraryTree: () => {},
+    },
+  });
+
+  assert.equal(controller.dropLibraryFileEntry(activePath), true);
+  assert.equal(libraryIndex.files.length, 0);
+  assert.equal(patched, null, "dirty document must remain available for Save to recreate the file");
+  assert.equal(dirtyIndicatorCalls, 0, "deleting the disk entry must not clear dirty UI state");
 }
 
 function testLibraryReconcilesSavedTuneByStableIdentity() {
@@ -485,6 +521,7 @@ testLibraryDocumentContextShowsCleanFileDocument();
 testLibraryDocumentContextUsesAtomicActiveContextClear();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
+testDropDeletedActiveFilePreservesDirtyDocument();
 testLibraryReconcilesSavedTuneByStableIdentity();
 await testSimpleTuneSaveIsOwnedBySaveController();
 

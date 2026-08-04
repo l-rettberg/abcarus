@@ -16,6 +16,9 @@ const { createDocumentLifecycleController } = await importRendererModule(
 const { createCurrentDocumentController } = await importRendererModule(
   resolve("src/renderer/app/document/current_document_controller.js")
 );
+const { createDocumentSessionController } = await importRendererModule(
+  resolve("src/renderer/app/document/document_session_controller.js")
+);
 const { createLibraryMetadataController } = await importRendererModule(
   resolve("src/renderer/library/library_metadata_controller.js")
 );
@@ -101,6 +104,57 @@ function testCurrentDocumentControllerKeepsSessionAndUiTogether() {
   controller.clearCurrentDocument();
   assert.equal(document, null);
   assert.deepEqual(calls, [["apply", next], ["empty"]], "clearing a document must enter empty UI state");
+}
+
+async function testDontSaveRequiresSuccessfulTuneReload() {
+  let currentDocument = { path: "/tmp/song.abc", content: "edited", dirty: true };
+  let reloadCalls = 0;
+  const controller = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => currentDocument,
+      setCurrentDoc: (next) => { currentDocument = next; },
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => false,
+      hasUnsavedChangesInActiveEditContext: () => false,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => {
+        reloadCalls += 1;
+        currentDocument = { path: "/tmp/song.abc", content: "from disk", dirty: false };
+        return true;
+      },
+      markHeaderClean: () => {},
+      updateHeaderStateUI: () => {},
+    },
+  });
+
+  assert.equal(await controller.confirmAbandonIfDirty("switching tunes"), true);
+  assert.equal(reloadCalls, 1);
+  assert.deepEqual(currentDocument, { path: "/tmp/song.abc", content: "from disk", dirty: false });
+
+  currentDocument = { path: "/tmp/song.abc", content: "edited again", dirty: true };
+  const failed = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => currentDocument,
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => false,
+      hasUnsavedChangesInActiveEditContext: () => false,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => false,
+      markHeaderClean: () => {},
+      updateHeaderStateUI: () => {},
+    },
+  });
+  assert.equal(await failed.confirmAbandonIfDirty("switching tunes"), false, "failed discard must block navigation");
 }
 
 function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
@@ -399,6 +453,7 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
 
 testBeginCleanFileDocumentClearsStaleSaveContext();
 testCurrentDocumentControllerKeepsSessionAndUiTogether();
+await testDontSaveRequiresSuccessfulTuneReload();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
 testSetRawActiveTuneContextClearsStaleUidAndIndex();

@@ -213,7 +213,8 @@ function createDocumentSessionController({
       markHeaderClean();
       updateHeaderStateUI();
       if (tuneDirty) {
-        await discardFileChangesForActiveFile();
+        const discarded = await discardFileChangesForActiveFile();
+        if (!discarded) return false;
       }
       return true;
     }

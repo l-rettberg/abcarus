@@ -1308,11 +1308,11 @@ async function discardAndReloadFileFromDisk(filePath, options = {}) {
 async function discardFileChangesForActiveFile() {
   const activeTuneMeta = activeContext.getActiveTuneMeta();
   if (isRawModeActive() || chordProFeature.isEnabled() || !activeTuneMeta || !activeTuneMeta.path) return false;
-  const res = await readFile(activeTuneMeta.path);
-  if (!res || !res.ok) return false;
-  markCurrentDocumentClean();
-  setDirtyIndicator(false);
-  return true;
+  const tuneId = activeTuneMeta.tuneUid || activeTuneMeta.id || "";
+  const result = await discardAndReloadFileFromDisk(activeTuneMeta.path, {
+    restoreTuneId: tuneId,
+  });
+  return Boolean(result && result.ok);
 }
 
 function resolveTuneEntryFromSnapshot(snapshot, { tuneUid, tuneIndex, startOffset } = {}) {

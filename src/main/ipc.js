@@ -1455,7 +1455,7 @@ function registerIpcHandlers(ctx) {
     return true;
   });
   ipcMain.handle("app:quit", async () => {
-    requestQuit();
+    await requestQuit();
   });
   ipcMain.handle("app:recovery-dir", async () => {
     try {

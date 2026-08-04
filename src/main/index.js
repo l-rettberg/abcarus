@@ -27,6 +27,7 @@ let splashWindow = null;
 let splashPendingStatus = "Starting…";
 let splashShownAtMs = 0;
 let isQuitting = false;
+let quitPromise = null;
 let startupSplashMinVisibleMs = 3000;
 let pendingCliOpenFile = "";
 let singleInstanceOpenRequestedBeforeReady = false;
@@ -1518,26 +1519,30 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
 }
 
 let attachedSettingsWriteTimer = null;
-let attachedSettingsWriteInFlight = false;
+let attachedSettingsWritePromise = null;
 async function persistAttachedSettingsFile() {
-  if (attachedSettingsWriteInFlight) return;
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-  const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-  if (!filePath) return;
-  const schema = getSettingsSchema();
-  const propsText = encodePropertiesFromSchema(appState.settings || getDefaultSettings(), schema);
-  attachedSettingsWriteInFlight = true;
-  try {
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await atomicWriteFileWithRetry(filePath, propsText);
+  if (attachedSettingsWritePromise) return attachedSettingsWritePromise;
+  attachedSettingsWritePromise = (async () => {
+    if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
+    const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
+    if (!filePath) return;
+    const schema = getSettingsSchema();
+    const propsText = encodePropertiesFromSchema(appState.settings || getDefaultSettings(), schema);
     try {
-      const st = await fs.promises.stat(filePath);
-      appState.settingsFile.lastKnownMtimeMs = st.mtimeMs || 0;
-    } catch {}
-  } catch {
-    // Silent failure: user may have removed the file or directory; internal snapshot remains valid.
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await atomicWriteFileWithRetry(filePath, propsText);
+      try {
+        const st = await fs.promises.stat(filePath);
+        appState.settingsFile.lastKnownMtimeMs = st.mtimeMs || 0;
+      } catch {}
+    } catch {
+      // Silent failure: user may have removed the file or directory; internal snapshot remains valid.
+    }
+  })();
+  try {
+    await attachedSettingsWritePromise;
   } finally {
-    attachedSettingsWriteInFlight = false;
+    attachedSettingsWritePromise = null;
   }
 }
 
@@ -3440,9 +3445,24 @@ registerIpcHandlers({
     add("folder", appState.recentFolders);
     return out;
   },
-  requestQuit: () => {
+  requestQuit: async () => {
+    if (quitPromise) return quitPromise;
     isQuitting = true;
-    app.quit();
+    if (attachedSettingsWriteTimer) {
+      clearTimeout(attachedSettingsWriteTimer);
+      attachedSettingsWriteTimer = null;
+    }
+    quitPromise = (async () => {
+      await persistAttachedSettingsFile();
+      await saveState();
+      app.quit();
+    })();
+    try {
+      await quitPromise;
+    } catch {
+      try { app.quit(); } catch { process.exit(0); }
+    }
+    return quitPromise;
   },
   reportStartupStatus: (text) => {
     updateSplashStatus(text);

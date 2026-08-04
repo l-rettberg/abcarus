@@ -224,8 +224,7 @@ function createRawModeFeature({
       return Boolean(saved);
     }
     if (choice === "dont_save") {
-      discardUnsavedRawState();
-      return true;
+      return discardUnsavedRawState();
     }
     return false;
   }
@@ -350,16 +349,40 @@ function createRawModeFeature({
     }
   }
 
-  function discardUnsavedRawState() {
-    clearUnsavedDiscardState();
+  async function discardUnsavedRawState() {
     const currentDoc = getCurrentDoc();
-    if (currentDoc) {
-      patchCurrentDoc({ dirty: false }, { create: false });
+    const filePath = state.rawModeFilePath || (currentDoc && currentDoc.path) || getActiveFilePath();
+    if (filePath) {
+      const readRes = await readFile(filePath);
+      if (!readRes || !readRes.ok) {
+        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to reload file.");
+        return false;
+      }
+      const fullText = String(readRes.data || "");
+      const updatedFile = await refreshLibraryFile(filePath, { force: true });
+      const headerEndOffset = updatedFile && Number.isFinite(updatedFile.headerEndOffset)
+        ? Number(updatedFile.headerEndOffset)
+        : findHeaderEndOffset(fullText);
+      const bodyText = fullText.slice(Math.max(0, headerEndOffset));
+      const restoreTuneId = getActiveTuneId();
+      patchState({ rawModeFilePath: filePath, rawModeHeaderEndOffset: headerEndOffset });
+      setSuppressDirty(true);
+      try {
+        setEditorText(bodyText);
+      } finally {
+        setSuppressDirty(false);
+      }
+      patchCurrentDoc({ path: filePath, content: bodyText, dirty: false });
+      updateFileContext();
+      updateFileHeaderPanel();
+      if (restoreTuneId) setActiveTune(restoreTuneId);
     }
+    clearUnsavedDiscardState();
     setHeaderClean();
     updateHeaderStateUI();
     updateFileHeaderPanel();
     setDirtyIndicator(false);
+    return true;
   }
 
   return {

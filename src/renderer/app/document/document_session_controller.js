@@ -52,6 +52,7 @@ function createDocumentSessionController({
   const {
     discardFileChangesForActiveFile = async () => false,
     discardChordProChangesForActiveFile = async () => false,
+    discardRawChangesForActiveFile = async () => false,
     flushLibraryPrefsSave = async () => {},
     loadSingleLibraryFile = async () => null,
     markHeaderClean = () => {},
@@ -212,7 +213,12 @@ function createDocumentSessionController({
     if (choice === "cancel") return false;
     if (choice === "dont_save") {
       const isSpecialFileMode = isRawMode() || isChordProEnabled();
-      if (isChordProEnabled() && (tuneDirty || fileDirty)) {
+      if (isRawMode() && (tuneDirty || hdrDirty || fileDirty)) {
+        const discarded = await discardRawChangesForActiveFile();
+        if (!discarded) return false;
+        markHeaderClean();
+        updateHeaderStateUI();
+      } else if (isChordProEnabled() && (tuneDirty || fileDirty)) {
         const discarded = await discardChordProChangesForActiveFile();
         if (!discarded) return false;
         markHeaderClean();

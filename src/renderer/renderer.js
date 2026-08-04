@@ -2216,6 +2216,7 @@ documentSessionController = createDocumentSessionController({
       ? window.api.addRecentFolder(entry)
       : Promise.resolve(false),
     discardFileChangesForActiveFile,
+    discardRawChangesForActiveFile: () => rawModeFeature.discardUnsavedRawState(),
     flushLibraryPrefsSave,
     loadSingleLibraryFile,
     markHeaderClean,

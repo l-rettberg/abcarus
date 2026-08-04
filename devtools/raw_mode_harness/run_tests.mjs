@@ -177,9 +177,9 @@ async function testRawSaveWritesTheFullBuffer() {
   assert.equal(h.writes.length, 1, "raw save should perform one direct file write");
 }
 
-function testDiscardClearsDirtyState() {
+async function testDiscardClearsDirtyState() {
   const h = createHarness();
-  h.feature.discardUnsavedRawState();
+  assert.equal(await h.feature.discardUnsavedRawState(), true, "discard should reload the raw file");
   assert.equal(h.currentDoc.dirty, false, "discard should clear current document dirty flag");
   assert.equal(h.headerCleanCalls, 1, "discard should mark header clean");
   assert.equal(h.dirtyIndicator, false, "discard should clear dirty indicator");
@@ -206,7 +206,7 @@ try {
   await testCleanRawRoundTripDoesNotDirtyDocument();
   await testConcurrentRawEnterIsIgnored();
   await testRawSaveWritesTheFullBuffer();
-  testDiscardClearsDirtyState();
+  await testDiscardClearsDirtyState();
   await testDirtyRawExitUsesOwnedConfirmationFlow();
   console.log("[raw_mode_harness] OK");
 } catch (err) {

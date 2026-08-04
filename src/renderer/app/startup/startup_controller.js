@@ -193,27 +193,6 @@ export function createStartupController({
     });
     try {
       const didStart = await restoreRecentEntry();
-      if (api && typeof api.getRecoveryFiles === "function") {
-        try {
-          const recoveryFiles = await api.getRecoveryFiles();
-          const latest = Array.isArray(recoveryFiles) ? recoveryFiles[0] : null;
-          if (latest && latest.path && typeof api.confirmRecovery === "function") {
-            const choice = await api.confirmRecovery(latest);
-            if (choice === "restore" && latest.originalPath && typeof api.restoreRecoveryFile === "function") {
-              const restored = await api.restoreRecoveryFile(latest.path, latest.originalPath);
-              if (restored && restored.ok) {
-                await openRecentFile({ path: latest.originalPath, forceReload: true });
-              } else {
-                showToast(`Recovery copy kept at: ${latest.path}`, 10000);
-              }
-            } else if (choice === "later") {
-              showToast(`Recovery copy kept at: ${latest.path}`, 10000);
-            }
-          } else if (latest && latest.path) {
-            showToast(`Recovery copy kept at: ${latest.path}`, 10000);
-          }
-        } catch {}
-      }
       if (!didStart && !(api && typeof api.getSettings === "function")) markUiReady();
       else renderStatus();
       return didStart;

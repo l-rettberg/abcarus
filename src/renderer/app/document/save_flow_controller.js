@@ -98,9 +98,6 @@ export function createSaveFlowController({
       const made = await api.mkdirp(dir);
       if (!made || made.ok === false) return "";
       const result = await writeFile(target, text);
-      if (result && result.ok && typeof api.writeRecoveryMetadata === "function") {
-        try { await api.writeRecoveryMetadata(target, String(filePath || ""), new Date().toISOString()); } catch {}
-      }
       return result && result.ok ? target : "";
     } catch {
       return "";

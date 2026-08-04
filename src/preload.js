@@ -111,12 +111,6 @@ contextBridge.exposeInMainWorld("api", {
   cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
   getRecoveryDir: async () => ipcRenderer.invoke("app:recovery-dir"),
-  getRecoveryFiles: async () => ipcRenderer.invoke("app:recovery-files"),
-  confirmRecovery: async (recovery) => ipcRenderer.invoke("dialog:confirm-recovery", recovery || {}),
-  restoreRecoveryFile: async (recoveryPath, originalPath) =>
-    ipcRenderer.invoke("app:recovery-restore", recoveryPath, originalPath),
-  writeRecoveryMetadata: async (recoveryPath, originalPath, createdAt) =>
-    ipcRenderer.invoke("app:recovery-metadata", recoveryPath, originalPath, createdAt),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),
   pathJoin: (...parts) => path.join(...parts.map((part) => String(part || ""))),

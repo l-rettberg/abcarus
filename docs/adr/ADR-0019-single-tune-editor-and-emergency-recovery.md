@@ -112,17 +112,15 @@ renamed, or became inaccessible, ABCarus must:
 
 1. keep the editor document dirty;
 2. write an emergency copy to a safe application-owned directory;
-3. include the original path and creation timestamp in recovery metadata;
-4. report the emergency-copy path clearly;
-5. offer recovery of the emergency copy when the application later returns to
-   an active file workflow.
+3. report the emergency-copy path clearly.
 
 Emergency recovery is a failure path for the original write. It is not a
-Working Copy and must not become a parallel editing session.
+Working Copy, startup feature, restore workflow, or parallel editing session.
+The user may open or remove the copy manually when appropriate.
 
 Creating an emergency copy does not change the active file path, does not
-select the emergency copy, and does not clear dirty state. The user must
-explicitly choose recovery before the copy becomes an active document.
+select the emergency copy, and does not clear dirty state. ABCarus does not
+scan recovery copies or prompt for restoration on later startup.
 
 Emergency copies preserve the complete composed document. For Raw mode this
 is the complete Raw document; for ChordPro this is the complete hybrid file.
@@ -181,7 +179,7 @@ Working Copy under another name.
 Required tests include clean and dirty tune switching, exact `Don't Save`
 discard behavior, dirty clearing after undo to the loaded text, four-part Save
 reconstruction, deleted-file recreation, external replacement overwrite,
-inaccessible-directory emergency copy and recovery, Raw Save/re-index,
+inaccessible-directory emergency copy, Raw Save/re-index,
 ChordPro component Save/switching, dirty structural-operation rejection,
 move/copy/delete re-indexing, and paths with spaces or non-ASCII characters.
 
@@ -195,14 +193,15 @@ move/copy/delete re-indexing, and paths with spaces or non-ASCII characters.
 - Tune switching follows the familiar single-document editor model.
 - Library reflects saved disk state after successful operations.
 - Deleted files can be deliberately recreated from active editor work.
-- Unavailable paths have an explicit recovery path.
+- Unavailable paths have a simple emergency-copy fallback.
 
 ### Trade-offs
 
 - External changes are intentionally overwritten on Save.
 - Users need emergency recovery or Raw inspection when preserving external
   content matters.
-- Emergency-copy UX and recovery tests are required.
+- Emergency-copy failure-path tests are required; no recovery session is
+  required.
 - Long-running multi-file operations need explicit snapshots and transactional
   file handling; they must not reuse the active tune document.
 

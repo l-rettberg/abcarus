@@ -35,6 +35,7 @@ const entries = sortGroupEntries(
     ...file,
     id: file.path,
     label: file.basename,
+    path: undefined,
     isFile: true,
     tuneCount: 0,
   })),

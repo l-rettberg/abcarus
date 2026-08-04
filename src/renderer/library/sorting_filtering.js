@@ -112,11 +112,12 @@ function getEntryTuneCount(entry) {
 }
 
 function isActiveFile(file, activeFilePath, options = {}) {
-  if (!file || !activeFilePath || !file.path) return false;
+  const filePath = file && (file.path || file.id);
+  if (!filePath || !activeFilePath) return false;
   if (typeof options.pathsEqual === "function") {
-    return options.pathsEqual(file.path, activeFilePath);
+    return options.pathsEqual(filePath, activeFilePath);
   }
-  return String(file.path) === String(activeFilePath);
+  return String(filePath) === String(activeFilePath);
 }
 
 function promoteActiveFile(list, activeFilePath, options = {}) {

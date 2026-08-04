@@ -47,6 +47,22 @@ function encodeValue(value, type) {
   return String(value == null ? "" : value);
 }
 
+function encodeGlobalHeaderText(value) {
+  // Keep the portable export single-file and preserve newlines safely.
+  try { return JSON.stringify(String(value == null ? "" : value)); } catch { return "\"\""; }
+}
+
+function parseGlobalHeaderText(raw) {
+  const text = String(raw == null ? "" : raw);
+  try {
+    const value = JSON.parse(text);
+    return typeof value === "string" ? value : text;
+  } catch {
+    // Accept a hand-edited plain-text value for forward/backward tolerance.
+    return text;
+  }
+}
+
 function encodePropertiesFromSchema(settings, schema) {
   const s = settings && typeof settings === "object" ? settings : {};
   const lines = [];
@@ -67,12 +83,12 @@ function encodePropertiesFromSchema(settings, schema) {
     lines.push(`# ${section}`);
     for (const entry of entries) {
       if (!entry || !entry.key) continue;
-      // Keep global header text in file form (user_settings.abc) instead of embedding multi-line strings here.
-      if (entry.key === "globalHeaderText") continue;
       const value = (Object.prototype.hasOwnProperty.call(s, entry.key) && s[entry.key] !== undefined)
         ? s[entry.key]
         : entry.default;
-      const raw = encodeValue(value, entry.type);
+      const raw = entry.key === "globalHeaderText"
+        ? encodeGlobalHeaderText(value)
+        : encodeValue(value, entry.type);
       lines.push(`${entry.key}=${raw}`);
     }
     lines.push("");
@@ -91,7 +107,10 @@ function parseSettingsPatchFromProperties(propertiesText, schema) {
   for (const [key, raw] of map.entries()) {
     const entry = schemaMap.get(key);
     if (!entry) continue;
-    if (entry.key === "globalHeaderText") continue;
+    if (entry.key === "globalHeaderText") {
+      patch[key] = parseGlobalHeaderText(raw);
+      continue;
+    }
     if (entry.type === "boolean") {
       const v = parseBoolean(raw);
       if (v == null) continue;

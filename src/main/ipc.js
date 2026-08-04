@@ -1685,14 +1685,33 @@ function registerIpcHandlers(ctx) {
       const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
       const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
       let importedHeader = false;
+      let importedHeaderText = "";
+      let hasImportedHeader = false;
       try {
         await fs.promises.access(importedHeaderPath, fs.constants.F_OK);
+        importedHeaderText = await fs.promises.readFile(importedHeaderPath, "utf8");
+        hasImportedHeader = true;
+      } catch {}
+
+      // New exports carry Global Header in the properties file. Keep the
+      // legacy sidecar authoritative when it is present, then mirror the
+      // resolved value into userData so the renderer sees one consistent layer.
+      const hasEmbeddedHeader = Object.prototype.hasOwnProperty.call(patch || {}, "globalHeaderText");
+      if (!hasImportedHeader && hasEmbeddedHeader) {
+        importedHeaderText = String(patch.globalHeaderText || "");
+        hasImportedHeader = true;
+      }
+      if (hasImportedHeader) {
+        patch.globalHeaderText = importedHeaderText;
         if (userHeaderPath) {
-          const text = await fs.promises.readFile(importedHeaderPath, "utf8");
-          await atomicWriteFileWithRetry(fs, path, userHeaderPath, text);
+          if (importedHeaderText.trim()) {
+            await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
+          } else {
+            await fs.promises.rm(userHeaderPath, { force: true });
+          }
           importedHeader = true;
         }
-      } catch {}
+      }
 
       const next = updateSettings(patch || {});
       // Import implies: this file becomes the canonical source of truth.

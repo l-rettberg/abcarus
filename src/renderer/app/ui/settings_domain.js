@@ -187,7 +187,7 @@ function createSettingsDomain({
     }
     const res = await api.exportSettings();
     if (res && res.ok) {
-      const note = res.exportedHeader ? " (incl. user_settings.abc)" : "";
+      const note = res.exportedHeader ? " (incl. Global Header)" : "";
       call(actions.showToast, `Settings exported${note} and will be used next time.`, 4200);
     } else if (res && res.error && res.error !== "Canceled") {
       call(actions.showToast, String(res.error), 3200);
@@ -204,7 +204,7 @@ function createSettingsDomain({
       call(
         actions.showToast,
         res.importedHeader
-          ? "Settings imported (incl. user_settings.abc) and will be used next time."
+          ? "Settings imported (incl. Global Header) and will be used next time."
           : "Settings imported and will be used next time.",
         4200
       );

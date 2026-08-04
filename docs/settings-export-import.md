@@ -6,12 +6,16 @@ To make your setup portable (SciTE-style), use the built-in **Export Settings** 
 ## Files
 
 Export creates:
-- `abcarus.properties` — app settings (key/value), suitable for versioning and manual edits.
-- `user_settings.abc` — your user header layer (if present), copied alongside the properties file.
+- `abcarus.properties` — the complete portable settings file, including Global Header as an escaped JSON string.
+- `user_settings.abc` — a legacy-compatible copy of the user header layer (if present).
 
 Import reads:
 - `abcarus.properties`
-- and optionally `user_settings.abc` if it is in the same folder.
+- and optionally the legacy `user_settings.abc` if it is in the same folder.
+
+The properties file is now self-contained for portability: copying only
+`abcarus.properties` is sufficient to transfer Global Header settings. Existing
+exports that rely on a neighboring `user_settings.abc` remain supported.
 
 ## Optional: attach a canonical settings file
 

@@ -132,12 +132,9 @@ function createRawModeFeature({
     const fullText = buildRawFileText({ headerText, bodyText });
 
     return withFileLock(filePath, async () => {
-      const readRes = await readFile(filePath);
-      if (!readRes || !readRes.ok) {
-        await showSaveError((readRes && readRes.error) ? readRes.error : "Unable to read file before raw save.");
-        return false;
-      }
-      const saveRes = await writeFile(filePath, fullText, { expectedData: String(readRes.data || "") });
+      // Raw mode owns the complete editable buffer. A save writes that buffer;
+      // structural Library operations are the only writes that need a baseline guard.
+      const saveRes = await writeFile(filePath, fullText, {});
       if (!saveRes || !saveRes.ok) {
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         return false;

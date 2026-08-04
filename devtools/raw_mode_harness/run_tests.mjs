@@ -87,8 +87,8 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
     },
     writeFile: async (path, data, options = {}) => {
       assert.equal(path, filePath, "raw save should write the active file");
-      assert.equal(options.expectedData, fullText, "raw save should guard against an external file change");
-      writes.push({ path, data, expectedData: options.expectedData });
+      assert.equal(Object.prototype.hasOwnProperty.call(options, "expectedData"), false, "raw save should not use a stale disk baseline");
+      writes.push({ path, data, options });
       return { ok: true };
     },
     refreshLibraryFile: async () => fileEntry,
@@ -170,10 +170,10 @@ async function testConcurrentRawEnterIsIgnored() {
   assert.equal(h.currentDoc.dirty, false, "concurrent raw enter should leave a clean document");
 }
 
-async function testRawSaveUsesDiskBaseline() {
+async function testRawSaveWritesTheFullBuffer() {
   const h = createHarness();
   await h.feature.enter();
-  assert.equal(await h.feature.save(), true, "raw save should succeed without a hidden file buffer");
+  assert.equal(await h.feature.save(), true, "raw save should write the full editable buffer");
   assert.equal(h.writes.length, 1, "raw save should perform one direct file write");
 }
 
@@ -205,7 +205,7 @@ async function testDirtyRawExitUsesOwnedConfirmationFlow() {
 try {
   await testCleanRawRoundTripDoesNotDirtyDocument();
   await testConcurrentRawEnterIsIgnored();
-  await testRawSaveUsesDiskBaseline();
+  await testRawSaveWritesTheFullBuffer();
   testDiscardClearsDirtyState();
   await testDirtyRawExitUsesOwnedConfirmationFlow();
   console.log("[raw_mode_harness] OK");

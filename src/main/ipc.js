@@ -1247,6 +1247,12 @@ function registerIpcHandlers(ctx) {
         try { await fs.promises.unlink(targetPath); } catch {}
         return { ok: false, error: "Rename verification failed; source file was preserved." };
       }
+      // Do not delete a source that changed after the copy was verified.
+      const sourceBeforeDelete = await fs.promises.readFile(sourcePath);
+      if (!sourceData.equals(sourceBeforeDelete)) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return { ok: false, conflict: true, error: "Source file changed during rename; source file was preserved." };
+      }
       try {
         await fs.promises.unlink(sourcePath);
       } catch (e) {

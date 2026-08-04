@@ -127,10 +127,18 @@ is the complete Raw document; for ChordPro this is the complete hybrid file.
 
 ### 5. Raw mode
 
-Raw mode edits one complete file document: full file text plus file-level dirty
-state. Tune-level selection and structural Library operations are disabled or
-deferred while Raw mode is active. Save writes the complete Raw text
-atomically. Leaving Raw mode re-reads and re-indexes the complete file.
+Raw mode is the same single-document pipeline with a different segmentation:
+
+```text
+Header + empty Before + complete file Body + empty After
+```
+
+The complete body is the active editor value and the dirty flag belongs to
+that one document. Save composes `Header + Body` and writes it atomically,
+using the same Save/error/re-index boundary as normal tune editing. Raw mode
+does not introduce a second buffer, Working Copy, or file cache. Tune-level
+selection and structural Library operations are disabled or deferred while
+Raw mode is active. Leaving Raw mode re-reads and re-indexes the complete file.
 
 ### 6. ChordPro
 

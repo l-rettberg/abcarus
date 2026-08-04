@@ -133,11 +133,23 @@ function createLibraryUiStateController({
   }
 
   function sortLibraryFiles(files) {
-    return sortLibraryFilesCore(files, { groupMode, sortMode, tuneSortMode, safeBasename });
+    return sortLibraryFilesCore(files, {
+      groupMode,
+      sortMode,
+      tuneSortMode,
+      safeBasename,
+      activeFilePath: typeof getActiveFilePath === "function" ? getActiveFilePath() : "",
+      pathsEqual,
+    });
   }
 
   function sortGroupEntries(entries) {
-    return sortGroupEntriesCore(entries, { groupMode, sortMode });
+    return sortGroupEntriesCore(entries, {
+      groupMode,
+      sortMode,
+      activeFilePath: typeof getActiveFilePath === "function" ? getActiveFilePath() : "",
+      pathsEqual,
+    });
   }
 
   function applyLibraryTextFilter(files, query) {

@@ -333,12 +333,12 @@ function testDropActiveLibraryFileClearsSaveSession() {
 
   assert.equal(dropped, true);
   assert.equal(libraryIndex.files.length, 1);
-  assert.equal(activeFilePath, "");
-  assert.equal(activeTuneMeta, null);
-  assert.equal(activeTuneId, null);
-  assert.equal(activeTuneUid, null);
-  assert.equal(activeTuneIndex, null);
-  assert.deepEqual(patchedDocument, { path: null, content: "", dirty: false });
+  assert.equal(activeFilePath, activePath, "the loaded path must remain available for Save As");
+  assert.deepEqual(activeTuneMeta, { path: activePath, tuneUid: "abc123" });
+  assert.equal(activeTuneId, "old-id");
+  assert.equal(activeTuneUid, "abc123");
+  assert.equal(activeTuneIndex, 0);
+  assert.equal(patchedDocument, null, "the loaded buffer must remain available for Save As");
 }
 
 function testDropInactiveLibraryFileDoesNotClearSaveSession() {

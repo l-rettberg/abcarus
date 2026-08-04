@@ -279,29 +279,22 @@ export function createLibraryMetadataController({
       invalidateLibraryView();
     }
     const currentDocumentPath = getCurrentDocumentPath();
-    const preserveDirtyDocument = Boolean(
+    const preserveActiveDocument = Boolean(
       currentDocumentPath
       && pathsEqual(currentDocumentPath, p)
-      && (isCurrentDocumentDirty() || getHeaderDirty())
     );
     let droppedActiveContext = false;
-    if (!preserveDirtyDocument && getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) {
+    if (!preserveActiveDocument && getActiveFilePath() && pathsEqual(getActiveFilePath(), p)) {
       setActiveFilePath(null);
       droppedActiveContext = true;
     }
     const activeTuneMeta = getActiveTuneMeta();
-    if (!preserveDirtyDocument && activeTuneMeta && pathsEqual(activeTuneMeta.path, p)) {
+    if (!preserveActiveDocument && activeTuneMeta && pathsEqual(activeTuneMeta.path, p)) {
       setActiveTuneMeta(null);
       setActiveTuneId(null);
       setActiveTuneUid(null);
       setActiveTuneIndex(null);
       droppedActiveContext = true;
-    }
-    if (currentDocumentPath && pathsEqual(currentDocumentPath, p)) {
-      if (!preserveDirtyDocument) {
-        patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
-        droppedActiveContext = true;
-      }
     }
     if (!isCurrentDocumentDirty() && !getHeaderDirty()) setDirtyIndicator(false);
     updateLibraryStatus();

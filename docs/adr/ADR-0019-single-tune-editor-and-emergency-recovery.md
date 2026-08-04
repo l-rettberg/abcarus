@@ -20,9 +20,10 @@ needed for this workflow. Such layers create additional authorities and make
 it difficult to determine whether a file operation is using editor state,
 Library state, or an intermediate copy.
 
-Raw mode is an explicit exception: it edits the complete file and has
-file-level dirty state. ChordPro is a hybrid case: one ABC component is
-edited inside a complete non-ABC document.
+Raw mode edits the complete file and has file-level dirty state. ChordPro is
+the same document model applied to a container file: its ChordPro markup is
+opaque surrounding content, while each embedded ABC block is an indexable
+tune-like component.
 
 ## Decision
 
@@ -142,11 +143,19 @@ Raw mode is active. Leaving Raw mode re-reads and re-indexes the complete file.
 
 ### 6. ChordPro
 
-ChordPro edits one ABC component inside a hybrid file. The active component is
-represented relative to the full document by content before, the active ABC
-component, and content after. Only one component is editable at a time.
-Switching components while dirty uses `Save / Don't Save / Cancel`. Save
-reconstructs and atomically writes the complete ChordPro file.
+ChordPro files may contain one or more embedded ABC blocks, conceptually
+equivalent to `X:1`, `X:2`, and so on. ABCarus may index and select those blocks
+like tunes in an ABC file, while preserving all ChordPro markup around them as
+opaque content. The selected block is represented by the same four parts:
+
+```text
+Header / Before / Active ABC block / After
+```
+
+Only one embedded block is editable at a time. Switching components while
+dirty uses `Save / Don't Save / Cancel`; Save reconstructs and atomically
+writes the complete ChordPro file. Full-file ChordPro editing remains the
+same pipeline with the entire hybrid body as the active editable content.
 
 ### 7. Library operations
 

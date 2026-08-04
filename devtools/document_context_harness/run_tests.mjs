@@ -13,6 +13,9 @@ async function importRendererModule(filePath) {
 const { createDocumentLifecycleController } = await importRendererModule(
   resolve("src/renderer/app/document/document_lifecycle_controller.js")
 );
+const { createCurrentDocumentController } = await importRendererModule(
+  resolve("src/renderer/app/document/current_document_controller.js")
+);
 const { createLibraryMetadataController } = await importRendererModule(
   resolve("src/renderer/library/library_metadata_controller.js")
 );
@@ -69,6 +72,35 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   assert.equal(dirtyIndicator, false);
   assert.ok(calls.includes("clearActiveTuneState"), "active tune state must be reset before opening a clean file document");
   assert.ok(calls.includes("markHeaderClean"), "header state should be clean for a clean file document");
+}
+
+function testCurrentDocumentControllerKeepsSessionAndUiTogether() {
+  const calls = [];
+  let document = null;
+  const session = {
+    replaceCurrentDocument: (next) => {
+      document = next;
+      return next;
+    },
+  };
+  const controller = createCurrentDocumentController({
+    state: {
+      getDocumentSessionController: () => session,
+      getDocumentLifecycleController: () => ({
+        applyDocumentToUi: (next) => calls.push(["apply", next]),
+        showEmptyState: () => calls.push(["empty"]),
+      }),
+    },
+  });
+
+  const next = { path: "/tmp/song.abc", content: "X:1\n", dirty: false };
+  assert.equal(controller.setCurrentDocument(next), next);
+  assert.equal(document, next);
+  assert.deepEqual(calls, [["apply", next]], "document replacement must reconcile UI immediately");
+
+  controller.clearCurrentDocument();
+  assert.equal(document, null);
+  assert.deepEqual(calls, [["apply", next], ["empty"]], "clearing a document must enter empty UI state");
 }
 
 function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
@@ -366,6 +398,7 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
 }
 
 testBeginCleanFileDocumentClearsStaleSaveContext();
+testCurrentDocumentControllerKeepsSessionAndUiTogether();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
 testSetRawActiveTuneContextClearsStaleUidAndIndex();

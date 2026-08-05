@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Turkish notation conversion now uses reversible 12-EDO spelling with explicit 53-TET key-signature restoration, preserving sharp notation and round-trip fidelity.
 
 
 ## [1.2.1] - 2026-08-04

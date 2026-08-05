@@ -31,8 +31,6 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("dialog:confirm-remove-sf2", label),
   confirmDeleteTune: async (label) =>
     ipcRenderer.invoke("dialog:confirm-delete-tune", label),
-  confirmSaveConflict: async (filePath) =>
-    ipcRenderer.invoke("dialog:confirm-save-conflict", filePath || ""),
   confirmReloadFromDisk: async (filePath) =>
     ipcRenderer.invoke("dialog:confirm-reload-from-disk", filePath || ""),
   confirmMissingOnDisk: async (filePath) =>
@@ -112,6 +110,7 @@ contextBridge.exposeInMainWorld("api", {
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
   cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
+  getRecoveryDir: async () => ipcRenderer.invoke("app:recovery-dir"),
   pathBasename: (inputPath) => path.basename(String(inputPath || "")),
   pathDirname: (inputPath) => path.dirname(String(inputPath || "")),
   pathJoin: (...parts) => path.join(...parts.map((part) => String(part || ""))),

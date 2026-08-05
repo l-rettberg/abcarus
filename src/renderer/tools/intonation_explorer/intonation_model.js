@@ -205,7 +205,7 @@ function scanIntonationEntries(snapshot, {
   nowMs = () => 0,
   logPerf = () => {},
 } = {}) {
-  if (!snapshot || !snapshot.text) return { tune: null, entries: [], error: "Unable to read working copy." };
+  if (!snapshot || !snapshot.text) return { tune: null, entries: [], error: "Unable to read the active tune." };
   const perfOn = Boolean(perfEnabled);
   const t0 = perfOn ? nowMs() : 0;
   const tune = activeTune;

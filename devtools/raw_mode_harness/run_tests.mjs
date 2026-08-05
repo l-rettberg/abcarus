@@ -87,8 +87,8 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
     },
     writeFile: async (path, data, options = {}) => {
       assert.equal(path, filePath, "raw save should write the active file");
-      assert.equal(options.expectedData, fullText, "raw save should guard against an external file change");
-      writes.push({ path, data, expectedData: options.expectedData });
+      assert.equal(Object.prototype.hasOwnProperty.call(options, "expectedData"), false, "raw save should not use a stale disk baseline");
+      writes.push({ path, data, options });
       return { ok: true };
     },
     refreshLibraryFile: async () => fileEntry,
@@ -121,7 +121,6 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
     updateHeaderStateUI: () => {},
     updateFileHeaderPanel: () => {},
     updateFileContext: () => { fileContextUpdates += 1; },
-    setFileContentInCache: () => {},
   });
 
   return {
@@ -171,16 +170,16 @@ async function testConcurrentRawEnterIsIgnored() {
   assert.equal(h.currentDoc.dirty, false, "concurrent raw enter should leave a clean document");
 }
 
-async function testRawSaveUsesDiskBaseline() {
+async function testRawSaveWritesTheFullBuffer() {
   const h = createHarness();
   await h.feature.enter();
-  assert.equal(await h.feature.save(), true, "raw save should succeed without a working copy");
+  assert.equal(await h.feature.save(), true, "raw save should write the full editable buffer");
   assert.equal(h.writes.length, 1, "raw save should perform one direct file write");
 }
 
-function testDiscardClearsDirtyState() {
+async function testDiscardClearsDirtyState() {
   const h = createHarness();
-  h.feature.discardUnsavedRawState();
+  assert.equal(await h.feature.discardUnsavedRawState(), true, "discard should reload the raw file");
   assert.equal(h.currentDoc.dirty, false, "discard should clear current document dirty flag");
   assert.equal(h.headerCleanCalls, 1, "discard should mark header clean");
   assert.equal(h.dirtyIndicator, false, "discard should clear dirty indicator");
@@ -206,8 +205,8 @@ async function testDirtyRawExitUsesOwnedConfirmationFlow() {
 try {
   await testCleanRawRoundTripDoesNotDirtyDocument();
   await testConcurrentRawEnterIsIgnored();
-  await testRawSaveUsesDiskBaseline();
-  testDiscardClearsDirtyState();
+  await testRawSaveWritesTheFullBuffer();
+  await testDiscardClearsDirtyState();
   await testDirtyRawExitUsesOwnedConfirmationFlow();
   console.log("[raw_mode_harness] OK");
 } catch (err) {

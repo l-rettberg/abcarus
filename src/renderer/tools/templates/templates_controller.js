@@ -2,7 +2,6 @@ import {
   buildTemplatesFlatList,
   getTemplateSlice,
 } from "./templates_model.js";
-import { createTemplatesFileCache } from "./templates_file_cache.js";
 import { createTemplatesView } from "./templates_view.js";
 
 function createTemplatesController({
@@ -35,7 +34,6 @@ function createTemplatesController({
   let items = [];
   let selectedKey = "";
 
-  const fileCache = createTemplatesFileCache({ readFile });
   const view = createTemplatesView({
     list,
     search,
@@ -97,10 +95,16 @@ function createTemplatesController({
     return items.find((item) => item && item.key === key) || null;
   }
 
+  async function getTemplateText(filePath) {
+    if (typeof readFile !== "function") return "";
+    const res = await readFile(String(filePath || ""));
+    return res && res.ok ? String(res.data || "") : "";
+  }
+
   async function getSelectedText() {
     const item = getSelectedItem();
     if (!item) return "";
-    const full = await fileCache.getText(item.filePath);
+    const full = await getTemplateText(item.filePath);
     return getTemplateSlice(full, item);
   }
 
@@ -114,7 +118,7 @@ function createTemplatesController({
       view.renderPreview(null, "");
       return;
     }
-    const full = await fileCache.getText(item.filePath);
+    const full = await getTemplateText(item.filePath);
     const slice = getTemplateSlice(full, item);
     view.renderPreview(item, slice);
   }
@@ -123,7 +127,6 @@ function createTemplatesController({
     index = null;
     items = [];
     selectedKey = "";
-    fileCache.clear();
 
     if (!folderLabel) return;
     if (!api || typeof api.getTemplatesInfo !== "function" || typeof api.scanTemplates !== "function") {

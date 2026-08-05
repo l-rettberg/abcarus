@@ -14,16 +14,13 @@ export function createRenumberXAction({
   } = state;
 
   const {
-    hasUnsavedChangesForFile = () => false,
+    requireCleanForFileOp = async () => true,
     markCurrentDocumentClean = () => {},
-    markDiskConflictPath = () => {},
-    pathsEqual = (a, b) => String(a || "") === String(b || ""),
     patchCurrentDocument = () => {},
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
     renumberXLinesConsecutive = () => ({ ok: false }),
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     showSaveError = async () => {},
     showToast = () => {},
@@ -46,20 +43,7 @@ export function createRenumberXAction({
       return;
     }
 
-    const activePath = (activeTuneMeta && activeTuneMeta.path)
-      ? String(activeTuneMeta.path)
-      : (getActiveFilePath() ? String(getActiveFilePath()) : "");
-    const globalDirty = isCurrentDocumentDirty() || getHeaderDirty() || Boolean(getIsNewTuneDraft());
-    const isTargetActive = Boolean(activePath && pathsEqual(activePath, filePath));
-
-    if (globalDirty && !isTargetActive) {
-      await showSaveError("Please Save/Discard your current changes before renumbering another file.");
-      return;
-    }
-    if (hasUnsavedChangesForFile(filePath)) {
-      await showSaveError("Renumber X is disabled while the file has unsaved changes. Save/Discard first.");
-      return;
-    }
+    if (!(await requireCleanForFileOp(filePath, "renumbering X"))) return;
 
     try {
       await withFileLock(filePath, async () => {
@@ -73,7 +57,6 @@ export function createRenumberXAction({
           if (writeRes && writeRes.conflict) throw new Error("Refusing to renumber: file changed on disk. Refresh/reopen and try again.");
           throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write file.");
         }
-        setFileContentInCache(filePath, ren.text);
       });
       await refreshLibraryFile(filePath, { force: true });
       setStatus("Renumbered X.");

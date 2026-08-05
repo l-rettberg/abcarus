@@ -22,7 +22,6 @@ export function createNewFileAction({
     setActiveFilePath = () => {},
     setActiveTuneText = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     setFileNameMeta = () => {},
     showSaveDialog = async () => "",
     showSaveError = async () => {},
@@ -58,7 +57,6 @@ export function createNewFileAction({
       await showSaveError((writeRes && writeRes.error) ? writeRes.error : "Unable to create file.");
       return false;
     }
-    setFileContentInCache(filePath, content);
     patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
     setDirtyIndicator(false);
     setFileNameMeta(stripFileExtension(safeBasename(filePath)));

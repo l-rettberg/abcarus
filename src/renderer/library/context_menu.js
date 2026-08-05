@@ -19,10 +19,9 @@ function createLibraryContextMenu({
   safeBasename = (path) => String(path || "").split("/").pop() || "",
   findTuneById = () => null,
   hasUnsavedChangesForFile = () => false,
-  isWorkingCopyOpenForFile = () => false,
   hasDiskConflictPath = () => false,
   confirmReloadFromDisk = async () => false,
-  discardAndReloadWorkingCopyFromDisk = async () => ({ ok: false }),
+  discardAndReloadFileFromDisk = async () => ({ ok: false }),
   requestLoadLibraryFile = async () => {},
   deleteTuneById = async () => {},
   copyTuneById = async () => {},
@@ -90,16 +89,12 @@ function createLibraryContextMenu({
       hide();
       const p = String(menuTarget.filePath || "");
       if (!p) return;
-      if (!isWorkingCopyOpenForFile(p)) {
-        await showSaveError("This file is not open in the editor.");
-        return;
-      }
       const confirm = await confirmReloadFromDisk(p);
       if (!confirm) return;
       const restore = getRawMode()
         ? getActiveTuneId()
         : (getActiveTuneUid() || getActiveTuneId());
-      const res = await discardAndReloadWorkingCopyFromDisk(p, { restoreTuneId: getRawMode() ? null : restore });
+      const res = await discardAndReloadFileFromDisk(p, { restoreTuneId: getRawMode() ? null : restore });
       if (!res || !res.ok) {
         await showSaveError((res && res.error) ? res.error : "Unable to reload from disk.");
         return;
@@ -292,7 +287,7 @@ function createLibraryContextMenu({
         { label: "Refresh Library", action: "refreshLibrary" },
       ];
       if (hasXIssues) items.push({ label: "X issues…", action: "xIssues" });
-      if (target.filePath && isWorkingCopyOpenForFile(target.filePath) && hasDiskConflictPath(target.filePath)) {
+      if (target.filePath && hasDiskConflictPath(target.filePath)) {
         items.push({ label: "Reload from disk…", action: "reloadFileFromDisk" });
       }
       if (fileDirty) {

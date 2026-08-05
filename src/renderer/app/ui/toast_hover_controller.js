@@ -15,7 +15,7 @@ function isCriticalToast(message) {
     "Raw mode: switch",
     "Open/select a file first",
     "Open a file first",
-    "No working copy open",
+    "No file open",
     "No active file selected",
     "No file selected",
     "Save the active file first",

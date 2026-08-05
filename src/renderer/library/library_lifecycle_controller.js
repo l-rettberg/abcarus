@@ -30,13 +30,11 @@ export function createLibraryLifecycleController({
     clearAbPlan = () => {},
     clearActiveErrorHighlight = () => {},
     clearLibraryFilter = () => {},
-    clearSaveSession = () => {},
     countLines = () => 1,
     ensureFullLibraryIndex = async () => {},
     ensureSafeToAbandonCurrentDoc = async () => true,
     errorsClearIndex = () => {},
     errorsHasActiveHighlight = () => false,
-    getFileContentFromCache = () => null,
     isChordProFilePath = () => false,
     isChordProText = () => false,
     isFilePerfEnabled = () => false,
@@ -61,7 +59,7 @@ export function createLibraryLifecycleController({
     resolveTuneEntryFromSnapshot = () => null,
     safeBasename = (p) => String(p || ""),
     safeDirname = () => "",
-    scheduleAutoWcDump = () => {},
+    splitFileIntoHeaderAndBody = (text) => ({ headerText: "", bodyText: String(text || "") }),
     scheduleRenderLibraryTree = () => {},
     scheduleRenderNow = () => {},
     scheduleSaveLibraryUiState = () => {},
@@ -74,12 +72,10 @@ export function createLibraryLifecycleController({
     setChordProMode = () => {},
     setDirtyIndicator = () => {},
     setEditorValue = () => {},
-    setFileContentInCache = () => {},
     setFileNameMeta = () => {},
     setIsNewTuneDraft = () => {},
     setLibraryActiveFilePath = () => {},
     setPlaybackRange = () => {},
-    setSaveSession = () => {},
     setScanStatus = () => {},
     setSuppressDirty = () => {},
     setTuneMetaText = () => {},
@@ -98,7 +94,6 @@ export function createLibraryLifecycleController({
   } = actions;
 
   const {
-    SAVE_INTENT = {},
     UNTITLED_UNSAVED_LABEL = "Untitled (unsaved)",
   } = constants;
 
@@ -166,12 +161,6 @@ export function createLibraryLifecycleController({
     markActiveTuneButton(nextUid || nextId);
     setTuneMetaText(buildTuneMetaLabel(nextMeta));
     setFileNameMeta(stripFileExtension(nextMeta.basename || safeBasename(filePath)));
-    setSaveSession({
-      intent: SAVE_INTENT.REPLACE_TUNE,
-      targetPath: String(filePath || ""),
-      targetTuneUid: String(nextUid || ""),
-      source: "simple_tune_save",
-    });
     return true;
   }
 
@@ -249,12 +238,6 @@ export function createLibraryLifecycleController({
       updateFileContext();
       logStep("file context");
       setDirtyIndicator(false);
-      setSaveSession({
-        intent: SAVE_INTENT.REPLACE_TUNE,
-        targetPath: String(metadata.path || ""),
-        targetTuneUid: String(metadata.tuneUid || getActiveTuneUid() || ""),
-        source: "setActiveTuneText.metadata",
-      });
       logStep("dirty/save session");
     } else {
       const markDirty = Boolean(options && options.markDirty);
@@ -273,7 +256,6 @@ export function createLibraryLifecycleController({
       setDirtyIndicator(markDirty);
       markHeaderClean();
       updateHeaderStateUI();
-      clearSaveSession();
     }
 
     updateFileHeaderPanel();
@@ -297,7 +279,7 @@ export function createLibraryLifecycleController({
       key
       && selectTuneInFlightPromise
       && selectTuneInFlightKey === key
-      && !options._syncedFromWorkingCopy
+      && !options._syncedFromSource
       && !options._reparsed
     ) {
       if (isFilePerfEnabled()) logFilePerf("selectTune: coalesced", { tuneId: key });
@@ -305,7 +287,7 @@ export function createLibraryLifecycleController({
     }
 
     const runPromise = selectTuneImpl(tuneId, options);
-    if (key && !options._syncedFromWorkingCopy && !options._reparsed) {
+    if (key && !options._syncedFromSource && !options._reparsed) {
       selectTuneInFlightKey = key;
       selectTuneInFlightPromise = runPromise;
     }
@@ -365,23 +347,15 @@ export function createLibraryLifecycleController({
     logStep("find tune", { file: fileMeta && fileMeta.path ? safeBasename(fileMeta.path) : "" });
 
     let content = null;
-    let contentCacheHit = false;
     let sliceStart = Number(selected.startOffset) || 0;
     let sliceEnd = Number(selected.endOffset) || 0;
-    content = getFileContentFromCache(fileMeta.path);
-    contentCacheHit = content != null;
-    if (content == null) {
-      const res = await readFile(fileMeta.path);
-      if (!res.ok) {
-        logErr(res.error || "Unable to read file.");
-        return { ok: false, error: res.error || "Unable to read file." };
-      }
-      content = res.data;
-      setFileContentInCache(fileMeta.path, content);
+    const res = await readFile(fileMeta.path);
+    if (!res || !res.ok) {
+      logErr(res && res.error ? res.error : "Unable to read file.");
+      return { ok: false, error: res && res.error ? res.error : "Unable to read file." };
     }
-    if (perfOn) logFilePerf("selectTune: content cache", { hit: contentCacheHit, file: safeBasename(fileMeta.path) });
+    content = String(res.data || "");
     logStep("load content", {
-      cacheHit: contentCacheHit,
       chars: content == null ? 0 : String(content || "").length,
     });
 
@@ -410,6 +384,14 @@ export function createLibraryLifecycleController({
     logStep("validate slice");
 
     const tuneText = content.slice(sliceStart, sliceEnd);
+    const fileParts = splitFileIntoHeaderAndBody(content);
+    const headerEnd = String(fileParts.headerText || "").length;
+    const documentParts = {
+      header: String(fileParts.headerText || ""),
+      before: content.slice(headerEnd, sliceStart),
+      active: tuneText,
+      after: content.slice(sliceEnd),
+    };
     setActiveTuneId(selected.id);
     setActiveTuneUid(selected.tuneUid || null);
     setActiveTuneIndex(Number.isFinite(Number(selected.tuneIndex)) ? Number(selected.tuneIndex) : null);
@@ -430,6 +412,7 @@ export function createLibraryLifecycleController({
       endLine: selected.endLine,
       startOffset: sliceStart,
       endOffset: sliceEnd,
+      documentParts,
     }, { suppressRecent: options.suppressRecent || false });
     logStep("set active text", { tuneChars: String(tuneText || "").length });
     clearPlaybackSelectionCapture();
@@ -438,7 +421,6 @@ export function createLibraryLifecycleController({
     if (typeof actions.resetEditorSelectionToStart === "function") actions.resetEditorSelectionToStart();
     setDirtyIndicator(false);
     clearAbPlan();
-    scheduleAutoWcDump("switch", selected && selected.xNumber ? `X:${String(selected.xNumber)}` : "");
     if (perfOn) {
       logFilePerf("selectTune: done", {
         ms: Math.round(perfNowMs() - t0),
@@ -562,7 +544,6 @@ export function createLibraryLifecycleController({
       logErr(res.error || "Unable to read file.");
       return { ok: false, error: res.error || "Unable to read file." };
     }
-    setFileContentInCache(entry.path, res.data);
     const startOffset = entry.startOffset || 0;
     const endOffset = entry.endOffset || res.data.length;
     const tuneText = res.data.slice(startOffset, endOffset);
@@ -630,7 +611,6 @@ export function createLibraryLifecycleController({
     });
     const scanToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setScanStatus("Scanning…");
-    actions.clearFileContentCache?.();
     errorsClearIndex();
     setActiveTuneId(null);
     setTuneMetaText("No tune selected.");
@@ -639,7 +619,6 @@ export function createLibraryLifecycleController({
     setEditorValue("");
     setSuppressDirty(false);
     patchCurrentDocument({ path: null, content: "", dirty: false }, { create: false });
-    clearSaveSession();
     setDirtyIndicator(false);
 
     try {
@@ -710,9 +689,6 @@ export function createLibraryLifecycleController({
     const perfOn = isFilePerfEnabled();
     const t0 = perfOn ? perfNowMs() : 0;
     if (perfOn) logFilePerf("loadSingleLibraryFile: start", { file: safeBasename(p) });
-    if (Object.prototype.hasOwnProperty.call(options, "content") && options.content != null) {
-      setFileContentInCache(p, options.content);
-    }
     try {
       const res = await api.parseLibraryFile(p, { force: Boolean(options.force) });
       if (!res || !Array.isArray(res.files) || !res.files.length) return null;
@@ -766,12 +742,8 @@ export function createLibraryLifecycleController({
       suppressRecent: Boolean(options.suppressRecent),
     };
     let chordproText = null;
-    const cached = getFileContentFromCache(filePath);
-    if (cached != null) chordproText = String(cached || "");
-    if (!chordproText && isChordProFilePath(filePath)) {
-      const readRes = await readFile(filePath);
-      if (readRes && readRes.ok) chordproText = String(readRes.data || "");
-    }
+    const readRes = await readFile(filePath);
+    if (readRes && readRes.ok) chordproText = String(readRes.data || "");
     if (chordproText && (isChordProText(chordproText) || isChordProFilePath(filePath))) {
       await openChordPro(filePath, chordproText, { suppressRecent: true });
       return { ok: true, chordpro: true };

@@ -14,10 +14,7 @@ function sanitizeDumpSlug(raw) {
 
 export function createDiagnosticsController({
   api,
-  storage,
   autoDumpDefaultEnabled = false,
-  autoWcDumpDefaultEnabled = false,
-  getAutoWcDumpLimit = () => 12,
   getSuggestedDebugDumpDir = () => "",
   writeDebugDumpSnapshotToPath = async () => ({ ok: false }),
   nowCompactStamp = () => new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14),
@@ -31,13 +28,6 @@ export function createDiagnosticsController({
   const startupPerfT0Ms = perfNowMs();
   let autoDumpLastAtMs = 0;
   let autoDumpSeq = 0;
-  let autoWcDumpLastAtMs = 0;
-  let autoWcDumpSeq = 0;
-
-  try {
-    const savedSeq = Number(storage && storage.getItem ? storage.getItem("abcarusWcDumpSeq") || 0 : 0);
-    if (Number.isFinite(savedSeq) && savedSeq > 0) autoWcDumpSeq = savedSeq;
-  } catch {}
 
   const recordDebugLog = (level, args, stackOverride) => {
     if (window.__abcarusDebugLog !== true) return;
@@ -154,12 +144,6 @@ export function createDiagnosticsController({
     return Boolean(autoDumpDefaultEnabled);
   };
 
-  const shouldAutoWcDump = () => {
-    if (window.__abcarusAutoWcDump === true) return true;
-    if (window.__abcarusAutoWcDump === false) return false;
-    return Boolean(autoWcDumpDefaultEnabled());
-  };
-
   const scheduleAutoDump = (reason, extra) => {
     if (!shouldAutoDump()) return;
     const now = perfNowMs();
@@ -173,26 +157,6 @@ export function createDiagnosticsController({
     const target = api.pathJoin(dir, fileName);
     api.mkdirp(dir).then(() => {
       writeDebugDumpSnapshotToPath(target, { silent: true, reason: `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}` }).catch(() => {});
-    }).catch(() => {});
-  };
-
-  const scheduleAutoWcDump = (reason, extra) => {
-    if (!shouldAutoWcDump()) return;
-    const now = perfNowMs();
-    if (now - autoWcDumpLastAtMs < 1500) return;
-    autoWcDumpLastAtMs = now;
-    const seq = (autoWcDumpSeq += 1);
-    try { if (storage && storage.setItem) storage.setItem("abcarusWcDumpSeq", String(autoWcDumpSeq)); } catch {}
-    const limit = getAutoWcDumpLimit();
-    const idx = ((seq - 1) % limit) + 1;
-    const slug = sanitizeDumpSlug(reason);
-    const fileName = `abcarus-wc-${idx}.json`;
-    const dir = getSuggestedDebugDumpDir();
-    if (!dir || !api || typeof api.mkdirp !== "function" || typeof api.pathJoin !== "function") return;
-    const target = api.pathJoin(dir, fileName);
-    const reasonText = `${slug}${extra ? ` ${safeString(String(extra || ""), 2000)}` : ""}`;
-    api.mkdirp(dir).then(() => {
-      writeDebugDumpSnapshotToPath(target, { silent: true, reason: `auto-wc ${reasonText}` }).catch(() => {});
     }).catch(() => {});
   };
 
@@ -241,6 +205,5 @@ export function createDiagnosticsController({
     recordRecentAction,
     reportStartupStatus,
     scheduleAutoDump,
-    scheduleAutoWcDump,
   };
 }

@@ -32,9 +32,9 @@ function makeController({
   };
   const api = {
     fileExists: async () => false,
-    applyWorkingCopyHeaderText: async () => headerResult,
-    writeWorkingCopyToPathAndSwitch: async (path, context) => {
-      calls.push(["writeWorkingCopyToPathAndSwitch", path, context]);
+    applyHeaderText: async () => headerResult,
+    writeFileCopyAndSwitch: async (path, context) => {
+      calls.push(["writeFileCopyAndSwitch", path, context]);
       return writeResult;
     },
   };
@@ -44,7 +44,7 @@ function makeController({
     state: {
       getActiveFilePath: () => sourcePath,
       getActiveTuneId: () => "source-id",
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", title: "Source", startOffset: 0 }),
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", title: "Source", startOffset: 0, documentParts: {} }),
       getActiveTuneUid: () => "source-uid",
       getCurrentDocument: () => ({ path: sourcePath, content: snapshot.text, dirty: true }),
     getCurrentDocumentPath: () => sourcePath,
@@ -52,14 +52,10 @@ function makeController({
       getHeaderEditorValue: () => "T: Source\n",
       getIsNewTuneDraft: () => false,
       getRawMode: () => false,
-      getWorkingCopySnapshot: () => snapshot,
-      getWorkingCopyOpenError: () => "",
       isChordProEnabled: () => chordPro,
       isChordProFullView: () => true,
     },
     actions: {
-      ensureWorkingCopyOpenForPath: async () => ({ ok: true }),
-      flushWorkingCopyFullSync: async () => flushFullResult,
       fileExists: api.fileExists,
       confirmOverwrite: async () => "replace",
       getDefaultSaveDir: () => "/tmp",
@@ -67,11 +63,9 @@ function makeController({
       getEditorValue: () => snapshot.text,
       getChordProFullText: () => snapshot.text,
       getLibraryIndex: () => null,
-      isWorkingCopyOpenForFile: () => true,
       loadLibraryFileIntoEditor: async () => ({ ok: true }),
       normalizeLibraryPath: (value) => String(value || ""),
       pathsEqual: (a, b) => String(a || "") === String(b || ""),
-      refreshWorkingCopySnapshot: async () => snapshot,
       setDirtyIndicator: (value) => calls.push(["setDirtyIndicator", value]),
       showSaveDialog: async () => {
         calls.push(["showSaveDialog"]);
@@ -83,7 +77,6 @@ function makeController({
       markHeaderClean: () => calls.push(["markHeaderClean"]),
       resetTransposePreviewState: () => {},
       refreshLibraryFile: async () => null,
-      setFileContentInCache: () => {},
       setFileNameMeta: () => {},
       setActiveFilePath: () => calls.push(["setActiveFilePath"]),
       patchCurrentDocument: () => calls.push(["patchCurrentDocument"]),
@@ -103,8 +96,9 @@ async function testDirectTuneSaveWritesExpectedData() {
   const { calls, sourcePath } = makeController();
   const direct = createSaveFlowController({
     state: {
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", startOffset: 0, endOffset: baseline.length }),
-      getFileContentFromCache: () => baseline,
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: baseline, after: "",
+      } }),
       getHeaderDirty: () => false,
     },
     actions: {
@@ -115,7 +109,6 @@ async function testDirectTuneSaveWritesExpectedData() {
         return { ok: true };
       },
       patchCurrentDocument: () => calls.push(["patchCurrentDocument"]),
-      setFileContentInCache: () => {},
       refreshLibraryFile: async () => null,
       reconcileActiveTuneAfterSave: () => {},
       setDirtyIndicator: () => {},
@@ -126,26 +119,72 @@ async function testDirectTuneSaveWritesExpectedData() {
     },
   });
   assert.equal(await direct.performSimpleTuneSave(sourcePath), true);
-  assert.deepEqual(writes, [[sourcePath, edited, { expectedData: baseline }]]);
+  assert.deepEqual(writes, [[sourcePath, edited, {}]]);
 }
 
-async function testDirectTuneSaveRejectsExternalChange() {
+async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
   const baseline = "X:1\nT:Source\nK:C\nC |]\n";
   const direct = createSaveFlowController({
     state: {
-      getActiveTuneMeta: () => ({ path: "/tmp/source.abc", xNumber: "1", startOffset: 0, endOffset: baseline.length }),
-      getFileContentFromCache: () => baseline,
+      getActiveTuneMeta: () => ({ path: "/tmp/source.abc", xNumber: "1", documentParts: {
+        header: "", before: "", active: baseline, after: "",
+      } }),
     },
     actions: {
       getEditorValue: () => baseline,
       readFile: async () => ({ ok: true, data: `${baseline}X:2\n` }),
-      writeFile: async () => { throw new Error("write must not be reached"); },
-      showSaveError: async (message) => { assert.match(message, /changed on disk/i); },
-      markDiskConflictPath: (path, value) => { assert.equal(path, "/tmp/source.abc"); assert.equal(value, true); },
+      writeFile: async (path, data, options) => {
+        assert.equal(path, "/tmp/source.abc");
+        assert.deepEqual(options, {});
+        assert.equal(data, baseline);
+        return { ok: true };
+      },
       withFileLock: async (_path, fn) => fn(),
     },
   });
-  assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), false);
+  assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), true);
+}
+
+async function testFailedPrimarySaveCreatesEmergencyCopy() {
+  const filePath = "/missing/tunes.abc";
+  const text = "X:1\nT:Recovered\nK:C\nC|\n";
+  const writes = [];
+  const stateCalls = [];
+  let errorMessage = "";
+  const controller = createSaveFlowController({
+    api: {
+      getRecoveryDir: async () => "/app/userData/recovery",
+      pathJoin: (...parts) => parts.join("/"),
+      mkdirp: async () => ({ ok: true }),
+    },
+    state: {
+      getActiveTuneMeta: () => ({ path: filePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: text, after: "",
+      } }),
+      getCurrentDocument: () => ({ path: filePath, content: text, dirty: true }),
+    },
+    actions: {
+      getEditorValue: () => text,
+      readFile: async () => ({ ok: false, error: "ENOENT: missing directory" }),
+      writeFile: async (path, data, options) => {
+        writes.push({ path, data, options });
+        return path === filePath ? { ok: false, error: "ENOENT: missing directory" } : { ok: true };
+      },
+      safeBasename: () => "tunes.abc",
+      patchCurrentDocument: () => stateCalls.push("patchCurrentDocument"),
+      setActiveFilePath: () => stateCalls.push("setActiveFilePath"),
+      setDirtyIndicator: (value) => stateCalls.push(["setDirtyIndicator", value]),
+      showSaveError: async (message) => { errorMessage = String(message); },
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+  assert.equal(await controller.performSimpleTuneSave(filePath), false);
+  assert.equal(writes.length, 2, "recovery must run only after the primary write fails");
+  assert.equal(writes[0].path, filePath);
+  assert.match(writes[1].path, /userData\/recovery\/tunes\.recovery-.*\.abc$/);
+  assert.match(errorMessage, /Emergency copy saved/);
+  assert.match(errorMessage, /remain unsaved/);
+  assert.deepEqual(stateCalls, [], "failed save must keep active path and dirty state untouched");
 }
 
 async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
@@ -162,8 +201,9 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
       getActiveFilePath: () => sourcePath,
       getCurrentDocument: () => currentDocument,
       getCurrentDocumentPath: () => sourcePath,
-      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", startOffset: 0, endOffset: sourceText.length }),
-      getFileContentFromCache: () => sourceText,
+      getActiveTuneMeta: () => ({ path: sourcePath, xNumber: "1", documentParts: {
+        header: "", before: "", active: sourceText, after: "",
+      } }),
       getHeaderDirty: () => false,
     },
     actions: {
@@ -181,7 +221,6 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
       getDefaultSaveDir: () => "/tmp",
       showSaveDialog: async () => destinationPath,
       patchCurrentDocument: (patch) => { currentDocument = { ...currentDocument, ...patch }; },
-      setFileContentInCache: () => {},
       refreshLibraryFile: async () => null,
       loadLibraryFileIntoEditor: async () => ({ ok: true }),
       setDirtyIndicator: () => {},
@@ -197,8 +236,8 @@ async function testDirectSaveAsUsesCleanSourceAndDestinationGuard() {
   });
   assert.equal(await controller.performSaveAsFlow(), true);
   assert.deepEqual(writes, [
-    [sourcePath, editedText, { expectedData: sourceText }],
-    [destinationPath, editedText, { expectedData: "old destination" }],
+    [sourcePath, editedText, {}],
+    [destinationPath, editedText, {}],
   ]);
   assert.deepEqual(calls.find(([kind]) => kind === "addRecentFolder"), ["addRecentFolder", { path: "/tmp", label: "/tmp" }]);
 }
@@ -209,7 +248,6 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
   const writes = [];
   const controller = createSaveFlowController({
     state: {
-      getFileContentFromCache: () => baseline,
       getActiveFilePath: () => path,
       getActiveTuneMeta: () => ({ path, xNumber: "1" }),
       getActiveTuneId: () => `${path}::1`,
@@ -221,7 +259,6 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
         return { ok: true };
       },
       refreshLibraryFile: async () => ({ path, basename: "header.abc" }),
-      setFileContentInCache: () => {},
       markDiskConflictPath: () => {},
       updateHeaderStateUI: () => {},
       markHeaderClean: () => {},
@@ -233,7 +270,7 @@ async function testHeaderSaveWritesDirectlyWithDiskBaseline() {
     await controller.saveFileHeaderText(path, "%%MIDI program 2"),
     { ok: true, action: "saved" },
   );
-  assert.deepEqual(writes, [[path, "%%MIDI program 2\nX:1\nT:Song\nK:C\nC|\n", { expectedData: baseline }]]);
+  assert.deepEqual(writes, [[path, "%%MIDI program 2\nX:1\nT:Song\nK:C\nC|\n", {}]]);
 }
 
 async function testChordProSaveAsWritesDirectly() {
@@ -275,7 +312,7 @@ async function testCancelLeavesSourceUntouched() {
   const { controller, calls, snapshot, sourcePath } = makeController({ destination: null });
   const result = await controller.performSaveAsFlow();
   assert.equal(result, false);
-  assert.equal(calls.some(([kind]) => kind === "writeWorkingCopyToPathAndSwitch"), false);
+  assert.equal(calls.some(([kind]) => kind === "writeFileCopyAndSwitch"), false);
   assert.equal(calls.some(([kind]) => kind === "setActiveFilePath"), false);
   assert.equal(calls.some(([kind]) => kind === "patchCurrentDocument"), false);
   assert.deepEqual(
@@ -286,14 +323,15 @@ async function testCancelLeavesSourceUntouched() {
       version: 4,
       dirty: true,
     },
-    "Save As cancel must preserve the complete source working-copy state"
+    "Save As cancel must preserve the complete source baseline"
   );
 }
 
 await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
-await testDirectTuneSaveRejectsExternalChange();
+await testDirectTuneSaveOverwritesExternalChangeFromParts();
+await testFailedPrimarySaveCreatesEmergencyCopy();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
 await testHeaderSaveWritesDirectlyWithDiskBaseline();
 console.log("save flow harness: all tests passed");

@@ -1729,7 +1729,7 @@ export function initSettings(api) {
       if (res.settings) applySettings(res.settings);
       buildSettingsUi();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
-      const note = res.importedHeader ? " (incl. user_settings.abc)" : "";
+      const note = res.importedHeader ? " (incl. Global Header)" : "";
       alert(`Settings imported${note}.\nSome changes apply immediately; others may require a restart.`);
     });
   }

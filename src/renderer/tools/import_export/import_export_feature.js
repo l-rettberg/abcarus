@@ -49,7 +49,6 @@ function createImportExportFeature({
   markCurrentDocumentClean = () => {},
   setActiveTuneText = () => {},
   setImportedTuneActive = () => {},
-  setFileContentInCache = () => {},
   refreshLibraryFile = async () => null,
   markDiskConflictPath = () => {},
   getNextXNumber = () => 1,
@@ -230,7 +229,6 @@ function createImportExportFeature({
             if (writeRes && writeRes.conflict) markDiskConflictPath(targetPath, true);
             throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to write imported tunes.");
           }
-          setFileContentInCache(targetPath, updated);
 
           const updatedFile = await refreshLibraryFile(targetPath);
           if (updatedFile && updatedFile.tunes && updatedFile.tunes.length) {

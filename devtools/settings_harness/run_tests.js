@@ -13,10 +13,13 @@ function assert(cond, msg) {
 function main() {
   const schemaPath = path.resolve(__dirname, "../../src/main/settings_schema.js");
   const normalizePath = path.resolve(__dirname, "../../src/main/settings_normalize.js");
+  const propertiesPath = path.resolve(__dirname, "../../src/main/properties.js");
   // eslint-disable-next-line global-require, import/no-dynamic-require
   const { getSettingsSchema, getDefaultSettings } = require(schemaPath);
   // eslint-disable-next-line global-require, import/no-dynamic-require
   const { normalizeMicrotonalSettings } = require(normalizePath);
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require(propertiesPath);
 
   const schema = getSettingsSchema();
   assert(Array.isArray(schema) && schema.length > 0, "schema must be a non-empty array");
@@ -65,6 +68,20 @@ function main() {
     assert(next.supportMicrotonalNotation === false, "canonical microtonal OFF patch must override legacy aliases");
     assert(next.makamToolsEnabled === false, "legacy makam alias must sync to canonical OFF");
     assert(next.studyToolsEnabled === false, "legacy study alias must sync to canonical OFF");
+  }
+
+  {
+    const source = {
+      ...defaults,
+      globalHeaderText: "%%gchordfont MuseJazz Text 20\n%%MIDI program 1",
+    };
+    const exported = encodePropertiesFromSchema(source, schema);
+    assert(exported.includes("globalHeaderText=\"%%gchordfont MuseJazz Text 20\\n%%MIDI program 1\""), "portable export must include escaped Global Header");
+    const imported = parseSettingsPatchFromProperties(exported, schema);
+    assert(imported.globalHeaderText === source.globalHeaderText, "portable Global Header must round-trip");
+
+    const legacy = parseSettingsPatchFromProperties("globalHeaderText=%%gchordfont MuseJazz Text 20", schema);
+    assert(legacy.globalHeaderText === "%%gchordfont MuseJazz Text 20", "plain Global Header values must remain readable");
   }
 
   {

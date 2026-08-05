@@ -675,23 +675,6 @@ function registerIpcHandlers(ctx) {
     confirmDeleteTune(label)
   );
 
-  ipcMain.handle("dialog:confirm-save-conflict", async (event, filePath) => {
-    const parent = getParentForDialog(event, "confirm-save-conflict");
-    const p = String(filePath || "");
-    const base = p ? path.basename(p) : "file";
-    const response = dialog.showMessageBoxSync(parent || undefined, {
-      type: "warning",
-      buttons: ["Overwrite", "Save Copy As & Switch…", "Discard & Reload", "Cancel"],
-      defaultId: 1,
-      cancelId: 3,
-      message: "File changed on disk",
-      detail: `“${base}” was modified outside ABCarus. Choose what to do.`,
-    });
-    if (response === 0) return "overwrite";
-    if (response === 1) return "save_copy_as";
-    if (response === 2) return "discard_reload";
-    return "cancel";
-  });
 
   ipcMain.handle("dialog:confirm-missing-on-disk", async (event, filePath) => {
     const parent = getParentForDialog(event, "confirm-missing-on-disk");
@@ -1264,6 +1247,12 @@ function registerIpcHandlers(ctx) {
         try { await fs.promises.unlink(targetPath); } catch {}
         return { ok: false, error: "Rename verification failed; source file was preserved." };
       }
+      // Do not delete a source that changed after the copy was verified.
+      const sourceBeforeDelete = await fs.promises.readFile(sourcePath);
+      if (!sourceData.equals(sourceBeforeDelete)) {
+        try { await fs.promises.unlink(targetPath); } catch {}
+        return { ok: false, conflict: true, error: "Source file changed during rename; source file was preserved." };
+      }
       try {
         await fs.promises.unlink(sourcePath);
       } catch (e) {
@@ -1466,7 +1455,15 @@ function registerIpcHandlers(ctx) {
     return true;
   });
   ipcMain.handle("app:quit", async () => {
-    requestQuit();
+    await requestQuit();
+  });
+  ipcMain.handle("app:recovery-dir", async () => {
+    try {
+      const userData = app && typeof app.getPath === "function" ? app.getPath("userData") : "";
+      return userData ? path.join(userData, "recovery") : "";
+    } catch {
+      return "";
+    }
   });
   ipcMain.handle("app:cancel-quit", async (event) => {
     try {
@@ -1688,14 +1685,33 @@ function registerIpcHandlers(ctx) {
       const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
       const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
       let importedHeader = false;
+      let importedHeaderText = "";
+      let hasImportedHeader = false;
       try {
         await fs.promises.access(importedHeaderPath, fs.constants.F_OK);
+        importedHeaderText = await fs.promises.readFile(importedHeaderPath, "utf8");
+        hasImportedHeader = true;
+      } catch {}
+
+      // New exports carry Global Header in the properties file. Keep the
+      // legacy sidecar authoritative when it is present, then mirror the
+      // resolved value into userData so the renderer sees one consistent layer.
+      const hasEmbeddedHeader = Object.prototype.hasOwnProperty.call(patch || {}, "globalHeaderText");
+      if (!hasImportedHeader && hasEmbeddedHeader) {
+        importedHeaderText = String(patch.globalHeaderText || "");
+        hasImportedHeader = true;
+      }
+      if (hasImportedHeader) {
+        patch.globalHeaderText = importedHeaderText;
         if (userHeaderPath) {
-          const text = await fs.promises.readFile(importedHeaderPath, "utf8");
-          await atomicWriteFileWithRetry(fs, path, userHeaderPath, text);
+          if (importedHeaderText.trim()) {
+            await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
+          } else {
+            await fs.promises.rm(userHeaderPath, { force: true });
+          }
           importedHeader = true;
         }
-      } catch {}
+      }
 
       const next = updateSettings(patch || {});
       // Import implies: this file becomes the canonical source of truth.

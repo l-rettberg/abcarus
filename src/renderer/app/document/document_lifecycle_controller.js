@@ -22,8 +22,6 @@ function createDocumentLifecycleController({
     scheduleRender = () => {},
     setRenderBusy = () => {},
     clearActiveTuneState = () => {},
-    clearSaveSession = () => {},
-    setFullFileSaveSession = () => {},
     markHeaderClean = () => {},
     setTuneMetaText = () => {},
     setFileNameMeta = () => {},
@@ -66,7 +64,6 @@ function createDocumentLifecycleController({
     if (output) output.innerHTML = "";
     setRenderBusy(false);
     clearActiveTuneState();
-    clearSaveSession();
     markHeaderClean();
     setTuneMetaText(untitledLabel);
     setFileNameMeta(untitledLabel);
@@ -80,7 +77,6 @@ function createDocumentLifecycleController({
 
   function beginCleanFileDocument({ path = "", content = "", tuneLabel = untitledLabel, fileLabel = untitledLabel } = {}) {
     clearActiveTuneState();
-    clearSaveSession();
     setActiveFilePath(path || null);
     setCurrentDocument({ path: path || null, dirty: false, content: String(content || "") });
     setDirtyIndicator(false);
@@ -94,14 +90,10 @@ function createDocumentLifecycleController({
 
   function beginFullFileModeContext(filePath, source = "full_file_mode") {
     clearActiveTuneState(filePath || null);
-    clearSaveSession();
-    setFullFileSaveSession(filePath || "", source);
   }
 
   function beginRawFullFileContext(filePath, source = "raw_mode") {
     setActiveFilePath(filePath || null);
-    clearSaveSession();
-    setFullFileSaveSession(filePath || "", source);
   }
 
   function setRawActiveTuneContext(tuneId, meta = null) {

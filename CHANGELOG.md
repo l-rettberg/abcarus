@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.2.1] - 2026-08-04
+### Fixed
+- Settings changes are flushed to the attached portable properties file before application shutdown, preventing Global Header changes from disappearing after restart.
+
+## [1.2.0] - 2026-08-04
+### Added
+- Portable settings export now carries Global Header data in the single `abcarus.properties` file.
+- Emergency recovery and failed-save handling preserve the active document when the original path becomes unavailable.
+
+### Changed
+- File and tune editing now follows the single-tune document model more consistently across Raw, ChordPro, Library, Save As, and navigation flows.
+- Settings import synchronizes the imported Global Header with the active runtime layer while retaining compatibility with legacy `user_settings.abc` files.
+
+### Fixed
+- Prevented stale document and library context from causing lost edits or failed repeated saves.
+- Removed obsolete template file-cache behavior and tightened document, Library, and ChordPro lifecycle checks.
+
 ## [1.1.0] - 2026-08-03
 ### Added
 - Recent Folders now remembers directories used to open files or complete Save As operations, while preserving previously used folders.

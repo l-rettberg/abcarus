@@ -11,24 +11,20 @@ export function createSaveFlowController({
     getActiveTuneUid = () => "",
     getCurrentDocument = () => null,
     getCurrentDocumentPath = () => "",
-    getFileContentFromCache = () => null,
     getFocusModeEnabled = () => false,
     getHeaderDirty = () => false,
     getHeaderEditorValue = () => "",
     getIsNewTuneDraft = () => false,
     getLibraryIndex = () => null,
     getRawMode = () => false,
-    getWorkingCopySnapshot = () => null,
-    getWorkingCopyOpenError = () => "",
     getChordProFullText = () => "",
     isChordProEnabled = () => false,
     isChordProFullView = () => false,
     isPayloadMode = () => false,
-    resolveSaveSession = () => ({ intent: SAVE_INTENT.NONE }),
+    resolveSaveIntent = () => ({ intent: SAVE_INTENT.NONE }),
   } = state;
 
   const {
-    attachTuneUidsToLibraryFile = () => {},
     addRecentFolder = () => {},
     createNewFileAtPath = async () => false,
     getDefaultSaveDir = () => "",
@@ -36,9 +32,7 @@ export function createSaveFlowController({
     getSuggestedBaseName = () => "untitled",
     fileExists = async () => false,
     confirmOverwrite = async () => "cancel",
-    ensureWorkingCopyOpenForPath = async () => false,
     isHeaderEditorFilePath = () => false,
-    isWorkingCopyOpenForFile = () => false,
     loadLibraryFileIntoEditor = async () => null,
     loadLibraryFromFolder = async () => null,
     markCurrentDocumentClean = () => null,
@@ -52,18 +46,16 @@ export function createSaveFlowController({
     reconcileActiveTuneAfterSave = () => {},
     recordRecentAction = () => {},
     refreshLibraryFile = async () => null,
-    refreshWorkingCopySnapshot = async () => null,
     resetHeaderEditorFilePath = () => {},
     resetTransposePreviewState = () => {},
     safeBasename = (p) => String(p || "").split("/").pop() || "",
     safeDirname = () => "",
-    scheduleAutoWcDump = () => {},
     scheduleRenderLibraryTree = () => {},
     selectTune = async () => {},
     serializeDocument = (doc) => (doc ? String(doc.content || "") : ""),
     setActiveFilePath = () => {},
+    setActiveTuneMeta = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     readFile = async () => ({ ok: false }),
     writeFile = async () => ({ ok: false }),
     setFileNameMeta = () => {},
@@ -91,6 +83,27 @@ export function createSaveFlowController({
     return /\b(EACCES|EPERM)\b/i.test(msg) || /permission denied/i.test(msg);
   }
 
+  async function saveEmergencyCopy(filePath, text) {
+    if (!api || typeof api.getRecoveryDir !== "function" || typeof api.pathJoin !== "function") return "";
+    try {
+      const dir = String(await api.getRecoveryDir() || "");
+      if (!dir || typeof api.mkdirp !== "function") return "";
+      const rawBase = safeBasename(filePath) || "untitled.abc";
+      const safeBase = rawBase.replace(/[^a-z0-9._-]+/gi, "_");
+      const extensionMatch = safeBase.match(/(\.[^.]+)$/);
+      const extension = extensionMatch ? extensionMatch[1] : ".abc";
+      const stem = (extensionMatch ? safeBase.slice(0, -extension.length) : safeBase) || "untitled";
+      const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 17);
+      const target = api.pathJoin(dir, `${stem}.recovery-${stamp}${extension}`);
+      const made = await api.mkdirp(dir);
+      if (!made || made.ok === false) return "";
+      const result = await writeFile(target, text);
+      return result && result.ok ? target : "";
+    } catch {
+      return "";
+    }
+  }
+
   async function handlePermissionDeniedSave(filePath, message) {
     const p = String(filePath || "");
     if (!p) return false;
@@ -115,18 +128,9 @@ export function createSaveFlowController({
         return false;
       }
 
-      const cachedContent = getFileContentFromCache(p);
-      if (cachedContent == null) {
-        await showSaveError("Unable to save safely: file baseline is missing. Re-open the tune and try again.");
-        return false;
-      }
-
-      const sourceText = String(cachedContent);
-      let expectedStart = Number(activeTuneMeta.startOffset);
-      let expectedEnd = Number(activeTuneMeta.endOffset);
-      if (!Number.isFinite(expectedStart) || !Number.isFinite(expectedEnd)
-        || expectedStart < 0 || expectedEnd <= expectedStart || expectedEnd > sourceText.length) {
-        await showSaveError("Unable to save safely: active tune range is missing. Re-open the tune and try again.");
+      const loadedParts = activeTuneMeta.documentParts;
+      if (!loadedParts || typeof loadedParts !== "object") {
+        await showSaveError("Unable to save safely: tune document parts are missing. Re-open the tune and try again.");
         return false;
       }
 
@@ -139,52 +143,30 @@ export function createSaveFlowController({
         return false;
       }
 
-      let nextText = sourceText.slice(0, expectedStart) + editorText + sourceText.slice(expectedEnd);
-      if (includeHeader) {
-        const headerMatch = sourceText.match(/^[\t ]*X:/m);
-        const oldHeaderEnd = headerMatch && Number.isFinite(headerMatch.index)
-          ? headerMatch.index
-          : sourceText.length;
-        const rawHeaderText = String(getHeaderEditorValue() || "");
-        const headerText = rawHeaderText && !/[\r\n]$/.test(rawHeaderText)
-          ? `${rawHeaderText}\n`
-          : rawHeaderText;
-        const bodyStart = Math.max(0, expectedStart - oldHeaderEnd);
-        const bodyEnd = Math.max(bodyStart, expectedEnd - oldHeaderEnd);
-        const body = sourceText.slice(oldHeaderEnd);
-        const nextBody = body.slice(0, bodyStart) + editorText + body.slice(bodyEnd);
-        nextText = headerText + nextBody;
-        expectedStart = headerText.length + bodyStart;
-        expectedEnd = expectedStart + editorText.length;
-        if (!nextText.slice(expectedStart, expectedEnd).startsWith(editorText)) {
-          await showSaveError("Unable to save safely: header and tune ranges could not be reconciled.");
-          return false;
-        }
-      }
+      const headerText = includeHeader
+        ? String(getHeaderEditorValue() || "")
+        : String(loadedParts.header || "");
+      const normalizedHeader = headerText && !/[\r\n]$/.test(headerText) ? `${headerText}\n` : headerText;
+      const nextParts = {
+        header: normalizedHeader,
+        before: String(loadedParts.before || ""),
+        active: editorText,
+        after: String(loadedParts.after || ""),
+      };
+      const nextText = `${nextParts.header}${nextParts.before}${nextParts.active}${nextParts.after}`;
 
-      const diskCheck = await readFile(p);
-      if (!diskCheck || !diskCheck.ok) {
-        await showSaveError((diskCheck && diskCheck.error) ? diskCheck.error : "Unable to read file before saving.");
-        return false;
-      }
-      if (String(diskCheck.data || "") !== sourceText) {
-        markDiskConflictPath(p, true);
-        await showSaveError("File changed on disk. Reload it before saving your changes.");
-        return false;
-      }
-
-      const saveRes = await writeFile(p, nextText, { expectedData: sourceText });
+      const saveRes = await writeFile(p, nextText, {});
       if (!saveRes || !saveRes.ok) {
-        if (saveRes && saveRes.conflict) {
-          markDiskConflictPath(p, true);
-          await showSaveError("File changed on disk while saving. Reload it before trying again.");
-        } else {
-          await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
-        }
+        if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
+        const recoveryPath = await saveEmergencyCopy(p, nextText);
+        const detail = (saveRes && saveRes.error) ? saveRes.error : "Unable to save file.";
+        await showSaveError(recoveryPath
+          ? `${detail}\nEmergency copy saved to:\n${recoveryPath}\nYour changes remain unsaved.`
+          : detail);
         return false;
       }
 
-      setFileContentInCache(p, nextText);
+      setActiveTuneMeta({ ...activeTuneMeta, documentParts: nextParts });
       patchCurrentDocument({ path: p, content: getEditorValue(), dirty: false }, { create: false });
       if (includeHeader) {
         markHeaderClean();
@@ -199,7 +181,6 @@ export function createSaveFlowController({
       updateLibraryStatus();
       scheduleRenderLibraryTree();
       updateFileHeaderPanel();
-      scheduleAutoWcDump("save-simple", safeBasename(p));
       recordRecentAction("save.simple_tune.ok", { path: p });
       return true;
     });
@@ -208,18 +189,15 @@ export function createSaveFlowController({
   async function performSaveFlow() {
     const currentDocument = getCurrentDocument();
     if (!currentDocument) return false;
-    const session = resolveSaveSession();
+    const session = resolveSaveIntent();
     const activeFilePath = getActiveFilePath();
     const activeTuneMeta = getActiveTuneMeta();
-    const workingCopySnapshot = getWorkingCopySnapshot();
-
     recordRecentAction("save.start", {
       currentDocPath: currentDocument.path ? String(currentDocument.path) : null,
       currentDocDirty: Boolean(currentDocument.dirty),
       headerDirty: getHeaderDirty(),
       isNewTuneDraft: Boolean(getIsNewTuneDraft()),
       activeTunePath: activeTuneMeta && activeTuneMeta.path ? String(activeTuneMeta.path) : null,
-      wcSnapshotPath: workingCopySnapshot && workingCopySnapshot.path ? String(workingCopySnapshot.path) : null,
       payloadMode: Boolean(isPayloadMode()),
       rawMode: Boolean(getRawMode()),
       focusMode: Boolean(getFocusModeEnabled()),
@@ -234,7 +212,7 @@ export function createSaveFlowController({
       || (activeTuneMeta && activeTuneMeta.path)
       || ""
     );
-    const combineHeaderWithWorkingCopySave = Boolean(
+    const combineHeaderWithTuneSave = Boolean(
       getHeaderDirty()
       && headerTargetPath
       && session.intent === SAVE_INTENT.REPLACE_TUNE
@@ -242,7 +220,7 @@ export function createSaveFlowController({
       && activeTuneMeta.path
       && pathsEqual(activeTuneMeta.path, headerTargetPath)
     );
-    if (getHeaderDirty() && headerTargetPath && !combineHeaderWithWorkingCopySave) {
+    if (getHeaderDirty() && headerTargetPath && !combineHeaderWithTuneSave) {
       try {
         const headerRes = await saveFileHeaderText(headerTargetPath, getHeaderEditorValue());
         if (headerRes && headerRes.ok) {
@@ -281,18 +259,14 @@ export function createSaveFlowController({
 
     if (session.intent === SAVE_INTENT.REPLACE_TUNE && activeTuneMeta && activeTuneMeta.path) {
       const ok = await performSimpleTuneSave(activeTuneMeta.path, {
-        includeHeader: Boolean(combineHeaderWithWorkingCopySave && getHeaderDirty()),
+        includeHeader: Boolean(combineHeaderWithTuneSave && getHeaderDirty()),
       });
       return Boolean(ok);
     }
 
     if (session.intent === SAVE_INTENT.FULL_FILE && getCurrentDocumentPath()) {
       const filePath = getCurrentDocumentPath();
-      await showSaveError(
-        isWorkingCopyOpenForFile(filePath)
-          ? "Internal error: full-file content was not routed through its working copy."
-          : "Unable to save safely: file context is missing. Re-open the file and try again."
-      );
+      await showSaveError("Unable to save safely: file context is missing. Re-open the file and try again.");
       return false;
     }
 
@@ -317,18 +291,12 @@ export function createSaveFlowController({
       return false;
     }
     const diskText = String(disk.data || "");
-    const baseline = getFileContentFromCache(p);
-    if (baseline != null && String(baseline) !== diskText) {
-      await showSaveError("File changed on disk. Reload the ChordPro file before saving.");
-      return false;
-    }
     const nextText = String((isChordProFullView() ? getEditorValue() : getChordProFullText()) || "");
-    const result = await withFileLock(p, () => writeFile(p, nextText, { expectedData: diskText }));
+    const result = await withFileLock(p, () => writeFile(p, nextText, {}));
     if (!result || !result.ok) {
       await showSaveError((result && result.error) ? result.error : "Unable to save ChordPro file.");
       return false;
     }
-    setFileContentInCache(p, nextText);
     markCurrentDocumentClean();
     setDirtyIndicator(false);
     updateWindowTitle();
@@ -372,7 +340,7 @@ export function createSaveFlowController({
       directTuneMeta
       && directTuneMeta.path
       && pathsEqual(directTuneMeta.path, directSourcePath)
-      && getFileContentFromCache(directSourcePath) != null
+      && directTuneMeta.documentParts
     ) {
       if (getCurrentDocument().dirty || getHeaderDirty()) {
         const prepared = await performSimpleTuneSave(directTuneMeta.path, {
@@ -395,22 +363,14 @@ export function createSaveFlowController({
       }
 
       const destinationExists = await fileExists(filePath);
-      let destinationOptions = {};
       if (destinationExists) {
         if ((await confirmOverwrite(filePath)) !== "replace") return false;
-        const destinationRead = await readFile(filePath);
-        if (!destinationRead || !destinationRead.ok) {
-          await showSaveError((destinationRead && destinationRead.error) || "Unable to read existing Save As destination.");
-          return false;
-        }
-        destinationOptions = { expectedData: String(destinationRead.data || "") };
       }
-      const out = await writeFile(filePath, String(sourceRead.data || ""), destinationOptions);
+      const out = await writeFile(filePath, String(sourceRead.data || ""), {});
       if (!out || !out.ok) {
         await showSaveError((out && out.error) ? out.error : "Unable to save file.");
         return false;
       }
-      setFileContentInCache(filePath, String(sourceRead.data || ""));
       patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
       setDirtyIndicator(false);
       resetTransposePreviewState();
@@ -444,7 +404,6 @@ export function createSaveFlowController({
     if (!saved) return false;
     rememberSavedFolder(filePath);
     try { await refreshLibraryFile(filePath, { force: true }); } catch {}
-    setFileContentInCache(filePath, content);
     patchCurrentDocument({ path: filePath, dirty: false }, { create: false });
     setDirtyIndicator(false);
     setActiveFilePath(filePath);
@@ -466,24 +425,17 @@ export function createSaveFlowController({
       const disk = await readFile(p);
       if (!disk || !disk.ok) throw new Error(disk && disk.error ? disk.error : "Unable to read header file.");
       const diskText = String(disk.data || "");
-      const baseline = getFileContentFromCache(p);
-      if (baseline == null) throw new Error("Unable to save safely: file baseline is missing. Re-open the file and try again.");
-      if (String(baseline) !== diskText) {
-        markDiskConflictPath(p, true);
-        throw new Error("File changed on disk. Reload it before saving the header.");
-      }
       const match = diskText.match(/^[\t ]*X:/m);
       const headerEnd = match && Number.isFinite(match.index) ? match.index : diskText.length;
       const rawHeader = String(headerText || "");
       const nextHeader = rawHeader && !/[\r\n]$/.test(rawHeader) ? `${rawHeader}\n` : rawHeader;
       const nextText = nextHeader + diskText.slice(headerEnd);
-      const saveRes = await writeFile(p, nextText, { expectedData: diskText });
+      const saveRes = await writeFile(p, nextText, {});
       if (!saveRes || !saveRes.ok) {
         if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
         throw new Error((saveRes && saveRes.error) ? saveRes.error : "Unable to save header.");
       }
       markDiskConflictPath(p, false);
-      setFileContentInCache(p, nextText);
       const updatedFile = await refreshLibraryFile(p, { force: true });
       try {
         if (updatedFile && updatedFile.path && pathsEqual(updatedFile.path, p) && isHeaderEditorFilePath(p)) {

@@ -15,7 +15,6 @@ function buildNewTuneDraftTemplate(nextX) {
 
 export function createAppendCurrentTuneAction({
   api = null,
-  SAVE_INTENT = {},
   state = {},
   actions = {},
 } = {}) {
@@ -26,7 +25,6 @@ export function createAppendCurrentTuneAction({
     getCurrentDocumentPath = () => "",
     getCurrentNavFilePath = () => "",
     getEditorText = () => "",
-    getSaveSession = () => ({}),
   } = state;
 
   const {
@@ -36,6 +34,7 @@ export function createAppendCurrentTuneAction({
     getActiveFileEntry = () => null,
     getNextXNumber = () => 1,
     markHeaderClean = () => {},
+    markDiskConflictPath = () => {},
     parseTuneIdentityFields = () => null,
     patchCurrentDocument = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
@@ -43,9 +42,7 @@ export function createAppendCurrentTuneAction({
     readFile = async () => ({ ok: false }),
     selectTune = async () => {},
     setActiveFilePath = () => {},
-    setFileContentInCache = () => {},
     setIsNewTuneDraft = () => {},
-    setSaveSession = () => {},
     setStatus = () => {},
     setDirtyIndicator = () => {},
     showSaveError = async () => {},
@@ -75,11 +72,11 @@ export function createAppendCurrentTuneAction({
       const updated = `${before}${separator}${tune}${newline}`;
       const saveRes = await writeFile(p, updated, { expectedData: before });
       if (!saveRes || !saveRes.ok) {
+        if (saveRes && saveRes.conflict) markDiskConflictPath(p, true);
         await showSaveError((saveRes && saveRes.error) ? saveRes.error : "Unable to save file.");
         return false;
       }
 
-      setFileContentInCache(p, updated);
 
       const updatedFile = await refreshLibraryFile(p, { force: true });
       setActiveFilePath(p);
@@ -99,8 +96,7 @@ export function createAppendCurrentTuneAction({
   }
 
   async function performAppendFlow() {
-    const session = getSaveSession();
-    const filePath = String(session.targetPath || getActiveFilePath() || getCurrentNavFilePath() || "");
+    const filePath = String(getActiveFilePath() || getCurrentNavFilePath() || getCurrentDocumentPath() || "");
     if (!filePath) {
       await showSaveError("Select a target file in the Library panel first.");
       return false;
@@ -126,12 +122,6 @@ export function createAppendCurrentTuneAction({
 
     const ok = await appendTextToFileNow(filePath, editorText);
     if (!ok) return false;
-    setSaveSession({
-      intent: SAVE_INTENT.REPLACE_TUNE,
-      targetPath: filePath,
-      targetTuneUid: String(getActiveTuneUid() || ""),
-      source: "append_saved",
-    });
     return true;
   }
 

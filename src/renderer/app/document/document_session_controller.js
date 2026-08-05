@@ -25,26 +25,6 @@ function deserializeToDocument(data) {
   };
 }
 
-function createEmptySaveSession() {
-  return {
-    intent: SAVE_INTENT.NONE,
-    targetPath: "",
-    targetTuneUid: "",
-    source: "",
-  };
-}
-
-function normalizeSaveSession(next = {}) {
-  const n = next || {};
-  const intent = String(n.intent || SAVE_INTENT.NONE);
-  return {
-    intent: Object.values(SAVE_INTENT).includes(intent) ? intent : SAVE_INTENT.NONE,
-    targetPath: String(n.targetPath || ""),
-    targetTuneUid: String(n.targetTuneUid || ""),
-    source: String(n.source || ""),
-  };
-}
-
 function createDocumentSessionController({
   api = null,
   state = {},
@@ -70,7 +50,9 @@ function createDocumentSessionController({
   } = state;
 
   const {
-    discardWorkingCopyChangesForActiveFile = async () => false,
+    discardFileChangesForActiveFile = async () => false,
+    discardChordProChangesForActiveFile = async () => false,
+    discardRawChangesForActiveFile = async () => false,
     flushLibraryPrefsSave = async () => {},
     loadSingleLibraryFile = async () => null,
     markHeaderClean = () => {},
@@ -92,7 +74,6 @@ function createDocumentSessionController({
     safeDirname = () => "",
   } = actions;
 
-  let saveSession = createEmptySaveSession();
   let abandonFlowInProgress = false;
   let currentDocument = null;
 
@@ -180,15 +161,7 @@ function createDocumentSessionController({
     return api.showOpenDialog();
   }
 
-  function clearSaveSession() {
-    saveSession = createEmptySaveSession();
-  }
-
-  function setSaveSession(next) {
-    saveSession = normalizeSaveSession(next);
-  }
-
-  function resolveSaveSession() {
+  function resolveSaveIntent() {
     const currentDoc = getCurrentDoc();
     const activeFilePath = String(getActiveFilePath() || "");
     const activeTuneMeta = getActiveTuneMeta();
@@ -221,10 +194,7 @@ function createDocumentSessionController({
     if (currentDoc && currentDoc.path) {
       return { intent: SAVE_INTENT.FULL_FILE, targetPath: String(currentDoc.path), targetTuneUid: "", source: "doc_path" };
     }
-    if (saveSession && saveSession.intent && saveSession.intent !== SAVE_INTENT.NONE) {
-      return { ...saveSession };
-    }
-    return createEmptySaveSession();
+    return { intent: SAVE_INTENT.NONE, targetPath: "", targetTuneUid: "", source: "" };
   }
 
   async function confirmUnsavedChanges(contextLabel) {
@@ -242,10 +212,23 @@ function createDocumentSessionController({
     const choice = await confirmUnsavedChanges(contextLabel);
     if (choice === "cancel") return false;
     if (choice === "dont_save") {
-      markHeaderClean();
-      updateHeaderStateUI();
-      if (tuneDirty) {
-        await discardWorkingCopyChangesForActiveFile();
+      const isSpecialFileMode = isRawMode() || isChordProEnabled();
+      if (isRawMode() && (tuneDirty || hdrDirty || fileDirty)) {
+        const discarded = await discardRawChangesForActiveFile();
+        if (!discarded) return false;
+        markHeaderClean();
+        updateHeaderStateUI();
+      } else if (isChordProEnabled() && (tuneDirty || fileDirty)) {
+        const discarded = await discardChordProChangesForActiveFile();
+        if (!discarded) return false;
+        markHeaderClean();
+        updateHeaderStateUI();
+      } else if (!isSpecialFileMode && (tuneDirty || hdrDirty)) {
+        const discarded = await discardFileChangesForActiveFile();
+        if (!discarded) return false;
+      } else {
+        markHeaderClean();
+        updateHeaderStateUI();
       }
       return true;
     }
@@ -352,7 +335,6 @@ function createDocumentSessionController({
   }
 
   return {
-    clearSaveSession,
     confirmAbandonIfDirty,
     confirmUnsavedChanges,
     deserializeToDocument,
@@ -369,13 +351,12 @@ function createDocumentSessionController({
     markCurrentDocumentClean,
     patchCurrentDocument,
     replaceCurrentDocument,
-    resolveSaveSession,
+    resolveSaveIntent,
     requestCloseDocument,
     requestQuitApplication,
     serializeDocument,
     setCurrentDocumentContent,
     setCurrentDocumentDirty,
-    setSaveSession,
   };
 }
 

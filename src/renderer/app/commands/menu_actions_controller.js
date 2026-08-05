@@ -137,8 +137,8 @@ function createMenuActionsController({
     const restoreTuneId = (typeof state.isRawModeActive === "function" && state.isRawModeActive())
       ? null
       : (typeof state.getActiveTuneId === "function" ? state.getActiveTuneId() || null : null);
-    const res = typeof actions.discardAndReloadWorkingCopyFromDisk === "function"
-      ? await actions.discardAndReloadWorkingCopyFromDisk(filePath, { restoreTuneId })
+    const res = typeof actions.discardAndReloadFileFromDisk === "function"
+      ? await actions.discardAndReloadFileFromDisk(filePath, { restoreTuneId })
       : null;
     if (!res || !res.ok) {
       if (typeof actions.showSaveError === "function") {

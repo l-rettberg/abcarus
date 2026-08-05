@@ -23,6 +23,7 @@ export function createPasteMoveTuneAction({
     getActiveEditFilePath = () => "",
     getNextXNumber = () => 1,
     getTuneText = async () => "",
+    markDiskConflictPath = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     readFile = async () => ({ ok: false }),
     refreshLibraryFile = async () => null,
@@ -32,7 +33,6 @@ export function createPasteMoveTuneAction({
     setActiveFilePath = () => {},
     setActiveTuneId = () => {},
     setClipboardTune = () => {},
-    setFileContentInCache = () => {},
     setStatus = () => {},
     selectTune = async () => ({ ok: false }),
     showSaveError = async () => {},
@@ -79,8 +79,10 @@ export function createPasteMoveTuneAction({
     const prepared = ensureXNumberInAbc(text, nextX);
     const updated = appendTuneToContent(before, prepared);
     const writeRes = await writeFile(filePath, updated, { expectedData: before });
-    if (!writeRes.ok) throw new Error(writeRes.error || "Unable to append to file.");
-    setFileContentInCache(filePath, updated);
+    if (!writeRes.ok) {
+      if (writeRes.conflict) markDiskConflictPath(filePath, true);
+      throw new Error(writeRes.error || "Unable to append to file.");
+    }
     return updated;
   }
 
@@ -201,21 +203,27 @@ export function createPasteMoveTuneAction({
         }
 
         const writeTargetRes = await writeFile(targetPath, finalTarget, { expectedData: targetContent });
-        if (!writeTargetRes.ok) throw new Error(writeTargetRes.error || "Unable to update target file.");
+        if (!writeTargetRes.ok) {
+          if (writeTargetRes.conflict) markDiskConflictPath(targetPath, true);
+          throw new Error(writeTargetRes.error || "Unable to update target file.");
+        }
 
         const writeSourceRes = await writeFile(sourcePath, finalSource, { expectedData: sourceContent });
         if (!writeSourceRes.ok) {
+          if (writeSourceRes.conflict) markDiskConflictPath(sourcePath, true);
           const rollback = await writeFile(targetPath, targetContent, { expectedData: finalTarget });
           if (rollback && rollback.ok) {
+            markDiskConflictPath(targetPath, false);
+            await refreshLibraryFile(targetPath, { force: true });
+            await refreshLibraryFile(sourcePath, { force: true });
             throw new Error(writeSourceRes.error || "Unable to update source file.");
           }
+          markDiskConflictPath(targetPath, true);
           throw new Error((writeSourceRes && writeSourceRes.error)
             ? `${writeSourceRes.error} (rollback failed; the tune may now be duplicated)`
             : "Unable to update source file (rollback failed; the tune may now be duplicated)");
         }
 
-        setFileContentInCache(targetPath, finalTarget);
-        setFileContentInCache(sourcePath, finalSource);
         const updatedTargetFile = await refreshLibraryFile(targetPath, { force: true });
         await refreshLibraryFile(sourcePath, { force: true });
         setActiveFilePath(targetPath);

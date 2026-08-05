@@ -15,6 +15,7 @@ export function createStartupController({
   markRecentOpenStarted = () => {},
   markUiReady = () => {},
   renderStatus = () => {},
+  showToast = () => {},
   setTimeoutRef = setTimeout,
   clearTimeoutRef = clearTimeout,
 } = {}) {

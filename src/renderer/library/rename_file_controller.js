@@ -13,11 +13,11 @@ function createRenameFileController({
     getActiveEditFilePath = () => "",
     hasGlobalUnsavedChanges = () => false,
     hasUnsavedChangesForFile = () => false,
-    isWorkingCopyOpenForFile = () => false,
   } = state;
 
   const {
     renderLibraryTree = () => {},
+    requireCleanForFileOp = async () => true,
     renameLibraryFile = async () => {},
     showSaveError = async () => {},
     showToast = () => {},
@@ -67,10 +67,6 @@ function createRenameFileController({
       showToast("Save/Discard changes before renaming files.", 2600);
       return;
     }
-    if (isWorkingCopyOpenForFile(filePath)) {
-      showToast("Close the file in the editor before renaming it.", 2600);
-      return;
-    }
     renamingFilePath = filePath;
     renderLibraryTree();
     requestAnimationFrame(() => {
@@ -102,12 +98,6 @@ function createRenameFileController({
         renderLibraryTree();
         return;
       }
-      if (isWorkingCopyOpenForFile(oldPath)) {
-        await showSaveError("Refusing to rename: the file is open in the editor. Close it and try again.");
-        renamingFilePath = null;
-        renderLibraryTree();
-        return;
-      }
       const newPath = buildRenameTargetPath(oldPath, inputName);
       if (!newPath) {
         renamingFilePath = null;
@@ -115,6 +105,11 @@ function createRenameFileController({
         return;
       }
       if (newPath === oldPath) {
+        renamingFilePath = null;
+        renderLibraryTree();
+        return;
+      }
+      if (!(await requireCleanForFileOp(oldPath, "renaming a file"))) {
         renamingFilePath = null;
         renderLibraryTree();
         return;

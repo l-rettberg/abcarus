@@ -13,6 +13,12 @@ async function importRendererModule(filePath) {
 const { createDocumentLifecycleController } = await importRendererModule(
   resolve("src/renderer/app/document/document_lifecycle_controller.js")
 );
+const { createCurrentDocumentController } = await importRendererModule(
+  resolve("src/renderer/app/document/current_document_controller.js")
+);
+const { createDocumentSessionController } = await importRendererModule(
+  resolve("src/renderer/app/document/document_session_controller.js")
+);
 const { createLibraryMetadataController } = await importRendererModule(
   resolve("src/renderer/library/library_metadata_controller.js")
 );
@@ -24,9 +30,6 @@ const { createLibraryDocumentContext } = await importRendererModule(
 );
 const { createActiveTuneContextStore } = await importRendererModule(
   resolve("src/renderer/app/document/active_tune_context_store.js")
-);
-const { createWorkingCopySyncController } = await importRendererModule(
-  resolve("src/renderer/app/document/working_copy_sync_controller.js")
 );
 const { createSaveFlowController } = await importRendererModule(
   resolve("src/renderer/app/document/save_flow_controller.js")
@@ -41,7 +44,6 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: () => calls.push("clearActiveTuneState"),
-      clearSaveSession: () => calls.push("clearSaveSession"),
       setActiveFilePath: (path) => { activeFilePath = path || ""; },
       setCurrentDocument: (doc) => { currentDocument = doc; },
       setDirtyIndicator: (next) => { dirtyIndicator = Boolean(next); },
@@ -72,8 +74,111 @@ function testBeginCleanFileDocumentClearsStaleSaveContext() {
   });
   assert.equal(dirtyIndicator, false);
   assert.ok(calls.includes("clearActiveTuneState"), "active tune state must be reset before opening a clean file document");
-  assert.ok(calls.includes("clearSaveSession"), "stale save session must be cleared before opening a clean file document");
   assert.ok(calls.includes("markHeaderClean"), "header state should be clean for a clean file document");
+}
+
+function testCurrentDocumentControllerKeepsSessionAndUiTogether() {
+  const calls = [];
+  let document = null;
+  const session = {
+    replaceCurrentDocument: (next) => {
+      document = next;
+      return next;
+    },
+  };
+  const controller = createCurrentDocumentController({
+    state: {
+      getDocumentSessionController: () => session,
+      getDocumentLifecycleController: () => ({
+        applyDocumentToUi: (next) => calls.push(["apply", next]),
+        showEmptyState: () => calls.push(["empty"]),
+      }),
+    },
+  });
+
+  const next = { path: "/tmp/song.abc", content: "X:1\n", dirty: false };
+  assert.equal(controller.setCurrentDocument(next), next);
+  assert.equal(document, next);
+  assert.deepEqual(calls, [["apply", next]], "document replacement must reconcile UI immediately");
+
+  controller.clearCurrentDocument();
+  assert.equal(document, null);
+  assert.deepEqual(calls, [["apply", next], ["empty"]], "clearing a document must enter empty UI state");
+}
+
+async function testDontSaveRequiresSuccessfulTuneReload() {
+  let currentDocument = { path: "/tmp/song.abc", content: "edited", dirty: true };
+  let reloadCalls = 0;
+  const controller = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => currentDocument,
+      setCurrentDoc: (next) => { currentDocument = next; },
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => false,
+      hasUnsavedChangesInActiveEditContext: () => false,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => {
+        reloadCalls += 1;
+        currentDocument = { path: "/tmp/song.abc", content: "from disk", dirty: false };
+        return true;
+      },
+      markHeaderClean: () => {},
+      updateHeaderStateUI: () => {},
+    },
+  });
+
+  assert.equal(await controller.confirmAbandonIfDirty("switching tunes"), true);
+  assert.equal(reloadCalls, 1);
+  assert.deepEqual(currentDocument, { path: "/tmp/song.abc", content: "from disk", dirty: false });
+
+  currentDocument = { path: "/tmp/song.abc", content: "edited again", dirty: true };
+  const failed = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => currentDocument,
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => false,
+      hasUnsavedChangesInActiveEditContext: () => false,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => false,
+      markHeaderClean: () => {},
+      updateHeaderStateUI: () => {},
+    },
+  });
+  assert.equal(await failed.confirmAbandonIfDirty("switching tunes"), false, "failed discard must block navigation");
+
+  let headerReloadCalls = 0;
+  const headerOnly = createDocumentSessionController({
+    api: { confirmUnsavedChanges: async () => "dont_save" },
+    state: {
+      getCurrentDoc: () => ({ path: "/tmp/song.abc", content: "from disk", dirty: false }),
+      getActiveFilePath: () => "/tmp/song.abc",
+      getActiveTuneMeta: () => ({ path: "/tmp/song.abc", id: "song::1" }),
+      getHeaderDirty: () => true,
+      hasUnsavedChangesInActiveEditContext: () => true,
+      isRawMode: () => false,
+      isChordProEnabled: () => false,
+    },
+    actions: {
+      discardFileChangesForActiveFile: async () => {
+        headerReloadCalls += 1;
+        return true;
+      },
+      markHeaderClean: () => { throw new Error("header-only discard must reload before clearing header state"); },
+      updateHeaderStateUI: () => {},
+    },
+  });
+  assert.equal(await headerOnly.confirmAbandonIfDirty("switching tunes"), true);
+  assert.equal(headerReloadCalls, 1, "header-only discard must reload the file context");
 }
 
 function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
@@ -81,8 +186,6 @@ function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: (path) => calls.push(["clearActiveTuneState", path]),
-      clearSaveSession: () => calls.push(["clearSaveSession"]),
-      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
     },
   });
 
@@ -90,8 +193,6 @@ function testBeginFullFileModeContextClearsTuneBeforeSaveSession() {
 
   assert.deepEqual(calls, [
     ["clearActiveTuneState", "/tmp/song.pro"],
-    ["clearSaveSession"],
-    ["setFullFileSaveSession", "/tmp/song.pro", "chordpro_open"],
   ]);
 }
 
@@ -100,9 +201,7 @@ function testBeginRawFullFileContextPreservesTuneState() {
   const controller = createDocumentLifecycleController({
     actions: {
       clearActiveTuneState: () => calls.push(["clearActiveTuneState"]),
-      clearSaveSession: () => calls.push(["clearSaveSession"]),
       setActiveFilePath: (path) => calls.push(["setActiveFilePath", path]),
-      setFullFileSaveSession: (path, source) => calls.push(["setFullFileSaveSession", path, source]),
     },
   });
 
@@ -110,8 +209,6 @@ function testBeginRawFullFileContextPreservesTuneState() {
 
   assert.deepEqual(calls, [
     ["setActiveFilePath", "/tmp/raw.abc"],
-    ["clearSaveSession"],
-    ["setFullFileSaveSession", "/tmp/raw.abc", "raw_mode"],
   ]);
 }
 
@@ -140,7 +237,6 @@ function testSetRawActiveTuneContextClearsStaleUidAndIndex() {
 function testLibraryDocumentContextShowsCleanFileDocument() {
   const calls = [];
   const context = createLibraryDocumentContext({
-    clearSaveSession: () => calls.push(["clearSaveSession"]),
     markActiveTuneButton: (id) => calls.push(["markActiveTuneButton", id]),
     markCurrentDocumentClean: () => calls.push(["markCurrentDocumentClean"]),
     setActiveTuneId: (id) => calls.push(["setActiveTuneId", id]),
@@ -161,7 +257,6 @@ function testLibraryDocumentContextShowsCleanFileDocument() {
     ["setActiveTuneUid", null],
     ["setActiveTuneIndex", null],
     ["setActiveTuneMeta", null],
-    ["clearSaveSession"],
     ["markCurrentDocumentClean"],
     ["setDirtyIndicator", false],
     ["markActiveTuneButton", null],
@@ -207,7 +302,6 @@ function testDropActiveLibraryFileClearsSaveSession() {
   let activeTuneIndex = 0;
   let currentDocumentPath = activePath;
   let patchedDocument = null;
-  let clearSaveCalls = 0;
 
   const controller = createLibraryMetadataController({
     state: {
@@ -223,7 +317,6 @@ function testDropActiveLibraryFileClearsSaveSession() {
       setActiveTuneIndex: (next) => { activeTuneIndex = next; },
     },
     actions: {
-      clearSaveSession: () => { clearSaveCalls += 1; },
       invalidateLibraryView: () => {},
       patchCurrentDocument: (patch) => {
         patchedDocument = patch;
@@ -240,13 +333,12 @@ function testDropActiveLibraryFileClearsSaveSession() {
 
   assert.equal(dropped, true);
   assert.equal(libraryIndex.files.length, 1);
-  assert.equal(activeFilePath, "");
-  assert.equal(activeTuneMeta, null);
-  assert.equal(activeTuneId, null);
-  assert.equal(activeTuneUid, null);
-  assert.equal(activeTuneIndex, null);
-  assert.deepEqual(patchedDocument, { path: null, content: "", dirty: false });
-  assert.equal(clearSaveCalls, 1, "dropping the active file must clear stale save session");
+  assert.equal(activeFilePath, activePath, "the loaded path must remain available for Save As");
+  assert.deepEqual(activeTuneMeta, { path: activePath, tuneUid: "abc123" });
+  assert.equal(activeTuneId, "old-id");
+  assert.equal(activeTuneUid, "abc123");
+  assert.equal(activeTuneIndex, 0);
+  assert.equal(patchedDocument, null, "the loaded buffer must remain available for Save As");
 }
 
 function testDropInactiveLibraryFileDoesNotClearSaveSession() {
@@ -266,11 +358,12 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
       getLibraryIndex: () => libraryIndex,
       setLibraryIndex: (next) => { libraryIndex = next; },
       getActiveFilePath: () => activePath,
+      setActiveFilePath: () => { throw new Error("dirty document active path must be preserved"); },
       getActiveTuneMeta: () => ({ path: activePath, tuneUid: "abc123" }),
+      setActiveTuneMeta: () => { throw new Error("dirty document tune context must be preserved"); },
       getCurrentDocumentPath: () => activePath,
     },
     actions: {
-      clearSaveSession: () => { clearSaveCalls += 1; },
       invalidateLibraryView: () => {},
       patchCurrentDocument: () => {},
       pathsEqual: (a, b) => String(a || "") === String(b || ""),
@@ -284,7 +377,40 @@ function testDropInactiveLibraryFileDoesNotClearSaveSession() {
 
   assert.equal(dropped, true);
   assert.equal(libraryIndex.files.length, 1);
-  assert.equal(clearSaveCalls, 0, "dropping an inactive file should not disturb current save session");
+}
+
+function testDropDeletedActiveFilePreservesDirtyDocument() {
+  const activePath = "/tmp/library/active.abc";
+  let libraryIndex = {
+    root: "/tmp/library",
+    files: [{ path: activePath, basename: "active.abc", tunes: [] }],
+  };
+  let patched = null;
+  let dirtyIndicatorCalls = 0;
+  const controller = createLibraryMetadataController({
+    state: {
+      getLibraryIndex: () => libraryIndex,
+      setLibraryIndex: (next) => { libraryIndex = next; },
+      getActiveFilePath: () => activePath,
+      getActiveTuneMeta: () => ({ path: activePath, tuneUid: "abc123" }),
+      getCurrentDocumentPath: () => activePath,
+      isCurrentDocumentDirty: () => true,
+      getHeaderDirty: () => false,
+    },
+    actions: {
+      invalidateLibraryView: () => {},
+      patchCurrentDocument: (patch) => { patched = patch; },
+      pathsEqual: (a, b) => String(a || "") === String(b || ""),
+      setDirtyIndicator: () => { dirtyIndicatorCalls += 1; },
+      updateLibraryStatus: () => {},
+      scheduleRenderLibraryTree: () => {},
+    },
+  });
+
+  assert.equal(controller.dropLibraryFileEntry(activePath), true);
+  assert.equal(libraryIndex.files.length, 0);
+  assert.equal(patched, null, "dirty document must remain available for Save to recreate the file");
+  assert.equal(dirtyIndicatorCalls, 0, "deleting the disk entry must not clear dirty UI state");
 }
 
 function testLibraryReconcilesSavedTuneByStableIdentity() {
@@ -296,7 +422,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
     xNumber: "2",
     title: "Second",
   };
-  let saveSession = null;
   const controller = createLibraryLifecycleController({
     state: {
       getActiveTuneId: () => activeId,
@@ -313,7 +438,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
       setActiveTuneMeta: (value) => { activeMeta = value; },
       setActiveTuneUid: (value) => { activeUid = value; },
       setFileNameMeta: () => {},
-      setSaveSession: (value) => { saveSession = value; },
       setTuneMetaText: () => {},
       stripFileExtension: (name) => String(name).replace(/\.[^.]+$/, ""),
     },
@@ -335,7 +459,6 @@ function testLibraryReconcilesSavedTuneByStableIdentity() {
   assert.equal(activeUid, "uid-second");
   assert.equal(activeIndex, 1);
   assert.equal(activeMeta.startOffset, 22);
-  assert.equal(saveSession.targetTuneUid, "uid-second");
 }
 
 async function testSimpleTuneSaveIsOwnedBySaveController() {
@@ -350,10 +473,8 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
       getActiveTuneMeta: () => ({
         path: filePath,
         xNumber: "2",
-        startOffset: 0,
-        endOffset: sourceText.length,
+        documentParts: { header: "", before: "", active: sourceText, after: "" },
       }),
-      getFileContentFromCache: () => sourceText,
       getHeaderEditorValue: () => "",
     },
     actions: {
@@ -369,8 +490,8 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
       reconcileActiveTuneAfterSave: () => { reconciled = true; },
       refreshLibraryFile: async () => ({ path: filePath, tunes: [] }),
       setActiveFilePath: () => {},
+      setActiveTuneMeta: () => {},
       setDirtyIndicator: () => {},
-      setFileContentInCache: () => {},
       updateFileHeaderPanel: () => {},
       withFileLock: async (_path, fn) => fn(),
     },
@@ -380,9 +501,7 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
   assert.deepEqual(writePayload, {
     path: filePath,
     data: editedText,
-    options: {
-      expectedData: sourceText,
-    },
+    options: {},
   });
   assert.deepEqual(patched, {
     path: filePath,
@@ -393,6 +512,8 @@ async function testSimpleTuneSaveIsOwnedBySaveController() {
 }
 
 testBeginCleanFileDocumentClearsStaleSaveContext();
+testCurrentDocumentControllerKeepsSessionAndUiTogether();
+await testDontSaveRequiresSuccessfulTuneReload();
 testBeginFullFileModeContextClearsTuneBeforeSaveSession();
 testBeginRawFullFileContextPreservesTuneState();
 testSetRawActiveTuneContextClearsStaleUidAndIndex();
@@ -400,6 +521,7 @@ testLibraryDocumentContextShowsCleanFileDocument();
 testLibraryDocumentContextUsesAtomicActiveContextClear();
 testDropActiveLibraryFileClearsSaveSession();
 testDropInactiveLibraryFileDoesNotClearSaveSession();
+testDropDeletedActiveFilePreservesDirtyDocument();
 testLibraryReconcilesSavedTuneByStableIdentity();
 await testSimpleTuneSaveIsOwnedBySaveController();
 

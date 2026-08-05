@@ -14,6 +14,7 @@ export function createDeleteTuneAction({
     ensureSafeToAbandonCurrentDoc = async () => false,
     findTuneById = () => null,
     markCurrentDocumentClean = () => {},
+    markDiskConflictPath = () => {},
     pathsEqual = (a, b) => String(a || "") === String(b || ""),
     refreshLibraryFile = async () => null,
     readFile = async () => ({ ok: false }),
@@ -21,7 +22,6 @@ export function createDeleteTuneAction({
     selectTune = async () => {},
     setActiveFilePath = () => {},
     setDirtyIndicator = () => {},
-    setFileContentInCache = () => {},
     showCleanFileDocument = () => {},
     showSaveError = async () => {},
     writeFile = async () => ({ ok: false }),
@@ -61,10 +61,12 @@ export function createDeleteTuneAction({
         const updatedContent = before + after;
         const writeRes = await writeFile(fileMeta.path, updatedContent, { expectedData: content });
         if (!writeRes || !writeRes.ok) {
-          if (writeRes && writeRes.conflict) throw new Error("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
+          if (writeRes && writeRes.conflict) {
+            markDiskConflictPath(fileMeta.path, true);
+            throw new Error("Refusing to delete: file changed on disk. Reload/reopen the file and try again.");
+          }
           throw new Error((writeRes && writeRes.error) ? writeRes.error : "Unable to delete tune.");
         }
-        setFileContentInCache(fileMeta.path, updatedContent);
         const updatedFile = await refreshLibraryFile(fileMeta.path, { force: true });
         return { updatedContent, updatedFile };
       });

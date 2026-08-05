@@ -25,10 +25,6 @@ async function assertSaveIntentGuards() {
   const libraryLifecycle = await readFile(libraryLifecyclePath, "utf8").catch(() => "");
   const saveFlowPath = "src/renderer/app/document/save_flow_controller.js";
   const saveFlow = await readFile(saveFlowPath, "utf8").catch(() => "");
-  const saveVerificationPath = "src/renderer/app/document/save_verification.js";
-  const saveVerification = await readFile(saveVerificationPath, "utf8").catch(() => "");
-  const workingCopySyncPath = "src/renderer/app/document/working_copy_sync_controller.js";
-  const workingCopySync = await readFile(workingCopySyncPath, "utf8").catch(() => "");
   const playbackUiPath = "src/renderer/app/ui/playback_ui_controller.js";
   const playbackUi = await readFile(playbackUiPath, "utf8").catch(() => "");
   const layoutControllerPath = "src/renderer/app/ui/layout_controller.js";
@@ -104,23 +100,16 @@ async function assertSaveIntentGuards() {
   if (!documentSession.includes("const SAVE_INTENT = Object.freeze(")) {
     throw new Error("Missing SAVE_INTENT model in document session controller.");
   }
-  if (!src.includes("function resolveSaveSession()") || !documentSession.includes("function resolveSaveSession()")) {
-    throw new Error("Missing resolveSaveSession() document-session boundary.");
+  if (!src.includes("function resolveSaveIntent()") || !documentSession.includes("function resolveSaveIntent()")) {
+    throw new Error("Missing resolveSaveIntent() document-session boundary.");
   }
-  if (
-    !src.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
-    && !saveVerification.includes("async function verifyWorkingCopySaveReachedDisk(filePath)")
-  ) {
-    throw new Error("Missing post-commit working-copy save verification.");
-  }
-
   const saveOwner = saveFlow.includes("async function performSaveFlow()") ? saveFlow : src;
   const saveStart = saveOwner.indexOf("async function performSaveFlow()");
   const saveEnd = saveOwner.indexOf("async function performSaveAsFlow()", saveStart);
   if (saveStart < 0 || saveEnd < 0) throw new Error("Unable to isolate performSaveFlow().");
   const saveBody = saveOwner.slice(saveStart, saveEnd);
-  if (!saveBody.includes("const session = resolveSaveSession();")) {
-    throw new Error("performSaveFlow() must route by resolveSaveSession().");
+  if (!saveBody.includes("const session = resolveSaveIntent();")) {
+    throw new Error("performSaveFlow() must route by resolveSaveIntent().");
   }
   if (!saveBody.includes("session.intent === SAVE_INTENT.APPEND_TO_FILE")) {
     throw new Error("performSaveFlow() must handle explicit append intent.");
@@ -234,16 +223,10 @@ async function assertSaveIntentGuards() {
   if (!libraryLifecycle.includes("const shouldForceReload = Boolean(entry && entry.forceReload);")) {
     throw new Error("openRecentFile() must support forceReload flag.");
   }
-  if (libraryLifecycle.includes("await api.reloadWorkingCopyFromDisk({")) {
-    throw new Error("openRecentFile() must reload directly from disk, without working copy state.");
-  }
   if (!libraryLifecycle.includes("await refreshLibraryFile(targetPath, { force: true });")) {
     throw new Error("openRecentFile() must force-refresh library metadata on same-file reopen.");
   }
 
-  if (workingCopySync.includes("applyWorkingCopyTuneText") || workingCopySync.includes("scheduleTuneSync")) {
-    throw new Error("Normal ABC editing must not synchronize editor changes into a working copy.");
-  }
   if (!saveFlow.includes("async function performSimpleTuneSave(filePath")) {
     throw new Error("Save flow controller must own the simple tune save path.");
   }
@@ -254,17 +237,14 @@ async function assertSaveIntentGuards() {
   const simpleSaveEnd = saveFlow.indexOf("async function performSaveFlow()", simpleSaveStart);
   if (simpleSaveStart < 0 || simpleSaveEnd < 0) throw new Error("Unable to isolate performSimpleTuneSave().");
   const simpleSaveBody = saveFlow.slice(simpleSaveStart, simpleSaveEnd);
-  if (!simpleSaveBody.includes("getFileContentFromCache(p)")) {
-    throw new Error("performSimpleTuneSave() must use the loaded file baseline before editing a tune.");
+  if (!simpleSaveBody.includes("activeTuneMeta.documentParts")) {
+    throw new Error("performSimpleTuneSave() must use the loaded four-part tune document.");
   }
-  if (!simpleSaveBody.includes("const diskCheck = await readFile(p)")) {
-    throw new Error("performSimpleTuneSave() must verify the current disk content before saving.");
+  if (!simpleSaveBody.includes("writeFile(p, nextText, {});")) {
+    throw new Error("performSimpleTuneSave() must write the composed document without a stale expected-data guard.");
   }
-  if (!simpleSaveBody.includes("writeFile(p, nextText, { expectedData: sourceText })")) {
-    throw new Error("performSimpleTuneSave() must use an atomic expected-data file write.");
-  }
-  if (!simpleSaveBody.includes("File changed on disk")) {
-    throw new Error("performSimpleTuneSave() must fail closed on an external file change.");
+  if (!simpleSaveBody.includes("const nextParts =")) {
+    throw new Error("performSimpleTuneSave() must update the loaded four-part document after editing.");
   }
 
   const textTransformsSrc = await readFile("src/renderer/abc/text_transforms.js", "utf8");

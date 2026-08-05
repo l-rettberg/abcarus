@@ -45,6 +45,8 @@ const RAW_BLOCKED_ACTIONS = new Set([
   "transformTransposeDown",
   "transformDouble",
   "transformHalf",
+  "transformTurkishToConcert",
+  "transformTurkishToBolahenk",
   "transformMeasures",
   "alignBars",
   "printPreview",
@@ -252,6 +254,12 @@ function createMenuActionsController({
     else if (actionType === "transformTransposeDown") await actions.applyAbc2abcTransform({ transposeSemitones: -1 });
     else if (actionType === "transformDouble") await actions.applyAbc2abcTransform({ doubleLengths: true });
     else if (actionType === "transformHalf") await actions.applyAbc2abcTransform({ halfLengths: true });
+    else if (actionType === "transformTurkishToConcert") {
+      await actions.applyAbc2abcTransform({ turkishNotation: { direction: "toConcert" } });
+    }
+    else if (actionType === "transformTurkishToBolahenk") {
+      await actions.applyAbc2abcTransform({ turkishNotation: { direction: "toBolahenk" } });
+    }
     else if (actionType === "transformMeasures" && action && Number.isFinite(action.value)) {
       await actions.applyAbc2abcTransform({ measuresPerLine: action.value });
     }

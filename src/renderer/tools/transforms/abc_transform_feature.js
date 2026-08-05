@@ -9,7 +9,7 @@ import {
 } from "../../measures.mjs";
 import {
   transformLengthScaling,
-  transformTempoScaling,
+  transformAbcUnitScaling,
 } from "../../abc/text_transforms.js";
 
 function createAbcTransformFeature({
@@ -68,17 +68,13 @@ function createAbcTransformFeature({
     }
 
     const turkish = options.turkishNotation;
-    if (turkish) {
-      const pitchSteps = Number.isFinite(Number(turkish.pitchSteps)) ? Number(turkish.pitchSteps) : -5;
-      const durationFactor = Number.isFinite(Number(turkish.durationFactor)) ? Number(turkish.durationFactor) : 2;
-      if (![2, 0.5].includes(durationFactor)) {
-        await showTransformError("Turkish notation macro supports duration factors 2 or 0.5.");
-        setStatus("Error");
-        return;
-      }
-      const lengthMode = durationFactor === 2 ? "double" : "half";
-      let transformed = transformLengthScaling(abcText, lengthMode);
-      transformed = transformTempoScaling(transformed, 1 / durationFactor);
+    const turkishDirection = turkish && typeof turkish === "object"
+      ? String(turkish.direction || "")
+      : "";
+    if (turkishDirection === "toConcert" || turkishDirection === "toBolahenk") {
+      const toConcert = turkishDirection === "toConcert";
+      const pitchSteps = toConcert ? -5 : 5;
+      let transformed = transformAbcUnitScaling(abcText, toConcert ? 2 : 0.5);
       const headerText = getHeaderText();
       const support = getNativeTransposeSupport(transformed, { headerText });
       if (!support.ok) {
@@ -87,7 +83,26 @@ function createAbcTransformFeature({
         return;
       }
       try {
-        transformed = transformTranspose(transformed, pitchSteps, { headerText });
+        transformed = transformTranspose(transformed, pitchSteps, {
+          headerText,
+          simplifyDisplayKey53: false,
+        });
+        const lines = transformed.split(/\r\n|\n|\r/);
+        let foundVoice = false;
+        transformed = lines.map((line) => {
+          if (!/^\s*V\s*:/i.test(line)) return line;
+          foundVoice = true;
+          if (toConcert) return line.replace(/\s+transpose\s*=\s*-17\b/gi, "").replace(/[ \t]+$/, "");
+          if (/\btranspose\s*=/i.test(line)) return line;
+          return `${line} transpose=-17`;
+        }).join("\n");
+        if (!toConcert && !foundVoice) {
+          const keyIndex = lines.findIndex((line) => /^\s*K\s*:/i.test(line));
+          const voiceLine = "V:1 transpose=-17";
+          const outputLines = transformed.split(/\r\n|\n|\r/);
+          outputLines.splice(keyIndex >= 0 ? keyIndex + 1 : 0, 0, voiceLine);
+          transformed = outputLines.join("\n");
+        }
         applyTransformedText(transformed);
         setStatus("OK");
         return;
@@ -224,8 +239,10 @@ function createAbcTransformFeature({
     const win = windowRef;
     if (!win) return false;
     win.__abcarusTurkishNotation = {
-      convert: () => apply({ turkishNotation: { pitchSteps: -5, durationFactor: 2 } }),
-      restore: () => apply({ turkishNotation: { pitchSteps: 5, durationFactor: 0.5 } }),
+      convert: () => apply({ turkishNotation: { direction: "toConcert" } }),
+      restore: () => apply({ turkishNotation: { direction: "toBolahenk" } }),
+      toConcert: () => apply({ turkishNotation: { direction: "toConcert" } }),
+      toBolahenk: () => apply({ turkishNotation: { direction: "toBolahenk" } }),
     };
     return true;
   }

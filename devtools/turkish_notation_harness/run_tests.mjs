@@ -17,17 +17,18 @@ const { createAbcTransformFeature } = await import(`data:text/javascript;base64,
 const input = [
   "X:141",
   "T:Turkish sample",
+  "M:10/16",
   "L:1/8",
   "Q:1/8=120",
   "K:C",
-  "V:1 clef=treble",
-  "C D2 E/ F |",
+  "V:1 clef=treble transpose=-17",
+  "C D E F |",
 ].join("\n");
-let output = "";
+let output = input;
 const statuses = [];
 const feature = createAbcTransformFeature({
   windowRef: {},
-  getEditorText: () => input,
+  getEditorText: () => output,
   getHeaderText: () => "",
   getSettings: () => ({ useNativeTranspose: true }),
   applyTransformedText: (text) => { output = text; },
@@ -35,10 +36,17 @@ const feature = createAbcTransformFeature({
   showTransformError: async (message) => { throw new Error(message); },
 });
 
-await feature.apply({ turkishNotation: { pitchSteps: -5, durationFactor: 2 } });
-assert.match(output, /^L:1\/16$/m);
-assert.match(output, /^Q:1\/8=60$/m);
-assert.match(output, /G,2\s+A,4\s+B,\s+C2/);
+await feature.apply({ turkishNotation: { direction: "toConcert" } });
+assert.match(output, /^M:10\/8$/m);
+assert.match(output, /^L:1\/4$/m);
+assert.match(output, /^Q:1\/4=120$/m);
+assert.doesNotMatch(output, /transpose\s*=\s*-17/);
 assert.equal(statuses.at(-1), "OK");
+
+await feature.apply({ turkishNotation: { direction: "toBolahenk" } });
+assert.match(output, /^M:10\/16$/m);
+assert.match(output, /^L:1\/8$/m);
+assert.match(output, /^Q:1\/8=120$/m);
+assert.match(output, /transpose\s*=\s*-17/);
 
 console.log("turkish notation harness: all tests passed");

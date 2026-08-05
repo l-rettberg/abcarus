@@ -9,6 +9,7 @@ import {
 } from "../../measures.mjs";
 import {
   transformLengthScaling,
+  transformTempoScaling,
 } from "../../abc/text_transforms.js";
 
 function createAbcTransformFeature({
@@ -64,6 +65,38 @@ function createAbcTransformFeature({
     if (options.doubleLengths && options.halfLengths) {
       await showTransformError("Choose either double or half note lengths, not both.");
       return;
+    }
+
+    const turkish = options.turkishNotation;
+    if (turkish) {
+      const pitchSteps = Number.isFinite(Number(turkish.pitchSteps)) ? Number(turkish.pitchSteps) : -5;
+      const durationFactor = Number.isFinite(Number(turkish.durationFactor)) ? Number(turkish.durationFactor) : 2;
+      if (![2, 0.5].includes(durationFactor)) {
+        await showTransformError("Turkish notation macro supports duration factors 2 or 0.5.");
+        setStatus("Error");
+        return;
+      }
+      const lengthMode = durationFactor === 2 ? "double" : "half";
+      let transformed = transformLengthScaling(abcText, lengthMode);
+      transformed = transformTempoScaling(transformed, 1 / durationFactor);
+      const headerText = getHeaderText();
+      const support = getNativeTransposeSupport(transformed, { headerText });
+      if (!support.ok) {
+        await showTransformError(support.reason || "Turkish notation macro cannot transpose this tune.");
+        setStatus("Error");
+        return;
+      }
+      try {
+        transformed = transformTranspose(transformed, pitchSteps, { headerText });
+        applyTransformedText(transformed);
+        setStatus("OK");
+        return;
+      } catch (e) {
+        logError(`Turkish notation macro failed.\n\n${(e && e.stack) ? e.stack : String(e)}`);
+        await showTransformError("Turkish notation macro failed.");
+        setStatus("Error");
+        return;
+      }
     }
 
     const settings = getSettings() || {};
@@ -187,10 +220,21 @@ function createAbcTransformFeature({
     return true;
   }
 
+  function installTurkishNotationMacro() {
+    const win = windowRef;
+    if (!win) return false;
+    win.__abcarusTurkishNotation = {
+      convert: () => apply({ turkishNotation: { pitchSteps: -5, durationFactor: 2 } }),
+      restore: () => apply({ turkishNotation: { pitchSteps: 5, durationFactor: 0.5 } }),
+    };
+    return true;
+  }
+
   return {
     alignBars,
     apply,
     installDevSmoke,
+    installTurkishNotationMacro,
     resetTransposePreview,
   };
 }

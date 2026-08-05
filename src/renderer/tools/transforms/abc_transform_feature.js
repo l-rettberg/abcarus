@@ -115,7 +115,7 @@ function createAbcTransformFeature({
         return;
       }
       try {
-        transformed = transformTranspose(transformed, pitchSteps, { headerText });
+        transformed = transformTranspose(transformed, pitchSteps, { headerText, prefer: "sharp" });
         transformed = rewriteTurkishKeySignature(transformed, turkishDirection);
         transformed = twelveEdoText.restoreTemperament(transformed);
         const lines = transformed.split(/\r\n|\n|\r/);

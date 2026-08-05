@@ -57,9 +57,11 @@ Example:
 ## 2) Update CHANGELOG (and optional local devlog)
 
 The repository release flow is driven by `scripts/release.mjs` (via `npm run release:*`), which:
+- requires a non-empty `## [Unreleased]` section and an unused next tag before running preflight or changing files
 - bumps versions in `package.json` (+ `package-lock.json`)
 - moves the current [CHANGELOG.md](../CHANGELOG.md) `## [Unreleased]` section into a dated `## [X.Y.Z] - YYYY-MM-DD` entry
 - creates an annotated git tag `vX.Y.Z`
+- verifies that the new tag points to the release commit before reporting success
 - requires a clean git working tree (no uncommitted changes)
 - runs the release preflight before changing the version or creating a tag
 
@@ -74,14 +76,13 @@ Manual (optional):
 
 This flow bumps the version, updates release docs, commits, and creates a tag:
 
-1) Ensure the working tree is clean.
-2) Run `npm run test:release-preflight`.
-3) Run one of:
+1) Ensure the changelog update is committed and the working tree is clean.
+2) Run one of:
    - `npm run release:patch`
    - `npm run release:minor`
    - `npm run release:major`
 
-3) Push commit and tag:
+3) Push commit and tag only after the release command reports success:
    - `git push`
    - `git push origin vX.Y.Z`
 

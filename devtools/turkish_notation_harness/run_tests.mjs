@@ -20,7 +20,8 @@ const input = [
   "M:10/16",
   "L:1/8",
   "Q:1/8=120",
-  "K:C",
+  "K:C _2B",
+  "%%MIDI temperamentequal 53",
   "V:1 clef=treble transpose=-17",
   "C D E F |",
 ].join("\n");
@@ -40,6 +41,8 @@ await feature.apply({ turkishNotation: { direction: "toConcert" } });
 assert.match(output, /^M:10\/8$/m);
 assert.match(output, /^L:1\/4$/m);
 assert.match(output, /^Q:1\/4=120$/m);
+assert.match(output, /^K:G \^2f$/m);
+assert.match(output, /^%%MIDI temperamentequal 53$/m);
 assert.doesNotMatch(output, /transpose\s*=\s*-17/);
 assert.equal(statuses.at(-1), "OK");
 
@@ -47,6 +50,9 @@ await feature.apply({ turkishNotation: { direction: "toBolahenk" } });
 assert.match(output, /^M:10\/16$/m);
 assert.match(output, /^L:1\/8$/m);
 assert.match(output, /^Q:1\/8=120$/m);
+assert.match(output, /^K:C _2B$/m);
+assert.match(output, /^%%MIDI temperamentequal 53$/m);
 assert.match(output, /transpose\s*=\s*-17/);
+assert.equal(output, input);
 
 console.log("turkish notation harness: all tests passed");

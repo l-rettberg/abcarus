@@ -12,6 +12,36 @@ import {
   transformAbcUnitScaling,
 } from "../../abc/text_transforms.js";
 
+function prepareTurkishNotationFor12Edo(text) {
+  const originalTemperamentLines = [];
+  const preparedText = String(text || "").replace(
+    /^(\s*%%\s*MIDI\s+temperamentequal\s+)53(\s*)$/gmi,
+    (line, prefix, suffix) => {
+      originalTemperamentLines.push(line);
+      return `${prefix}12${suffix}`;
+    },
+  );
+  return {
+    text: preparedText,
+    restoreTemperament(transformed) {
+      let index = 0;
+      return String(transformed || "").replace(
+        /^(\s*%%\s*MIDI\s+temperamentequal\s+)12(\s*)$/gmi,
+        (line) => originalTemperamentLines[index++] || line,
+      );
+    },
+  };
+}
+
+function rewriteTurkishKeySignature(text, direction) {
+  const toConcert = direction === "toConcert";
+  const from = toConcert ? "_2B" : "^2f";
+  const to = toConcert ? "^2f" : "_2B";
+  const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^(\\s*K:[^\\n]*?)${escapedFrom}\\b`, "gmi");
+  return String(text || "").replace(pattern, (_line, prefix) => `${prefix}${to}`);
+}
+
 function createAbcTransformFeature({
   windowRef = typeof window !== "undefined" ? window : null,
   devConfig = {},
@@ -75,7 +105,9 @@ function createAbcTransformFeature({
       const toConcert = turkishDirection === "toConcert";
       const pitchSteps = toConcert ? -5 : 5;
       let transformed = transformAbcUnitScaling(abcText, toConcert ? 2 : 0.5);
-      const headerText = getHeaderText();
+      const twelveEdoText = prepareTurkishNotationFor12Edo(transformed);
+      transformed = twelveEdoText.text;
+      const headerText = prepareTurkishNotationFor12Edo(getHeaderText()).text;
       const support = getNativeTransposeSupport(transformed, { headerText });
       if (!support.ok) {
         await showTransformError(support.reason || "Turkish notation macro cannot transpose this tune.");
@@ -83,10 +115,9 @@ function createAbcTransformFeature({
         return;
       }
       try {
-        transformed = transformTranspose(transformed, pitchSteps, {
-          headerText,
-          simplifyDisplayKey53: false,
-        });
+        transformed = transformTranspose(transformed, pitchSteps, { headerText });
+        transformed = rewriteTurkishKeySignature(transformed, turkishDirection);
+        transformed = twelveEdoText.restoreTemperament(transformed);
         const lines = transformed.split(/\r\n|\n|\r/);
         let foundVoice = false;
         transformed = lines.map((line) => {

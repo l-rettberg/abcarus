@@ -1800,7 +1800,7 @@ function transformTranspose53(text, deltaSteps, options = {}) {
   const count = Math.abs(Math.trunc(delta));
   for (let i = 0; i < count; i += 1) {
     out = transformTranspose53SingleStep(out, step, options);
-    out = simplify53DisplayKeyText(out, options && options.displayKey53 ? options.displayKey53 : {});
+    if (!options || options.simplifyDisplayKey53 !== false) out = simplify53DisplayKeyText(out, options && options.displayKey53 ? options.displayKey53 : {});
   }
   return out;
 }

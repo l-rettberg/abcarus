@@ -20,15 +20,33 @@ function runGit(args) {
   return String(execFileSync("git", args, { cwd: root })).trim();
 }
 
+function tagExists(tag) {
+  try {
+    runGit(["rev-parse", "--verify", `refs/tags/${tag}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readUnreleasedNotes(changelog) {
+  const header = "## [Unreleased]";
+  const idx = changelog.indexOf(header);
+  if (idx === -1) throw new Error("CHANGELOG.md is missing the Unreleased section.");
+  const headerEnd = idx + header.length;
+  const nextHeaderIdx = changelog.indexOf("\n## [", headerEnd);
+  const body = changelog.slice(headerEnd, nextHeaderIdx === -1 ? changelog.length : nextHeaderIdx)
+    .replace(/^\s+/, "")
+    .replace(/\s+$/, "");
+  if (!body) throw new Error("CHANGELOG.md Unreleased section is empty. Add release notes first.");
+  return { header, idx, headerEnd, nextHeaderIdx, body };
+}
+
 const status = runGit(["status", "--porcelain"]);
 if (status) {
   console.error("Git working tree is not clean. Commit or stash changes first.");
   process.exit(1);
 }
-
-console.log("Running release preflight...");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-execFileSync(npmCommand, ["run", "-s", "test:release-preflight"], { cwd: root, stdio: "inherit" });
 
 const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 const current = String(pkg.version || "");
@@ -37,6 +55,34 @@ if (!next) {
   console.error(`Failed to bump version from ${current}.`);
   process.exit(1);
 }
+const nextTag = `v${next}`;
+if (tagExists(nextTag)) {
+  console.error(`Tag ${nextTag} already exists. Resolve the release state before continuing.`);
+  process.exit(1);
+}
+
+let changelog;
+let unreleased;
+try {
+  changelog = fs.readFileSync(changelogPath, "utf8");
+  unreleased = readUnreleasedNotes(changelog);
+} catch (error) {
+  console.error(error && error.message ? error.message : String(error));
+  process.exit(1);
+}
+
+if (fs.existsSync(lockPath)) {
+  const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+  const lockRootVersion = lock.packages && lock.packages[""] ? String(lock.packages[""].version || "") : current;
+  if (String(lock.version || "") !== current || lockRootVersion !== current) {
+    console.error("package.json and package-lock.json versions are out of sync. Fix them before releasing.");
+    process.exit(1);
+  }
+}
+
+console.log("Running release preflight...");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+execFileSync(npmCommand, ["run", "-s", "test:release-preflight"], { cwd: root, stdio: "inherit" });
 
 pkg.version = next;
 fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
@@ -51,35 +97,24 @@ if (fs.existsSync(lockPath)) {
 }
 
 const today = new Date().toISOString().slice(0, 10);
-const changelog = fs.readFileSync(changelogPath, "utf8");
-const header = "## [Unreleased]";
-const idx = changelog.indexOf(header);
-if (idx === -1) {
-  console.error("CHANGELOG.md is missing the Unreleased section.");
-  process.exit(1);
-}
-
-const headerEnd = idx + header.length;
-const nextHeaderIdx = changelog.indexOf("\n## [", headerEnd);
-const unreleasedBodyRaw = changelog.slice(headerEnd, nextHeaderIdx === -1 ? changelog.length : nextHeaderIdx);
-const unreleasedBody = unreleasedBodyRaw.replace(/^\s+/, "").replace(/\s+$/, "");
-
-if (!unreleasedBody) {
-  console.error("CHANGELOG.md Unreleased section is empty. Add release notes first.");
-  process.exit(1);
-}
-
-const entry = `\n\n## [${next}] - ${today}\n${unreleasedBody}\n`;
+const entry = `\n\n## [${next}] - ${today}\n${unreleased.body}\n`;
 const updated =
-  changelog.slice(0, headerEnd) +
+  changelog.slice(0, unreleased.headerEnd) +
   "\n\n" +
   entry +
-  (nextHeaderIdx === -1 ? "" : changelog.slice(nextHeaderIdx));
+  (unreleased.nextHeaderIdx === -1 ? "" : changelog.slice(unreleased.nextHeaderIdx));
 fs.writeFileSync(changelogPath, updated);
 
 runGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
 runGit(["commit", "-m", `chore(release): v${next}`]);
-runGit(["tag", "-a", `v${next}`, "-m", `v${next}`]);
+runGit(["tag", "-a", nextTag, "-m", nextTag]);
+
+const taggedCommit = runGit(["rev-parse", `${nextTag}^{}`]);
+const headCommit = runGit(["rev-parse", "HEAD"]);
+if (taggedCommit !== headCommit) {
+  console.error(`${nextTag} does not point to the release commit. Stop before pushing.`);
+  process.exit(1);
+}
 
 console.log(`Release prepared: v${next}`);
 console.log("Next steps:");

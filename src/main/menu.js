@@ -307,6 +307,21 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       {
+        label: "Turkish Notation",
+        submenu: [
+          {
+            label: "To Concert",
+            accelerator: "CmdOrCtrl+Shift+0",
+            click: () => sendMenuAction("transformTurkishToConcert"),
+          },
+          {
+            label: "To Bolahenk",
+            accelerator: "CmdOrCtrl+Shift+9",
+            click: () => sendMenuAction("transformTurkishToBolahenk"),
+          },
+        ],
+      },
+      {
         label: "Bar Layout",
         submenu: [
           {

@@ -111,6 +111,25 @@ function getEntryTuneCount(entry) {
   return entry.tunes.length || 0;
 }
 
+function isActiveFile(file, activeFilePath, options = {}) {
+  const filePath = file && (file.path || file.id);
+  if (!filePath || !activeFilePath) return false;
+  if (typeof options.pathsEqual === "function") {
+    return options.pathsEqual(filePath, activeFilePath);
+  }
+  return String(filePath) === String(activeFilePath);
+}
+
+function promoteActiveFile(list, activeFilePath, options = {}) {
+  if (!activeFilePath || !Array.isArray(list) || list.length < 2) return list;
+  const index = list.findIndex((file) => isActiveFile(file, activeFilePath, options));
+  if (index > 0) {
+    const [active] = list.splice(index, 1);
+    list.unshift(active);
+  }
+  return list;
+}
+
 function compareTunes(a, b, mode, options = {}) {
   const dir = mode.endsWith("desc") ? -1 : 1;
   if (mode.startsWith("x_")) {
@@ -171,6 +190,7 @@ function sortLibraryFiles(files, options = {}) {
       file.tunes = sortTunes(file.tunes, options.tuneSortMode, options);
     }
   }
+  if (groupMode === "file") promoteActiveFile(list, options.activeFilePath, options);
   return list;
 }
 
@@ -190,6 +210,15 @@ function sortGroupEntries(entries, options = {}) {
     });
   } else {
     list.sort((a, b) => compareSortText(a.label, b.label) * dir);
+  }
+  if (options.groupMode === "file" && options.activeFilePath) {
+    const index = list.findIndex((entry) => (
+      entry && entry.isFile && isActiveFile(entry, options.activeFilePath, options)
+    ));
+    if (index > 0) {
+      const [active] = list.splice(index, 1);
+      list.unshift(active);
+    }
   }
   return list;
 }

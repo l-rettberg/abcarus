@@ -6,7 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Release preparation now validates changelog notes, package versions, and tag ownership before preflight, then verifies the release tag before publishing.
 
+
+## [1.2.2] - 2026-08-05
+### Fixed
+- Turkish notation conversion now uses reversible 12-EDO spelling with explicit 53-TET key-signature restoration, preserving sharp notation and round-trip fidelity.
 
 ## [1.2.1] - 2026-08-04
 ### Fixed

@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Release preparation now validates changelog notes, package versions, and tag ownership before preflight, then verifies the release tag before publishing.
 
 
 ## [1.2.2] - 2026-08-05

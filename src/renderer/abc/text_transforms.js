@@ -209,6 +209,56 @@ function transformLengthScaling(text, mode) {
   return out.join("\n");
 }
 
+function scaleTempoLine(line, factor) {
+  const match = String(line || "").match(/^(\s*Q:\s*.*?)(\d+(?:\.\d+)?)(\s*)$/);
+  if (!match) return line;
+  const value = Number(match[2]);
+  if (!Number.isFinite(value) || !Number.isFinite(factor) || factor <= 0) return line;
+  const scaled = value * factor;
+  const formatted = Number.isInteger(scaled) ? String(scaled) : String(Number(scaled.toFixed(6)));
+  return `${match[1]}${formatted}${match[3]}`;
+}
+
+function transformTempoScaling(text, factor) {
+  const numericFactor = Number(factor);
+  if (!Number.isFinite(numericFactor) || numericFactor <= 0) return String(text || "");
+  return String(text || "")
+    .split(/\r\n|\n|\r/)
+    .map((line) => /^\s*Q:/.test(line) ? scaleTempoLine(line, numericFactor) : line)
+    .join("\n");
+}
+
+function scaleAbcUnitDenominator(line, factor) {
+  const numericFactor = Number(factor);
+  if (!Number.isFinite(numericFactor) || numericFactor <= 0) return line;
+  const scale = (num, den) => {
+    const nextDen = den / numericFactor;
+    if (!Number.isInteger(nextDen) || nextDen <= 0) return null;
+    return `${num}/${nextDen}`;
+  };
+  let match = String(line || "").match(/^(\s*M:\s*)(\d+)\s*\/\s*(\d+)(\s*)$/);
+  if (match) {
+    const value = scale(Number(match[2]), Number(match[3]));
+    return value ? `${match[1]}${value}${match[4]}` : line;
+  }
+  match = String(line || "").match(/^(\s*L:\s*)(\d+)\s*\/\s*(\d+)(\s*)$/);
+  if (match) {
+    const value = scale(Number(match[2]), Number(match[3]));
+    return value ? `${match[1]}${value}${match[4]}` : line;
+  }
+  return String(line || "").replace(/^(\s*Q:\s*)(\d+)\s*\/\s*(\d+)/, (_all, prefix, num, den) => {
+    const value = scale(Number(num), Number(den));
+    return value ? `${prefix}${value}` : _all;
+  });
+}
+
+function transformAbcUnitScaling(text, factor) {
+  return String(text || "")
+    .split(/\r\n|\n|\r/)
+    .map((line) => scaleAbcUnitDenominator(line, factor))
+    .join("\n");
+}
+
 function ensureCopyTitleInAbc(abcText) {
   const text = String(abcText || "");
   if (!text.trim()) return text;
@@ -359,4 +409,6 @@ export {
   renumberXInTextKeepingFirst,
   renumberXLinesConsecutive,
   transformLengthScaling,
+  transformAbcUnitScaling,
+  transformTempoScaling,
 };

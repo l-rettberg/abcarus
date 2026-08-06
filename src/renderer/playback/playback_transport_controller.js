@@ -242,6 +242,12 @@ function createPlaybackTransportController({
     return startOffset;
   }
 
+  function consumeCompletedPlaybackRestart() {
+    return typeof transport.consumeRestartOnNextPlay === "function"
+      ? transport.consumeRestartOnNextPlay()
+      : false;
+  }
+
   async function togglePlayPauseEffective() {
     const focusModeEnabled = getFocusModeEnabled();
     if (focusModeEnabled) {
@@ -272,6 +278,12 @@ function createPlaybackTransportController({
         origin: focusModeEnabled ? "focus" : "transport",
         loop: plan.loopEnabled,
       });
+      return;
+    }
+
+    const completed = consumeCompletedPlaybackRestart();
+    if (completed && !focusModeEnabled) {
+      await startPlaybackAtIndex(0);
       return;
     }
 
@@ -342,6 +354,10 @@ function createPlaybackTransportController({
       });
       return;
     }
+    if (consumeCompletedPlaybackRestart() && !focusModeEnabled) {
+      await startPlaybackAtIndex(0);
+      return;
+    }
     const startOffset = getEditorMeasureStartOffset();
     await startPlaybackFromRange({ startOffset, endOffset: null, origin: "transport", loop: false });
   }
@@ -362,6 +378,11 @@ function createPlaybackTransportController({
         origin: focusModeEnabled ? "focus" : "transport",
         loop: plan.loopEnabled,
       });
+      return;
+    }
+    const completed = consumeCompletedPlaybackRestart();
+    if (completed && !focusModeEnabled) {
+      await startPlaybackAtIndex(0);
       return;
     }
     if (focusModeEnabled) {

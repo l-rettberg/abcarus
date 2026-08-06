@@ -414,6 +414,9 @@ export function createLibraryLifecycleController({
       endOffset: sliceEnd,
       documentParts,
     }, { suppressRecent: options.suppressRecent || false });
+    // The active path changes during tune loading; refresh the tree so its ordering
+    // reflects the newly active file immediately, not only on a later library update.
+    scheduleRenderLibraryTree();
     logStep("set active text", { tuneChars: String(tuneText || "").length });
     clearPlaybackSelectionCapture();
     resetPlaybackState();

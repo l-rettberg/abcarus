@@ -53,6 +53,7 @@ function createPlaybackTransportState() {
     playerConfig: null,
     isPlaying: false,
     isPaused: false,
+    restartOnNextPlay: false,
     suppressOnEnd: false,
     desiredPlayerSpeed: 1,
     lastPlaybackIdx: null,
@@ -169,6 +170,7 @@ function createPlaybackTransportState() {
     state.stopPlayer();
     state.suppressOnEnd = false;
     state.markIdle({ needsReprepare: true, clearPreview: true });
+    state.restartOnNextPlay = false;
     state.lastPlaybackIdx = null;
     state.lastRenderIdx = null;
     state.lastStartPlaybackIdx = 0;
@@ -184,6 +186,7 @@ function createPlaybackTransportState() {
     const wasSelectionOrigin = state.activePlaybackRange && state.activePlaybackRange.origin === "selection";
     state.stopPlayer({ onlyWhenActive: true });
     state.markIdle({ needsReprepare: true });
+    state.restartOnNextPlay = false;
     state.transportPlayheadOffset = Math.max(0, Number(transportPlayheadOffset) || 0);
     state.transportJumpHighlightActive = false;
     state.suppressTransportJumpClearOnce = false;
@@ -203,6 +206,7 @@ function createPlaybackTransportState() {
     const loopRange = shouldLoop ? (state.activeLoopRange || state.activePlaybackRange) : null;
     state.markIdle();
     if (!shouldLoop) {
+      state.restartOnNextPlay = true;
       state.clearActiveScope();
     }
     return {
@@ -257,12 +261,19 @@ function createPlaybackTransportState() {
     state.lastRenderIdx = null;
     state.resumeStartIdx = null;
     state.suppressOnEnd = true;
+    state.restartOnNextPlay = false;
   };
 
   state.markPlayingStarted = () => {
     state.isPlaying = true;
     state.isPaused = false;
     state.pausedSelectionSignature = null;
+  };
+
+  state.consumeRestartOnNextPlay = () => {
+    if (!state.restartOnNextPlay) return false;
+    state.restartOnNextPlay = false;
+    return true;
   };
 
   state.allowPlaybackEnd = () => {

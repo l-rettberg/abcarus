@@ -89,4 +89,45 @@ const { createLibraryLifecycleController } = await importRendererModule(
   assert.equal(libraryIndex.files.length, 1);
 }
 
+{
+  let libraryIndex = {
+    root: "/music",
+    files: [{
+      path: "/music/a.abc",
+      basename: "a.abc",
+      tunes: [{ id: "/music/a.abc::1", tuneUid: "a-1", startOffset: 0, endOffset: 18, xNumber: "1", title: "A" }],
+    }],
+  };
+  let activeFilePath = "";
+  let renders = 0;
+  const controller = createLibraryLifecycleController({
+    state: {
+      getLibraryIndex: () => libraryIndex,
+      getRawMode: () => false,
+    },
+    actions: {
+      pathsEqual: (left, right) => left === right,
+      readFile: async () => ({ ok: true, data: "X:1\nT:A\nK:C\nC D E |\n" }),
+      setActiveFilePath: (value) => { activeFilePath = value || ""; },
+      setActiveTuneMeta: () => {},
+      setActiveTuneId: () => {},
+      setActiveTuneUid: () => {},
+      setActiveTuneIndex: () => {},
+      setActiveTuneText: (text, metadata) => { activeFilePath = metadata.path; },
+      scheduleRenderLibraryTree: () => { renders += 1; },
+      splitFileIntoHeaderAndBody: (text) => ({ headerText: "", bodyText: text }),
+      safeBasename: (value) => String(value || "").split("/").pop(),
+      ensureSafeToAbandonCurrentDoc: async () => true,
+      markActiveTuneButton: () => {},
+      resetPlaybackState: () => {},
+      setDirtyIndicator: () => {},
+      setPlaybackRange: () => {},
+    },
+  });
+  const result = await controller.selectTune("a-1", { skipConfirm: true });
+  assert.equal(result.ok, true);
+  assert.equal(activeFilePath, "/music/a.abc");
+  assert.equal(renders, 1, "selecting a tune must refresh Library ordering");
+}
+
 console.log("library lifecycle harness: all tests passed");

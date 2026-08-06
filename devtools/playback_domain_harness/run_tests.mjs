@@ -21,6 +21,46 @@ async function importBundledModule(filePath) {
 const { createPlaybackDomain } = await importBundledModule(
   "src/renderer/playback/playback_domain.js",
 );
+const { createPlaybackTransportState } = await importBundledModule(
+  "src/renderer/playback/playback_transport_state.js",
+);
+const { createPlaybackTransportController } = await importBundledModule(
+  "src/renderer/playback/playback_transport_controller.js",
+);
+
+const endState = createPlaybackTransportState();
+endState.activePlaybackRange = { startOffset: 0, endOffset: null, origin: "transport", loop: false };
+endState.isPlaying = true;
+const completed = endState.consumePlaybackEnd();
+assert.equal(completed.shouldLoop, false);
+assert.equal(endState.restartOnNextPlay, true);
+assert.equal(endState.consumeRestartOnNextPlay(), true);
+assert.equal(endState.restartOnNextPlay, false);
+endState.isPlaying = true;
+endState.activePlaybackRange = { startOffset: 0, endOffset: null, origin: "transport", loop: true };
+endState.consumePlaybackEnd();
+assert.equal(endState.restartOnNextPlay, false);
+
+const startCalls = [];
+const controllerTransport = createPlaybackTransportState();
+controllerTransport.restartOnNextPlay = true;
+const controller = createPlaybackTransportController({
+  transport: controllerTransport,
+  getEditorView: () => ({ state: { doc: { length: 10 }, selection: { main: { anchor: 9, head: 9 } } } }),
+  getFocusModeEnabled: () => false,
+  startPlaybackAtIndex: async (index) => startCalls.push(index),
+  startPlaybackFromRange: async () => {},
+  pausePlayback: () => {},
+  playSelectionOnce: async () => false,
+  updatePlayButton: () => {},
+  clearNoteSelection: () => {},
+  resetPlaybackUiState: () => {},
+  setSoundfontCaption: () => {},
+  showToast: () => {},
+});
+await controller.transportPlay();
+assert.deepEqual(startCalls, [0]);
+assert.equal(controllerTransport.restartOnNextPlay, false);
 
 const trace = [];
 const transport = {

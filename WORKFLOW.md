@@ -31,10 +31,10 @@ This comes up often (UI titles, GitHub issues, and JS RegExp):
 - `feat/playback-autoscroll` — experimental / archived (kept for history; do not base new work on it).
 - Use branches based on `master` (or the current stabilization PR branch) for new work.
 
-## Release (3–5 commands)
+## Release (gated sequence)
 
-1) Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` (make sure it’s not empty).
-2) Bump version + tag (pick one):
+1) Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` and commit that documentation change.
+2) Run the release command (pick one). It checks the changelog, package versions, and that the next tag is unused before running preflight; it then bumps versions, creates the release commit, creates the annotated tag, and verifies that the tag points to that commit:
 
 ```bash
 npm run release:patch
@@ -42,7 +42,7 @@ npm run release:patch
 # or: npm run release:major
 ```
 
-3) Push commit + tag:
+3) Only after the command succeeds, push commit + tag:
 
 ```bash
 git push

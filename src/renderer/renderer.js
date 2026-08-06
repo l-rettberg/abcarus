@@ -2377,6 +2377,7 @@ abcTransformFeature = createAbcTransformFeature({
   alignBarsInText,
 });
 abcTransformFeature.installDevSmoke();
+abcTransformFeature.installTurkishNotationMacro();
 diagnosticsDomain.installDevUiSmoke({
   setEditorText: (text) => editorRuntime.setTextClean(String(text || "")),
   setCleanDocument: (text) => {

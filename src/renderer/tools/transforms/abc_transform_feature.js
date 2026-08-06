@@ -9,7 +9,38 @@ import {
 } from "../../measures.mjs";
 import {
   transformLengthScaling,
+  transformAbcUnitScaling,
 } from "../../abc/text_transforms.js";
+
+function prepareTurkishNotationFor12Edo(text) {
+  const originalTemperamentLines = [];
+  const preparedText = String(text || "").replace(
+    /^(\s*%%\s*MIDI\s+temperamentequal\s+)53(\s*)$/gmi,
+    (line, prefix, suffix) => {
+      originalTemperamentLines.push(line);
+      return `${prefix}12${suffix}`;
+    },
+  );
+  return {
+    text: preparedText,
+    restoreTemperament(transformed) {
+      let index = 0;
+      return String(transformed || "").replace(
+        /^(\s*%%\s*MIDI\s+temperamentequal\s+)12(\s*)$/gmi,
+        (line) => originalTemperamentLines[index++] || line,
+      );
+    },
+  };
+}
+
+function rewriteTurkishKeySignature(text, direction) {
+  const toConcert = direction === "toConcert";
+  const from = toConcert ? "_2B" : "^2f";
+  const to = toConcert ? "^2f" : "_2B";
+  const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^(\\s*K:[^\\n]*?)${escapedFrom}\\b`, "gmi");
+  return String(text || "").replace(pattern, (_line, prefix) => `${prefix}${to}`);
+}
 
 function createAbcTransformFeature({
   windowRef = typeof window !== "undefined" ? window : null,
@@ -64,6 +95,54 @@ function createAbcTransformFeature({
     if (options.doubleLengths && options.halfLengths) {
       await showTransformError("Choose either double or half note lengths, not both.");
       return;
+    }
+
+    const turkish = options.turkishNotation;
+    const turkishDirection = turkish && typeof turkish === "object"
+      ? String(turkish.direction || "")
+      : "";
+    if (turkishDirection === "toConcert" || turkishDirection === "toBolahenk") {
+      const toConcert = turkishDirection === "toConcert";
+      const pitchSteps = toConcert ? -5 : 5;
+      let transformed = transformAbcUnitScaling(abcText, toConcert ? 2 : 0.5);
+      const twelveEdoText = prepareTurkishNotationFor12Edo(transformed);
+      transformed = twelveEdoText.text;
+      const headerText = prepareTurkishNotationFor12Edo(getHeaderText()).text;
+      const support = getNativeTransposeSupport(transformed, { headerText });
+      if (!support.ok) {
+        await showTransformError(support.reason || "Turkish notation macro cannot transpose this tune.");
+        setStatus("Error");
+        return;
+      }
+      try {
+        transformed = transformTranspose(transformed, pitchSteps, { headerText, prefer: "sharp" });
+        transformed = rewriteTurkishKeySignature(transformed, turkishDirection);
+        transformed = twelveEdoText.restoreTemperament(transformed);
+        const lines = transformed.split(/\r\n|\n|\r/);
+        let foundVoice = false;
+        transformed = lines.map((line) => {
+          if (!/^\s*V\s*:/i.test(line)) return line;
+          foundVoice = true;
+          if (toConcert) return line.replace(/\s+transpose\s*=\s*-17\b/gi, "").replace(/[ \t]+$/, "");
+          if (/\btranspose\s*=/i.test(line)) return line;
+          return `${line} transpose=-17`;
+        }).join("\n");
+        if (!toConcert && !foundVoice) {
+          const keyIndex = lines.findIndex((line) => /^\s*K\s*:/i.test(line));
+          const voiceLine = "V:1 transpose=-17";
+          const outputLines = transformed.split(/\r\n|\n|\r/);
+          outputLines.splice(keyIndex >= 0 ? keyIndex + 1 : 0, 0, voiceLine);
+          transformed = outputLines.join("\n");
+        }
+        applyTransformedText(transformed);
+        setStatus("OK");
+        return;
+      } catch (e) {
+        logError(`Turkish notation macro failed.\n\n${(e && e.stack) ? e.stack : String(e)}`);
+        await showTransformError("Turkish notation macro failed.");
+        setStatus("Error");
+        return;
+      }
     }
 
     const settings = getSettings() || {};
@@ -187,10 +266,23 @@ function createAbcTransformFeature({
     return true;
   }
 
+  function installTurkishNotationMacro() {
+    const win = windowRef;
+    if (!win) return false;
+    win.__abcarusTurkishNotation = {
+      convert: () => apply({ turkishNotation: { direction: "toConcert" } }),
+      restore: () => apply({ turkishNotation: { direction: "toBolahenk" } }),
+      toConcert: () => apply({ turkishNotation: { direction: "toConcert" } }),
+      toBolahenk: () => apply({ turkishNotation: { direction: "toBolahenk" } }),
+    };
+    return true;
+  }
+
   return {
     alignBars,
     apply,
     installDevSmoke,
+    installTurkishNotationMacro,
     resetTransposePreview,
   };
 }

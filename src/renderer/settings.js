@@ -103,7 +103,7 @@ const SETTINGS_SECTION_HINTS = {
   fonts: "Fonts and soundfonts used for UI, editor, rendering, and playback.",
   library: "Library organization, templates, and tune handling.",
   print: "Print and PDF output options.",
-  importExport: "MusicXML, MIDI, ChordPro, and conversion behavior.",
+  importexport: "MusicXML, MIDI, ChordPro, and conversion behavior.",
   header: "Global ABC directives prepended during render/playback.",
   microtonal: "Makam, perde, and EDO-53 notation support.",
   advanced: "Less frequently used compatibility and diagnostic options.",
@@ -149,7 +149,7 @@ const SETTINGS_PANEL_KEYS = {
 function settingsEntryBelongsToPanel(entry, panelKey, sectionName) {
   const key = String(entry && entry.key || "");
   for (const [candidate, keys] of Object.entries(SETTINGS_PANEL_KEYS)) {
-    if (keys.has(key)) return candidate === panelKey;
+    if (keys.has(key)) return candidate.toLowerCase() === String(panelKey || "").toLowerCase();
   }
   if (panelKey === "general") return sectionName === "General" || sectionName === "Dialogs";
   return sectionName.toLowerCase() === panelKey.toLowerCase();
@@ -1308,7 +1308,7 @@ export function initSettings(api) {
       { key: "playback", label: "Playback", sections: ["Playback"] },
       { key: "library", label: "Library", sections: ["Library"] },
       { key: "print", label: "Print", sections: ["Print"] },
-      { key: "importExport", label: "Import & Export", sections: ["Tools"] },
+      { key: "importexport", label: "Import & Export", sections: ["Tools"] },
       { key: "header", label: "Global Header", sections: ["Header"] },
       { key: "microtonal", label: "Microtonal", sections: ["Tools"] },
       { key: "advanced", label: "Diagnostics & Advanced", sections: ["Tools"] },

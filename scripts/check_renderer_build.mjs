@@ -827,6 +827,9 @@ async function assertSettingsPanelStructure() {
   if (!source.includes("stripImportedMeasureComments") || !source.includes("autoFormatImportedAbc")) {
     throw new Error("Settings UI must expose imported ABC cleanup and formatting controls.");
   }
+  if (!source.includes('{ key: "importexport", label: "Import & Export"')) {
+    throw new Error("Import & Export must use the normalized lowercase panel key.");
+  }
   if (!source.includes('if (key === "options") return "general";')) {
     throw new Error("Legacy Options tab state must migrate to a valid Settings panel.");
   }

@@ -73,6 +73,7 @@ function logStartupPerf(label, data) {
 const appState = {
   lastFolder: null,
   lastDialogDir: null,
+  dialogPreferences: {},
   recentTunes: [],
   recentFiles: [],
   recentFolders: [],
@@ -550,6 +551,9 @@ async function loadState() {
     const state = known;
     appState.lastFolder = state.lastFolder || null;
     appState.lastDialogDir = state.lastDialogDir || state.lastDialogPath || null;
+    appState.dialogPreferences = state.dialogPreferences && typeof state.dialogPreferences === "object" && !Array.isArray(state.dialogPreferences)
+      ? state.dialogPreferences
+      : {};
     appState.recentTunes = Array.isArray(state.recentTunes) ? state.recentTunes : [];
     appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
     appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
@@ -646,6 +650,21 @@ async function migrateStatePaths() {
     }
   }
 
+  for (const preference of Object.values(appState.dialogPreferences)) {
+    if (!preference || typeof preference !== "object") continue;
+    const dir = typeof preference.dir === "string" ? preference.dir : "";
+    if (!dir || !(await pathExists(dir))) {
+      delete preference.dir;
+      continue;
+    }
+    try {
+      const st = await fs.promises.stat(dir);
+      if (st && st.isFile()) delete preference.dir;
+    } catch {
+      delete preference.dir;
+    }
+  }
+
   // Do not destructively prune recents during startup. Files or folders may be
   // temporarily unavailable, externally deleted, or opened through file
   // association. Keeping the remembered paths is safer than replacing the
@@ -669,6 +688,7 @@ async function persistState() {
       {
         lastFolder: appState.lastFolder,
         lastDialogDir: appState.lastDialogDir,
+        dialogPreferences: appState.dialogPreferences,
         recentTunes: appState.recentTunes,
         recentFiles: appState.recentFiles,
         recentFolders: appState.recentFolders,
@@ -859,7 +879,7 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
-function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
+function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
   const normalizeFsPath = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -868,14 +888,29 @@ function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, dire
     }
     return raw;
   };
-  const rememberedDir = normalizeFsPath(appState.lastDialogDir);
+  const existingDirectory = (value) => {
+    const candidate = normalizeFsPath(value);
+    if (!candidate) return "";
+    try {
+      return fs.statSync(candidate).isDirectory() ? candidate : "";
+    } catch {
+      return "";
+    }
+  };
+  const scopedPreference = dialogId && appState.dialogPreferences && appState.dialogPreferences[dialogId];
+  const scopedDir = existingDirectory(scopedPreference && scopedPreference.dir);
+  const rememberedDir = scopedDir || existingDirectory(appState.lastDialogDir);
   const explicitDir = normalizeFsPath(suggestedDir);
   const explicitPath = normalizeFsPath(suggestedPath);
   const explicitPathAbs = explicitPath && path.isAbsolute(explicitPath) ? explicitPath : "";
   const explicitPathDir = explicitPathAbs ? path.dirname(explicitPathAbs) : "";
   const explicitPathBase = explicitPathAbs ? path.basename(explicitPathAbs) : "";
 
-  const baseDir = rememberedDir || explicitDir || explicitPathDir;
+  let fallbackDir = "";
+  try {
+    fallbackDir = existingDirectory(app.getPath("documents")) || existingDirectory(app.getPath("home"));
+  } catch {}
+  const baseDir = rememberedDir || explicitDir || existingDirectory(explicitPathDir) || fallbackDir;
   const portalLikelyActive = (
     process.platform === "linux"
     && (process.env.ABCARUS_USE_PORTAL === "1" || (appState.settings && appState.settings.usePortalFileDialogs))
@@ -892,7 +927,35 @@ function getDialogDefaultPath({ suggestedName, suggestedDir, suggestedPath, dire
   return fileName || undefined;
 }
 
-function rememberDialogSelection(selectedPath, { isDirectory = false } = {}) {
+function getDialogFilterIndex(dialogId, filterCount, fallback = 0) {
+  const raw = appState.dialogPreferences && appState.dialogPreferences[dialogId]
+    ? appState.dialogPreferences[dialogId].filterIndex
+    : undefined;
+  const index = Number(raw);
+  if (Number.isInteger(index) && index >= 0 && index < filterCount) return index;
+  return fallback;
+}
+
+function orderDialogFilters(filters, preferredIndex) {
+  if (!Array.isArray(filters) || !filters.length) return filters;
+  const index = Number(preferredIndex);
+  const indices = filters.map((_filter, originalIndex) => originalIndex);
+  if (Number.isInteger(index) && index >= 0 && index < filters.length && index !== 0) {
+    indices.unshift(indices.splice(index, 1)[0]);
+  }
+  return indices.map((originalIndex) => ({
+    ...filters[originalIndex],
+    __abcarusOriginalIndex: originalIndex,
+  }));
+}
+
+function getDialogOriginalFilterIndex(filters, displayedIndex) {
+  const filter = Array.isArray(filters) ? filters[Number(displayedIndex)] : null;
+  const originalIndex = filter && Number(filter.__abcarusOriginalIndex);
+  return Number.isInteger(originalIndex) ? originalIndex : Number(displayedIndex);
+}
+
+function rememberDialogSelection(selectedPath, { isDirectory = false, dialogId = "", filterIndex } = {}) {
   const raw = String(selectedPath || "").trim();
   if (!raw) return;
   let resolved = raw;
@@ -902,24 +965,32 @@ function rememberDialogSelection(selectedPath, { isDirectory = false } = {}) {
   const nextDir = isDirectory ? resolved : path.dirname(resolved);
   if (!nextDir) return;
   appState.lastDialogDir = nextDir;
+  if (dialogId) {
+    const previous = appState.dialogPreferences[dialogId];
+    const next = previous && typeof previous === "object" && !Array.isArray(previous) ? { ...previous } : {};
+    next.dir = nextDir;
+    if (Number.isInteger(Number(filterIndex))) next.filterIndex = Number(filterIndex);
+    appState.dialogPreferences[dialogId] = next;
+  }
   saveState().catch(() => {});
 }
 
 function showOpenDialog(senderOrEvent) {
   const parent = prepareDialogParent(senderOrEvent, "open-file");
+  const filters = orderDialogFilters([
+    { name: "ABC", extensions: ["abc"] },
+    { name: "ChordPro", extensions: ["cho", "crd", "chopro", "chordpro", "chord", "pro"] },
+    { name: "All Files", extensions: ["*"] },
+  ], getDialogFilterIndex("openFile", 3));
   return dialog.showOpenDialog(parent || undefined, {
     modal: true,
     properties: ["openFile"],
-    defaultPath: getDialogDefaultPath(),
-    filters: [
-      { name: "ABC", extensions: ["abc"] },
-      { name: "ChordPro", extensions: ["cho", "crd", "chopro", "chordpro", "chord", "pro"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
+    defaultPath: getDialogDefaultPath({ dialogId: "openFile" }),
+    filters,
   }).then((result) => {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
     const selected = result.filePaths[0];
-    rememberDialogSelection(selected);
+    rememberDialogSelection(selected, { dialogId: "openFile", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });
     return selected;
   });
 }
@@ -930,6 +1001,7 @@ function showOpenFolderDialog(senderOrEvent) {
     modal: true,
     properties: ["openDirectory"],
     defaultPath: getDialogDefaultPath({
+      dialogId: "openFolder",
       suggestedPath: appState.lastFolder || "",
       directoryOnly: true,
     }),
@@ -937,7 +1009,7 @@ function showOpenFolderDialog(senderOrEvent) {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
     const selected = result.filePaths[0];
     appState.lastFolder = selected;
-    rememberDialogSelection(selected, { isDirectory: true });
+    rememberDialogSelection(selected, { isDirectory: true, dialogId: "openFolder" });
     return selected;
   });
 }
@@ -946,6 +1018,7 @@ function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
   const parent = prepareDialogParent(senderOrEvent, "save-file");
   const defaultName = suggestedName || "Untitled.abc";
   const defaultPath = getDialogDefaultPath({
+    dialogId: "saveFile",
     suggestedName: defaultName,
     suggestedDir,
     preferFileNameOnPortal: true,
@@ -964,15 +1037,16 @@ function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
       { name: "All Files", extensions: ["*"] },
     ];
   })();
+  const orderedFilters = orderDialogFilters(filters, getDialogFilterIndex("saveFile", filters.length));
   return dialog.showSaveDialog(parent || undefined, {
     modal: true,
     title: "Save As",
     defaultPath,
-    filters,
+    filters: orderedFilters,
   }).then((result) => {
     if (!result || result.canceled) return null;
     const filePath = result.filePath || null;
-    if (filePath) rememberDialogSelection(filePath);
+    if (filePath) rememberDialogSelection(filePath, { dialogId: "saveFile", filterIndex: getDialogOriginalFilterIndex(orderedFilters, result.filterIndex) });
     return filePath;
   });
 }
@@ -3406,6 +3480,7 @@ registerIpcHandlers({
   getDialogParent,
   prepareDialogParent,
   getDialogDefaultPath,
+  getDialogFilterIndex,
   rememberDialogSelection,
   confirmAppendToFile,
   confirmImportMusicXmlTarget,

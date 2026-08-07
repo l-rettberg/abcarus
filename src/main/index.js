@@ -1589,6 +1589,8 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.editorLyricsBold = Boolean(next.editorLyricsBold);
   next.confirmAppendToActiveFile = Boolean(next.confirmAppendToActiveFile);
   next.autoAlignBarsAfterTransforms = Boolean(next.autoAlignBarsAfterTransforms);
+  next.stripImportedMeasureComments = Boolean(next.stripImportedMeasureComments);
+  next.autoFormatImportedAbc = Boolean(next.autoFormatImportedAbc);
   next.editorHelpEnabled = Boolean(next.editorHelpEnabled);
   normalizeMicrotonalSettings(next, patch);
   next.payloadModeEnabled = Boolean(next.payloadModeEnabled);

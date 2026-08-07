@@ -1692,6 +1692,7 @@ const statusController = createStatusController({
   getRawModeFilePath,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
   getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+  getSettings: settingsSnapshot.get,
   getIsNewTuneDraft: activeContext.isNewTuneDraft,
   getHeaderDirty,
   getLibraryRoot: libraryRuntime.getRoot,

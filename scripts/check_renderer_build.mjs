@@ -810,6 +810,28 @@ async function assertHeaderDirectivesArePreserved() {
   }
 }
 
+async function assertSettingsPanelStructure() {
+  const source = await readFile("src/renderer/settings.js", "utf8");
+  for (const label of [
+    "Editor & Notation",
+    "Library",
+    "Print",
+    "Import & Export",
+    "Microtonal",
+    "Diagnostics & Advanced",
+  ]) {
+    if (!source.includes(`label: "${label}"`)) {
+      throw new Error(`Settings UI is missing the ${label} panel.`);
+    }
+  }
+  if (!source.includes("stripImportedMeasureComments") || !source.includes("autoFormatImportedAbc")) {
+    throw new Error("Settings UI must expose imported ABC cleanup and formatting controls.");
+  }
+  if (!source.includes('if (key === "options") return "general";')) {
+    throw new Error("Legacy Options tab state must migrate to a valid Settings panel.");
+  }
+}
+
 async function assertIntonationTonalBaseUses53Map() {
   const bundled = await build({
     stdin: {
@@ -919,6 +941,7 @@ async function main() {
   await assertPrintSuggestedBaseNameIncludesKey();
   await assertAbc2svgFontHeaderUrls();
   await assertHeaderDirectivesArePreserved();
+  await assertSettingsPanelStructure();
   await assertIntonationTonalBaseUses53Map();
   await assertIntonationPinnedCandidates();
 }

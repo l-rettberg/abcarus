@@ -208,9 +208,11 @@ function sanitizeFileHeaderForInteractiveRender(text) {
     }
     if (/^%%\s*begintext\b/i.test(trimmed)) {
       inTextBlock = true;
+      out.push(line);
       continue;
     }
     if (inTextBlock) {
+      out.push(line);
       if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
       continue;
     }
@@ -219,28 +221,7 @@ function sanitizeFileHeaderForInteractiveRender(text) {
       continue;
     }
     if (/^%%/.test(trimmed)) {
-      const directive = trimmed
-        .replace(/^%%\s*/, "")
-        .split(/\s+/, 1)[0]
-        .toLowerCase();
-      const skip = new Set([
-        "begintext",
-        "endtext",
-        "text",
-        "center",
-        "vskip",
-        "textfont",
-        "titleformat",
-        "subtitleformat",
-        "header",
-        "footer",
-        "newpage",
-        "multicol",
-        "eps",
-        "leftmargin",
-        "rightmargin",
-      ]);
-      if (!skip.has(directive)) out.push(line);
+      out.push(line);
       continue;
     }
     if (/^%/.test(trimmed) || /^[A-Za-z]:/.test(trimmed)) {
@@ -273,9 +254,11 @@ function sanitizeFileHeaderForPerTuneRender(text) {
     }
     if (/^%%\s*begintext\b/i.test(trimmed)) {
       inTextBlock = true;
+      out.push(line);
       continue;
     }
     if (inTextBlock) {
+      out.push(line);
       if (/^%%\s*endtext\b/i.test(trimmed)) inTextBlock = false;
       continue;
     }
@@ -284,22 +267,7 @@ function sanitizeFileHeaderForPerTuneRender(text) {
       continue;
     }
     if (/^%%/.test(trimmed)) {
-      const directive = trimmed
-        .replace(/^%%\s*/, "")
-        .split(/\s+/, 1)[0]
-        .toLowerCase();
-      const skip = new Set([
-        "begintext",
-        "endtext",
-        "text",
-        "center",
-        "vskip",
-        "textfont",
-        "titleformat",
-        "subtitleformat",
-        "newpage",
-      ]);
-      if (!skip.has(directive)) out.push(line);
+      out.push(line);
       continue;
     }
     if (/^%/.test(trimmed) || /^[A-Za-z]:/.test(trimmed)) {

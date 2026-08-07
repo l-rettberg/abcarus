@@ -497,11 +497,12 @@ pr=pr.info
 for(k=0;k<pr.length;k++){gen=pr[k].generator
 if(!gen.instrument)
 continue
+if(gen.velRange?.lo>1)
+continue
 infos=get_instr(gen.instrument.amount).info
 for(i=0;i<infos.length;i++){gen=infos[i].generator
 j=gen.keyRange.lo
-parm=params[instr][j]
-parm=Object.create(parm||gparm)
+parm={}
 if(gen.attackVolEnv)
 parm.attack=Math.pow(2,gen.attackVolEnv.amount/1200)
 if(gen.holdVolEnv)
@@ -512,21 +513,31 @@ if(gen.sustainVolEnv)
 parm.sustain=gen.sustainVolEnv.amount/10
 if(gen.initialAttenuation)
 parm.atte=gen.initialAttenuation/10
-if(gen.sampleModes&&gen.sampleModes.amount&1)
-parm.sm=1
 if(gen.sampleID){sid=gen.sampleID.amount
 sample_hdr=sf2par.sampleHeader[sid]
+if(sample_hdr.sampleType==2)
+continue
 sample=sf2par.sample[sid]
 parm.buffer=ac.createBuffer(1,sample.length,sample_hdr.sampleRate)
 sample_cp(parm.buffer,sample)
-if(parm.sm){parm.loopStart=sample_hdr.startLoop/sample_hdr.sampleRate
-parm.loopEnd=sample_hdr.endLoop/sample_hdr.sampleRate}
+if(gen.sampleModes?.amount&1){parm.sm=1
+parm.loopStart=(sample_hdr.startLoop
++gen.startloopAddrsOffset?.amount||0)
+/ sample_hdr.sampleRate
+parm.loopEnd=(sample_hdr.endLoop
++gen.endloopAddrsOffset?.amount||0)
+/ sample_hdr.sampleRate}
 scale=(gen.scaleTuning?gen.scaleTuning.amount:100)/100,tune=(gen.coarseTune?gen.coarseTune.amount:0)+
 (gen.fineTune?gen.fineTune.amount:0)/100+
 sample_hdr.pitchCorrection/100-
 (gen.overridingRootKey?gen.overridingRootKey.amount:sample_hdr.originalPitch)}
-for(j=gen.keyRange.lo;j<=gen.keyRange.hi;j++){rates[instr][j]=Math.pow(Math.pow(2,1/12),(j+tune)*scale)
-params[instr][j]=parm}}}}
+for(j=gen.keyRange.lo;j<=gen.keyRange.hi;j++){if(params[instr][j]?.buffer)
+continue
+if(gen.sampleID)
+rates[instr][j]=Math.pow(Math.pow(2,1/12),(j+tune)*scale)
+if(!params[instr][j])
+params[instr][j]={...gparm}
+Object.assign(params[instr][j],parm)}}}}
 function load_instr(instr){w_instr++
 abc2svg.loadjs(conf.sfu+'/'+instr+'.js',function(){var sf2par=new sf2.Parser(b64dcod(abcsf2[instr]))
 sf2par.parse()
@@ -1113,14 +1124,14 @@ while(--n>0)
 rhy.splice(++i,0,'+')}}}
 dt=md/rhy.length*gchnb}
 function gench(sb,i){var r,ch,b,m,n,nt,a=sb.a_gch[i].otext
+if(a[0]=='n'||a[0]=='N'){chmid=[]
+return}
 if(a.slice(-1)==')')
 a=a.replace(/\(.*/,'')
 a=a.replace(/\(|\)|\[|\]/g,'').replace(/♯/g,'#').replace(/♭/g,'b').match(/([A-G])([#b]?)([^/]*)\/?(.*)/)
 if(!a)
 return
 r=abc2svg.letmid[a[1]]
-if(r==undefined)
-return
 switch(a[2]){case"#":r++;break
 case"b":r--;break}
 if(!a[3]){ch=chnm[""]}else{ch=abc2svg.ch_alias[a[3]]
@@ -1263,7 +1274,7 @@ ti=0}}
 if(gchon&&s.a_gch){for(i=0;i<s.a_gch.length;i++){if(s.a_gch[i].type!='g')
 continue
 gench(s,i)
-if(rhy[0]=='+')
+if(rhy[0]=='+'&&chmid.length)
 nextim=s.time
 break}}
 if(!s.dur){if(s.bar_num){if(gchnb==1||!((s.bar_num-1)%gchnb))

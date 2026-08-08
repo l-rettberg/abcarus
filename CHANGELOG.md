@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [1.3.0] - 2026-08-08
 ### Added
 - Settings is reorganized into task-oriented panels, including grouped Import & Export controls.
 - File dialogs remember operation-specific folders and selected file filters, with graceful fallback when paths are unavailable.
@@ -13,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Tune saves can reconstruct missing single-tune document parts from the current file when stable offsets remain valid.
 - Linux file dialogs retain portal positioning behavior while keeping the remembered-path state available for future Electron dialog improvements.
-
 
 ## [1.2.3] - 2026-08-05
 ### Changed

@@ -73,7 +73,7 @@ jobs:
         run: npm ci
 
       - name: Download Electron binary
-        run: npx electron --version
+        run: node node_modules/electron/install.js
 
       - name: Verify release checks
         run: |
@@ -102,7 +102,7 @@ jobs:
         run: npm ci
 
       - name: Download Electron binary
-        run: npx electron --version
+        run: node node_modules/electron/install.js
 
       - name: Install appimagetool
         run: |
@@ -179,7 +179,7 @@ jobs:
         run: npm ci
 
       - name: Download Electron binary
-        run: npx electron --version
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check
@@ -234,7 +234,7 @@ jobs:
         run: npm ci
 
       - name: Download Electron binary
-        run: npx electron --version
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check
@@ -292,7 +292,7 @@ jobs:
         run: npm ci
 
       - name: Download Electron binary
-        run: npx electron --version
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check

@@ -1388,6 +1388,7 @@ saveFlowController = createSaveFlowController({
     scheduleRenderLibraryTree,
     selectTune,
     serializeDocument,
+    splitFileIntoHeaderAndBody,
     setActiveFilePath: (value) => { activeContext.setActiveFilePath(value); },
     setActiveTuneMeta: (value) => { activeContext.setActiveTuneMeta(value); },
     setDirtyIndicator,

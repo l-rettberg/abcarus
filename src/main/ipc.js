@@ -805,12 +805,12 @@ function registerIpcHandlers(ctx) {
       { name: "SoundFont", extensions: ["sf2"] },
       { name: "All Files", extensions: ["*"] },
     ], getDialogFilter("soundfont", 2));
-    const result = await dialog.showOpenDialog(parent || undefined, {
+    const result = await showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
       modal: true,
       properties: ["openFile"],
       defaultPath: getDialogPath({ dialogId: "soundfont" }),
       filters,
-    });
+    }));
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
     const selected = String(result.filePaths[0] || "");
     if (selected) rememberDialogPath(selected, { dialogId: "soundfont", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });
@@ -925,12 +925,12 @@ function registerIpcHandlers(ctx) {
       { name: "MIDI", extensions: ["mid", "midi"] },
       { name: "All Files", extensions: ["*"] },
     ], getDialogFilter("importMidi", 2));
-    const result = await dialog.showOpenDialog(parent || undefined, {
+    const result = await showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
       modal: true,
       properties: ["openFile", "multiSelections"],
       defaultPath: getDialogPath({ dialogId: "importMidi" }),
       filters,
-    });
+    }));
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, canceled: true };
     try {
       const settings = getSettings ? getSettings() : {};
@@ -1039,11 +1039,11 @@ function registerIpcHandlers(ctx) {
     ], getDialogFilter("exportMusicXml", 2));
     let filePath = null;
     try {
-      const result = await dialog.showSaveDialog(parent || undefined, {
+      const result = await showNativeFileDialog(() => dialog.showSaveDialog(parent || undefined, {
         title: "Export MusicXML",
         defaultPath: getDialogPath({ dialogId: "exportMusicXml", suggestedName: `${safeName}.musicxml`, preferFileNameOnPortal: true }),
         filters,
-      });
+      }));
       filePath = result && !result.canceled ? result.filePath : null;
       if (filePath) rememberDialogPath(filePath, { dialogId: "exportMusicXml", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });
     } catch (e) {
@@ -1092,11 +1092,11 @@ function registerIpcHandlers(ctx) {
       { name: "MIDI", extensions: ["mid", "midi"] },
       { name: "All Files", extensions: ["*"] },
     ], getDialogFilter("exportMidi", 2));
-    const result = await dialog.showSaveDialog(parent || undefined, {
+    const result = await showNativeFileDialog(() => dialog.showSaveDialog(parent || undefined, {
       title: "Export MIDI",
       defaultPath: getDialogPath({ dialogId: "exportMidi", suggestedName: `${safeName}.mid`, preferFileNameOnPortal: true }),
       filters,
-    });
+    }));
     const filePath = result && !result.canceled ? result.filePath : null;
     if (!filePath) return { ok: false, canceled: true };
     rememberDialogPath(filePath, { dialogId: "exportMidi", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });
@@ -1142,11 +1142,11 @@ function registerIpcHandlers(ctx) {
       { name: "MP3", extensions: ["mp3"] },
       { name: "All Files", extensions: ["*"] },
     ], getDialogFilter("exportMp3", 2));
-    const result = await dialog.showSaveDialog(parent || undefined, {
+    const result = await showNativeFileDialog(() => dialog.showSaveDialog(parent || undefined, {
       title: "Export MP3",
       defaultPath: getDialogPath({ dialogId: "exportMp3", suggestedName: `${safeName}.mp3`, preferFileNameOnPortal: true }),
       filters,
-    });
+    }));
     const filePath = result && !result.canceled ? result.filePath : null;
     if (!filePath) return { ok: false, canceled: true };
     rememberDialogPath(filePath, { dialogId: "exportMp3", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });

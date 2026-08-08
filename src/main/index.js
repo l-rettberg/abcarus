@@ -759,6 +759,17 @@ function focusWindow(win) {
 
 const DEBUG_DIALOGS = process.env.ABCARUS_DEBUG_DIALOGS === "1";
 
+async function showNativeFileDialog(show) {
+  const previousPortal = process.env.GTK_USE_PORTAL;
+  process.env.GTK_USE_PORTAL = "0";
+  try {
+    return await show();
+  } finally {
+    if (previousPortal == null) delete process.env.GTK_USE_PORTAL;
+    else process.env.GTK_USE_PORTAL = previousPortal;
+  }
+}
+
 function clampNumber(value, min, max) {
   if (!Number.isFinite(value)) return min;
   if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return value;
@@ -996,12 +1007,12 @@ function showOpenDialog(senderOrEvent) {
     { name: "ChordPro", extensions: ["cho", "crd", "chopro", "chordpro", "chord", "pro"] },
     { name: "All Files", extensions: ["*"] },
   ], getDialogFilterIndex("openFile", 3));
-  return dialog.showOpenDialog(parent || undefined, {
+  return showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
     modal: true,
     properties: ["openFile"],
     defaultPath: getDialogDefaultPath({ dialogId: "openFile" }),
     filters,
-  }).then((result) => {
+  })).then((result) => {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
     const selected = result.filePaths[0];
     rememberDialogSelection(selected, { dialogId: "openFile", filterIndex: getDialogOriginalFilterIndex(filters, result.filterIndex) });
@@ -1011,7 +1022,7 @@ function showOpenDialog(senderOrEvent) {
 
 function showOpenFolderDialog(senderOrEvent) {
   const parent = prepareDialogParent(senderOrEvent, "open-folder");
-  return dialog.showOpenDialog(parent || undefined, {
+  return showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
     modal: true,
     properties: ["openDirectory"],
     defaultPath: getDialogDefaultPath({
@@ -1019,7 +1030,7 @@ function showOpenFolderDialog(senderOrEvent) {
       suggestedPath: appState.lastFolder || "",
       directoryOnly: true,
     }),
-  }).then((result) => {
+  })).then((result) => {
     if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return null;
     const selected = result.filePaths[0];
     appState.lastFolder = selected;
@@ -1052,12 +1063,12 @@ function showSaveDialog(suggestedName, suggestedDir, senderOrEvent) {
     ];
   })();
   const orderedFilters = orderDialogFilters(filters, getDialogFilterIndex("saveFile", filters.length));
-  return dialog.showSaveDialog(parent || undefined, {
+  return showNativeFileDialog(() => dialog.showSaveDialog(parent || undefined, {
     modal: true,
     title: "Save As",
     defaultPath,
     filters: orderedFilters,
-  }).then((result) => {
+  })).then((result) => {
     if (!result || result.canceled) return null;
     const filePath = result.filePath || null;
     if (filePath) rememberDialogSelection(filePath, { dialogId: "saveFile", filterIndex: getDialogOriginalFilterIndex(orderedFilters, result.filterIndex) });

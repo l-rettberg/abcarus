@@ -160,8 +160,6 @@ s.ymx=y+dd.h}else if(dd.name[0]=='w'){de.inv=true
 y-=dd.h
 s.ymn=y}else{y-=dd.h
 s.ymn=y-dd.hd}
-if(dd.glyph=="stc"&&!s.a_dd[1]&&!(s.beam_st&&s.beam_end)&&((up&&s.stem>=0)||(!up&&s.stem<0)))
-de.x+=up?3.5:-3.5
 de.x-=dd.wl
 de.y=y
 if(s.type==C.NOTE)
@@ -2052,7 +2050,7 @@ while(s3&&!s3.stem)
 s3=s3.next
 dir=(s3&&s3.stem<0)?C.SL_BELOW:C.SL_ABOVE}
 set_dscale(dir==C.SL_ABOVE?stu:std)
-if(s1==s2||tp.f[1]>=1){nb_only=true}else{if(tp.f[0]!=2&&s1.type==C.NOTE&&s2.type==C.NOTE){nb_only=true
+if(s1==s2||tp.f[1]==2){nb_only=true}else if(tp.f[1]==1){nb_only=true;draw_slur([s1,s2],{ty:dir})}else{if(tp.f[0]!=2&&s1.type==C.NOTE&&s2.type==C.NOTE){nb_only=true
 for(s3=s1;;s3=s3.next){if(s3.type!=C.NOTE&&s3.type!=C.REST){if(s3.type==C.GRACE||s3.type==C.SPACE)
 continue
 nb_only=false
@@ -2076,9 +2074,10 @@ ym=y_get(stu,1,xm-4,8)
 else
 ym=y_get(std,0,xm-4,8)-
 gene.curfont.size
-if(s1.stem*s2.stem>0){if(s1.stem>0){if(dir==C.SL_ABOVE)
-xm+=3}else{if(dir!=C.SL_ABOVE)
-xm-=3}}
+if(s1.stem*s2.stem>0){if(s1.stem>0)
+xm+=4
+else
+xm-=4}
 yy=ym+gene.curfont.size*.22
 if(tp.f[2]==0)
 xy_str(xm,yy,tp.p.toString(),'c')
@@ -2090,8 +2089,6 @@ if(dir==C.SL_ABOVE){ym+=gene.curfont.size
 if(s3.ymx<ym)
 s3.ymx=ym;y_set(stu,1,xm-3,6,ym)}else{if(s3.ymn>ym)
 s3.ymn=ym;y_set(std,0,xm-3,6,ym)}
-if(tp.f[1]==1)
-draw_slur([s1,s3,s2],{ty:dir})
 return}
 x1=s1.x-4
 if(s2.dur>s2.prev.dur){s3=s2.next
@@ -2176,7 +2173,7 @@ out_tubrn(x1,y1,x2-x1,y2-y1,dir==C.SL_ABOVE,tp.f[2]==0?tp.p.toString():tp.p+':'+
 y_set(stu,1,xm-3,6,yy+2)
 else
 y_set(std,0,xm-3,6,yy)}
-function draw_tie(not1,not2,job){var m,x1,s,y,h,time,p=job==2?not1.pit:not2.pit,dir=(not1.tie_ty&0x07)==C.SL_BELOW?-1:1,s1=not1.s,st=s1.st,s2=not2.s,x2=s2.x,sh=not1.shhd
+function draw_tie(not1,not2,job){var m,x1,s,y,h,time,p=job==2?not1.pit:not2.pit,dir=(not1.tie_ty&0x07)==C.SL_ABOVE?1:-1,s1=not1.s,st=s1.st,s2=not2.s,x2=s2.x,sh=not1.shhd
 for(m=0;m<s1.nhd;m++)
 if(s1.notes[m]==not1)
 break
@@ -2794,6 +2791,9 @@ function set_tie_room(){var p_voice,s,s2,v,dx,y,dy
 for(v=0;v<voice_tb.length;v++){p_voice=voice_tb[v];s=p_voice.sym
 if(!s)
 continue
+s=s.next
+if(!s)
+continue
 set_tie_dir(s)
 for(;s;s=s.next){if(!s.ti1)
 continue
@@ -3277,7 +3277,7 @@ return}
 font.src=p.slice(0,n+1)
 font.fid=abc2svg.font_tb.length
 abc2svg.font_tb.push(font)
-font.name='f'+font.fid
+font.name=font.src.match(/(\w+)\.\w+\)$/)[1]
 p=p.replace(font.src,'')}
 a=p.match(/[- ]?[nN]ormal/)
 if(a){font.normal=true
@@ -4144,12 +4144,12 @@ if(!next.shrink){next.shrink=next.wl
 if(next.prev)
 next.shrink+=next.prev.wr}else{next.shrink+=next.wl-old_wl}
 next.space=0}}
-function unlksym(s){if(tsfirst==s){if(gene.tslast){s.ts_prev=gene.tslast
-gene.tslast=s}
-tsfirst=s.ts_next
+function unlksym(s){if(tsfirst==s){tsfirst=s.ts_next
 if(!tsfirst)
 return
 tsfirst.ts_prev=null
+if(gene.tslast){s.ts_prev=gene.tslast
+gene.tslast=s}
 tsfirst.seqst=1
 if(s.p_v.s_prev&&s.p_v.s_prev.next==s){s.prev=s.p_v.s_prev
 s.p_v.s_prev=s
@@ -4577,7 +4577,7 @@ s.next=s.ts_next=b
 b.shrink=s.wr+b.wl
 sn.shrink=sn.wl+10
 b.space=sn.space*.9-3}
-function set_allsymwidth(first){var val,st,s_chs,stup,itup,s=first||tsfirst,s2=s,xa=0,xl=[],wr=[],maxx=xa,tim=s.time
+function set_allsymwidth(first){var val,st,s_chs,stup,itup,s=tsfirst,s2=s,xa=0,xl=[],wr=[],maxx=xa,tim=s.time
 while(1){itup=0
 do{if((s.a_gch||s.a_ly)&&!s_chs)
 s_chs=s;self.set_width(s);st=s.st
@@ -4595,7 +4595,7 @@ s=s.ts_next}while(s&&!s.seqst);s2.shrink=maxx-xa
 s2.space=s2.ts_prev?set_space(s2,tim):0
 if(s2.space==0&&s2.ts_prev&&s2.ts_prev.type==C.SPACE&&s2.ts_prev.seqst)
 s2.space=s2.ts_prev.space/=2
-if(itup){if(first)
+if(itup){if(!first)
 break
 if(!stup)
 stup=s2}else if(stup&&stup.v==s2.v){set_sp_tup(stup,s2)
@@ -4847,18 +4847,17 @@ continue
 case C.METER:if(s2.fmt.timewarn)
 break
 continue
-case C.CLEF:break}
+case C.CLEF:if(!s2.clef_none)
+break
+continue}
 for(i=0;i<sym_a.length;i++){if(sym_a[i].v==s2.v&&sym_a[i].type==type)
 continue next_sym}
-sym_a.push(s2)
 s1=type==C.CLEF?s3:nl
-if(s2==nl){do{nl=nl.ts_next}while(nl.type==type&&!nl.seqst)}
-if(s2==s1){while(s2.ts_next&&s2.ts_next.type==type&&!s2.ts_next.seqst)
+if(s2==s1){while(s2.ts_next&&s2.ts_next.type==type)
 s2=s2.ts_next
+nl=s2.ts_next
 continue}
-for(s4=s2.ts_next;s4.type==type&&!s4.seqst;s4=s4.ts_next){for(s5=s1;s5.v!=s4.v;s5=s5.ts_next);if(s4==s5)
-continue
-s4.prev.next=s4.next
+for(s4=s2;s4.type==type;s4=s4.ts_next){for(s5=s1;s5.v!=s4.v;s5=s5.ts_next);s4.prev.next=s4.next
 s4.next.prev=s4.prev
 s4.prev=s5.prev
 s4.prev.next=s4
@@ -4871,12 +4870,12 @@ s1.ts_prev.ts_next=s2
 s2.ts_prev=s1.ts_prev
 s1.ts_prev=s5
 s5.ts_next=s1
-if(!s2.seqst){s2.seqst=1
-s4.seqst=0
-for(s5=s2.ts_prev;!s5.seqst;s5=s5.ts_prev);s4.ts_prev.ts_next=null
-set_allsymwidth(s5)
-s4.ts_prev.ts_next=s4}
 s2=s4}
+if(nl!=s){if(!nl.seqst){nl.seqst=1
+nl.shrink=nl.wl+nl.prev.wr}
+nl.ts_prev.ts_next=null
+set_allsymwidth(s)
+nl.ts_prev.ts_next=nl}
 return nl}
 s=bardiv(s)
 s=do_warn(s)
@@ -5685,7 +5684,7 @@ s.seqst=true
 for(s=last_s;s.ts_next&&!s.ts_next.seqst;s=s.ts_next);if(s.ts_next&&s.ts_next.type!=C.CLEF&&!s.tp&&!s.ts_next.a_ly)
 for(s=s.ts_next;s.ts_next&&!s.ts_next.seqst;s=s.ts_next);s2=s.ts_next
 s.ts_next=null
-set_allsymwidth(tsfirst)
+set_allsymwidth()
 s.ts_next=s2}
 function check_end_bar(){var s2,s=tsfirst
 while(s.ts_next)
@@ -5898,8 +5897,6 @@ if(s1.dots!=s2.dots){if(shu&1||s1.dots*s2.dots!=0)
 return false}
 if(s1.stem*s2.stem>0)
 return false
-if((s1.tp||s2.tp)&&l1!=l2)
-return
 i1=i2=0
 if(s1.notes[0].pit>s2.notes[0].pit){if(s1.stem<0)
 return false
@@ -6435,7 +6432,7 @@ for(v=0;v<nv;v++)
 set_beams(voice_tb[v].sym);self.set_stems()
 set_acc_shft()
 if(nv>1){set_rest_offset();set_overlap()}
-set_allsymwidth()
+set_allsymwidth(1)
 gen_init()
 if(!tsfirst)
 return
@@ -9477,7 +9474,7 @@ if(p_voice.eoln){eoln=1
 delete p_voice.eoln}
 if(p_voice.time>maxtime)
 maxtime=p_voice.time}
-if(!maxtime){par_sy.staves=[]
+if(staves_found<0){par_sy.staves=[]
 par_sy.voices=[]}else{self.voice_adj(1)
 for(v=0;v<nv;v++){p_voice=voice_tb[v]
 if(maxtime-p_voice.time>=p_voice.meter.wmeasure)
@@ -10373,4 +10370,4 @@ this.nreq++
 abc2svg.loadjs(fn+"-1.js",load_end,function(){abc2svg.modules.errmsg('Error loading the module '+fn)
 load_end()})}
 return this.nreq==nreq_i}}
-abc2svg.version="v1.23.4";abc2svg.vdate="2026-08-07"
+abc2svg.version="v1.23.3";abc2svg.vdate="2026-06-21"

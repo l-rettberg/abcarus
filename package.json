@@ -137,6 +137,7 @@
       "third_party/abc2xml/**",
       "third_party/xml2abc/**",
       "third_party/midi2xml/**",
+      "third_party/midi2abc/**",
       "third_party/python-embed/**"
     ],
     "directories": {

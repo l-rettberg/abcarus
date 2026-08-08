@@ -663,6 +663,14 @@ async function migrateStatePaths() {
     } catch {
       delete preference.dir;
     }
+    if (preference.file) {
+      try {
+        const fileStat = await fs.promises.stat(String(preference.file));
+        if (!fileStat.isFile()) delete preference.file;
+      } catch {
+        delete preference.file;
+      }
+    }
   }
 
   // Do not destructively prune recents during startup. Files or folders may be
@@ -899,6 +907,10 @@ function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggested
   };
   const scopedPreference = dialogId && appState.dialogPreferences && appState.dialogPreferences[dialogId];
   const scopedDir = existingDirectory(scopedPreference && scopedPreference.dir);
+  const scopedFile = (() => {
+    const candidate = normalizeFsPath(scopedPreference && scopedPreference.file);
+    try { return candidate && fs.statSync(candidate).isFile() ? candidate : ""; } catch { return ""; }
+  })();
   const rememberedDir = scopedDir || existingDirectory(appState.lastDialogDir);
   const explicitDir = normalizeFsPath(suggestedDir);
   const explicitPath = normalizeFsPath(suggestedPath);
@@ -918,6 +930,7 @@ function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggested
   if (directoryOnly) return baseDir || undefined;
 
   const fileName = String(suggestedName || "").trim() || explicitPathBase;
+  if (!fileName && scopedFile) return scopedFile;
   // Linux portal dialogs often ignore defaultPath when a filename is included.
   // Prefer a directory default there to keep navigation stable.
   if (portalLikelyActive && baseDir && !preferFileNameOnPortal) return baseDir;
@@ -969,6 +982,7 @@ function rememberDialogSelection(selectedPath, { isDirectory = false, dialogId =
     const previous = appState.dialogPreferences[dialogId];
     const next = previous && typeof previous === "object" && !Array.isArray(previous) ? { ...previous } : {};
     next.dir = nextDir;
+    if (!isDirectory) next.file = resolved;
     if (Number.isInteger(Number(filterIndex))) next.filterIndex = Number(filterIndex);
     appState.dialogPreferences[dialogId] = next;
   }

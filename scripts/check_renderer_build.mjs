@@ -759,8 +759,79 @@ async function assertAbc2svgFontHeaderUrls() {
   abc.tosvg("out", text);
   const svg = parts.join("");
   if (errors.length) throw new Error(`abc2svg font header smoke produced errors: ${errors.join("; ")}`);
-  if (!svg.includes("font-family:Leland") || !svg.includes("font-family:LelandText")) {
-    throw new Error("abc2svg output did not include selected Leland font faces.");
+  const fontFaces = [...svg.matchAll(/@font-face\s*\{[^}]*font-family:([^;\s]+)[^}]*src:url\(([^)]+)\)[^}]*\}/g)];
+  const hasNotationFont = fontFaces.some(([, , url]) => /(?:^|\/)Leland\.otf$/.test(String(url || "")));
+  const hasTextFont = fontFaces.some(([, , url]) => /(?:^|\/)LelandText\.otf$/.test(String(url || "")));
+  if (!hasNotationFont || !hasTextFont) {
+    throw new Error("abc2svg output did not include selected Leland font URLs.");
+  }
+}
+
+async function assertHeaderDirectivesArePreserved() {
+  const bundled = await build({
+    entryPoints: ["src/renderer/abc/header_prefix_model.js"],
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "cjs",
+    logLevel: "silent",
+  });
+  const module = { exports: {} };
+  const load = new Function("module", "exports", bundled.outputFiles[0].text);
+  load(module, module.exports);
+  const { sanitizeFileHeaderForInteractiveRender, sanitizeFileHeaderForPerTuneRender } = module.exports;
+  const source = [
+    "%%titleformat TT,<R<Q<P>C>C",
+    "%%leftmargin .5cm",
+    "%%rightmargin .5cm",
+    "%%MIDI temperamentequal 53",
+    "%%begintext",
+    "Preview and print note",
+    "%%endtext",
+    "% comment",
+    "unexpected plain text",
+  ].join("\n");
+  for (const sanitize of [sanitizeFileHeaderForInteractiveRender, sanitizeFileHeaderForPerTuneRender]) {
+    const result = sanitize(source);
+    for (const expected of [
+      "%%titleformat TT,<R<Q<P>C>C",
+      "%%leftmargin .5cm",
+      "%%rightmargin .5cm",
+      "%%MIDI temperamentequal 53",
+      "%%begintext",
+      "Preview and print note",
+      "%%endtext",
+    ]) {
+      if (!result.includes(expected)) throw new Error(`Header sanitizer dropped valid directive or text: ${expected}`);
+    }
+    if (result.includes("unexpected plain text")) {
+      throw new Error("Header sanitizer accepted non-ABC text outside a text block.");
+    }
+  }
+}
+
+async function assertSettingsPanelStructure() {
+  const source = await readFile("src/renderer/settings.js", "utf8");
+  for (const label of [
+    "Editor & Notation",
+    "Library",
+    "Print",
+    "Import & Export",
+    "Microtonal",
+    "Diagnostics & Advanced",
+  ]) {
+    if (!source.includes(`label: "${label}"`)) {
+      throw new Error(`Settings UI is missing the ${label} panel.`);
+    }
+  }
+  if (!source.includes("stripImportedMeasureComments") || !source.includes("autoFormatImportedAbc")) {
+    throw new Error("Settings UI must expose imported ABC cleanup and formatting controls.");
+  }
+  if (!source.includes('{ key: "importexport", label: "Import & Export"')) {
+    throw new Error("Import & Export must use the normalized lowercase panel key.");
+  }
+  if (!source.includes('if (key === "options") return "general";')) {
+    throw new Error("Legacy Options tab state must migrate to a valid Settings panel.");
   }
 }
 
@@ -872,6 +943,8 @@ async function main() {
   await assertSepIsPrestrippedForRender();
   await assertPrintSuggestedBaseNameIncludesKey();
   await assertAbc2svgFontHeaderUrls();
+  await assertHeaderDirectivesArePreserved();
+  await assertSettingsPanelStructure();
   await assertIntonationTonalBaseUses53Map();
   await assertIntonationPinnedCandidates();
 }

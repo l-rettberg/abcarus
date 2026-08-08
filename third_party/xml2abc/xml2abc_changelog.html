@@ -1,5 +1,35 @@
 <!DOCTYPE HTML><html><head><meta charset="utf-8"></head>
-<body><pre>2025-10-31
+<body><pre>2026-06-15
+
+	* Revision: 177
+	- the &lt;offset&gt; subelement of harmony elements is translated. All chords with
+	an offset element are placed in an ABC overlay
+
+	* Revision: 176
+	- translate chord symbols starting within a concurrent note as an ABC
+	overlay.
+	- new function appendChordsym(), new fields in class Elem for chord symbols.
+	- sortMeasure() determines the metrical position of chord symbols and returns
+	an extra array of chord symbols that occur within a concurrent note.
+	outVoice() uses this array to construct an ABC overlay.
+	- new global storage gChSyms (parallel to gMaten) is needed to make the array
+	of concurrent chord symbols available to outVoices()
+
+2025-11-26
+
+	* Revision: 175
+	- loop over all &lt;staff-details&gt; if more than one such element are present
+	- do not output transpose= for a TAB voice in ABC, because the notes are
+	already transposed.
+	- try to repair empty measures by inserting a rest with duration of a full
+	measure. A full measure rest Z does not work with M:none
+
+2025-11-14
+
+	* Revision: 174
+	- do not display acciaccatura in tablature
+
+2025-10-31
 
 	* Revision: 173
 	- bug: option wev was missing in function vertaal()
@@ -121,40 +151,5 @@
 
 	* Revision: 158
 	- added a couple of regression test files with microtonal accidentals
-
-	* Revision: 157
-	- bug in return value of alt2acc when float alter value
-	- accept floating alter if +/-1.0, 0.0 or +/-0.5
-	- do not add natural (converted from alter) if no current alteration (or key
-	alteration)
-	- (test function) better option handling in regression04.py
-
-2025-02-16
-
-	* Revision: 156
-	- change internal representation of accidentals to the corresponding
-	MusicXML textstings. (mapping double-flat to flat-flat and the same for
-	sharp)
-	- recognize Edo36 accidentals (natural-up, sharp-down etc.) and translate them
-	to _4, _3, ... ^3, ^4 (flat-down, flat, .. sharp, sharp-up)
-	- new option "no36" to map Edo36 accidentals to Edo53: most up/down variants
-	are mapped to quarter-sharp and quarter-flat
-	- new functions acc2abc and alt2acc to support the new internal representation
-	of accidentals
-
-2025-02-10
-
-	* Revision: 155
-	- accidental type natural-up/down added
-	- proper error message when accidental type not supported
-	- also accept musicxml extension within .mxl files
-
-2025-02-05
-
-	* Revision: 154
-	- follow probable bug in Musescore: hide accidental when alteration is
-	defined in a key-step element, even if an explicit accidental element is
-	present. When the key is defined by a &lt;fifths&gt; element the accidental is not
-	hidden when the same alteration is in the key!
 
 </pre></body></html>

@@ -26,6 +26,7 @@ function createImportExportFeature({
   getCurrentDoc = () => null,
   getActiveFilePath = () => "",
   getActiveTuneMeta = () => null,
+  getSettings = () => ({}),
   getPlaybackPayload = () => ({ text: "" }),
   ensureSafeToAbandonCurrentDoc = async () => false,
   requireCleanForFileOp = async () => false,
@@ -87,9 +88,19 @@ function createImportExportFeature({
 
   function prepareImportedAbc(abcText, fallbackTitle) {
     let prepared = ensureTitleInAbc(String(abcText || ""), fallbackTitle);
-    prepared = normalizeMeasuresLineBreaks(transformMeasuresPerLine(prepared, 4));
-    const aligned = alignBarsInText(prepared);
-    return aligned || prepared;
+    const settings = getSettings() || {};
+    if (settings.stripImportedMeasureComments !== false) {
+      prepared = prepared
+        .split(/\r\n|\n|\r/)
+        .map((line) => line.replace(/\s+%\d+\s*$/, ""))
+        .join("\n");
+    }
+    if (settings.autoFormatImportedAbc !== false) {
+      prepared = normalizeMeasuresLineBreaks(transformMeasuresPerLine(prepared, 4));
+      const aligned = alignBarsInText(prepared);
+      return aligned || prepared;
+    }
+    return prepared;
   }
 
   function installMidiProgressHandler() {

@@ -3015,7 +3015,7 @@ svg {
 
 .settings-entry {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+  grid-template-columns: minmax(170px, 0.85fr) minmax(190px, 1fr) minmax(220px, 1.25fr);
   column-gap: 12px;
   row-gap: 4px;
   align-items: center;
@@ -3037,8 +3037,10 @@ svg {
 }
 
 .settings-entry > .settings-help {
-  grid-column: 1 / -1;
-  margin-top: -2px;
+  grid-column: 3;
+  grid-row: 1;
+  margin-top: 0;
+  line-height: 1.3;
 }
 
 .settings-group .settings-title {
@@ -3289,7 +3291,7 @@ button.primary:not(:disabled):hover,
 .settings-row {
   font-size: var(--font-size-sm);
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+  grid-template-columns: minmax(170px, 0.85fr) minmax(190px, 1fr);
   column-gap: 12px;
   row-gap: 4px;
   align-items: center;
@@ -3447,15 +3449,39 @@ button.primary:not(:disabled):hover,
 }
 
 @media (max-width: 860px) {
-  /* Keep Settings in a stable 2-pane desktop layout; do not collapse to 1-column. */
-  .modal-card.settings-card {
-    min-width: 720px;
-  }
+  .modal-card.settings-card { min-width: 680px; }
   .settings-entry {
-    grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+    grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1fr) minmax(180px, 1.1fr);
   }
   .settings-row {
-    grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+    grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .modal-card.settings-card { min-width: 0; }
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px;
+  }
+  .settings-tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 4px;
+  }
+  .settings-tabs .settings-tab {
+    width: auto;
+    white-space: nowrap;
+  }
+  .settings-entry {
+    grid-template-columns: minmax(140px, 0.8fr) minmax(150px, 1fr);
+  }
+  .settings-entry > .settings-help {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 2px;
   }
 }
 

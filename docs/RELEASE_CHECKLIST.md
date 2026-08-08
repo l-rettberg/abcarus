@@ -4,16 +4,16 @@ This is a step-by-step guide for making a release build and pushing it to GitHub
 
 ## TL;DR (3–5 commands)
 
-1) Update [CHANGELOG.md](../CHANGELOG.md) under `## [Unreleased]`.
+1) Update [CHANGELOG.md](../CHANGELOG.md) under `## [Unreleased]` and commit that documentation change.
 2) Run `npm run test:release-preflight` and resolve every failure.
-3) Run one:
+3) Run one release command:
    - `npm run release:patch`
    - `npm run release:minor`
    - `npm run release:major`
-4) Push commit + tag:
+4) Only after the release command succeeds, push the generated commit and tag:
    - `git push`
    - `git push origin vX.Y.Z`
-4) Verify the GitHub Actions run for tag `vX.Y.Z` is green (all jobs), then do a quick sanity check.
+5) Verify the GitHub Actions run for tag `vX.Y.Z` is green (all jobs), then do a quick sanity check.
 
 CLI alternative (no browser, using GitHub CLI):
 - `gh auth status`
@@ -89,6 +89,7 @@ This flow bumps the version, updates release docs, commits, and creates a tag:
 Notes:
 - The user-facing release notes are the [CHANGELOG.md](../CHANGELOG.md) entry for `vX.Y.Z`.
 - Tag pushes trigger GitHub Actions (including `.github/workflows/release-assets.yml`) which builds and uploads artifacts to the GitHub Release for that tag.
+- Do not run `npm run publish:*` after `npm run release:*`; `publish:*` is an alternative combined flow that must be chosen before the release command.
 
 Tip: if you don’t want to use the browser, you can confirm the release and attached assets via:
 - `gh release view vX.Y.Z`

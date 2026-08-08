@@ -53,6 +53,7 @@ export function createSaveFlowController({
     scheduleRenderLibraryTree = () => {},
     selectTune = async () => {},
     serializeDocument = (doc) => (doc ? String(doc.content || "") : ""),
+    splitFileIntoHeaderAndBody = (text) => ({ headerText: "", bodyText: String(text || "") }),
     setActiveFilePath = () => {},
     setActiveTuneMeta = () => {},
     setDirtyIndicator = () => {},
@@ -128,10 +129,61 @@ export function createSaveFlowController({
         return false;
       }
 
-      const loadedParts = activeTuneMeta.documentParts;
-      if (!loadedParts || typeof loadedParts !== "object") {
-        await showSaveError("Unable to save safely: tune document parts are missing. Re-open the tune and try again.");
-        return false;
+      let loadedParts = activeTuneMeta.documentParts;
+      const requiredPartKeys = ["header", "before", "active", "after"];
+      const missingPartKeys = requiredPartKeys.filter((key) => (
+        !loadedParts
+        || typeof loadedParts !== "object"
+        || !Object.prototype.hasOwnProperty.call(loadedParts, key)
+      ));
+      const hasCompleteParts = loadedParts
+        && typeof loadedParts === "object"
+        && missingPartKeys.length === 0;
+      if (!hasCompleteParts) {
+        const disk = await readFile(p);
+        const start = Number(activeTuneMeta.startOffset);
+        const end = Number(activeTuneMeta.endOffset);
+        const diskText = disk && disk.ok ? String(disk.data || "") : "";
+        const fileParts = splitFileIntoHeaderAndBody(diskText);
+        const headerText = String(fileParts && fileParts.headerText || "");
+        const activeText = Number.isFinite(start) && Number.isFinite(end) && end > start
+          ? diskText.slice(start, end)
+          : "";
+        const reconstructionReason = !disk || !disk.ok
+          ? "file could not be read from disk"
+          : !Number.isFinite(start) || !Number.isFinite(end) || end <= start
+            ? "active tune offsets are invalid"
+            : start < headerText.length || end > diskText.length
+              ? "active tune offsets are outside the current file"
+              : !/^\s*X:/.test(activeText)
+                ? "the saved start offset no longer points to an X: tune"
+                : "unknown reconstruction failure";
+        recordRecentAction("save.parts.reconstruct.failed", {
+          path: p,
+          x: activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber) : "",
+          missingParts: missingPartKeys,
+          startOffset: Number.isFinite(start) ? start : null,
+          endOffset: Number.isFinite(end) ? end : null,
+          reason: reconstructionReason,
+        });
+        if (!disk || !disk.ok || !/^\s*X:/.test(activeText) || start < headerText.length || end > diskText.length) {
+          const missingLabel = missingPartKeys.length ? missingPartKeys.join(", ") : "unknown";
+          await showSaveError(`Unable to save safely: missing tune parts [${missingLabel}]; ${reconstructionReason}. Re-open the tune and try again.`);
+          return false;
+        }
+        recordRecentAction("save.parts.reconstruct.ok", {
+          path: p,
+          x: activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber) : "",
+          missingParts: missingPartKeys,
+          startOffset: start,
+          endOffset: end,
+        });
+        loadedParts = {
+          header: headerText,
+          before: diskText.slice(headerText.length, start),
+          active: activeText,
+          after: diskText.slice(end),
+        };
       }
 
       const targetX = activeTuneMeta.xNumber != null ? String(activeTuneMeta.xNumber).trim() : "";

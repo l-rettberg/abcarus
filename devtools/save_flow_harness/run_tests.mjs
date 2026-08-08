@@ -145,6 +145,51 @@ async function testDirectTuneSaveOverwritesExternalChangeFromParts() {
   assert.equal(await direct.performSimpleTuneSave("/tmp/source.abc"), true);
 }
 
+async function testDirectTuneSaveReconstructsMissingParts() {
+  const filePath = "/tmp/source.abc";
+  const diskText = "%%MIDI program 1\nX:1\nT:Source\nK:C\nC |]\nX:2\nT:Other\nK:G\nG |]\n";
+  const firstTuneEnd = diskText.indexOf("X:2");
+  const writes = [];
+  const controller = createSaveFlowController({
+    state: {
+      getActiveTuneMeta: () => ({
+        path: filePath,
+        xNumber: "1",
+        startOffset: diskText.indexOf("X:1"),
+        endOffset: firstTuneEnd,
+        documentParts: { stale: true },
+      }),
+    },
+    actions: {
+      getEditorValue: () => "X:1\nT:Edited\nK:C\nD |]\n",
+      readFile: async () => ({ ok: true, data: diskText }),
+      splitFileIntoHeaderAndBody: (text) => ({
+        headerText: "%%MIDI program 1\n",
+        bodyText: text.slice("%%MIDI program 1\n".length),
+      }),
+      writeFile: async (path, text, options) => {
+        writes.push([path, text, options]);
+        return { ok: true };
+      },
+      refreshLibraryFile: async () => null,
+      reconcileActiveTuneAfterSave: () => {},
+      setActiveTuneMeta: () => {},
+      patchCurrentDocument: () => {},
+      setDirtyIndicator: () => {},
+      setActiveFilePath: () => {},
+      resetTransposePreviewState: () => {},
+      updateFileHeaderPanel: () => {},
+      updateLibraryStatus: () => {},
+      scheduleRenderLibraryTree: () => {},
+      withFileLock: async (_path, fn) => fn(),
+    },
+  });
+  assert.equal(await controller.performSimpleTuneSave(filePath), true);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][0], filePath);
+  assert.equal(writes[0][1], "%%MIDI program 1\nX:1\nT:Edited\nK:C\nD |]\nX:2\nT:Other\nK:G\nG |]\n");
+}
+
 async function testFailedPrimarySaveCreatesEmergencyCopy() {
   const filePath = "/missing/tunes.abc";
   const text = "X:1\nT:Recovered\nK:C\nC|\n";
@@ -331,6 +376,7 @@ await testChordProSaveAsWritesDirectly();
 await testCancelLeavesSourceUntouched();
 await testDirectTuneSaveWritesExpectedData();
 await testDirectTuneSaveOverwritesExternalChangeFromParts();
+await testDirectTuneSaveReconstructsMissingParts();
 await testFailedPrimarySaveCreatesEmergencyCopy();
 await testDirectSaveAsUsesCleanSourceAndDestinationGuard();
 await testHeaderSaveWritesDirectlyWithDiskBaseline();

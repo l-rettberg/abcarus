@@ -33,7 +33,7 @@ This comes up often (UI titles, GitHub issues, and JS RegExp):
 
 ## Release (gated sequence)
 
-1) Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` and commit that documentation change.
+1) Update [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]` and commit that documentation change **before any release or deploy command**.
 2) Run the release command (pick one). It checks the changelog, package versions, and that the next tag is unused before running preflight; it then bumps versions, creates the release commit, creates the annotated tag, and verifies that the tag points to that commit:
 
 ```bash
@@ -42,16 +42,20 @@ npm run release:patch
 # or: npm run release:major
 ```
 
-3) Only after the command succeeds, push commit + tag:
+3) Only after the command succeeds, push the release commit and tag:
 
 ```bash
 git push
 git push origin vX.Y.Z
 ```
 
+4) Verify the tag-triggered GitHub Actions run and the GitHub Release assets. The workflow creates or updates the release notes from the matching `CHANGELOG.md` section.
+
+5) Sanity check the published build (start, open file, render, play; and import/export if Python is bundled).
+
 ### One-command publish (guarded)
 
-If you want a single command that prepares a release and pushes `master` + the tag, use:
+If you want a single command that prepares a release and pushes `master` + the tag, use this instead of the numbered sequence:
 
 ```bash
 npm run publish:patch
@@ -63,6 +67,8 @@ Guards:
 - Requires `master` to match `origin/master` before preparing the release.
 - Requires [CHANGELOG.md](CHANGELOG.md) `## [Unreleased]` to be non-empty.
 
+Do not run `npm run publish:*` after `npm run release:*`: the release command has already created the version commit and tag. In that case, push the generated commit and tag manually, then let the tag workflow publish the assets.
+
 Example (patch):
 ```bash
 npm run release:patch
@@ -70,12 +76,6 @@ npm run release:patch
 git push
 git push origin v0.19.2
 ```
-
-4) Verify GitHub Actions produced the expected artifacts for the tag:
-   - Tag push triggers GitHub Actions workflows, including `.github/workflows/release-assets.yml`.
-   - Look for artifacts either on the GitHub Release page for `vX.Y.Z` and/or in Actions (run artifacts).
-   - Release body text is populated automatically from `CHANGELOG.md` section `## [X.Y.Z] - ...`.
-5) Sanity check the built app (start, open file, render, play; and import/export if Python is bundled).
 
 For the detailed checklist see [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 

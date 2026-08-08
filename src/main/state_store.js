@@ -5,6 +5,7 @@ const KNOWN_STATE_KEYS = new Set([
   "stateVersion",
   "lastFolder",
   "lastDialogDir",
+  "dialogPreferences",
   "recentTunes",
   "recentFiles",
   "recentFolders",

@@ -99,10 +99,61 @@ const rectSelectionExt = rectangularSelection({
 const SETTINGS_SECTION_HINTS = {
   general: "General application settings.",
   playback: "Playback behavior and visuals.",
-  options: "App options (tools, print, library, dialogs).",
+  editor: "Editing, notation, and note-entry behavior.",
   fonts: "Fonts and soundfonts used for UI, editor, rendering, and playback.",
+  library: "Library organization, templates, and tune handling.",
+  print: "Print and PDF output options.",
+  importexport: "MusicXML, MIDI, ChordPro, and conversion behavior.",
   header: "Global ABC directives prepended during render/playback.",
+  microtonal: "Makam, perde, and EDO-53 notation support.",
+  advanced: "Less frequently used compatibility and diagnostic options.",
 };
+
+const SETTINGS_PANEL_KEYS = {
+  editor: new Set([
+    "editorHelpEnabled",
+    "useNativeTranspose",
+    "autoAlignBarsAfterTransforms",
+    "midiInputEnabled",
+    "midiInputMuted",
+    "midiInputKeyAware",
+    "midiInputGrid",
+    "midiInputMacroEnabled",
+    "midiInputBeepEnabled",
+    "midiInputBeepVolume",
+    "midiInputBeepDuration",
+    "noteTypingPreviewEnabled",
+    "noteTypingPreviewVolume",
+    "noteTypingPreviewLengthMode",
+    "noteTypingPreviewTrigger",
+    "noteTypingPreviewEnvelope",
+    "noteTypingPreviewRetriggerDuration",
+    "noteTypingPreviewSkipMicrotones",
+  ]),
+  importExport: new Set([
+    "abc2xmlArgs",
+    "xml2abcArgs",
+    "stripImportedMeasureComments",
+    "autoFormatImportedAbc",
+    "midiImportBackend",
+    "midi2abcArgs",
+    "mp3ExportTimidityPath",
+    "mp3ExportFfmpegPath",
+    "chordproBinPath",
+    "chordproRepoPath",
+  ]),
+  microtonal: new Set(["supportMicrotonalNotation"]),
+  advanced: new Set(["payloadModeEnabled"]),
+};
+
+function settingsEntryBelongsToPanel(entry, panelKey, sectionName) {
+  const key = String(entry && entry.key || "");
+  for (const [candidate, keys] of Object.entries(SETTINGS_PANEL_KEYS)) {
+    if (keys.has(key)) return candidate.toLowerCase() === String(panelKey || "").toLowerCase();
+  }
+  if (panelKey === "general") return sectionName === "General" || sectionName === "Dialogs";
+  return sectionName.toLowerCase() === panelKey.toLowerCase();
+}
 
 const FALLBACK_SCHEMA = [
   { key: "renderZoom", type: "number", default: 1, section: "General", label: "Score zoom (%)", ui: { input: "percent", min: 50, max: 800, step: 5 } },
@@ -120,14 +171,16 @@ const FALLBACK_SCHEMA = [
   { key: "supportMicrotonalNotation", type: "boolean", default: false, section: "Tools", group: "Microtonal notation", groupOrder: 5, label: "Support microtonal notation", help: "Enables optional makam/perde/EDO-53 tools such as Intonation Explorer and Makam DNA.", ui: { input: "checkbox" }, advanced: true },
   { key: "payloadModeEnabled", type: "boolean", default: false, section: "Tools", group: "Diagnostics", groupOrder: 6, label: "Enable Payload Mode (Diagnostics)", ui: { input: "checkbox" }, advanced: true },
   { key: "autoAlignBarsAfterTransforms", type: "boolean", default: false, section: "Tools", label: "Auto-align bars after transforms", ui: { input: "checkbox" }, advanced: true },
-  { key: "abc2xmlArgs", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "abc2xml flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },
-  { key: "xml2abcArgs", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "xml2abc flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },
-  { key: "midiImportBackend", type: "string", default: "auto", section: "Tools", group: "Import/Export", groupOrder: 20, label: "MIDI import backend", ui: { input: "select", options: [ { value: "auto", label: "Auto (prefer midi2xml/music21)" }, { value: "midi2abc", label: "Bundled midi2abc" }, { value: "music21-xml2abc", label: "midi2xml (music21) -> xml2abc" } ] }, advanced: true },
-  { key: "midi2abcArgs", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "MIDI import flags", ui: { input: "text", placeholder: "--title \"My Tune\" --meter 4/4 --key Dm --grid 1/16" }, advanced: true },
-  { key: "mp3ExportTimidityPath", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "MP3 export: TiMidity++ path", help: "Optional absolute path to timidity. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/timidity" }, advanced: true },
-  { key: "mp3ExportFfmpegPath", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "MP3 export: FFmpeg path", help: "Optional absolute path to ffmpeg. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/ffmpeg" }, advanced: true },
-  { key: "chordproBinPath", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "ChordPro: binary path", help: "Optional absolute path to chordpro executable. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/chordpro" }, advanced: true },
-  { key: "chordproRepoPath", type: "string", default: "", section: "Tools", group: "Import/Export", groupOrder: 20, label: "ChordPro: repo path", help: "Optional path to a ChordPro source checkout (expects script/chordpro.pl).", ui: { input: "text", placeholder: "/path/to/chordpro" }, advanced: true },
+  { key: "abc2xmlArgs", type: "string", default: "", section: "Tools", group: "ABC <-> MusicXML", groupOrder: 10, label: "abc2xml flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },
+  { key: "xml2abcArgs", type: "string", default: "", section: "Tools", group: "ABC <-> MusicXML", groupOrder: 10, label: "xml2abc flags", ui: { input: "text", placeholder: "-x -y=value" }, advanced: true },
+  { key: "stripImportedMeasureComments", type: "boolean", default: true, section: "Tools", group: "ABC <-> MusicXML", groupOrder: 10, label: "Remove imported measure comments", help: "Remove xml2abc comments such as %7 and %14 from imported ABC text.", ui: { input: "checkbox" }, advanced: true },
+  { key: "autoFormatImportedAbc", type: "boolean", default: true, section: "Tools", group: "ABC <-> MusicXML", groupOrder: 10, label: "Auto-format imported ABC", help: "Apply the standard ABCarus line-break and bar alignment pass after import.", ui: { input: "checkbox" }, advanced: true },
+  { key: "midiImportBackend", type: "string", default: "auto", section: "Tools", group: "MIDI import", groupOrder: 20, label: "MIDI import backend", ui: { input: "select", options: [ { value: "auto", label: "Auto (prefer midi2xml/music21)" }, { value: "midi2abc", label: "Bundled midi2abc" }, { value: "music21-xml2abc", label: "midi2xml (music21) -> xml2abc" } ] }, advanced: true },
+  { key: "midi2abcArgs", type: "string", default: "", section: "Tools", group: "MIDI import", groupOrder: 20, label: "MIDI import flags", ui: { input: "text", placeholder: "--title \"My Tune\" --meter 4/4 --key Dm --grid 1/16" }, advanced: true },
+  { key: "mp3ExportTimidityPath", type: "string", default: "", section: "Tools", group: "MP3 export", groupOrder: 30, label: "TiMidity++ path", help: "Optional absolute path to timidity. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/timidity" }, advanced: true },
+  { key: "mp3ExportFfmpegPath", type: "string", default: "", section: "Tools", group: "MP3 export", groupOrder: 30, label: "FFmpeg path", help: "Optional absolute path to ffmpeg. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/ffmpeg" }, advanced: true },
+  { key: "chordproBinPath", type: "string", default: "", section: "Tools", group: "ChordPro", groupOrder: 40, label: "Binary path", help: "Optional absolute path to chordpro executable. Leave empty to auto-detect in PATH.", ui: { input: "text", placeholder: "/usr/bin/chordpro" }, advanced: true },
+  { key: "chordproRepoPath", type: "string", default: "", section: "Tools", group: "ChordPro", groupOrder: 40, label: "Repository path", help: "Optional path to a ChordPro source checkout (expects script/chordpro.pl).", ui: { input: "text", placeholder: "/path/to/chordpro" }, advanced: true },
   { key: "midiInputEnabled", type: "boolean", default: false, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Enable MIDI input (step)", ui: { input: "checkbox" } },
   { key: "midiInputMuted", type: "boolean", default: false, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Mute MIDI input", ui: { input: "checkbox" } },
   { key: "midiInputKeyAware", type: "boolean", default: false, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Key-aware spelling", ui: { input: "checkbox" } },
@@ -262,7 +315,18 @@ export function initSettings(api) {
   let cachedFontLists = { notation: [], text: [] };
   let cachedFontDirs = { bundledDir: "", userDir: "" };
   let cachedSoundfonts = [];
-  const knownTabs = new Set(["general", "fonts", "playback", "options", "header"]);
+  const knownTabs = new Set([
+    "general",
+    "editor",
+    "fonts",
+    "playback",
+    "library",
+    "print",
+    "importexport",
+    "header",
+    "microtonal",
+    "advanced",
+  ]);
   let dragState = null;
   let draftPatch = {};
   let isSettingsOpen = false;
@@ -1238,11 +1302,16 @@ export function initSettings(api) {
     }
 
     const panels = [
-      { key: "general", label: "General", sections: ["General"] },
+      { key: "general", label: "General", sections: ["General", "Dialogs"] },
+      { key: "editor", label: "Editor & Notation", sections: ["General", "Tools"] },
       { key: "fonts", label: "Fonts", sections: ["Fonts"] },
       { key: "playback", label: "Playback", sections: ["Playback"] },
-      { key: "options", label: "Options", sections: ["Tools", "Print", "Library", "Dialogs"] },
+      { key: "library", label: "Library", sections: ["Library"] },
+      { key: "print", label: "Print", sections: ["Print"] },
+      { key: "importexport", label: "Import & Export", sections: ["Tools"] },
       { key: "header", label: "Global Header", sections: ["Header"] },
+      { key: "microtonal", label: "Microtonal", sections: ["Tools"] },
+      { key: "advanced", label: "Diagnostics & Advanced", sections: ["Tools"] },
     ];
     const panelKeys = new Set(panels.map((p) => p.key));
     settingsPanelsByKey = new Map(panels.map((p) => [p.key, p]));
@@ -1295,7 +1364,8 @@ export function initSettings(api) {
       panelEl.setAttribute("role", "tabpanel");
 
       for (const sectionName of panel.sections) {
-        const entries = bySection.get(sectionName) || [];
+        const entries = (bySection.get(sectionName) || [])
+          .filter((entry) => settingsEntryBelongsToPanel(entry, panel.key, sectionName));
         const groups = new Map(); // groupTitle -> entries[]
         for (const entry of entries) {
           const title = entry && entry.group ? String(entry.group) : sectionName;
@@ -1785,9 +1855,12 @@ export function initSettings(api) {
     const key = String(raw || "").trim().toLowerCase();
     if (!key) return "general";
     if (key === "main") return "general";
-    if (key === "editor") return "fonts";
-    if (key === "import" || key === "importexport" || key === "import/export" || key === "xml") return "options";
-    if (key === "tools" || key === "library" || key === "dialogs") return "options";
+    if (key === "editor") return "editor";
+    if (key === "import" || key === "importexport" || key === "import/export" || key === "xml") return "importexport";
+    if (key === "tools") return "editor";
+    if (key === "library") return "library";
+    if (key === "dialogs") return "general";
+    if (key === "options") return "general";
     if (knownTabs.has(key)) return key;
     return "general";
   }

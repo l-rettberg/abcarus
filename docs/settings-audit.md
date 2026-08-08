@@ -28,6 +28,19 @@ Grouped as displayed in the Settings modal:
 - `libraryAutoRenumberAfterMove` (default `false`) — Auto-renumber X after move
 - `usePortalFileDialogs` (default: `true` on Linux, else `false`) — Use portal file dialogs (Linux) *(Advanced)*
 
+### Electron upgrade checkpoint
+
+When upgrading Electron, retest Linux file dialogs with portal mode enabled and a
+remembered directory/file. Verify both of these invariants together:
+
+- the dialog opens above and centered relative to ABCarus;
+- `defaultPath` (or the portal equivalent, such as `current_folder`) is honored.
+
+Native GTK dialogs currently honor remembered paths more reliably in this
+environment but can lose their transient parent and appear behind the app or at
+the screen origin. Keep portal dialogs as the default until an Electron upgrade
+proves both behaviors work together.
+
 **Import/Export**
 - `abc2xmlArgs` (default `""`) — abc2xml flags *(Advanced)*
 - `xml2abcArgs` (default `""`) — xml2abc flags *(Advanced)*

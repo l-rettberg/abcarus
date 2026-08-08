@@ -2821,12 +2821,11 @@ async function createWindow() {
   const shouldForwardConsole = (process.env.ABCARUS_DEV_FORWARD_CONSOLE === "1")
     || (process.env.NODE_ENV !== "production" && !app.isPackaged);
   if (shouldForwardConsole) {
-    win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    win.webContents.on("console-message", ({ level, message, lineNumber, sourceId }) => {
       try {
-        const lvl = Number(level);
-        const tag = Number.isFinite(lvl) ? String(lvl) : "?";
+        const tag = String(level || "?");
         // eslint-disable-next-line no-console
-        console.log(`[renderer:${tag}] ${message} (${sourceId}:${line})`);
+        console.log(`[renderer:${tag}] ${message} (${sourceId}:${lineNumber})`);
       } catch {}
     });
     win.webContents.on("render-process-gone", (_event, details) => {

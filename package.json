@@ -13,6 +13,11 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "overrides": {
+    "app-builder-lib": {
+      "@noble/hashes": "1.8.0"
+    }
+  },
   "scripts": {
     "start": "electron .",
     "appimage": "bash scripts/build_appimage.sh",
@@ -95,7 +100,7 @@
     "@codemirror/view": "^6.39.11",
     "codemirror": "^6.0.2",
     "electron": "^43.3.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.15.7",
     "esbuild": "^0.27.2",
     "semver": "^7.6.3"
   },

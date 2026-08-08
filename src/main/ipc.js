@@ -651,6 +651,17 @@ function registerIpcHandlers(ctx) {
     }));
   };
 
+  async function showNativeFileDialog(show) {
+    const previousPortal = process.env.GTK_USE_PORTAL;
+    process.env.GTK_USE_PORTAL = "0";
+    try {
+      return await show();
+    } finally {
+      if (previousPortal == null) delete process.env.GTK_USE_PORTAL;
+      else process.env.GTK_USE_PORTAL = previousPortal;
+    }
+  }
+
   const getDialogOriginalFilterIndex = (filters, displayedIndex) => {
     const filter = Array.isArray(filters) ? filters[Number(displayedIndex)] : null;
     const originalIndex = filter && Number(filter.__abcarusOriginalIndex);
@@ -856,12 +867,12 @@ function registerIpcHandlers(ctx) {
 	      { name: "MusicXML", extensions: ["xml", "musicxml", "mxl"] },
 	      { name: "All Files", extensions: ["*"] },
 	    ], getDialogFilter("importMusicXml", 2));
-	    const result = await dialog.showOpenDialog(parent || undefined, {
-	      modal: true,
-	      properties: ["openFile", "multiSelections"],
-	        defaultPath: getDialogPath({ dialogId: "importMusicXml" }),
-	      filters,
-	    });
+    const result = await showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
+      modal: true,
+      properties: ["openFile", "multiSelections"],
+      defaultPath: getDialogPath({ dialogId: "importMusicXml" }),
+      filters,
+    }));
 	    if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, canceled: true };
 	    try {
 	      const settings = getSettings ? getSettings() : {};
@@ -973,12 +984,12 @@ function registerIpcHandlers(ctx) {
 	      { name: "MusicXML", extensions: ["xml", "musicxml", "mxl"] },
 	      { name: "All Files", extensions: ["*"] },
 	    ], getDialogFilter("importMusicXml", 2));
-	    const result = await dialog.showOpenDialog(parent || undefined, {
-	      modal: true,
-	      properties: ["openFile", "multiSelections"],
-        defaultPath: getDialogPath({ dialogId: "importMusicXml" }),
-	      filters,
-	    });
+    const result = await showNativeFileDialog(() => dialog.showOpenDialog(parent || undefined, {
+      modal: true,
+      properties: ["openFile", "multiSelections"],
+      defaultPath: getDialogPath({ dialogId: "importMusicXml" }),
+      filters,
+    }));
 	    if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, canceled: true };
 	    const settings = getSettings ? getSettings() : {};
 	    const paths = Array.from(result.filePaths).map(String);

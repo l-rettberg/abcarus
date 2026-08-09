@@ -3362,6 +3362,8 @@ async function runUiSmoke(win) {
       const shownOutOfFocus = !isHidden();
       const hook = window.__abcarusDevUiSmoke;
       let fontChoicesOk = false;
+      let interfaceFontPresetsOk = false;
+      let interfaceFontSelections = [];
       let fontSelectWidths = [];
       let fontRemoveLabels = [];
       if (hook && typeof hook.dispatchAction === "function") {
@@ -3383,6 +3385,18 @@ async function runUiSmoke(win) {
         fontChoicesOk = chooserRows.length >= 4
           && fontSelectWidths.every((width) => width >= 140)
           && fontRemoveLabels.every((label) => label === "Remove");
+        const interfaceFontKeys = ["uiFontFamily", "libraryUiFontFamily"];
+        interfaceFontPresetsOk = interfaceFontKeys.every((key) => {
+          const select = fontsPanel.querySelector('select[data-settings-key="' + key + '"]');
+          const labels = select ? Array.from(select.options).map((option) => String(option.textContent || "").trim()) : [];
+          interfaceFontSelections.push(select && select.selectedOptions[0]
+            ? String(select.selectedOptions[0].textContent || "").trim()
+            : "");
+          return labels.includes("System default")
+            && labels.includes("Sans serif")
+            && labels.includes("Serif")
+            && labels.includes("Monospace");
+        });
       }
       return {
         ok: errorsVisible
@@ -3394,7 +3408,8 @@ async function runUiSmoke(win) {
           && selTempoHeightPx >= 27
           && hiddenInFocus
           && shownOutOfFocus
-          && fontChoicesOk,
+          && fontChoicesOk
+          && interfaceFontPresetsOk,
         visualGapPx,
         togglesGapPx,
         libRadiusPx,
@@ -3406,6 +3421,8 @@ async function runUiSmoke(win) {
         hiddenInFocus,
         shownOutOfFocus,
         fontChoicesOk,
+        interfaceFontPresetsOk,
+        interfaceFontSelections,
         fontSelectWidths,
         fontRemoveLabels,
       };

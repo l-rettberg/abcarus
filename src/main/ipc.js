@@ -1528,7 +1528,10 @@ function registerIpcHandlers(ctx) {
     const appRoot = (app && typeof app.getAppPath === "function") ? app.getAppPath() : process.cwd();
     const bundledDir = path.join(appRoot, "assets", "fonts", "notation");
     const userData = (app && typeof app.getPath === "function") ? app.getPath("userData") : "";
-    const userDir = userData ? path.join(userData, "fonts", "notation") : "";
+    const settingsPaths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : null;
+    const profilePath = settingsPaths && settingsPaths.profilePath ? String(settingsPaths.profilePath) : "";
+    const profileDir = profilePath ? path.dirname(profilePath) : userData;
+    const userDir = profileDir ? path.join(profileDir, "fonts", "notation") : "";
     if (userDir) {
       try { await fs.promises.mkdir(userDir, { recursive: true }); } catch {}
     }
@@ -1731,7 +1734,20 @@ function registerIpcHandlers(ctx) {
       if (userHeaderExists) {
         await atomicWriteFileWithRetry(fs, path, exportHeaderPath, userHeaderText);
       }
-      return { ok: true, path: filePath, exportedHeader: userHeaderExists };
+
+      let exportedFonts = 0;
+      const { userDir: userFontsDir } = await resolveFontDirs();
+      const userFontFiles = await readFontDirFonts(userFontsDir);
+      const exportFontsDir = path.join(exportDir, "fonts", "notation");
+      for (const fontFile of userFontFiles) {
+        const sourcePath = path.join(userFontsDir, fontFile);
+        const targetPath = path.join(exportFontsDir, fontFile);
+        if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+        await fs.promises.mkdir(exportFontsDir, { recursive: true });
+        await atomicCopyFileWithRetry(fs, path, sourcePath, targetPath);
+        exportedFonts += 1;
+      }
+      return { ok: true, path: filePath, exportedHeader: userHeaderExists, exportedFonts };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1805,10 +1821,24 @@ function registerIpcHandlers(ctx) {
       }
       if (patch) delete patch.globalHeaderText;
 
+      let importedFonts = 0;
+      const importFontsDir = path.join(importDir, "fonts", "notation");
+      const importedFontFiles = await readFontDirFonts(importFontsDir);
+      if (importedFontFiles.length) {
+        const { userDir: userFontsDir } = await resolveFontDirs();
+        for (const fontFile of importedFontFiles) {
+          const sourcePath = path.join(importFontsDir, fontFile);
+          const targetPath = path.join(userFontsDir, fontFile);
+          if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+          await atomicCopyFileWithRetry(fs, path, sourcePath, targetPath);
+          importedFonts += 1;
+        }
+      }
+
       const next = profile && typeof importProfileSnapshot === "function"
         ? await importProfileSnapshot(profile)
         : updateSettings(patch || {});
-      return { ok: true, path: filePath, importedHeader, settings: next };
+      return { ok: true, path: filePath, importedHeader, importedFonts, settings: next };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }

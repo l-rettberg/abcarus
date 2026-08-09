@@ -60,6 +60,12 @@ function main() {
     );
   }
 
+  for (const key of ["uiFontFamily", "libraryUiFontFamily"]) {
+    const entry = schema.find((item) => item && item.key === key);
+    assert(entry && entry.ui && entry.ui.input === "select", `${key} must use a user-facing selector`);
+    assert(entry.ui.options === "interfaceFonts", `${key} must use the shared interface font catalog`);
+  }
+
   {
     const next = {
       supportMicrotonalNotation: false,

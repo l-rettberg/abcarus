@@ -143,6 +143,7 @@ jobs:
             - Preferences and UI state are stored as abcarus-profile.json here.
             - Global Header is stored as user_settings.abc in this folder.
               Back up that file or copy it here when moving ABCarus.
+            - Fonts added through Settings are stored under fonts/.
             - If you prefer a single-file app, use the AppImage build instead.
           EOF
           chmod 0644 dist/appimage/AppDir/README-PORTABLE.txt
@@ -342,7 +343,8 @@ jobs:
             "    otherwise required DLLs (e.g. ffmpeg.dll) may not be found.",
             "  - Preferences and UI state are stored as abcarus-profile.json here.",
             "  - Global Header is stored as user_settings.abc in this folder.",
-            "    Back up that file or copy it here when moving ABCarus."
+            "    Back up that file or copy it here when moving ABCarus.",
+            "  - Fonts added through Settings are stored under fonts/."
           ) -join "`r`n"
           $readme | Out-File -Encoding ascii (Join-Path $src "README-PORTABLE.txt")
           if (Test-Path $zip) { Remove-Item -Force $zip }

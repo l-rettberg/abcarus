@@ -35,7 +35,9 @@ If the optional Global Header exists, Export also writes this neighboring file:
 user_settings.abc
 ```
 
-Keep both files for a complete profile plus Global Header backup.
+Fonts added through Settings are copied into the neighboring `fonts/` directory.
+Keep the profile, optional Global Header, and `fonts/` directory together for a
+complete portable backup.
 
 ## Import
 
@@ -46,6 +48,9 @@ external-file watcher after Import.
 For backward compatibility, Import also accepts legacy `abcarus.properties`
 files. Their `key=value` preferences are merged once into the current profile.
 Legacy embedded `globalHeaderText` is migrated to `user_settings.abc`.
+If a neighboring `fonts/` directory exists, its supported font files are copied
+into ABCarus font storage and become available to Interface, Library, Editor,
+and notation/text selectors.
 
 ## Global Header
 

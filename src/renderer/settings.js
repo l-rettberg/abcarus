@@ -15,6 +15,19 @@ import {
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { createSettingsStore } from "./settings_store.js";
+import {
+  buildUserFontFaceCss,
+  createInterfaceFontControl,
+  getCatalogUserFontFiles as collectCatalogUserFontFiles,
+  interfaceFontFamilyForFile as buildInterfaceFontFamily,
+  isSoundfontPath,
+  normalizeFontCatalog,
+  normalizeUserFontFiles,
+  settingsPatchForRemovedUserFont as buildRemovedFontSettingsPatch,
+  safeBasename,
+  toFileUrl,
+  userFontFileFromFamily,
+} from "./app/ui/font_settings_model.js";
 
 const ZOOM_STEP = 0.1;
 const SETTINGS_UI_STATE_KEY = "abcarus.settings.uiState.v1";
@@ -91,9 +104,9 @@ const FALLBACK_SCHEMA = [
   { key: "renderZoom", type: "number", default: 1, section: "General", label: "Score zoom (%)", ui: { input: "percent", min: 50, max: 800, step: 5 } },
   { key: "editorZoom", type: "number", default: 1, section: "General", label: "Editor zoom (%)", ui: { input: "percent", min: 50, max: 800, step: 5 } },
   { key: "editorHelpEnabled", type: "boolean", default: true, section: "General", group: "Editor Help", groupOrder: 30, label: "Enable editor help", ui: { input: "checkbox" } },
-  { key: "uiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Font family", ui: { input: "text" } },
+  { key: "uiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Font family", ui: { input: "select", options: "interfaceFonts" } },
   { key: "uiFontSize", type: "number", default: 13, section: "Fonts", group: "Interface", label: "Font size", ui: { input: "number", min: 10, max: 28, step: 1 } },
-  { key: "libraryUiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Library font family", ui: { input: "text" } },
+  { key: "libraryUiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Library font family", ui: { input: "select", options: "interfaceFonts" } },
   { key: "libraryUiFontSize", type: "number", default: 12, section: "Fonts", group: "Interface", label: "Library font size", ui: { input: "number", min: 10, max: 40, step: 1 } },
   { key: "editorFontFamily", type: "string", default: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", section: "Fonts", group: "Editor", label: "Font family", ui: { input: "text" } },
   { key: "editorFontSize", type: "number", default: 13, section: "Fonts", group: "Editor", label: "Font size", ui: { input: "number", min: 8, max: 32, step: 1 } },
@@ -330,6 +343,39 @@ export function initSettings(api) {
     return "";
   }
 
+  function getCatalogUserFontFiles() {
+    return collectCatalogUserFontFiles(cachedFontLists);
+  }
+
+  function interfaceFontFamilyForFile(fileName, defaultFamily = defaultSettings.uiFontFamily) {
+    return buildInterfaceFontFamily(fileName, defaultFamily);
+  }
+
+  async function reloadFontCatalog() {
+    if (!api || typeof api.listFonts !== "function") return false;
+    const list = await api.listFonts().catch(() => null);
+    if (!list || !list.ok) return false;
+    cachedFontLists = normalizeFontCatalog(list);
+    return true;
+  }
+
+  function refreshInterfaceFontControls() {
+    for (const meta of controlByKey.values()) {
+      const optionsKey = meta && meta.entry && meta.entry.ui ? meta.entry.ui.options : "";
+      if (optionsKey !== "interfaceFonts" || !meta.el) continue;
+      if (typeof meta.refresh === "function") meta.refresh(getEffectiveSettings()[meta.entry.key]);
+      if (typeof meta.updateRemoveEnabled === "function") meta.updateRemoveEnabled();
+    }
+  }
+
+  function settingsPatchForRemovedUserFont(fileName, settings) {
+    return buildRemovedFontSettingsPatch({
+      fileName,
+      settings: settings || getEffectiveSettings(),
+      defaults: defaultSettings,
+    });
+  }
+
   function refreshFontSelectControls() {
     const effective = getEffectiveSettings();
     for (const [key, meta] of controlByKey.entries()) {
@@ -342,19 +388,6 @@ export function initSettings(api) {
       meta.el.value = v;
       if (meta.el.value !== v) meta.el.value = "";
     }
-  }
-
-  function safeBasename(value) {
-    const s = String(value || "");
-    if (!s) return "";
-    const normalized = s.replace(/\\/g, "/");
-    const parts = normalized.split("/");
-    return parts[parts.length - 1] || s;
-  }
-
-  function isSoundfontPath(value) {
-    const s = String(value || "");
-    return s.startsWith("file://") || /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith("/");
   }
 
   function populateSoundfontSelect(selectEl) {
@@ -438,33 +471,11 @@ export function initSettings(api) {
 
   function getEditorFontUserFiles() {
     const ui = readUiState() || {};
-    const raw = ui.editorFontUserFiles;
-    if (!Array.isArray(raw)) return [];
-    const out = [];
-    const seen = new Set();
-    for (const item of raw) {
-      const s = String(item || "").trim();
-      if (!s) continue;
-      if (seen.has(s)) continue;
-      seen.add(s);
-      out.push(s);
-      if (out.length >= 50) break;
-    }
-    return out;
+    return normalizeUserFontFiles(getCatalogUserFontFiles(), ui.editorFontUserFiles);
   }
 
   function setEditorFontUserFiles(list) {
-    const next = [];
-    const seen = new Set();
-    for (const item of Array.isArray(list) ? list : []) {
-      const s = String(item || "").trim();
-      if (!s) continue;
-      if (seen.has(s)) continue;
-      seen.add(s);
-      next.push(s);
-      if (next.length >= 50) break;
-    }
-    writeUiState({ editorFontUserFiles: next });
+    writeUiState({ editorFontUserFiles: normalizeUserFontFiles(list) });
   }
 
   async function updateSettings(patch) {
@@ -599,42 +610,26 @@ export function initSettings(api) {
     applySettings(currentSettings);
   }
 
-  function toFileUrl(filePath) {
-    const raw = String(filePath || "");
-    if (!raw) return "";
-    const s = raw.replace(/\\/g, "/");
-    if (/^[a-zA-Z]:\\/.test(raw)) return encodeURI(`file:///${s}`);
-    if (s.startsWith("/")) return encodeURI(`file://${s}`);
-    return encodeURI(`file://${s}`);
-  }
-
-  function ensureEditorUserFontFaces() {
+  function ensureUserFontFaces() {
     const userDir = String(cachedFontDirs && cachedFontDirs.userDir ? cachedFontDirs.userDir : "");
     if (!userDir) return;
-    const files = getEditorFontUserFiles();
-    const rules = [];
-    for (const fileName of files) {
-      const safeName = String(fileName || "").trim();
-      if (!safeName) continue;
-      const abs = `${userDir.replace(/\\/g, "/").replace(/\/$/, "")}/${safeName}`;
-      const url = toFileUrl(abs);
-      if (!url) continue;
-      const family = `ABCarus User Font: ${safeName}`;
-      rules.push(`@font-face{font-family:"${family.replace(/"/g, '\\"')}";src:url("${url}") format("truetype");font-weight:normal;font-style:normal;}`);
-    }
     let styleEl = document.getElementById("abcarusEditorUserFonts");
     if (!styleEl) {
       styleEl = document.createElement("style");
       styleEl.id = "abcarusEditorUserFonts";
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = rules.join("\n");
+    styleEl.textContent = buildUserFontFaceCss({
+      userDir,
+      fontFiles: getEditorFontUserFiles(),
+      toFileUrl,
+    });
   }
 
   function applySettings(settings) {
     currentSettings = { ...defaultSettings, ...(settings || {}) };
     const effectiveSettings = getEffectiveSettings();
-    if (isSettingsOpen) ensureEditorUserFontFaces();
+    ensureUserFontFaces();
 
     const root = document.documentElement.style;
     root.setProperty("--editor-font-family", effectiveSettings.editorFontFamily);
@@ -955,11 +950,70 @@ export function initSettings(api) {
 
     if (kind === "select") {
       const select = document.createElement("select");
+      select.dataset.settingsKey = String(entry.key || "");
       if (entry.section === "Fonts" && entry.help) select.title = String(entry.help);
       const optionsKey = entry.ui && entry.ui.options ? String(entry.ui.options) : "";
       const isFontSelect = optionsKey === "notationFonts" || optionsKey === "textFonts";
       const isSoundfontSelect = optionsKey === "soundfonts";
+      const isInterfaceFontFamily = optionsKey === "interfaceFonts";
       const isEditorFontFamily = entry.key === "editorFontFamily";
+
+      if (isInterfaceFontFamily) {
+        const defaultFamily = String(defaultSettings[entry.key] || defaultSettings.uiFontFamily || entry.default || "");
+        const control = createInterfaceFontControl({
+          documentRef: document,
+          entry,
+          selected: getEffectiveSettings()[entry.key],
+          defaultFamily,
+          getUserFontFiles: getCatalogUserFontFiles,
+          onChange: (value) => stageSetting(entry.key, value),
+          onAdd: async () => {
+            if (!api || typeof api.pickFont !== "function" || typeof api.installFont !== "function") return "";
+            const pick = await api.pickFont().catch(() => null);
+            if (!pick || !pick.ok || !pick.path) return "";
+            const res = await api.installFont(pick.path).catch(() => null);
+            if (!res || !res.ok || !res.name) {
+              alert(res && res.error ? res.error : "Failed to add font.");
+              return "";
+            }
+            const remembered = getEditorFontUserFiles();
+            if (!remembered.includes(res.name)) setEditorFontUserFiles([res.name, ...remembered]);
+            await reloadFontCatalog();
+            ensureUserFontFaces();
+            refreshInterfaceFontControls();
+            return interfaceFontFamilyForFile(res.name, defaultFamily);
+          },
+          onRemove: async (fileName) => {
+            if (!confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`)) return false;
+            if (!api || typeof api.removeFont !== "function") return false;
+            const effectiveBeforeRemove = getEffectiveSettings();
+            const res = await api.removeFont(fileName).catch(() => null);
+            if (!res || !res.ok) {
+              alert(res && res.error ? res.error : "Failed to remove font.");
+              return false;
+            }
+            const patch = settingsPatchForRemovedUserFont(fileName, effectiveBeforeRemove);
+            const nextDraft = { ...(draftPatch || {}) };
+            for (const key of Object.keys(patch)) delete nextDraft[key];
+            setDraftPatch(nextDraft);
+            if (Object.keys(patch).length) await updateSettings(patch).catch(() => {});
+            setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => name !== fileName));
+            await reloadFontCatalog();
+            ensureUserFontFaces();
+            refreshFontSelectControls();
+            refreshInterfaceFontControls();
+            return true;
+          },
+        });
+        row.appendChild(control.wrap);
+        controlByKey.set(entry.key, {
+          entry,
+          el: control.select,
+          refresh: control.refresh,
+          updateRemoveEnabled: control.updateRemoveEnabled,
+        });
+        return row;
+      }
 
       if (isEditorFontFamily) {
         const defaultFamily = String(defaultSettings.editorFontFamily || entry.default || "");
@@ -1023,12 +1077,14 @@ export function initSettings(api) {
             next.unshift(res.name);
             setEditorFontUserFiles(next);
           }
+          await reloadFontCatalog();
           const option = document.createElement("option");
           option.value = `user:${res.name}`;
           option.textContent = `${res.name} (user)`;
           select.appendChild(option);
           select.value = option.value;
-          ensureEditorUserFontFaces();
+          ensureUserFontFaces();
+          refreshInterfaceFontControls();
           const family = `\"ABCarus User Font: ${res.name}\", ${systemFamily}`;
           stageSetting(entry.key, family);
         });
@@ -1058,14 +1114,22 @@ export function initSettings(api) {
           if (!list.includes(file)) return;
           if (!confirm(`Delete ABCarus installed copy of "${file}"?\n\nThe original external font file will not be touched.`)) return;
           if (!api || typeof api.removeFont !== "function") return;
+          const effectiveBeforeRemove = getEffectiveSettings();
           const res = await api.removeFont(file).catch(() => null);
           if (!res || !res.ok) return;
+          const patch = settingsPatchForRemovedUserFont(file, effectiveBeforeRemove);
+          const nextDraft = { ...(draftPatch || {}) };
+          for (const key of Object.keys(patch)) delete nextDraft[key];
+          setDraftPatch(nextDraft);
+          if (Object.keys(patch).length) await updateSettings(patch).catch(() => {});
           setEditorFontUserFiles(list.filter((x) => x !== file));
           const opt = Array.from(select.options).find((o) => String(o.value) === `user:${file}`);
           if (opt) opt.remove();
+          await reloadFontCatalog();
           select.value = "";
-          stageSetting(entry.key, defaultFamily);
-          ensureEditorUserFontFaces();
+          ensureUserFontFaces();
+          refreshFontSelectControls();
+          refreshInterfaceFontControls();
           updateRemoveEnabled();
         });
 
@@ -1163,21 +1227,10 @@ export function initSettings(api) {
           alert(res && res.error ? res.error : "Failed to add font.");
           return;
         }
-        const list = await api.listFonts().catch(() => null);
-        if (list && list.ok) {
-          cachedFontLists = {
-            notation: [
-              ...(list.bundled && list.bundled.notation ? list.bundled.notation.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.notation ? list.user.notation.map((n) => `user:${n}`) : []),
-            ],
-            text: [
-              ...(list.bundled && list.bundled.text ? list.bundled.text.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.text ? list.user.text.map((n) => `user:${n}`) : []),
-            ],
-          };
-        }
+        await reloadFontCatalog();
         const newRef = `user:${String(res.name || "")}`;
         refreshFontSelectControls();
+        refreshInterfaceFontControls();
 
         const category = classifyFontRef(newRef);
         const keyByCategory = {
@@ -1236,23 +1289,13 @@ export function initSettings(api) {
         const ok = confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`);
         if (!ok) return;
         if (!api || typeof api.removeFont !== "function") return;
-        const removedRef = `user:${fileName}`;
         const effectiveBeforeRemove = getEffectiveSettings();
         const res = await api.removeFont(fileName).catch(() => null);
         if (!res || !res.ok) {
           alert(res && res.error ? res.error : "Failed to remove font.");
           return;
         }
-        const patch = {};
-        if (String(effectiveBeforeRemove.abc2svgNotationFontFile || "") === removedRef) {
-          patch.abc2svgNotationFontFile = "";
-        }
-        if (String(effectiveBeforeRemove.abc2svgTextFontFile || "") === removedRef) {
-          patch.abc2svgTextFontFile = "";
-        }
-        if (String(effectiveBeforeRemove.editorFontFamily || "").includes(`ABCarus User Font: ${fileName}`)) {
-          patch.editorFontFamily = String(defaultSettings.editorFontFamily || "");
-        }
+        const patch = settingsPatchForRemovedUserFont(fileName, effectiveBeforeRemove);
         if (Object.keys(patch).length) {
           const nextDraft = { ...(draftPatch || {}) };
           for (const key of Object.keys(patch)) delete nextDraft[key];
@@ -1260,21 +1303,10 @@ export function initSettings(api) {
           await updateSettings(patch).catch(() => {});
         }
         setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => String(name || "") !== fileName));
-        ensureEditorUserFontFaces();
-        const list = await api.listFonts().catch(() => null);
-        if (list && list.ok) {
-          cachedFontLists = {
-            notation: [
-              ...(list.bundled && list.bundled.notation ? list.bundled.notation.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.notation ? list.user.notation.map((n) => `user:${n}`) : []),
-            ],
-            text: [
-              ...(list.bundled && list.bundled.text ? list.bundled.text.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.text ? list.user.text.map((n) => `user:${n}`) : []),
-            ],
-          };
-        }
+        await reloadFontCatalog();
+        ensureUserFontFaces();
         refreshFontSelectControls();
+        refreshInterfaceFontControls();
         updateRemoveEnabled();
       });
 
@@ -1545,7 +1577,9 @@ export function initSettings(api) {
 
               const familyRow = createRow(familyEntry);
               const sizeRow = createRow(sizeEntry);
-              const familyControl = familyRow ? familyRow.querySelector("input, select, textarea") : null;
+              const familyControl = familyRow
+                ? (familyRow.querySelector(".settings-select-row") || familyRow.querySelector("input, select, textarea"))
+                : null;
               const sizeControl = sizeRow ? sizeRow.querySelector("input, select, textarea") : null;
               if (!familyControl || !sizeControl) continue;
               resolved.push({
@@ -1853,7 +1887,10 @@ export function initSettings(api) {
         alert((res && res.error) ? res.error : "Failed to export profile.");
         return;
       }
-      const note = res.exportedHeader ? "\n(incl. user_settings.abc)" : "";
+      const exported = [];
+      if (res.exportedHeader) exported.push("user_settings.abc");
+      if (Number(res.exportedFonts) > 0) exported.push(`${Number(res.exportedFonts)} added font file(s)`);
+      const note = exported.length ? `\n(incl. ${exported.join(", ")})` : "";
       alert(`Profile exported:\n${res.path}${note}`);
     });
   }
@@ -1870,10 +1907,17 @@ export function initSettings(api) {
         return;
       }
       if (res.settings) applySettings(res.settings);
+      if (Number(res.importedFonts) > 0) {
+        await reloadFontCatalog();
+        ensureUserFontFaces();
+      }
       buildSettingsUi();
       await loadGlobalHeaderFile();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
-      const note = res.importedHeader ? " (incl. Global Header)" : "";
+      const imported = [];
+      if (res.importedHeader) imported.push("Global Header");
+      if (Number(res.importedFonts) > 0) imported.push(`${Number(res.importedFonts)} font file(s)`);
+      const note = imported.length ? ` (incl. ${imported.join(", ")})` : "";
       alert(`Profile imported${note}.\nSome changes apply immediately; others may require a restart.`);
     });
   }
@@ -1898,21 +1942,7 @@ export function initSettings(api) {
         cachedFontDirs = { bundledDir: String(res.bundledDir || ""), userDir: String(res.userDir || "") };
       }
     }
-    if (api && typeof api.listFonts === "function") {
-      const res = await api.listFonts().catch(() => null);
-      if (res && res.ok) {
-        cachedFontLists = {
-          notation: [
-            ...(res.bundled && Array.isArray(res.bundled.notation) ? res.bundled.notation.map((n) => `bundled:${n}`) : []),
-            ...(res.user && Array.isArray(res.user.notation) ? res.user.notation.map((n) => `user:${n}`) : []),
-          ],
-          text: [
-            ...(res.bundled && Array.isArray(res.bundled.text) ? res.bundled.text.map((n) => `bundled:${n}`) : []),
-            ...(res.user && Array.isArray(res.user.text) ? res.user.text.map((n) => `user:${n}`) : []),
-          ],
-        };
-      }
-    }
+    await reloadFontCatalog();
     if (api && typeof api.listSoundfonts === "function") {
       const list = await api.listSoundfonts().catch(() => []);
       cachedSoundfonts = Array.isArray(list) ? list : [];

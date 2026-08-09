@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Global Header ABC now has one runtime source of truth: `user_settings.abc`. The Settings editor writes that file directly, while `globalHeaderEnabled` remains an ordinary application preference.
 - Portable-folder builds resolve `user_settings.abc` beside the application; installed builds continue to use the OS user-data directory.
 - New exports keep the JSON profile in `abcarus-profile.json` and Global Header ABC in the neighboring `user_settings.abc` file.
+- Interface and Library fonts use friendly presets and shared user-font selectors instead of exposing CSS fallback strings as the primary UI.
+- Profile export/import carries fonts added to ABCarus in a neighboring `fonts/` directory.
 
 ### Fixed
 - Legacy embedded `globalHeaderText` is migrated once without allowing a deliberately deleted `user_settings.abc` to reappear on later launches.

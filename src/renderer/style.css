@@ -3449,6 +3449,23 @@ button.primary:not(:disabled):hover,
   min-width: 0;
 }
 
+.settings-entry--font-choice {
+  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 2.3fr);
+}
+
+.settings-entry--font-choice .settings-select-row {
+  width: 100%;
+}
+
+.settings-entry--font-choice .settings-select-row select {
+  width: 100%;
+  max-width: none;
+}
+
+.settings-entry--font-choice .settings-select-row button {
+  min-width: 74px;
+}
+
 .settings-select-row select {
   min-width: 0;
 }
@@ -3463,6 +3480,9 @@ button.primary:not(:disabled):hover,
   .modal-card.settings-card { min-width: 680px; }
   .settings-entry {
     grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1fr) minmax(180px, 1.1fr);
+  }
+  .settings-entry--font-choice {
+    grid-template-columns: minmax(130px, 0.6fr) minmax(0, 2.4fr);
   }
   .settings-row {
     grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1fr);
@@ -3488,6 +3508,9 @@ button.primary:not(:disabled):hover,
   }
   .settings-entry {
     grid-template-columns: minmax(140px, 0.8fr) minmax(150px, 1fr);
+  }
+  .settings-entry--font-choice {
+    grid-template-columns: 1fr;
   }
   .settings-entry > .settings-help {
     grid-column: 1 / -1;

@@ -3360,6 +3360,30 @@ async function runUiSmoke(win) {
         await wait(120);
       }
       const shownOutOfFocus = !isHidden();
+      const hook = window.__abcarusDevUiSmoke;
+      let fontChoicesOk = false;
+      let fontSelectWidths = [];
+      let fontRemoveLabels = [];
+      if (hook && typeof hook.dispatchAction === "function") {
+        await hook.dispatchAction({ type: "fonts" });
+        await wait(250);
+        const fontsPanel = document.querySelector('[data-settings-panel="fonts"].active');
+        const chooserRows = fontsPanel
+          ? Array.from(fontsPanel.querySelectorAll(".settings-select-row"))
+          : [];
+        fontSelectWidths = chooserRows.map((row) => {
+          const select = row.querySelector("select");
+          return select ? Math.round(select.getBoundingClientRect().width) : 0;
+        });
+        fontRemoveLabels = chooserRows.map((row) => {
+          const buttons = row.querySelectorAll("button");
+          const remove = buttons.length ? buttons[buttons.length - 1] : null;
+          return remove ? String(remove.textContent || "").trim() : "";
+        });
+        fontChoicesOk = chooserRows.length >= 4
+          && fontSelectWidths.every((width) => width >= 140)
+          && fontRemoveLabels.every((label) => label === "Remove");
+      }
       return {
         ok: errorsVisible
           && followVisible
@@ -3369,7 +3393,8 @@ async function runUiSmoke(win) {
           && selTuneRadiusPx >= 7
           && selTempoHeightPx >= 27
           && hiddenInFocus
-          && shownOutOfFocus,
+          && shownOutOfFocus
+          && fontChoicesOk,
         visualGapPx,
         togglesGapPx,
         libRadiusPx,
@@ -3380,6 +3405,9 @@ async function runUiSmoke(win) {
         followDisplay,
         hiddenInFocus,
         shownOutOfFocus,
+        fontChoicesOk,
+        fontSelectWidths,
+        fontRemoveLabels,
       };
     })()`,
     true

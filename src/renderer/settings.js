@@ -293,7 +293,7 @@ export function initSettings(api) {
 
     const optDefault = document.createElement("option");
     optDefault.value = "";
-    optDefault.textContent = "Default";
+    optDefault.textContent = "Default (bundled)";
     selectEl.appendChild(optDefault);
 
     const pushOptions = (refs) => {
@@ -923,6 +923,7 @@ export function initSettings(api) {
     if (kind === "number" || kind === "percent") {
       input = document.createElement("input");
       input.type = "number";
+      if (entry.section === "Fonts" && entry.help) input.title = String(entry.help);
       if (entry.ui.min != null) input.min = String(entry.ui.min);
       if (entry.ui.max != null) input.max = String(entry.ui.max);
       if (entry.ui.step != null) input.step = String(entry.ui.step);
@@ -942,6 +943,7 @@ export function initSettings(api) {
     if (kind === "text") {
       input = document.createElement("input");
       input.type = "text";
+      if (entry.section === "Fonts" && entry.help) input.title = String(entry.help);
       if (entry.ui.placeholder) input.placeholder = String(entry.ui.placeholder);
       input.addEventListener("change", () => {
         stageSetting(entry.key, input.value || "");
@@ -953,6 +955,7 @@ export function initSettings(api) {
 
     if (kind === "select") {
       const select = document.createElement("select");
+      if (entry.section === "Fonts" && entry.help) select.title = String(entry.help);
       const optionsKey = entry.ui && entry.ui.options ? String(entry.ui.options) : "";
       const isFontSelect = optionsKey === "notationFonts" || optionsKey === "textFonts";
       const isSoundfontSelect = optionsKey === "soundfonts";
@@ -1008,6 +1011,7 @@ export function initSettings(api) {
         const addBtn = document.createElement("button");
         addBtn.type = "button";
         addBtn.textContent = "Add…";
+        addBtn.title = "Copy a font into ABCarus and use it in the editor.";
         addBtn.addEventListener("click", async () => {
           if (!api || typeof api.pickFont !== "function" || typeof api.installFont !== "function") return;
           const pick = await api.pickFont().catch(() => null);
@@ -1039,10 +1043,10 @@ export function initSettings(api) {
           const file = m ? String(m[1] || "") : "";
           const canRemove = Boolean(file && getEditorFontUserFiles().includes(file));
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
-            : "No ABCarus-installed editor font copy is selected.";
+            : "Select a font added to ABCarus to remove it.";
         };
 
         removeBtn.addEventListener("click", async () => {
@@ -1121,6 +1125,9 @@ export function initSettings(api) {
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.textContent = "Add…";
+      addBtn.title = isSoundfontSelect
+        ? "Add an external SoundFont reference. The original file stays in its current location."
+        : "Copy a font into ABCarus and add it to this list.";
       addBtn.addEventListener("click", async () => {
         if (isSoundfontSelect) {
           if (!api || typeof api.pickSoundfont !== "function") return;
@@ -1276,17 +1283,17 @@ export function initSettings(api) {
         if (isSoundfontSelect) {
           const canRemove = isSoundfontPath(current);
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Remove link" : "No link";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Remove this external soundfont reference from ABCarus. The file will not be deleted."
-            : "Bundled/default soundfonts cannot be removed from this list.";
+            : "Select an external SoundFont to remove its reference.";
         } else {
           const canRemove = /^user:/.test(current);
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
-            : "Only ABCarus-installed font copies can be deleted.";
+            : "Select a font added to ABCarus to remove it.";
         }
       };
       select.addEventListener("change", updateRemoveEnabled);
@@ -1454,6 +1461,7 @@ export function initSettings(api) {
             if (!row) return;
             const block = document.createElement("div");
             block.className = "settings-entry";
+            if (sectionName === "Fonts") block.classList.add("settings-entry--font-choice");
             block.dataset.settingsSearch = `${entry.key} ${entry.label || ""} ${entry.help || ""} ${sectionName} ${g.title}`.toLowerCase();
             block.dataset.settingsKey = String(entry.key || "");
             block.appendChild(row);

@@ -30,13 +30,23 @@ async function main() {
     await saveStateDocument({ fs, path, filePath, data: recovered.data, skipBackup: true });
     assert.equal(JSON.parse(fs.readFileSync(`${filePath}.bak`, "utf8")).lastFolder, "/music");
 
-    const split = splitStateDocument({ lastFolder: "/scores", futureField: { enabled: true }, stateVersion: 99 });
-    assert.deepEqual(split.known, { lastFolder: "/scores", stateVersion: 99 });
+    const split = splitStateDocument({
+      lastFolder: "/scores",
+      globalHeaderMigrationVersion: 1,
+      futureField: { enabled: true },
+      stateVersion: 99,
+    });
+    assert.deepEqual(split.known, {
+      lastFolder: "/scores",
+      globalHeaderMigrationVersion: 1,
+      stateVersion: 99,
+    });
     assert.deepEqual(split.extras, { futureField: { enabled: true } });
     assert.deepEqual(composeStateDocument(split.known, split.extras), {
       futureField: { enabled: true },
       stateVersion: STATE_VERSION,
       lastFolder: "/scores",
+      globalHeaderMigrationVersion: 1,
     });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

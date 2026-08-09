@@ -6,16 +6,29 @@ To make your setup portable (SciTE-style), use the built-in **Export Settings** 
 ## Files
 
 Export creates:
-- `abcarus.properties` — the complete portable settings file, including Global Header as an escaped JSON string.
-- `user_settings.abc` — a legacy-compatible copy of the user header layer (if present).
+- `abcarus.properties` — application preferences in UTF-8 `key=value` format.
+- `user_settings.abc` — the Global Header as ordinary ABC text, if that file exists.
 
 Import reads:
 - `abcarus.properties`
-- and optionally the legacy `user_settings.abc` if it is in the same folder.
+- and optionally `user_settings.abc` if it is in the same folder.
 
-The properties file is now self-contained for portability: copying only
-`abcarus.properties` is sufficient to transfer Global Header settings. Existing
-exports that rely on a neighboring `user_settings.abc` remain supported.
+Keep both files when backing up or moving all settings. Global Header ABC is
+never stored in new `abcarus.properties` exports. Older properties files that
+embed `globalHeaderText` can still be imported once for migration.
+
+## Global Header file
+
+`Settings -> Global Header` edits `user_settings.abc` directly and saves changes
+automatically. The exact path is shown below the editor.
+
+- Installed builds use the Electron user-data folder.
+- Windows single-file portable builds use the executable folder.
+- Windows and Linux portable-folder builds use the extracted application folder.
+
+If `user_settings.abc` does not exist, the Global Header layer is empty. ABCarus
+creates it only after non-empty text is entered or an existing backup is imported.
+Deleting the file intentionally leaves the layer empty; old state does not recreate it.
 
 ## Optional: attach a canonical settings file
 
@@ -34,4 +47,6 @@ If the canonical file disappears, ABCarus falls back to the last internal snapsh
 ABCarus also keeps its live state under the OS user profile (`app.getPath('userData')`).
 Uninstall behavior differs by OS/installer, so **Export Settings** is the reliable way to preserve your configuration.
 
-Tip: the userData folder can be opened via **Help → Open Settings Folder**.
+Tip: **Help -> Open Settings Folder** opens the folder containing the active
+`user_settings.abc` location. In installed builds this is the user-data folder;
+in portable-folder builds this is the portable application folder.

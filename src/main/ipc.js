@@ -1637,6 +1637,48 @@ function registerIpcHandlers(ctx) {
     if (ctx && typeof ctx.getSettingsPaths === "function") return ctx.getSettingsPaths();
     return { globalPath: "", userPath: "" };
   });
+  ipcMain.handle("settings:global-header-read", async () => {
+    try {
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const filePath = paths && paths.userPath ? String(paths.userPath) : "";
+      if (!filePath) return { ok: false, error: "Global Header path is unavailable." };
+      try {
+        const text = await fs.promises.readFile(filePath, "utf8");
+        return { ok: true, path: filePath, exists: true, text };
+      } catch (error) {
+        if (error && error.code === "ENOENT") {
+          return { ok: true, path: filePath, exists: false, text: "" };
+        }
+        throw error;
+      }
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : String(error) };
+    }
+  });
+  ipcMain.handle("settings:global-header-write", async (event, value) => {
+    try {
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const filePath = paths && paths.userPath ? String(paths.userPath) : "";
+      if (!filePath) return { ok: false, error: "Global Header path is unavailable." };
+      const text = String(value == null ? "" : value);
+      let exists = false;
+      try {
+        const stat = await fs.promises.stat(filePath);
+        exists = Boolean(stat && stat.isFile());
+      } catch (error) {
+        if (!(error && error.code === "ENOENT")) throw error;
+      }
+      if (!exists && !text.trim()) {
+        return { ok: true, path: filePath, exists: false, text: "" };
+      }
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await atomicWriteFileWithRetry(fs, path, filePath, text);
+      try { event.sender.send("settings:changed", getSettings()); } catch {}
+      return { ok: true, path: filePath, exists: true, text };
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : String(error) };
+    }
+  });
   ipcMain.handle("settings:update", async (_event, patch) => {
     return updateSettings(patch || {});
   });
@@ -1680,16 +1722,20 @@ function registerIpcHandlers(ctx) {
       const exportDir = path.dirname(filePath);
       const exportHeaderPath = path.join(exportDir, "user_settings.abc");
       let userHeaderText = "";
+      let userHeaderExists = false;
       try {
-        if (userHeaderPath) userHeaderText = await fs.promises.readFile(userHeaderPath, "utf8");
-      } catch {}
-      if (!userHeaderText && current && typeof current.globalHeaderText === "string" && current.globalHeaderText.trim()) {
-        userHeaderText = current.globalHeaderText;
+        if (userHeaderPath) {
+          userHeaderText = await fs.promises.readFile(userHeaderPath, "utf8");
+          userHeaderExists = true;
+        }
+      } catch (error) {
+        const code = error && error.code ? String(error.code) : "";
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
       }
-      if (userHeaderText && userHeaderText.trim()) {
+      if (userHeaderExists) {
         await atomicWriteFileWithRetry(fs, path, exportHeaderPath, userHeaderText);
       }
-      return { ok: true, path: filePath, exportedHeader: Boolean(userHeaderText && userHeaderText.trim()) };
+      return { ok: true, path: filePath, exportedHeader: userHeaderExists };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1725,30 +1771,27 @@ function registerIpcHandlers(ctx) {
       let importedHeaderText = "";
       let hasImportedHeader = false;
       try {
-        await fs.promises.access(importedHeaderPath, fs.constants.F_OK);
         importedHeaderText = await fs.promises.readFile(importedHeaderPath, "utf8");
         hasImportedHeader = true;
-      } catch {}
+      } catch (error) {
+        const code = error && error.code ? String(error.code) : "";
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+      }
 
-      // New exports carry Global Header in the properties file. Keep the
-      // legacy sidecar authoritative when it is present, then mirror the
-      // resolved value into userData so the renderer sees one consistent layer.
+      // New exports use the sidecar. Embedded text is accepted only for
+      // backward compatibility with older .properties files.
       const hasEmbeddedHeader = Object.prototype.hasOwnProperty.call(patch || {}, "globalHeaderText");
-      if (!hasImportedHeader && hasEmbeddedHeader) {
+      if (!hasImportedHeader && hasEmbeddedHeader && String(patch.globalHeaderText || "").trim()) {
         importedHeaderText = String(patch.globalHeaderText || "");
         hasImportedHeader = true;
       }
       if (hasImportedHeader) {
-        patch.globalHeaderText = importedHeaderText;
         if (userHeaderPath) {
-          if (importedHeaderText.trim()) {
-            await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
-          } else {
-            await fs.promises.rm(userHeaderPath, { force: true });
-          }
+          await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
           importedHeader = true;
         }
       }
+      delete patch.globalHeaderText;
 
       const next = updateSettings(patch || {});
       // Import implies: this file becomes the canonical source of truth.
@@ -1765,10 +1808,12 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle("settings:open-folder", async () => {
     try {
-      if (!app || typeof app.getPath !== "function") return { ok: false, error: "Unavailable." };
-      const userData = app.getPath("userData");
-      if (!userData) return { ok: false, error: "Unavailable." };
-      await shell.openPath(String(userData));
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
+      const settingsDir = userHeaderPath ? path.dirname(userHeaderPath) : "";
+      if (!settingsDir) return { ok: false, error: "Unavailable." };
+      await fs.promises.mkdir(settingsDir, { recursive: true });
+      await shell.openPath(settingsDir);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

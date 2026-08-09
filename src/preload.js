@@ -100,6 +100,8 @@ contextBridge.exposeInMainWorld("api", {
   installFont: async (srcPath) => ipcRenderer.invoke("fonts:install", srcPath),
   removeFont: async (fileName) => ipcRenderer.invoke("fonts:remove", fileName),
   getSettingsPaths: async () => ipcRenderer.invoke("settings:paths"),
+  readGlobalHeader: async () => ipcRenderer.invoke("settings:global-header-read"),
+  writeGlobalHeader: async (text) => ipcRenderer.invoke("settings:global-header-write", text),
   exportSettings: async () => ipcRenderer.invoke("settings:export"),
   importSettings: async () => ipcRenderer.invoke("settings:import"),
   openSettingsFolder: async () => ipcRenderer.invoke("settings:open-folder"),

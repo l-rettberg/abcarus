@@ -1,75 +1,7 @@
 /*
-PLAN (Architect prompts 1→7) — Settings dialog redesign (desktop-grade)
-
-Scope for this prompt: plan only. Do NOT implement yet.
-Allowed files for the full sequence: `src/renderer/index.html`, `src/renderer/style.css`, `src/renderer/settings.js`
-(and `src/renderer/settings_store.js` only if section reset needs a helper).
-
-Current state (audit notes, high-level):
-- Markup: Settings modal lives in `src/renderer/index.html` under `#settingsModal` with left-nav containing
-  tabs container `#settingsTabs`, panels container `#settingsPanels`, and header Search (`#settingsFilter`).
-- CSS: `.modal-card.settings-card` is resizable and there are responsive rules that reflow to 1-column; multiple scroll
-  containers can cause “jumping”.
-- JS: `settings.js` builds tabs/panels from schema, searches across all panels, and can change active tab;
-  settings are staged until Apply/OK.
-
-Target layout (DOM changes in `index.html`):
-1) Header:
-   - Keep title “Settings”.
-   - Search input moved here (keep id `#settingsFilter`, accessible label/aria-label).
-2) Left pane:
-   - Navigation only: keep `#settingsTabs` list.
-   - Remove Search and remove “Show advanced” checkbox from visible UI (no `#settingsShowAdvanced` in UI).
-3) Right pane:
-   - Add section header bar above content: `#settingsSectionTitle` and optional `#settingsSectionHint`.
-   - Keep `#settingsNoResults` and `#settingsPanels`.
-4) Footer:
-   - Left: `#settingsResetSection` (“Reset Section…”).
-   - Right: `#settingsCancel`, `#settingsOk`.
-   - Remove/stop using old ids `#settingsReset` / `#settingsClose` (updated in JS in later prompts).
-
-Desktop styling changes in `style.css`:
-- Remove free resize on settings modal (`resize: both`).
-- Stable geometry: set a default size (e.g. ~960×600) with min/max constraints; no responsive 1-column collapse.
-- Single-scroll rule: only right pane content scrolls (`.settings-panels`); left nav is fixed-width and stable.
-- Left nav: strong selected state, clean list.
-- Right pane: section header bar typography; groups as “cards” (`.settings-group`), consistent spacing.
-- Rows: predictable 2-column alignment; avoid far-right floating checkboxes; inputs not overly wide.
-- Advanced settings are shown in the same page as regular settings.
-
-Behavior changes in `settings.js`:
-1) Modes:
-   - Settings use one mode; all schema-backed settings are visible in their section.
-2) Sections:
-   - Keep an `activeSectionId` persisted in localStorage; update `#settingsSectionTitle/#settingsSectionHint` on change.
-3) Rendering:
-   - Render entries exactly once (fix duplication risks, e.g. global header enable appearing twice).
-   - Group entries into `.settings-group` cards.
-4) Search:
-   - Search applies across all sections, narrows the left nav, and opens the only matching section automatically.
-   - When query is empty: normal view; when non-empty: hide non-matching entries; show `#settingsNoResults` if none.
-   - Search query is NOT persisted across restarts.
-5) Footer semantics:
-   - Switch to staged edits so Cancel has no side effects:
-     - Maintain `draftSettingsPatch` (in-memory) while dialog is open; controls update draft only.
-     - Apply/OK: send the accumulated patch via `store.update`, then clear draft; OK closes.
-     - Cancel: discard draft and close; reload persisted settings next open.
-   - Reset Section…:
-     - Confirm.
-     - Reset only keys belonging to active section (based on schema entries rendered in that section).
-     - Apply reset via `store.update`, keep dialog open.
-6) Safety checks (QA prompt 6+):
-   - After editing this file, run: `node --experimental-default-type=module --check src/renderer/settings.js`.
-
-Minimal touch-points:
-- `index.html`: only `#settingsModal` subtree changes (header/nav/content/footer), keep ids required by JS.
-- `style.css`: only settings-related selectors (.settings-*, .modal-card.settings-card) and override media query behavior.
-- `settings.js`: rewrite UI wiring to new ids and staged apply model; avoid reflow/jumping; keep store API unchanged.
-*/
-
-/*
 SETTINGS UX (maintainer summary)
 - Changes are staged while Settings is open; `Apply`/`OK` commits via `store.update`, `Cancel` discards.
+- Global Header is an external ABC file and is saved directly after edits.
 - Search filters across all Settings pages, narrows the left nav, and opens the only matching page automatically.
 - Advanced settings render in the same page as regular settings.
 - “Reset Section…” resets only the active section keys to schema defaults.
@@ -197,7 +129,7 @@ const FALLBACK_SCHEMA = [
   { key: "noteTypingPreviewRetriggerDuration", type: "boolean", default: true, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Typing preview: retrigger on duration", ui: { input: "checkbox" }, advanced: true },
   { key: "noteTypingPreviewSkipMicrotones", type: "boolean", default: true, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Typing preview: skip microtonal tokens", ui: { input: "checkbox" }, advanced: true },
   { key: "globalHeaderEnabled", type: "boolean", default: true, section: "Header", label: "Enable global header", ui: { input: "checkbox" } },
-  { key: "globalHeaderText", type: "string", default: "", section: "Header", label: "Global header", ui: { input: "code" } },
+  { key: "globalHeaderText", type: "string", default: "", legacy: true },
   { key: "usePortalFileDialogs", type: "boolean", default: true, section: "Dialogs", label: "Use portal file dialogs (Linux)", ui: { input: "checkbox" }, advanced: true },
   { key: "startupSplashSeconds", type: "number", default: 0, section: "General", group: "Startup", groupOrder: 12, label: "Startup splash duration (s)", help: "Minimum time to keep the startup splash visible. Set 0 to disable splash.", ui: { input: "number", min: 0, max: 30, step: 1 } },
   { key: "libraryAutoRenumberAfterMove", type: "boolean", default: false, section: "Library", label: "Auto-renumber X after move", ui: { input: "checkbox" } },
@@ -235,6 +167,16 @@ const FALLBACK_SCHEMA = [
   { key: "abc2svgTextFontFile", type: "string", default: "", section: "Fonts", label: "Text font", ui: { input: "select", options: "textFonts" } },
 ];
 
+const GLOBAL_HEADER_EDITOR_ENTRY = {
+  key: "__globalHeaderFile",
+  section: "Header",
+  group: "Global header",
+  groupOrder: 10,
+  label: "Global header text",
+  help: "Edits user_settings.abc directly. Changes are saved automatically.",
+  ui: { input: "code" },
+};
+
 function buildDefaults(schema) {
   const out = {};
   for (const entry of schema) {
@@ -245,7 +187,10 @@ function buildDefaults(schema) {
 }
 
 function groupSchemaForModal(schema) {
-  const uiEntries = (schema || []).filter((e) => e && e.ui && e.ui.input && !e.legacy);
+  const uiEntries = [
+    ...(schema || []).filter((e) => e && e.ui && e.ui.input && !e.legacy),
+    GLOBAL_HEADER_EDITOR_ENTRY,
+  ];
   const bySection = new Map();
   for (const entry of uiEntries) {
     const section = String(entry.section || "Other");
@@ -464,7 +409,13 @@ export function initSettings(api) {
   const controlByKey = new Map(); // key -> { entry, el, kind }
   let globalHeaderView = null;
   let suppressGlobalUpdate = false;
-  let globalUpdateTimer = null;
+  let globalHeaderFileText = "";
+  let globalHeaderFileExists = false;
+  let globalHeaderDraftDirty = false;
+  let globalHeaderSaveTimer = null;
+  let globalHeaderSavePromise = null;
+  let globalHeaderStatusEl = null;
+  let globalHeaderPath = "";
 
   function readUiState() {
     try {
@@ -542,6 +493,100 @@ export function initSettings(api) {
     setDraftPatch({});
     applySettings(next);
     return true;
+  }
+
+  function setGlobalHeaderEditorText(text) {
+    const nextText = String(text == null ? "" : text);
+    if (!globalHeaderView) return;
+    const currentText = globalHeaderView.state.doc.toString();
+    if (currentText === nextText) return;
+    suppressGlobalUpdate = true;
+    globalHeaderView.dispatch({
+      changes: { from: 0, to: globalHeaderView.state.doc.length, insert: nextText },
+    });
+    suppressGlobalUpdate = false;
+  }
+
+  function updateGlobalHeaderStatus(message, { error = false } = {}) {
+    if (!globalHeaderStatusEl) return;
+    const prefix = globalHeaderPath ? `${globalHeaderPath}\n` : "";
+    globalHeaderStatusEl.textContent = `${prefix}${String(message || "")}`.trim();
+    globalHeaderStatusEl.classList.toggle("settings-error", Boolean(error));
+  }
+
+  async function loadGlobalHeaderFile() {
+    if (!api || typeof api.readGlobalHeader !== "function") {
+      globalHeaderFileText = "";
+      globalHeaderFileExists = false;
+      globalHeaderDraftDirty = false;
+      setGlobalHeaderEditorText("");
+      return true;
+    }
+    const result = await api.readGlobalHeader().catch(() => null);
+    if (!result || !result.ok) {
+      alert((result && result.error) ? result.error : "Unable to read Global Header.");
+      return false;
+    }
+    globalHeaderFileText = String(result.text == null ? "" : result.text);
+    globalHeaderFileExists = Boolean(result.exists);
+    globalHeaderPath = String(result.path || "");
+    globalHeaderDraftDirty = false;
+    setGlobalHeaderEditorText(globalHeaderFileText);
+    updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
+    return true;
+  }
+
+  function scheduleGlobalHeaderSave() {
+    if (globalHeaderSaveTimer) clearTimeout(globalHeaderSaveTimer);
+    updateGlobalHeaderStatus("Pending save...");
+    globalHeaderSaveTimer = setTimeout(() => {
+      globalHeaderSaveTimer = null;
+      flushGlobalHeaderSave().catch(() => {});
+    }, 400);
+  }
+
+  async function flushGlobalHeaderSave() {
+    if (globalHeaderSaveTimer) {
+      clearTimeout(globalHeaderSaveTimer);
+      globalHeaderSaveTimer = null;
+    }
+    if (globalHeaderSavePromise) {
+      const priorOk = await globalHeaderSavePromise;
+      if (!priorOk) return false;
+    }
+    if (!globalHeaderView) return true;
+    const text = globalHeaderView.state.doc.toString();
+    if (text === globalHeaderFileText) {
+      globalHeaderDraftDirty = false;
+      updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
+      return true;
+    }
+    if (!api || typeof api.writeGlobalHeader !== "function") {
+      updateGlobalHeaderStatus("Unable to save Global Header.", { error: true });
+      return false;
+    }
+    updateGlobalHeaderStatus("Saving...");
+    globalHeaderSavePromise = (async () => {
+      const result = await api.writeGlobalHeader(text).catch(() => null);
+      if (!result || !result.ok) {
+        updateGlobalHeaderStatus(
+          (result && result.error) ? `Save failed: ${result.error}` : "Save failed.",
+          { error: true },
+        );
+        return false;
+      }
+      globalHeaderFileText = String(result.text == null ? text : result.text);
+      globalHeaderFileExists = Boolean(result.exists);
+      globalHeaderPath = String(result.path || globalHeaderPath);
+      const currentText = globalHeaderView ? globalHeaderView.state.doc.toString() : globalHeaderFileText;
+      globalHeaderDraftDirty = currentText !== globalHeaderFileText;
+      updateGlobalHeaderStatus(globalHeaderDraftDirty ? "Pending save..." : "Saved");
+      return true;
+    })();
+    const saved = await globalHeaderSavePromise;
+    globalHeaderSavePromise = null;
+    if (saved && globalHeaderDraftDirty) return flushGlobalHeaderSave();
+    return saved;
   }
 
   function stageSetting(key, value) {
@@ -639,7 +684,9 @@ export function initSettings(api) {
     }
 
     if (globalHeaderView) {
-      const nextText = String(effectiveSettings.globalHeaderText || "");
+      const nextText = globalHeaderDraftDirty
+        ? globalHeaderView.state.doc.toString()
+        : globalHeaderFileText;
       const doc = globalHeaderView.state.doc.toString();
       if (doc !== nextText) {
         suppressGlobalUpdate = true;
@@ -652,7 +699,10 @@ export function initSettings(api) {
 
   }
 
-  function openSettings() {
+  async function openSettings() {
+    await initPromise.catch(() => {});
+    const loaded = await loadGlobalHeaderFile();
+    if (!loaded) return;
     if (!$settingsModal) return;
     isSettingsOpen = true;
     $settingsModal.classList.add("open");
@@ -669,14 +719,17 @@ export function initSettings(api) {
     }, 0);
   }
 
-  function closeSettings({ discardDraft = false } = {}) {
+  async function closeSettings({ discardDraft = false } = {}) {
     if (!$settingsModal) return;
+    const headerSaved = await flushGlobalHeaderSave();
+    if (!headerSaved) return false;
     isSettingsOpen = false;
     if (discardDraft) discardDraftPatch();
     if ($settingsFilter) $settingsFilter.value = "";
     if (applySettingsFilter && $settingsFilter) applySettingsFilter("");
     $settingsModal.classList.remove("open");
     $settingsModal.setAttribute("aria-hidden", "true");
+    return true;
   }
 
   function readModalPosition() {
@@ -1287,6 +1340,7 @@ export function initSettings(api) {
       try { globalHeaderView.destroy(); } catch {}
       globalHeaderView = null;
     }
+    globalHeaderStatusEl = null;
 
     const bySectionRaw = groupSchemaForModal(schema);
     const bySection = new Map();
@@ -1619,11 +1673,8 @@ export function initSettings(api) {
 
             const updateListener = EditorView.updateListener.of((update) => {
               if (!update.docChanged || suppressGlobalUpdate) return;
-              if (globalUpdateTimer) clearTimeout(globalUpdateTimer);
-              globalUpdateTimer = setTimeout(() => {
-                if (!globalHeaderView) return;
-                stageSetting(codeEntry.key, globalHeaderView.state.doc.toString());
-              }, 400);
+              globalHeaderDraftDirty = update.state.doc.toString() !== globalHeaderFileText;
+              if (globalHeaderDraftDirty) scheduleGlobalHeaderSave();
             });
             const state = EditorState.create({
               doc: "",
@@ -1636,6 +1687,10 @@ export function initSettings(api) {
               ],
             });
             globalHeaderView = new EditorView({ state, parent: editorHost });
+            globalHeaderStatusEl = document.createElement("div");
+            globalHeaderStatusEl.className = "settings-help settings-global-header-status";
+            editorBlock.appendChild(globalHeaderStatusEl);
+            updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
             group.appendChild(editorBlock);
           }
 
@@ -1710,16 +1765,16 @@ export function initSettings(api) {
   }
 
   if ($settingsClose) {
-    $settingsClose.addEventListener("click", () => closeSettings({ discardDraft: true }));
+    $settingsClose.addEventListener("click", () => { void closeSettings({ discardDraft: true }); });
   }
   if ($settingsModal) {
     $settingsModal.addEventListener("click", (e) => {
-      if (e.target === $settingsModal) closeSettings({ discardDraft: true });
+      if (e.target === $settingsModal) void closeSettings({ discardDraft: true });
     });
     $settingsModal.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        closeSettings({ discardDraft: true });
+        void closeSettings({ discardDraft: true });
       }
     });
   }
@@ -1729,7 +1784,7 @@ export function initSettings(api) {
     });
   }
   if ($settingsReset) {
-    $settingsReset.addEventListener("click", () => {
+    $settingsReset.addEventListener("click", async () => {
       // Preserve previous behavior: reset only what the Settings modal owns.
       const patch = {};
       for (const entry of schema) {
@@ -1738,14 +1793,18 @@ export function initSettings(api) {
         if (String(entry.section || "").toLowerCase() === "drums") continue;
         patch[entry.key] = entry.default;
       }
-      updateSettings(patch).catch(() => {});
+      await flushGlobalHeaderSave().catch(() => false);
+      await updateSettings(patch).catch(() => {});
     });
   }
-  if ($settingsCancel) $settingsCancel.addEventListener("click", () => closeSettings({ discardDraft: true }));
+  if ($settingsCancel) $settingsCancel.addEventListener("click", () => { void closeSettings({ discardDraft: true }); });
   if ($settingsOk) {
     $settingsOk.addEventListener("click", async () => {
-      await applyDraftPatch().catch(() => {});
-      closeSettings({ discardDraft: false });
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
+      const settingsSaved = await applyDraftPatch().catch(() => false);
+      if (!settingsSaved) return;
+      await closeSettings({ discardDraft: false });
     });
   }
   if ($settingsResetSection) {
@@ -1767,6 +1826,8 @@ export function initSettings(api) {
       for (const key of Object.keys(patch)) delete nextDraft[key];
       setDraftPatch(nextDraft);
 
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       await updateSettings(patch).catch(() => {});
       buildSettingsUi();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
@@ -1776,6 +1837,8 @@ export function initSettings(api) {
   if ($settingsExport) {
     $settingsExport.addEventListener("click", async () => {
       if (!api || typeof api.exportSettings !== "function") return;
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       const res = await api.exportSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok || !res.path) {
@@ -1790,6 +1853,8 @@ export function initSettings(api) {
   if ($settingsImport) {
     $settingsImport.addEventListener("click", async () => {
       if (!api || typeof api.importSettings !== "function") return;
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       const res = await api.importSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok) {
@@ -1798,6 +1863,7 @@ export function initSettings(api) {
       }
       if (res.settings) applySettings(res.settings);
       buildSettingsUi();
+      await loadGlobalHeaderFile();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
       const note = res.importedHeader ? " (incl. Global Header)" : "";
       alert(`Settings imported${note}.\nSome changes apply immediately; others may require a restart.`);
@@ -1848,6 +1914,7 @@ export function initSettings(api) {
     initSettingsDrag();
     const settings = await store.get().catch(() => null);
     if (settings) applySettings(settings);
+    await loadGlobalHeaderFile();
     if (applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
   })();
 
@@ -1868,7 +1935,7 @@ export function initSettings(api) {
   async function openTab(tabKey) {
     await initPromise.catch(() => {});
     lastActiveTab = normalizeTabKey(tabKey);
-    openSettings();
+    await openSettings();
   }
 
   return {

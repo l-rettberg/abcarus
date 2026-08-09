@@ -11,6 +11,7 @@ const KNOWN_STATE_KEYS = new Set([
   "recentFolders",
   "settings",
   "settingsFile",
+  "globalHeaderMigrationVersion",
   "windowState",
 ]);
 

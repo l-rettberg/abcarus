@@ -3060,6 +3060,17 @@ svg {
   grid-column: 1 / -1;
 }
 
+.settings-entry > .settings-global-header-status {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-global-header-status.settings-error {
+  color: #b42318;
+}
+
 .settings-editor .cm-editor {
   height: 100%;
 }

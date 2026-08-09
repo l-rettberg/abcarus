@@ -78,9 +78,7 @@ function main() {
       globalHeaderText: "%%gchordfont MuseJazz Text 20\n%%MIDI program 1",
     };
     const exported = encodePropertiesFromSchema(source, schema);
-    assert(exported.includes("globalHeaderText=\"%%gchordfont MuseJazz Text 20\\n%%MIDI program 1\""), "portable export must include escaped Global Header");
-    const imported = parseSettingsPatchFromProperties(exported, schema);
-    assert(imported.globalHeaderText === source.globalHeaderText, "portable Global Header must round-trip");
+    assert(!exported.includes("globalHeaderText="), "new properties exports must not embed Global Header ABC text");
 
     const legacy = parseSettingsPatchFromProperties("globalHeaderText=%%gchordfont MuseJazz Text 20", schema);
     assert(legacy.globalHeaderText === "%%gchordfont MuseJazz Text 20", "plain Global Header values must remain readable");

@@ -11,6 +11,11 @@ const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
 const { normalizeMicrotonalSettings } = require("./settings_normalize");
 const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
+const {
+  PORTABLE_MARKER_FILE,
+  migrateLegacyGlobalHeader,
+  resolveGlobalHeaderPath,
+} = require("./global_header_store");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
 const {
   composeStateDocument,
@@ -83,6 +88,7 @@ const appState = {
     path: null,
     lastKnownMtimeMs: 0,
   },
+  globalHeaderMigrationVersion: 0,
   debugFlags: {
     showMessages: false,
     autoDump: false,
@@ -497,10 +503,38 @@ function readStartupSplashSecondsPreferenceSync() {
 }
 
 function getSettingsPaths() {
+  const executablePath = String(process.execPath || "");
+  const portableMarkerPath = executablePath
+    ? path.join(path.dirname(executablePath), PORTABLE_MARKER_FILE)
+    : "";
+  const userPath = resolveGlobalHeaderPath({
+    path,
+    userDataPath: app.getPath("userData"),
+    executablePath,
+    portableExecutableDir: process.env.PORTABLE_EXECUTABLE_DIR || process.env.ABCARUS_PORTABLE_DIR || "",
+    portableMarkerPresent: Boolean(portableMarkerPath && fs.existsSync(portableMarkerPath)),
+  });
   return {
     globalPath: path.join(app.getAppPath(), "assets", "global_settings.abc"),
-    userPath: path.join(app.getPath("userData"), "user_settings.abc"),
+    userPath,
   };
+}
+
+async function migrateLegacyGlobalHeaderAtStartup() {
+  const previousVersion = appState.globalHeaderMigrationVersion;
+  try {
+    const result = await migrateLegacyGlobalHeader({
+      fs,
+      path,
+      headerPath: getSettingsPaths().userPath,
+      legacyText: appState.settings && appState.settings.globalHeaderText,
+      migrationVersion: appState.globalHeaderMigrationVersion,
+    });
+    appState.globalHeaderMigrationVersion = result.migrationVersion;
+    if (appState.globalHeaderMigrationVersion !== previousVersion) await saveState();
+  } catch (error) {
+    console.warn("Unable to migrate legacy Global Header; the legacy value remains available for a later retry.", error);
+  }
 }
 
 async function loadSettingsFromAttachedFile() {
@@ -557,6 +591,7 @@ async function loadState() {
     appState.recentTunes = Array.isArray(state.recentTunes) ? state.recentTunes : [];
     appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
     appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
+    appState.globalHeaderMigrationVersion = Number(state.globalHeaderMigrationVersion) || 0;
     if (state.settingsFile && typeof state.settingsFile === "object") {
       const mode = state.settingsFile.mode === "file" ? "file" : "internal";
       const p = state.settingsFile.path ? String(state.settingsFile.path) : null;
@@ -603,6 +638,7 @@ async function loadState() {
   // If the user explicitly attached a properties file, prefer it as the source of truth.
   // Missing/unreadable file should not prevent startup.
   await loadSettingsFromAttachedFile();
+  await migrateLegacyGlobalHeaderAtStartup();
 }
 
 async function pathExists(p) {
@@ -702,6 +738,7 @@ async function persistState() {
         recentFolders: appState.recentFolders,
         settings: appState.settings,
         settingsFile: appState.settingsFile,
+        globalHeaderMigrationVersion: appState.globalHeaderMigrationVersion,
         windowState: appState.windowState,
       },
       stateDocumentExtras,

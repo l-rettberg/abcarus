@@ -79,6 +79,9 @@ cat > "${appdir}/AppRun" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(dirname "$(readlink -f "$0")")"
+if [[ -f "${HERE}/ABCarus.portable" ]]; then
+  export ABCARUS_PORTABLE_DIR="${HERE}"
+fi
 exec "${HERE}/usr/bin/abcarus" "$@"
 EOF
 chmod 755 "${appdir}/AppRun"

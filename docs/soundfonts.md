@@ -11,7 +11,7 @@ You can add additional soundfonts locally without committing them to the repo:
 - Add the `.sf2` file path to settings (`soundfontPaths`).
 - Select the active soundfont via `soundfontName`.
 
-Settings are persisted under `app.getPath("userData")` in `state.json` (see `src/main/index.js`).
+Settings are persisted in `abcarus-profile.json` (under `app.getPath("userData")` for installed builds; see `src/main/index.js`).
 
 ## Notes
 - Not all soundfonts include good (or any) drum mappings. If drums seem missing, first verify the chosen soundfont supports drums.

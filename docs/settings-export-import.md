@@ -1,52 +1,57 @@
-# Settings Export/Import (offline, portable)
+# ABCarus Profile, Export, and Import
 
-ABCarus is intentionally offline: no cloud accounts and no network sync.
-To make your setup portable (SciTE-style), use the built-in **Export Settings** / **Import Settings** commands.
+ABCarus uses one JSON profile for application preferences and working UI state:
 
-## Files
+```text
+abcarus-profile.json
+```
 
-Export creates:
-- `abcarus.properties` — application preferences in UTF-8 `key=value` format.
-- `user_settings.abc` — the Global Header as ordinary ABC text, if that file exists.
+It contains ordinary settings, recent files and folders, dialog preferences,
+Library UI state, and window state. It does not contain tunes or Global Header ABC.
 
-Import reads:
-- `abcarus.properties`
-- and optionally `user_settings.abc` if it is in the same folder.
+## Runtime location
 
-Keep both files when backing up or moving all settings. Global Header ABC is
-never stored in new `abcarus.properties` exports. Older properties files that
-embed `globalHeaderText` can still be imported once for migration.
+- Installed builds: the Electron user-data folder.
+- Windows single-file portable builds: beside the executable.
+- Windows and Linux portable-folder builds: the extracted application folder.
 
-## Global Header file
+If the profile is absent, ABCarus starts with defaults and creates it automatically.
+The adjacent `abcarus-profile.json.bak` is the last automatic profile backup.
 
-`Settings -> Global Header` edits `user_settings.abc` directly and saves changes
-automatically. The exact path is shown below the editor.
+On the first upgraded launch, legacy `state.json` and any attached
+`abcarus.properties` preferences are read once. ABCarus writes the unified
+profile successfully before removing the obsolete state files. The external
+legacy `.properties` file itself is left untouched as a user-owned backup.
 
-- Installed builds use the Electron user-data folder.
-- Windows single-file portable builds use the executable folder.
-- Windows and Linux portable-folder builds use the extracted application folder.
+## Export
 
-If `user_settings.abc` does not exist, the Global Header layer is empty. ABCarus
-creates it only after non-empty text is entered or an existing backup is imported.
-Deleting the file intentionally leaves the layer empty; old state does not recreate it.
+**Export Profile** writes a standalone copy named `abcarus-profile.json` to the
+chosen location. Export does not attach that copy to ABCarus and later changes do
+not modify it.
 
-## Optional: attach a canonical settings file
+If the optional Global Header exists, Export also writes this neighboring file:
 
-By default, ABCarus keeps settings internally (under the OS profile).
+```text
+user_settings.abc
+```
 
-When you **Export Settings…** (or **Import Settings…**), the selected `abcarus.properties` becomes the **canonical**
-settings source of truth on the next start.
+Keep both files for a complete profile plus Global Header backup.
 
-If you later edit the canonical file externally, ABCarus will pick it up on the next start and also when the app
-regains focus (best-effort, without background watchers).
+## Import
 
-If the canonical file disappears, ABCarus falls back to the last internal snapshot and continues to work.
+**Import Profile** reads the selected profile once, applies it to the canonical
+runtime profile, and then closes the source file. There is no synchronization or
+external-file watcher after Import.
 
-## Where settings live by default
+For backward compatibility, Import also accepts legacy `abcarus.properties`
+files. Their `key=value` preferences are merged once into the current profile.
+Legacy embedded `globalHeaderText` is migrated to `user_settings.abc`.
 
-ABCarus also keeps its live state under the OS user profile (`app.getPath('userData')`).
-Uninstall behavior differs by OS/installer, so **Export Settings** is the reliable way to preserve your configuration.
+## Global Header
 
-Tip: **Help -> Open Settings Folder** opens the folder containing the active
-`user_settings.abc` location. In installed builds this is the user-data folder;
-in portable-folder builds this is the portable application folder.
+`user_settings.abc` remains separate because it contains ABC directives rather
+than application state. `Settings -> Global Header` edits it directly and saves
+changes automatically. Its exact path is shown below the editor.
+
+**Help -> Open Settings Folder** opens the directory containing the active profile
+and `user_settings.abc` location.

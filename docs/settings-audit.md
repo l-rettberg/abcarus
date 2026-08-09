@@ -5,7 +5,7 @@
 Settings metadata and defaults live in `src/main/settings_schema.js`.
 
 Main process owns:
-- persistence (`state.json` under Electron `userData`)
+- persistence (`abcarus-profile.json`; under Electron `userData` for installed builds)
 - validation/normalization on write (`updateSettings()` in `src/main/index.js`)
 
 Renderer owns:
@@ -47,7 +47,7 @@ proves both behaviors work together.
 
 **Header**
 - `globalHeaderEnabled` (default `true`) — Enable global header
-- `globalHeaderText` (default `""`) — Global header
+- `globalHeaderText` (legacy import only; runtime Global Header lives in `user_settings.abc`)
 
 **Drums**
 - `drumVelocityMap` (default `{}`) — Drum mixer *(Advanced)*

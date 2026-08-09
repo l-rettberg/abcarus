@@ -140,6 +140,7 @@ jobs:
           
           Notes:
             - Keep the folder structure intact.
+            - Preferences and UI state are stored as abcarus-profile.json here.
             - Global Header is stored as user_settings.abc in this folder.
               Back up that file or copy it here when moving ABCarus.
             - If you prefer a single-file app, use the AppImage build instead.
@@ -339,6 +340,7 @@ jobs:
             "  - Extract the entire zip to a folder before running.",
             "  - Do NOT run ABCarus.exe directly from inside the zip viewer,",
             "    otherwise required DLLs (e.g. ffmpeg.dll) may not be found.",
+            "  - Preferences and UI state are stored as abcarus-profile.json here.",
             "  - Global Header is stored as user_settings.abc in this folder.",
             "    Back up that file or copy it here when moving ABCarus."
           ) -join "`r`n"

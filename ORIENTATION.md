@@ -82,9 +82,8 @@ If this appears and correlates with multi-second startup delays, treat it as a *
 
 1) Quit the app.
 2) Back up the important ABCarus files from `userData`:
-   - `state.json`
+   - `abcarus-profile.json`
    - `user_settings.abc`
-   - `abcarus.properties` (if present)
    - `fonts/` (if present)
    - `templates/` (if present)
 3) Delete only these folders (they are safe to regenerate):

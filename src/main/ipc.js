@@ -5,7 +5,8 @@ const {
 } = require("./conversion");
 const { resolvePythonExecutable, pythonEnvForExecutable } = require("./conversion/utils");
 const { getSettingsSchema } = require("./settings_schema");
-const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
+const { parseSettingsPatchFromProperties } = require("./properties");
+const { parseProfileDocument, serializeProfileDocument } = require("./state_store");
 const { decodeAbcTextFromBuffer, encodeAbcTextToBuffer } = require("./abcCharset");
 
 const os = require("os");
@@ -479,8 +480,8 @@ function registerIpcHandlers(ctx) {
       getDialogDefaultPath,
       getDialogFilterIndex,
       rememberDialogSelection,
-	    getSettingsFile,
-	    setSettingsFile,
+      getProfileSnapshot,
+      importProfileSnapshot,
 	    updateSettings,
 	    requestQuit,
 	    getLastRecent,
@@ -1690,32 +1691,27 @@ function registerIpcHandlers(ctx) {
       if (suggestedDir) {
         try { await fs.promises.mkdir(suggestedDir, { recursive: true }); } catch {}
       }
-      const defaultPath = suggestedDir ? path.join(suggestedDir, "abcarus.properties") : "abcarus.properties";
+      const defaultPath = suggestedDir ? path.join(suggestedDir, "abcarus-profile.json") : "abcarus-profile.json";
       const result = await dialog.showSaveDialog(parent || undefined, {
         modal: true,
-        title: "Export Settings",
+        title: "Export ABCarus Profile",
         defaultPath: getDialogPath({
-          suggestedName: "abcarus.properties",
+          suggestedName: "abcarus-profile.json",
           suggestedDir: suggestedDir || "",
           suggestedPath: defaultPath,
           preferFileNameOnPortal: true,
         }),
-        filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
+        filters: [{ name: "ABCarus Profile", extensions: ["json"] }, { name: "All Files", extensions: ["*"] }],
       });
       if (!result || result.canceled || !result.filePath) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePath);
       rememberDialogPath(filePath);
 
-      const schema = getSettingsSchema();
-      const current = getSettings();
-      const propsText = encodePropertiesFromSchema(current, schema);
-      await atomicWriteFileWithRetry(fs, path, filePath, propsText);
-      // Export implies: this file becomes the canonical source of truth.
-      if (typeof setSettingsFile === "function") {
-        let mtimeMs = 0;
-        try { mtimeMs = (await fs.promises.stat(filePath)).mtimeMs || 0; } catch {}
-        await setSettingsFile({ mode: "file", path: filePath, lastKnownMtimeMs: mtimeMs });
+      const profile = typeof getProfileSnapshot === "function" ? getProfileSnapshot() : null;
+      if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+        throw new Error("ABCarus profile is unavailable.");
       }
+      await atomicWriteFileWithRetry(fs, path, filePath, serializeProfileDocument(profile));
 
       const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
       const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
@@ -1748,20 +1744,30 @@ function registerIpcHandlers(ctx) {
       const suggestedDir = documentsDir ? path.join(documentsDir, "ABCarus") : "";
       const result = await dialog.showOpenDialog(parent || undefined, {
         modal: true,
-        title: "Import Settings",
+        title: "Import ABCarus Profile",
         properties: ["openFile"],
         defaultPath: getDialogPath({
           suggestedPath: suggestedDir || "",
           directoryOnly: true,
         }),
-        filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
+        filters: [
+          { name: "ABCarus Profile", extensions: ["json"] },
+          { name: "Legacy Properties", extensions: ["properties"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
       });
       if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePaths[0]);
       rememberDialogPath(filePath);
       const raw = await fs.promises.readFile(filePath, "utf8");
       const schema = getSettingsSchema();
-      const patch = parseSettingsPatchFromProperties(raw, schema);
+      let profile = null;
+      try {
+        profile = parseProfileDocument(raw);
+      } catch (error) {
+        if (/\.json$/i.test(filePath)) throw error;
+      }
+      const patch = profile ? null : parseSettingsPatchFromProperties(raw, schema);
 
       const importDir = path.dirname(filePath);
       const importedHeaderPath = path.join(importDir, "user_settings.abc");
@@ -1780,9 +1786,12 @@ function registerIpcHandlers(ctx) {
 
       // New exports use the sidecar. Embedded text is accepted only for
       // backward compatibility with older .properties files.
-      const hasEmbeddedHeader = Object.prototype.hasOwnProperty.call(patch || {}, "globalHeaderText");
-      if (!hasImportedHeader && hasEmbeddedHeader && String(patch.globalHeaderText || "").trim()) {
-        importedHeaderText = String(patch.globalHeaderText || "");
+      const embeddedHeader = profile && profile.settings && typeof profile.settings === "object"
+        ? profile.settings.globalHeaderText
+        : patch && patch.globalHeaderText;
+      const hasEmbeddedHeader = embeddedHeader != null;
+      if (!hasImportedHeader && hasEmbeddedHeader && String(embeddedHeader || "").trim()) {
+        importedHeaderText = String(embeddedHeader || "");
         hasImportedHeader = true;
       }
       if (hasImportedHeader) {
@@ -1791,15 +1800,14 @@ function registerIpcHandlers(ctx) {
           importedHeader = true;
         }
       }
-      delete patch.globalHeaderText;
-
-      const next = updateSettings(patch || {});
-      // Import implies: this file becomes the canonical source of truth.
-      if (typeof setSettingsFile === "function") {
-        let mtimeMs = 0;
-        try { mtimeMs = (await fs.promises.stat(filePath)).mtimeMs || 0; } catch {}
-        await setSettingsFile({ mode: "file", path: filePath, lastKnownMtimeMs: mtimeMs });
+      if (profile && profile.settings && typeof profile.settings === "object") {
+        delete profile.settings.globalHeaderText;
       }
+      if (patch) delete patch.globalHeaderText;
+
+      const next = profile && typeof importProfileSnapshot === "function"
+        ? await importProfileSnapshot(profile)
+        : updateSettings(patch || {});
       return { ok: true, path: filePath, importedHeader, settings: next };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

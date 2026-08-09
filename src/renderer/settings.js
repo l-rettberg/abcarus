@@ -1842,11 +1842,11 @@ export function initSettings(api) {
       const res = await api.exportSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok || !res.path) {
-        alert((res && res.error) ? res.error : "Failed to export settings.");
+        alert((res && res.error) ? res.error : "Failed to export profile.");
         return;
       }
       const note = res.exportedHeader ? "\n(incl. user_settings.abc)" : "";
-      alert(`Settings exported:\n${res.path}${note}`);
+      alert(`Profile exported:\n${res.path}${note}`);
     });
   }
 
@@ -1858,7 +1858,7 @@ export function initSettings(api) {
       const res = await api.importSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok) {
-        alert((res && res.error) ? res.error : "Failed to import settings.");
+        alert((res && res.error) ? res.error : "Failed to import profile.");
         return;
       }
       if (res.settings) applySettings(res.settings);
@@ -1866,7 +1866,7 @@ export function initSettings(api) {
       await loadGlobalHeaderFile();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
       const note = res.importedHeader ? " (incl. Global Header)" : "";
-      alert(`Settings imported${note}.\nSome changes apply immediately; others may require a restart.`);
+      alert(`Profile imported${note}.\nSome changes apply immediately; others may require a restart.`);
     });
   }
 

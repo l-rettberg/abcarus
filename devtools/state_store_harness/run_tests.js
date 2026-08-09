@@ -3,20 +3,24 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
-  STATE_VERSION,
+  PROFILE_VERSION,
   composeStateDocument,
   loadStateDocument,
+  loadProfileDocument,
+  parseProfileDocument,
   saveStateDocument,
+  serializeProfileDocument,
   splitStateDocument,
 } = require("../../src/main/state_store");
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "abcarus-state-store-"));
-  const filePath = path.join(dir, "state.json");
+  const filePath = path.join(dir, "abcarus-profile.json");
   try {
     const first = composeStateDocument({ lastFolder: "/music", settings: { renderZoom: 1 } }, { futureField: "keep" });
     await saveStateDocument({ fs, path, filePath, data: first });
-    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).stateVersion, STATE_VERSION);
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).profileVersion, PROFILE_VERSION);
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).stateVersion, undefined);
 
     const second = composeStateDocument({ lastFolder: "/scores", settings: { renderZoom: 1.2 } }, { futureField: "keep" });
     await saveStateDocument({ fs, path, filePath, data: second });
@@ -44,10 +48,31 @@ async function main() {
     assert.deepEqual(split.extras, { futureField: { enabled: true } });
     assert.deepEqual(composeStateDocument(split.known, split.extras), {
       futureField: { enabled: true },
-      stateVersion: STATE_VERSION,
+      profileVersion: PROFILE_VERSION,
       lastFolder: "/scores",
       globalHeaderMigrationVersion: 1,
     });
+    assert.equal(
+      composeStateDocument({ settingsFile: { mode: "file", path: "/old/abcarus.properties" } }).settingsFile,
+      undefined,
+      "legacy attached properties path must not survive in the unified profile",
+    );
+    const transferText = serializeProfileDocument(composeStateDocument({ settings: { renderZoom: 1.25 } }));
+    const transferred = parseProfileDocument(transferText);
+    assert.equal(transferred.profileVersion, PROFILE_VERSION);
+    assert.equal(transferred.settings.renderZoom, 1.25);
+    assert.throws(() => parseProfileDocument('{"unrelated":true}'), /not an ABCarus profile/);
+
+    const legacyPath = path.join(dir, "state.json");
+    const migratedPath = path.join(dir, "fresh-profile.json");
+    fs.writeFileSync(legacyPath, JSON.stringify({ stateVersion: 1, settings: { renderZoom: 1.4 } }), "utf8");
+    const legacyLoaded = await loadProfileDocument({ fs, profilePath: migratedPath, legacyStatePath: legacyPath });
+    assert.equal(legacyLoaded.legacy, true);
+    assert.equal(legacyLoaded.data.settings.renderZoom, 1.4);
+    fs.writeFileSync(migratedPath, JSON.stringify({ profileVersion: 1, settings: { renderZoom: 0.9 } }), "utf8");
+    const profileLoaded = await loadProfileDocument({ fs, profilePath: migratedPath, legacyStatePath: legacyPath });
+    assert.equal(profileLoaded.legacy, false);
+    assert.equal(profileLoaded.data.settings.renderZoom, 0.9, "canonical profile must win over legacy state.json");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

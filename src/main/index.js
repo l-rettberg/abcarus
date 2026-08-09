@@ -10,7 +10,7 @@ const { createSoundfontProtocol, registerSoundfontScheme } = require("./soundfon
 const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
 const { normalizeMicrotonalSettings } = require("./settings_normalize");
-const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
+const { parseSettingsPatchFromProperties } = require("./properties");
 const {
   PORTABLE_MARKER_FILE,
   migrateLegacyGlobalHeader,
@@ -19,7 +19,7 @@ const {
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
 const {
   composeStateDocument,
-  loadStateDocument,
+  loadProfileDocument,
   saveStateDocument,
   splitStateDocument,
 } = require("./state_store");
@@ -83,11 +83,6 @@ const appState = {
   recentFiles: [],
   recentFolders: [],
   settings: null,
-  settingsFile: {
-    mode: "internal", // "internal" | "file"
-    path: null,
-    lastKnownMtimeMs: 0,
-  },
   globalHeaderMigrationVersion: 0,
   debugFlags: {
     showMessages: false,
@@ -214,7 +209,10 @@ app.on("second-instance", (_event, argv) => {
 
 async function resetFactoryStateOnDisk() {
   try {
-    await fs.promises.rm(getStatePath(), { force: true });
+    await fs.promises.rm(getProfilePath(), { force: true });
+    await fs.promises.rm(`${getProfilePath()}.bak`, { force: true });
+    await fs.promises.rm(getLegacyStatePath(), { force: true });
+    await fs.promises.rm(`${getLegacyStatePath()}.bak`, { force: true });
   } catch {}
   try {
     const settingsPaths = getSettingsPaths();
@@ -482,13 +480,29 @@ function getDefaultSettings() {
   return getDefaultSettingsFromSchema();
 }
 
-function getStatePath() {
+function getLegacyStatePath() {
   return path.join(app.getPath("userData"), "state.json");
+}
+
+function getProfilePath() {
+  return getSettingsPaths().profilePath;
+}
+
+async function removeLegacyStateFiles() {
+  await Promise.all([
+    fs.promises.rm(getLegacyStatePath(), { force: true }),
+    fs.promises.rm(`${getLegacyStatePath()}.bak`, { force: true }),
+  ]);
 }
 
 function readStartupSplashSecondsPreferenceSync() {
   try {
-    const raw = fs.readFileSync(getStatePath(), "utf8");
+    let raw = "";
+    try {
+      raw = fs.readFileSync(getProfilePath(), "utf8");
+    } catch {
+      raw = fs.readFileSync(getLegacyStatePath(), "utf8");
+    }
     const data = JSON.parse(raw);
     const settings = data && data.settings ? data.settings : null;
     const secsRaw = settings ? settings.startupSplashSeconds : undefined;
@@ -517,6 +531,7 @@ function getSettingsPaths() {
   return {
     globalPath: path.join(app.getAppPath(), "assets", "global_settings.abc"),
     userPath,
+    profilePath: path.join(path.dirname(userPath), "abcarus-profile.json"),
   };
 }
 
@@ -537,43 +552,28 @@ async function migrateLegacyGlobalHeaderAtStartup() {
   }
 }
 
-async function loadSettingsFromAttachedFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-  const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-  if (!filePath) {
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
-    return;
-  }
+async function readLegacyAttachedSettings(state) {
+  const base = state && state.settings && typeof state.settings === "object" ? state.settings : null;
+  const legacyFile = state && state.settingsFile && state.settingsFile.mode === "file"
+    ? String(state.settingsFile.path || "")
+    : "";
+  if (!legacyFile) return base;
   try {
-    const stat = await fs.promises.stat(filePath);
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const schema = getSettingsSchema();
-    const patch = parseSettingsPatchFromProperties(raw, schema);
-    if (patch && typeof patch === "object") {
-      const hasV = Object.prototype.hasOwnProperty.call(patch, "layoutRenderZoomVertical");
-      const hasH = Object.prototype.hasOwnProperty.call(patch, "layoutRenderZoomHorizontal");
-      if (!hasV || !hasH) {
-        const base = Number.isFinite(Number(patch.renderZoom))
-          ? Number(patch.renderZoom)
-          : (appState.settings && Number.isFinite(Number(appState.settings.renderZoom)) ? Number(appState.settings.renderZoom) : 1);
-        if (!hasV) patch.layoutRenderZoomVertical = base;
-        if (!hasH) patch.layoutRenderZoomHorizontal = base;
-      }
-    }
-    updateSettingsFromFile(patch || {});
-    appState.settingsFile.lastKnownMtimeMs = stat.mtimeMs || 0;
+    const raw = await fs.promises.readFile(legacyFile, "utf8");
+    const patch = parseSettingsPatchFromProperties(raw, getSettingsSchema());
+    return { ...(base || {}), ...(patch || {}) };
   } catch {
-    // Graceful fallback: keep last internal snapshot.
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
+    return base;
   }
 }
 
 async function loadState() {
-  const loaded = await loadStateDocument({ fs, filePath: getStatePath() });
+  const loaded = await loadProfileDocument({
+    fs,
+    profilePath: getProfilePath(),
+    legacyStatePath: getLegacyStatePath(),
+  });
+  const loadedLegacyState = Boolean(loaded.legacy && loaded.data);
   const data = loaded.data;
   if (data) {
     const { known, extras } = splitStateDocument(data);
@@ -583,6 +583,7 @@ async function loadState() {
       console.warn("Recovered application state from backup after the primary state file could not be read.");
     }
     const state = known;
+    const persistedSettings = await readLegacyAttachedSettings(state);
     appState.lastFolder = state.lastFolder || null;
     appState.lastDialogDir = state.lastDialogDir || state.lastDialogPath || null;
     appState.dialogPreferences = state.dialogPreferences && typeof state.dialogPreferences === "object" && !Array.isArray(state.dialogPreferences)
@@ -592,20 +593,11 @@ async function loadState() {
     appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
     appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
     appState.globalHeaderMigrationVersion = Number(state.globalHeaderMigrationVersion) || 0;
-    if (state.settingsFile && typeof state.settingsFile === "object") {
-      const mode = state.settingsFile.mode === "file" ? "file" : "internal";
-      const p = state.settingsFile.path ? String(state.settingsFile.path) : null;
-      appState.settingsFile = {
-        mode,
-        path: p,
-        lastKnownMtimeMs: Number(state.settingsFile.lastKnownMtimeMs) || 0,
-      };
-    }
-    if (state.settings && typeof state.settings === "object") {
-      const merged = { ...getDefaultSettings(), ...state.settings };
-      if (state.settings.zoomFactor && !state.settings.renderZoom && !state.settings.editorZoom) {
-        merged.renderZoom = state.settings.zoomFactor;
-        merged.editorZoom = state.settings.zoomFactor;
+    if (persistedSettings && typeof persistedSettings === "object") {
+      const merged = { ...getDefaultSettings(), ...persistedSettings };
+      if (persistedSettings.zoomFactor && !persistedSettings.renderZoom && !persistedSettings.editorZoom) {
+        merged.renderZoom = persistedSettings.zoomFactor;
+        merged.editorZoom = persistedSettings.zoomFactor;
       }
       // Default portal dialogs ON for Linux unless explicitly set by the user.
       if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
@@ -614,15 +606,15 @@ async function loadState() {
       // Errors feature is intentionally session-only and defaults to off.
       merged.errorsEnabled = false;
       // Per-split zoom migration: keep old single zoom for both orientations.
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomVertical")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "layoutRenderZoomVertical")) {
         merged.layoutRenderZoomVertical = merged.renderZoom;
       }
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomHorizontal")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "layoutRenderZoomHorizontal")) {
         merged.layoutRenderZoomHorizontal = merged.renderZoom;
       }
       // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
       // If the backend was never explicitly chosen, move to auto mode.
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "midiImportBackendSetByUser")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "midiImportBackendSetByUser")) {
         if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
           merged.midiImportBackend = "auto";
         }
@@ -635,10 +627,15 @@ async function loadState() {
   }
   if (!appState.settings) appState.settings = getDefaultSettings();
   if (!appState.windowState) appState.windowState = normalizeWindowState(null);
-  // If the user explicitly attached a properties file, prefer it as the source of truth.
-  // Missing/unreadable file should not prevent startup.
-  await loadSettingsFromAttachedFile();
   await migrateLegacyGlobalHeaderAtStartup();
+  if (loadedLegacyState) {
+    const migrated = await saveState();
+    if (migrated) await removeLegacyStateFiles();
+  } else if (data) {
+    // Migration is one-way. A stale state.json must never become authoritative
+    // again if the canonical profile is later removed or damaged.
+    await removeLegacyStateFiles();
+  }
 }
 
 async function pathExists(p) {
@@ -728,25 +725,11 @@ async function migrateStatePaths() {
 
 async function persistState() {
   try {
-    const payload = composeStateDocument(
-      {
-        lastFolder: appState.lastFolder,
-        lastDialogDir: appState.lastDialogDir,
-        dialogPreferences: appState.dialogPreferences,
-        recentTunes: appState.recentTunes,
-        recentFiles: appState.recentFiles,
-        recentFolders: appState.recentFolders,
-        settings: appState.settings,
-        settingsFile: appState.settingsFile,
-        globalHeaderMigrationVersion: appState.globalHeaderMigrationVersion,
-        windowState: appState.windowState,
-      },
-      stateDocumentExtras,
-    );
+    const payload = buildProfileDocument();
     await saveStateDocument({
       fs,
       path,
-      filePath: getStatePath(),
+      filePath: getProfilePath(),
       data: payload,
       skipBackup: stateRecoveredFromBackup,
     });
@@ -756,6 +739,25 @@ async function persistState() {
     return false;
   }
   return true;
+}
+
+function buildProfileDocument() {
+  const settings = { ...(appState.settings || getDefaultSettings()) };
+  delete settings.globalHeaderText;
+  return composeStateDocument(
+    {
+      lastFolder: appState.lastFolder,
+      lastDialogDir: appState.lastDialogDir,
+      dialogPreferences: appState.dialogPreferences,
+      recentTunes: appState.recentTunes,
+      recentFiles: appState.recentFiles,
+      recentFolders: appState.recentFolders,
+      settings,
+      globalHeaderMigrationVersion: appState.globalHeaderMigrationVersion,
+      windowState: appState.windowState,
+    },
+    stateDocumentExtras,
+  );
 }
 
 function saveState() {
@@ -1643,44 +1645,7 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   throw lastErr || new Error("Unable to write file.");
 }
 
-let attachedSettingsWriteTimer = null;
-let attachedSettingsWritePromise = null;
-async function persistAttachedSettingsFile() {
-  if (attachedSettingsWritePromise) return attachedSettingsWritePromise;
-  attachedSettingsWritePromise = (async () => {
-    if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-    const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-    if (!filePath) return;
-    const schema = getSettingsSchema();
-    const propsText = encodePropertiesFromSchema(appState.settings || getDefaultSettings(), schema);
-    try {
-      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-      await atomicWriteFileWithRetry(filePath, propsText);
-      try {
-        const st = await fs.promises.stat(filePath);
-        appState.settingsFile.lastKnownMtimeMs = st.mtimeMs || 0;
-      } catch {}
-    } catch {
-      // Silent failure: user may have removed the file or directory; internal snapshot remains valid.
-    }
-  })();
-  try {
-    await attachedSettingsWritePromise;
-  } finally {
-    attachedSettingsWritePromise = null;
-  }
-}
-
-function schedulePersistAttachedSettingsFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-  if (attachedSettingsWriteTimer) clearTimeout(attachedSettingsWriteTimer);
-  attachedSettingsWriteTimer = setTimeout(() => {
-    attachedSettingsWriteTimer = null;
-    persistAttachedSettingsFile().catch(() => {});
-  }, 250);
-}
-
-function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
+function applySettingsPatch(patch) {
   const next = { ...getDefaultSettings(), ...appState.settings, ...patch };
   if (patch && patch.libraryUiStateByRoot && typeof patch.libraryUiStateByRoot === "object") {
     const prev = appState.settings && appState.settings.libraryUiStateByRoot && typeof appState.settings.libraryUiStateByRoot === "object"
@@ -1735,7 +1700,6 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.errorsEnabled = false;
   appState.settings = next;
   saveState();
-  if (persistToSettingsFile) schedulePersistAttachedSettingsFile();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("settings:changed", withDevSoundfont(next));
   }
@@ -1753,37 +1717,30 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
 }
 
 function updateSettings(patch) {
-  return applySettingsPatch(patch, { persistToSettingsFile: true });
+  return applySettingsPatch(patch);
 }
 
-function updateSettingsFromFile(patch) {
-  // File-backed settings are the source of truth; applying them should not rewrite the file.
-  return applySettingsPatch(patch, { persistToSettingsFile: false });
-}
-
-async function maybeReloadSettingsFromAttachedFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return false;
-  const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-  if (!filePath) return false;
-  try {
-    const stat = await fs.promises.stat(filePath);
-    const mtimeMs = stat && stat.mtimeMs ? Number(stat.mtimeMs) : 0;
-    if (!mtimeMs || mtimeMs <= (Number(appState.settingsFile.lastKnownMtimeMs) || 0)) return false;
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const schema = getSettingsSchema();
-    const patch = parseSettingsPatchFromProperties(raw, schema);
-    updateSettingsFromFile(patch || {});
-    appState.settingsFile.lastKnownMtimeMs = mtimeMs;
-    saveState();
-    return true;
-  } catch {
-    // Graceful fallback to internal snapshot.
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
-    saveState();
-    return false;
+async function importProfileSnapshot(document) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new TypeError("Invalid ABCarus profile document.");
   }
+  const { known, extras } = splitStateDocument(document);
+  stateDocumentExtras = extras;
+  appState.lastFolder = known.lastFolder || null;
+  appState.lastDialogDir = known.lastDialogDir || null;
+  appState.dialogPreferences = known.dialogPreferences && typeof known.dialogPreferences === "object" && !Array.isArray(known.dialogPreferences)
+    ? known.dialogPreferences
+    : {};
+  appState.recentTunes = Array.isArray(known.recentTunes) ? known.recentTunes : [];
+  appState.recentFiles = Array.isArray(known.recentFiles) ? known.recentFiles : [];
+  appState.recentFolders = Array.isArray(known.recentFolders) ? known.recentFolders : [];
+  appState.globalHeaderMigrationVersion = Number(known.globalHeaderMigrationVersion) || 0;
+  appState.windowState = normalizeWindowState(known.windowState);
+  appState.settings = getDefaultSettings();
+  const settings = applySettingsPatch(known.settings && typeof known.settings === "object" ? known.settings : {});
+  await saveState();
+  refreshMenu();
+  return settings;
 }
 function addRecentTune(entry) {
   if (!entry || !entry.path || entry.startOffset == null || entry.endOffset == null) return;
@@ -2949,10 +2906,6 @@ async function createWindow() {
       }, 1500);
     } catch {}
   });
-  win.on("focus", () => {
-    // Best-effort: if the canonical settings file was edited externally, reload it when the app regains focus.
-    maybeReloadSettingsFromAttachedFile().catch(() => {});
-  });
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -3539,11 +3492,8 @@ registerIpcHandlers({
   addRecentFile,
   addRecentFolder,
   getSettingsPaths,
-  getSettingsFile: () => appState.settingsFile,
-  setSettingsFile: async (next) => {
-    appState.settingsFile = next;
-    await saveState();
-  },
+  getProfileSnapshot: () => buildProfileDocument(),
+  importProfileSnapshot,
   getSettings: () => {
     const settings = appState.settings || getDefaultSettings();
     return withDevSoundfont(settings);
@@ -3575,12 +3525,7 @@ registerIpcHandlers({
   requestQuit: async () => {
     if (quitPromise) return quitPromise;
     isQuitting = true;
-    if (attachedSettingsWriteTimer) {
-      clearTimeout(attachedSettingsWriteTimer);
-      attachedSettingsWriteTimer = null;
-    }
     quitPromise = (async () => {
-      await persistAttachedSettingsFile();
       await saveState();
       app.quit();
     })();

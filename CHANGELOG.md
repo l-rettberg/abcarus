@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Application preferences and working UI state now share one canonical `abcarus-profile.json`; Export and Import operate on standalone copies instead of attaching an external settings file.
+- Existing `state.json` and attached `abcarus.properties` settings are migrated one way into the unified profile; obsolete state files are removed only after the new profile is written successfully.
 - Global Header ABC now has one runtime source of truth: `user_settings.abc`. The Settings editor writes that file directly, while `globalHeaderEnabled` remains an ordinary application preference.
 - Portable-folder builds resolve `user_settings.abc` beside the application; installed builds continue to use the OS user-data directory.
-- New settings exports keep application preferences in `abcarus.properties` and Global Header ABC in the neighboring `user_settings.abc` file.
+- New exports keep the JSON profile in `abcarus-profile.json` and Global Header ABC in the neighboring `user_settings.abc` file.
 
 ### Fixed
 - Legacy embedded `globalHeaderText` is migrated once without allowing a deliberately deleted `user_settings.abc` to reappear on later launches.

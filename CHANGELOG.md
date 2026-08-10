@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [1.4.0] - 2026-08-10
 ### Changed
 - Application preferences and working UI state now share one canonical `abcarus-profile.json`; Export and Import operate on standalone copies instead of attaching an external settings file.
 - Existing `state.json` and attached `abcarus.properties` settings are migrated one way into the unified profile; obsolete state files are removed only after the new profile is written successfully.
@@ -17,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Legacy embedded `globalHeaderText` is migrated once without allowing a deliberately deleted `user_settings.abc` to reappear on later launches.
-
 
 ## [1.3.0] - 2026-08-08
 ### Added

@@ -76,6 +76,46 @@ function countGeneratedDrumNotes(sandbox, parsed) {
   return count;
 }
 
+function collectPlaybackNoteOffsets(sandbox, parsed, startOffset) {
+  const toAudio = sandbox && typeof sandbox.ToAudio === "function" ? sandbox.ToAudio() : null;
+  assert(toAudio && typeof toAudio.add === "function", "ToAudio.add is unavailable");
+  const tunes = parsed && parsed.abc && Array.isArray(parsed.abc.tunes) ? parsed.abc.tunes : [];
+  assert(tunes.length > 0, "No tunes parsed for playback sequence");
+  const tune = tunes[0];
+  toAudio.add(tune[0], tune[1], tune[3]);
+
+  let start = tune[0];
+  while (start && !(Array.isArray(start.notes) && Number(start.istart) >= startOffset)) {
+    start = start.ts_next;
+  }
+  assert(start, `No playback symbol found at or after offset ${startOffset}`);
+
+  const offsets = [];
+  const playback = {
+    conf: { speed: 1 },
+    tgen: 3600,
+    get_time() { return -0.3; },
+    midi_ctrl() {},
+    midi_prog() {},
+    note_run(_playback, symbol) { offsets.push(Number(symbol.istart)); },
+    v_c: [],
+    c_i: [],
+    stop: false,
+    s_end: null,
+    s_cur: start,
+    repn: false,
+    repv: 0,
+  };
+  const originalSetTimeout = sandbox.setTimeout;
+  sandbox.setTimeout = () => 0;
+  try {
+    sandbox.abc2svg.play_next(playback);
+  } finally {
+    sandbox.setTimeout = originalSetTimeout;
+  }
+  return offsets;
+}
+
 const DRUM_TUNE = `X:1
 T:Drum Hook Regression
 M:4/4
@@ -101,6 +141,16 @@ V:1
 C2D2E2F2G2 |]
 `;
 
+const REPEATED_PART_TUNE = `X:3
+T:Playback from inside a repeated P part
+P:(AB)3
+K:
+P:A
+c|c|1d|e:|2e|f||
+P:B
+a|g|1a|c:|2a|g||
+`;
+
 function main() {
   const sandbox = createSandbox();
   assert(sandbox.abc2svg && sandbox.abc2svg.drum, "snd-1.js did not register abc2svg.drum");
@@ -115,7 +165,34 @@ function main() {
     continuation.messages.some((m) => /Bad value in %%MIDI drum/i.test(m)),
     "readable %%MIDI drum +: continuation unexpectedly parsed; update ABCarus if upstream adds support"
   );
-  console.log("% PASS abc2svg playback harness: canonical native drums are available");
+  const repeatedParts = parseOnce(sandbox, REPEATED_PART_TUNE);
+  assert(repeatedParts.messages.length === 0, `repeated-part tune reported errors: ${repeatedParts.messages.join("; ")}`);
+  const partAStart = REPEATED_PART_TUNE.indexOf("c|c|1d");
+  const insidePartA = REPEATED_PART_TUNE.indexOf("2e|f");
+  assert(partAStart >= 0 && insidePartA >= 0, "repeated-part fixture offsets are unavailable");
+  const fromBoundary = collectPlaybackNoteOffsets(sandbox, repeatedParts, partAStart);
+  const fromInside = collectPlaybackNoteOffsets(sandbox, repeatedParts, insidePartA);
+  const boundaryPrefix = [
+    partAStart,
+    partAStart + 2,
+    REPEATED_PART_TUNE.indexOf("1d") + 1,
+    REPEATED_PART_TUNE.indexOf("e:|"),
+  ];
+  const insidePrefix = [
+    REPEATED_PART_TUNE.indexOf("2e") + 1,
+    REPEATED_PART_TUNE.indexOf("f||"),
+    REPEATED_PART_TUNE.indexOf("a|g|"),
+    REPEATED_PART_TUNE.indexOf("g|1a"),
+  ];
+  assert(
+    fromBoundary.slice(0, 4).join(",") === boundaryPrefix.join(","),
+    `playback from P:A boundary has an unexpected prefix: ${fromBoundary.slice(0, 8).join(",")}`
+  );
+  assert(
+    fromInside.slice(0, 4).join(",") === insidePrefix.join(","),
+    `playback from inside P:A restarted A instead of continuing to B: ${fromInside.slice(0, 8).join(",")}`
+  );
+  console.log("% PASS abc2svg playback harness: native drums and repeated P: cursor starts are available");
 }
 
 try {

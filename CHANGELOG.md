@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Playback started from inside a `P:` part now continues with the correct remaining part sequence instead of restarting the current part; updated abc2svg to upstream check-in `c64c0aea48` and added a regression test for boundary and mid-part starts.
 
 
 ## [1.4.0] - 2026-08-10

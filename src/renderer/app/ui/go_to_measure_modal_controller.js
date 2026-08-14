@@ -1,25 +1,38 @@
 function createGoToMeasureModalElements() {
   const backdrop = document.createElement("div");
-  backdrop.className = "abcarus-modal-backdrop hidden";
+  backdrop.className = "modal";
+  backdrop.setAttribute("aria-hidden", "true");
 
   const dialog = document.createElement("div");
-  dialog.className = "abcarus-modal";
+  dialog.className = "modal-card compact-modal-card";
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-label", "Go to Measure");
+
+  const header = document.createElement("div");
+  header.className = "modal-header";
 
   const title = document.createElement("div");
-  title.className = "abcarus-modal-title";
+  title.className = "modal-title";
   title.textContent = "Go to Measure";
 
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "modal-close";
+  close.setAttribute("aria-label", "Close Go to Measure");
+  close.title = "Close";
+  close.textContent = "×";
+  header.append(title, close);
+
   const body = document.createElement("div");
-  body.className = "abcarus-modal-body";
+  body.className = "modal-body";
 
   const label = document.createElement("label");
-  label.className = "abcarus-modal-label";
+  label.className = "compact-modal-label";
   label.textContent = "Measure number:";
 
   const input = document.createElement("input");
-  input.className = "abcarus-modal-input";
+  input.className = "compact-modal-input";
   input.type = "number";
   input.inputMode = "numeric";
   input.min = "0";
@@ -31,24 +44,23 @@ function createGoToMeasureModalElements() {
   body.appendChild(label);
 
   const buttons = document.createElement("div");
-  buttons.className = "abcarus-modal-buttons";
+  buttons.className = "modal-footer";
 
   const cancel = document.createElement("button");
   cancel.type = "button";
-  cancel.className = "btn abcarus-modal-btn";
   cancel.textContent = "Cancel";
 
   const ok = document.createElement("button");
   ok.type = "button";
-  ok.className = "btn abcarus-modal-btn primary";
+  ok.className = "primary";
   ok.textContent = "OK";
 
   buttons.append(cancel, ok);
-  dialog.append(title, body, buttons);
+  dialog.append(header, body, buttons);
   backdrop.appendChild(dialog);
   document.body.appendChild(backdrop);
 
-  return { backdrop, dialog, input, ok, cancel };
+  return { backdrop, dialog, input, ok, cancel, close };
 }
 
 export function createGoToMeasureModalController() {
@@ -60,13 +72,15 @@ export function createGoToMeasureModalController() {
   };
 
   const prompt = async () => {
-    const { backdrop, dialog, input, ok, cancel } = getElements();
-    backdrop.classList.remove("hidden");
+    const { backdrop, dialog, input, ok, cancel, close } = getElements();
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden", "false");
 
     const prevActive = document.activeElement;
 
     const cleanup = () => {
-      backdrop.classList.add("hidden");
+      backdrop.classList.remove("open");
+      backdrop.setAttribute("aria-hidden", "true");
       try {
         if (prevActive && typeof prevActive.focus === "function") prevActive.focus();
       } catch {}
@@ -79,9 +93,6 @@ export function createGoToMeasureModalController() {
         resolve(value);
       };
 
-      const onBackdropMouseDown = (ev) => {
-        if (ev.target === backdrop) finish(null);
-      };
       const onKeyDown = (ev) => {
         if (ev.key === "Escape") {
           ev.preventDefault();
@@ -95,17 +106,18 @@ export function createGoToMeasureModalController() {
       };
       const onOk = () => finish(String(input.value || ""));
       const onCancel = () => finish(null);
+      const onClose = () => finish(null);
 
       const teardown = () => {
-        backdrop.removeEventListener("mousedown", onBackdropMouseDown);
         ok.removeEventListener("click", onOk);
         cancel.removeEventListener("click", onCancel);
+        close.removeEventListener("click", onClose);
         document.removeEventListener("keydown", onKeyDown, true);
       };
 
-      backdrop.addEventListener("mousedown", onBackdropMouseDown);
       ok.addEventListener("click", onOk);
       cancel.addEventListener("click", onCancel);
+      close.addEventListener("click", onClose);
       document.addEventListener("keydown", onKeyDown, true);
 
       requestAnimationFrame(() => {

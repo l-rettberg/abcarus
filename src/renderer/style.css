@@ -2030,47 +2030,13 @@ svg {
   transform: translateY(0);
 }
 
-.abcarus-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.abcarus-modal-backdrop.hidden {
-  display: none;
-}
-
-.abcarus-modal {
-  width: min(420px, 92vw);
-  background: var(--ui-bg, #fff);
-  color: var(--ui-fg, #111);
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  padding: 12px;
-}
-
-.abcarus-modal-title {
-  font-weight: 600;
-  margin: 0 0 10px 0;
-}
-
-.abcarus-modal-body {
-  margin: 0 0 12px 0;
-}
-
-.abcarus-modal-label {
+.compact-modal-label {
   display: grid;
   gap: 6px;
   font-size: 13px;
 }
 
-.abcarus-modal-input {
+.compact-modal-input {
   width: 100%;
   font-size: 14px;
   padding: 7px 9px;
@@ -2078,16 +2044,6 @@ svg {
   border-radius: 8px;
   background: transparent;
   color: inherit;
-}
-
-.abcarus-modal-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.abcarus-modal-btn.primary {
-  border: 1px solid rgba(0, 0, 0, 0.28);
 }
 
 .buffer-status {
@@ -2588,6 +2544,13 @@ svg {
   min-height: 220px;
 }
 
+.modal-card.compact-modal-card {
+  width: min(420px, 92vw);
+  min-width: min(360px, 92vw);
+  min-height: 0;
+  resize: none;
+}
+
 .modal-card.settings-card {
   width: min(960px, 96vw);
   height: min(600px, 92vh);
@@ -2746,7 +2709,15 @@ svg {
 }
 
 .modal-close {
-  padding: 6px 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .modal-body {
@@ -3208,16 +3179,14 @@ button:not(:disabled):active {
   box-shadow: var(--button-press-shadow);
 }
 
-button.primary:not(:disabled),
-.abcarus-modal-btn.primary:not(:disabled) {
+button.primary:not(:disabled) {
   background: var(--button-primary-bg);
   border-color: var(--button-primary-bg);
   color: var(--button-primary-text);
   font-weight: 600;
 }
 
-button.primary:not(:disabled):hover,
-.abcarus-modal-btn.primary:not(:disabled):hover {
+button.primary:not(:disabled):hover {
   background: var(--button-primary-bg-hover);
   border-color: var(--button-primary-bg-hover);
 }

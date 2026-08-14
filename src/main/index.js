@@ -3366,6 +3366,10 @@ async function runUiSmoke(win) {
       let interfaceFontSelections = [];
       let fontSelectWidths = [];
       let fontRemoveLabels = [];
+      let modalCloseButtonsOk = false;
+      let modalBackdropSafe = false;
+      let compactModalOk = false;
+      let toolbarDomainsOk = false;
       if (hook && typeof hook.dispatchAction === "function") {
         await hook.dispatchAction({ type: "fonts" });
         await wait(250);
@@ -3397,6 +3401,59 @@ async function runUiSmoke(win) {
             && labels.includes("Serif")
             && labels.includes("Monospace");
         });
+
+        const modalCloseIds = [
+          "templatesClose",
+          "makamDnaClose",
+          "settingsClose",
+          "moveTuneClose",
+          "aboutClose",
+          "setListClose",
+          "setListHeaderClose",
+          "xIssuesClose",
+          "printAllOptionsClose",
+          "disclaimerClose",
+        ];
+        modalCloseButtonsOk = modalCloseIds.every((id) => {
+          const button = byId(id);
+          if (!button || button.hidden) return false;
+          const style = getComputedStyle(button);
+          return String(button.textContent || "").trim() === "×"
+            && Math.round(Number.parseFloat(style.width || "0")) === 32
+            && Math.round(Number.parseFloat(style.height || "0")) === 32;
+        });
+        const settingsModal = byId("settingsModal");
+        if (settingsModal && settingsModal.classList.contains("open")) {
+          settingsModal.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          await wait(30);
+          modalBackdropSafe = settingsModal.classList.contains("open");
+          const cancel = byId("settingsCancel");
+          if (cancel) cancel.click();
+        }
+
+        const rawButton = byId("btnToggleRaw");
+        const focusGroup = focusBtn ? focusBtn.closest(".segmented") : null;
+        toolbarDomainsOk = Boolean(
+          rawButton
+          && rawButton.closest(".file-header-bar")
+          && !byId("btnFonts")
+          && focusGroup
+          && focusGroup.getAttribute("aria-label") === "Playback and input modes"
+        );
+
+        hook.dispatchAction({ type: "playGotoMeasure" });
+        await wait(80);
+        const compactModal = document.querySelector(".compact-modal-card");
+        const compactBackdrop = compactModal ? compactModal.closest(".modal") : null;
+        const compactClose = compactModal ? compactModal.querySelector(".modal-close") : null;
+        compactModalOk = Boolean(
+          compactModal
+          && compactBackdrop
+          && compactBackdrop.classList.contains("open")
+          && compactModal.getAttribute("aria-modal") === "true"
+          && compactClose
+        );
+        if (compactClose) compactClose.click();
       }
       return {
         ok: errorsVisible
@@ -3409,7 +3466,11 @@ async function runUiSmoke(win) {
           && hiddenInFocus
           && shownOutOfFocus
           && fontChoicesOk
-          && interfaceFontPresetsOk,
+          && interfaceFontPresetsOk
+          && modalCloseButtonsOk
+          && modalBackdropSafe
+          && compactModalOk
+          && toolbarDomainsOk,
         visualGapPx,
         togglesGapPx,
         libRadiusPx,
@@ -3425,6 +3486,10 @@ async function runUiSmoke(win) {
         interfaceFontSelections,
         fontSelectWidths,
         fontRemoveLabels,
+        modalCloseButtonsOk,
+        modalBackdropSafe,
+        compactModalOk,
+        toolbarDomainsOk,
       };
     })()`,
     true

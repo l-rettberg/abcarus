@@ -124,9 +124,6 @@ function createMakamDnaController({
   }
 
   if (modal) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) close();
-    });
     modal.addEventListener("keydown", (e) => {
       if (!e) return;
       if (e.key === "Escape") {

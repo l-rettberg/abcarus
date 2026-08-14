@@ -193,7 +193,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
-      { label: "Close", accelerator: "CmdOrCtrl+W", click: () => sendMenuAction("close") },
+      { label: "Close File", accelerator: "CmdOrCtrl+W", click: () => sendMenuAction("close") },
       ...(isMac ? [] : [{ label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => sendMenuAction("quit") }]),
     ],
   };
@@ -231,10 +231,8 @@ function buildMenuTemplate(appState, sendMenuAction) {
       ...(isMac ? [{ role: "togglefullscreen" }] : []),
       { type: "separator" },
       { label: "Library Catalog…", accelerator: "CmdOrCtrl+Shift+L", click: () => sendMenuAction("libraryList") },
-      { label: "Set List…", click: () => sendMenuAction("setList") },
       { label: "Toggle Library", accelerator: "CmdOrCtrl+L", click: () => sendMenuAction("toggleLibrary") },
       { label: "Toggle File Header", accelerator: "CmdOrCtrl+Alt+H", click: () => sendMenuAction("toggleFileHeader") },
-      { label: "Playback Focus Mode", accelerator: "F7", click: () => sendMenuAction("toggleFocusMode") },
       { label: "Toggle Split Orientation", accelerator: "CmdOrCtrl+Alt+\\", click: () => sendMenuAction("toggleSplitOrientation") },
       {
         label: "Split Orientation",
@@ -251,13 +249,12 @@ function buildMenuTemplate(appState, sendMenuAction) {
     ],
   };
 
-	  const settingsMenu = null;
-
   const playMenu = {
     label: "Play",
     submenu: [
       { label: "Start Over", accelerator: "F4", click: () => sendMenuAction("playStart") },
       { label: "Play / Pause", accelerator: "F5", click: () => sendMenuAction("playToggle") },
+      { label: "Focus Mode", accelerator: "F7", click: () => sendMenuAction("toggleFocusMode") },
       { label: "Go to Measure…", accelerator: "CmdOrCtrl+Shift+G", click: () => sendMenuAction("playGotoMeasure") },
       { type: "separator" },
       {
@@ -349,6 +346,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
+      { label: "Set List…", click: () => sendMenuAction("setList") },
       ...((appState && appState.settings && (appState.settings.supportMicrotonalNotation || appState.settings.makamToolsEnabled || appState.settings.studyToolsEnabled))
         ? [
             {
@@ -374,7 +372,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
     label: "Help",
     role: isMac ? "help" : undefined,
     submenu: [
-      { label: "ABC Guide (F1)", accelerator: "F1", click: () => sendMenuAction("helpGuide") },
+      { label: "ABC Guide", accelerator: "F1", click: () => sendMenuAction("helpGuide") },
       { label: "ABCarus User Guide", click: () => sendMenuAction("helpUserGuide") },
       { type: "separator" },
       { label: "ABC Notation Homepage", click: () => sendMenuAction({ type: "helpLink", url: "https://abcnotation.com/" }) },

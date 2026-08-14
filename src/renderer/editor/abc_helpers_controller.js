@@ -1253,6 +1253,8 @@ function openDecorationPickerAtCursor({
     try {
       if (!ev) return;
       if (ev.button !== 0) return;
+      const target = ev.target;
+      if (target && target.closest && target.closest("button,input,select,textarea,a")) return;
       dragging = true;
       dragPointerId = ev.pointerId;
       dragStartX = ev.clientX;

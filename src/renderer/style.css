@@ -1875,12 +1875,16 @@ svg {
 }
 
 .abc-helper-body {
+  box-sizing: border-box;
+  width: 100%;
   min-height: 0;
   overflow: auto;
   padding: 10px 12px 12px;
 }
 
 .abc-helper-footer {
+  box-sizing: border-box;
+  width: 100%;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1892,6 +1896,7 @@ svg {
 .abc-helper-popover input,
 .abc-helper-popover select,
 .abc-helper-popover textarea {
+  box-sizing: border-box;
   color: var(--text);
   background: var(--panel-bg);
   border-color: var(--border-color) !important;

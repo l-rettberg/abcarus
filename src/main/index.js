@@ -3432,13 +3432,23 @@ async function runUiSmoke(win) {
         }
 
         const rawButton = byId("btnToggleRaw");
+        const settingsButton = byId("btnSettings");
+        const splitButton = byId("btnToggleSplit");
+        const resetButton = byId("btnResetLayout");
         const focusGroup = focusBtn ? focusBtn.closest(".segmented") : null;
         toolbarDomainsOk = Boolean(
           rawButton
           && rawButton.closest(".file-header-bar")
+          && Number.parseFloat(getComputedStyle(rawButton).minWidth || "0") >= 60
+          && settingsButton
           && !byId("btnFonts")
           && focusGroup
           && focusGroup.getAttribute("aria-label") === "Playback and input modes"
+          && followBtn.closest(".segmented") === focusGroup
+          && splitButton
+          && splitButton.closest(".file-header-toggles")
+          && resetButton
+          && followBtn.getBoundingClientRect().left < resetButton.getBoundingClientRect().left
         );
 
         hook.dispatchAction({ type: "playGotoMeasure" });

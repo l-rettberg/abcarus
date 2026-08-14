@@ -118,40 +118,34 @@ function openMidiProgramPickerAtCursor({
 
   const pop = document.createElement("div");
   pop.id = "abcarusMidiProgramPopover";
+  pop.className = "abc-helper-popover";
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", "GM program picker");
   pop.style.position = "fixed";
   pop.style.zIndex = "9999";
   pop.style.maxWidth = "520px";
-  pop.style.padding = "8px 10px";
-  pop.style.borderRadius = "8px";
-  pop.style.border = "1px solid rgba(0,0,0,0.18)";
-  pop.style.background = "rgba(255,255,255,0.98)";
-  pop.style.boxShadow = "0 8px 24px rgba(0,0,0,0.18)";
-  pop.style.fontSize = "13px";
-  pop.style.lineHeight = "1.35";
 
   const head = document.createElement("div");
+  head.className = "abc-helper-header";
   head.style.display = "flex";
   head.style.alignItems = "center";
   head.style.justifyContent = "space-between";
   head.style.gap = "12px";
 
   const title = document.createElement("div");
+  title.className = "abc-helper-title";
   title.textContent = `GM ${cmd} (0–127)`;
-  title.style.fontWeight = "600";
   head.appendChild(title);
 
   const hint = document.createElement("div");
+  hint.className = "abc-helper-hint";
   hint.textContent = "Type to filter · Enter=insert · Esc=close";
-  hint.style.opacity = "0.65";
-  hint.style.fontSize = "12px";
   head.appendChild(hint);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
   const body = document.createElement("div");
-  body.style.marginTop = "6px";
+  body.className = "abc-helper-body";
   pop.appendChild(body);
 
   const input = document.createElement("input");
@@ -372,6 +366,7 @@ function openKeySignaturePickerAtCursor({
   const allItems = buildKeySignatureItems(makamSignatures);
   const pop = document.createElement("div");
   pop.id = "abcarusKeySignaturePopover";
+  pop.className = "abc-helper-popover";
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", "Key signature picker");
   pop.style.position = "fixed";
@@ -380,36 +375,28 @@ function openKeySignaturePickerAtCursor({
   pop.style.maxWidth = "calc(100vw - 20px)";
   pop.style.maxHeight = "calc(100vh - 20px)";
   pop.style.overflow = "auto";
-  pop.style.padding = "8px 10px";
-  pop.style.boxSizing = "border-box";
-  pop.style.borderRadius = "8px";
-  pop.style.border = "1px solid rgba(0,0,0,0.18)";
-  pop.style.background = "rgba(255,255,255,0.98)";
-  pop.style.boxShadow = "0 8px 24px rgba(0,0,0,0.18)";
-  pop.style.fontSize = "13px";
-  pop.style.lineHeight = "1.35";
 
   const head = document.createElement("div");
+  head.className = "abc-helper-header";
   head.style.display = "flex";
   head.style.alignItems = "center";
   head.style.justifyContent = "space-between";
   head.style.gap = "12px";
 
   const title = document.createElement("div");
+  title.className = "abc-helper-title";
   title.textContent = "Key signature";
-  title.style.fontWeight = "600";
   head.appendChild(title);
 
   const hint = document.createElement("div");
+  hint.className = "abc-helper-hint";
   hint.textContent = "Search makam or key · Enter=insert · Esc=close";
-  hint.style.opacity = "0.65";
-  hint.style.fontSize = "12px";
   head.appendChild(hint);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
   const body = document.createElement("div");
-  body.style.marginTop = "6px";
+  body.className = "abc-helper-body";
   pop.appendChild(body);
 
   const input = document.createElement("input");
@@ -615,6 +602,7 @@ function openDecorationPickerAtCursor({
 
   const pop = document.createElement("div");
   pop.id = "abcarusAbcInsertPopover";
+  pop.className = "abc-helper-popover";
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", "ABC insert");
   pop.style.position = "fixed";
@@ -626,16 +614,9 @@ function openDecorationPickerAtCursor({
   pop.style.resize = "both";
   pop.style.minWidth = "760px";
   pop.style.minHeight = "260px";
-  pop.style.padding = "8px 10px";
-  pop.style.boxSizing = "border-box";
-  pop.style.borderRadius = "8px";
-  pop.style.border = "1px solid rgba(0,0,0,0.18)";
-  pop.style.background = "rgba(255,255,255,0.98)";
-  pop.style.boxShadow = "0 8px 24px rgba(0,0,0,0.18)";
-  pop.style.fontSize = "13px";
-  pop.style.lineHeight = "1.35";
 
   const head = document.createElement("div");
+  head.className = "abc-helper-header";
   head.style.display = "flex";
   head.style.alignItems = "center";
   head.style.justifyContent = "space-between";
@@ -645,13 +626,13 @@ function openDecorationPickerAtCursor({
   head.style.touchAction = "none";
 
   const title = document.createElement("div");
+  title.className = "abc-helper-title";
   title.textContent = "Insert decoration";
-  title.style.fontWeight = "600";
   head.appendChild(title);
 
   const hint = document.createElement("div");
+  hint.className = "abc-helper-hint";
   hint.textContent = "Drag to move · Resize corner · Enter=insert · Shift+Enter=!name! · (Select text for range) · Esc=close";
-  hint.style.opacity = "0.65";
   hint.style.fontSize = "11px";
   hint.style.whiteSpace = "nowrap";
   head.appendChild(hint);
@@ -660,7 +641,7 @@ function openDecorationPickerAtCursor({
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
   const body = document.createElement("div");
-  body.style.marginTop = "6px";
+  body.className = "abc-helper-body";
   pop.appendChild(body);
 
   const input = document.createElement("input");

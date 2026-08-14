@@ -267,6 +267,7 @@ const $btnRestart = document.getElementById("btnRestart");
 	const $btnPrevMeasure = document.getElementById("btnPrevMeasure");
 	const $btnNextMeasure = document.getElementById("btnNextMeasure");
 const $btnResetLayout = document.getElementById("btnResetLayout");
+const $btnSettings = document.getElementById("btnSettings");
 const $btnToggleSplit = document.getElementById("btnToggleSplit");
 	const $btnFocusMode = document.getElementById("btnFocusMode");
 	const $btnToggleFollow = document.getElementById("btnToggleFollow");
@@ -1825,6 +1826,7 @@ playbackDomain.initialize({
       selectionGchordsEnabled: $selectionGchordsEnabled,
       selectionDrumsEnabled: $selectionDrumsEnabled,
       selectionMutedVoices: $selectionMutedVoices,
+      settingsButton: $btnSettings,
       xIssuesAutoFixButton: $xIssuesAutoFix,
       xIssuesJumpButton: $xIssuesJump,
       xIssuesCopyButton: $xIssuesCopy,
@@ -3402,6 +3404,7 @@ appCommandsDomain = createAppCommandsDomain({
     restartButton: $btnRestart,
     prevMeasureButton: $btnPrevMeasure,
     nextMeasureButton: $btnNextMeasure,
+    settingsButton: $btnSettings,
     resetLayoutButton: $btnResetLayout,
     toggleSplitButton: $btnToggleSplit,
     toggleFollowButton: $btnToggleFollow,

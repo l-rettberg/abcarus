@@ -83,22 +83,27 @@ function buildDiagnosticsSubmenu(appState, sendMenuAction) {
     { label: "Open Settings Folder", click: () => sendMenuAction("openSettingsFolder") },
     { type: "separator" },
     {
-      label: "Show Debug Messages",
-      type: "checkbox",
-      checked: debugMessagesEnabled,
-      click: (item) => {
-        if (appState && appState.debugFlags) appState.debugFlags.showMessages = Boolean(item.checked);
-        sendMenuAction({ type: "toggleDebugMessages", value: Boolean(item.checked) });
-      },
-    },
-    {
-      label: "Auto Debug Dumps",
-      type: "checkbox",
-      checked: autoDumpEnabled,
-      click: (item) => {
-        if (appState && appState.debugFlags) appState.debugFlags.autoDump = Boolean(item.checked);
-        sendMenuAction({ type: "toggleAutoDump", value: Boolean(item.checked) });
-      },
+      label: "Options",
+      submenu: [
+        {
+          label: "Debug Messages",
+          type: "checkbox",
+          checked: debugMessagesEnabled,
+          click: (item) => {
+            if (appState && appState.debugFlags) appState.debugFlags.showMessages = Boolean(item.checked);
+            sendMenuAction({ type: "toggleDebugMessages", value: Boolean(item.checked) });
+          },
+        },
+        {
+          label: "Automatic Dumps",
+          type: "checkbox",
+          checked: autoDumpEnabled,
+          click: (item) => {
+            if (appState && appState.debugFlags) appState.debugFlags.autoDump = Boolean(item.checked);
+            sendMenuAction({ type: "toggleAutoDump", value: Boolean(item.checked) });
+          },
+        },
+      ],
     },
     ...(payloadEnabled ? [{ type: "separator" }, { label: "Payload Mode (Current Tune)…", click: () => sendMenuAction("openPayloadMode") }] : []),
   ];
@@ -228,8 +233,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
   const viewMenu = {
     label: "View",
     submenu: [
-      ...(isMac ? [{ role: "togglefullscreen" }] : []),
-      { type: "separator" },
+      ...(isMac ? [{ role: "togglefullscreen" }, { type: "separator" }] : []),
       { label: "Library Catalog…", accelerator: "CmdOrCtrl+Shift+L", click: () => sendMenuAction("libraryList") },
       { label: "Toggle Library", accelerator: "CmdOrCtrl+L", click: () => sendMenuAction("toggleLibrary") },
       { label: "Toggle File Header", accelerator: "CmdOrCtrl+Alt+H", click: () => sendMenuAction("toggleFileHeader") },
@@ -258,14 +262,19 @@ function buildMenuTemplate(appState, sendMenuAction) {
       { label: "Go to Measure…", accelerator: "CmdOrCtrl+Shift+G", click: () => sendMenuAction("playGotoMeasure") },
       { type: "separator" },
       {
-        label: "Play Notes While Typing",
-        type: "checkbox",
-        checked: Boolean(appState && appState.settings && appState.settings.noteTypingPreviewEnabled),
-        click: (item) => {
-          const next = Boolean(item && item.checked);
-          if (appState && appState.settings) appState.settings.noteTypingPreviewEnabled = next;
-          sendMenuAction({ type: "toggleNoteTypingPreview", value: next });
-        },
+        label: "Options",
+        submenu: [
+          {
+            label: "Notes While Typing",
+            type: "checkbox",
+            checked: Boolean(appState && appState.settings && appState.settings.noteTypingPreviewEnabled),
+            click: (item) => {
+              const next = Boolean(item && item.checked);
+              if (appState && appState.settings) appState.settings.noteTypingPreviewEnabled = next;
+              sendMenuAction({ type: "toggleNoteTypingPreview", value: next });
+            },
+          },
+        ],
       },
     ],
   };

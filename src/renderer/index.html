@@ -115,6 +115,12 @@
         </div>
       </div>
 		      <div class="right-controls">
+		        <div class="segmented" aria-label="Preferences">
+		          <button id="btnSettings" type="button" title="Settings (Ctrl+,)">
+	              <svg class="btn-icon icon-settings" aria-hidden="true"><use href="#ui-settings"></use></svg>
+	              <span class="btn-text">Settings</span>
+	            </button>
+		        </div>
 		        <div class="segmented" aria-label="Playback and input modes">
               <button id="midiInputStatus" class="midi-status hidden" type="button" aria-label="MIDI input status">
                 <svg class="btn-icon icon-midi" aria-hidden="true"><use href="#ui-midi"></use></svg>
@@ -124,13 +130,13 @@
 		              <svg class="btn-icon icon-focus" aria-hidden="true"><use href="#ui-focus"></use></svg>
 		              <span class="btn-text">Focus</span>
 		            </button>
+		          <button id="btnToggleFollow" type="button" title="Toggle playback follow" aria-pressed="false">
+		            <svg class="btn-icon icon-follow" aria-hidden="true"><use href="#ui-follow"></use></svg>
+		            <span class="btn-text">Follow</span>
+		          </button>
 		        </div>
 		        <div class="segmented" aria-label="View">
-			          <button id="btnToggleSplit" title="Toggle split orientation (Ctrl+Alt+\)" aria-label="Toggle split orientation" aria-pressed="false">
-		              <svg class="btn-icon icon-split" aria-hidden="true"><use href="#ui-split"></use></svg>
-		              <span class="btn-text">Split</span>
-		            </button>
-			          <button id="btnResetLayout" title="Reset view (layout + zoom) (F8)" aria-label="Reset view (layout and zoom)">
+		          <button id="btnResetLayout" title="Reset view (layout + zoom) (F8)" aria-label="Reset view (layout and zoom)">
 		              <svg class="btn-icon icon-reset" aria-hidden="true"><use href="#ui-reset"></use></svg>
 		              <span class="btn-text">Reset view</span>
 		            </button>
@@ -194,6 +200,17 @@
         <path d="M12 4v16"></path>
         <path d="M4 7h16"></path>
         <path d="M4 17h16"></path>
+      </symbol>
+      <symbol id="ui-settings" viewBox="0 0 24 24">
+        <path d="M4 6h10"></path>
+        <path d="M18 6h2"></path>
+        <path d="M4 12h2"></path>
+        <path d="M10 12h10"></path>
+        <path d="M4 18h6"></path>
+        <path d="M14 18h6"></path>
+        <circle cx="16" cy="6" r="2"></circle>
+        <circle cx="8" cy="12" r="2"></circle>
+        <circle cx="12" cy="18" r="2"></circle>
       </symbol>
       <symbol id="ui-focus" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="3"></circle>
@@ -357,9 +374,9 @@
               <svg class="btn-icon icon-alert" aria-hidden="true"><use href="#ui-alert"></use></svg>
               <span class="btn-text">Errors</span>
             </button>
-            <button id="btnToggleFollow" type="button" title="Toggle playback follow">
-              <svg class="btn-icon icon-follow" aria-hidden="true"><use href="#ui-follow"></use></svg>
-              <span class="btn-text">Follow</span>
+            <button id="btnToggleSplit" type="button" title="Toggle split orientation (Ctrl+Alt+\)" aria-label="Toggle split orientation" aria-pressed="false">
+              <svg class="btn-icon icon-split" aria-hidden="true"><use href="#ui-split"></use></svg>
+              <span class="btn-text">Split</span>
             </button>
             <button id="btnToggleGlobals" type="button" title="Toggle global header">
               <svg class="btn-icon icon-globe" aria-hidden="true"><use href="#ui-globe"></use></svg>

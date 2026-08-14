@@ -326,7 +326,7 @@ function createAppCommandsDomain({
       restartButton,
       prevMeasureButton,
       nextMeasureButton,
-      fontsButton,
+      settingsButton,
       resetLayoutButton,
       toggleSplitButton,
       toggleFollowButton,
@@ -383,10 +383,10 @@ function createAppCommandsDomain({
       nextMeasureButton.addEventListener("click", () => guardedRun(() => actions.activateErrorByNav(1), { setStatusOnError: true }));
     }
 
-    if (fontsButton) {
-      fontsButton.addEventListener("click", () => {
+    if (settingsButton) {
+      settingsButton.addEventListener("click", () => {
         const settings = getSettingsDomain();
-        if (settings && typeof settings.openFontsSettings === "function") settings.openFontsSettings();
+        if (settings && typeof settings.openSettings === "function") settings.openSettings();
       });
     }
 

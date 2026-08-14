@@ -89,42 +89,35 @@ function openGchordHelperAtCursor({
 
   const pop = document.createElement("div");
   pop.id = "abcarusGchordEditorPopover";
+  pop.className = "abc-helper-popover";
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", "Gchord pattern editor");
   pop.style.position = "fixed";
   pop.style.zIndex = "9999";
   pop.style.width = "min(560px, calc(100vw - 20px))";
   pop.style.maxWidth = "calc(100vw - 20px)";
-  pop.style.padding = "8px 10px";
-  pop.style.borderRadius = "8px";
-  pop.style.border = "1px solid rgba(0,0,0,0.18)";
-  pop.style.background = "rgba(255,255,255,0.98)";
-  pop.style.boxShadow = "0 8px 24px rgba(0,0,0,0.18)";
-  pop.style.fontSize = "13px";
-  pop.style.lineHeight = "1.35";
-  pop.style.boxSizing = "border-box";
 
   const head = document.createElement("div");
+  head.className = "abc-helper-header";
   head.style.display = "flex";
   head.style.alignItems = "center";
   head.style.justifyContent = "space-between";
   head.style.gap = "12px";
 
   const title = document.createElement("div");
+  title.className = "abc-helper-title";
   title.textContent = "Gchord pattern";
-  title.style.fontWeight = "600";
   head.appendChild(title);
 
   const hint = document.createElement("div");
+  hint.className = "abc-helper-hint";
   hint.textContent = "Enter=apply · Esc=close";
-  hint.style.opacity = "0.65";
-  hint.style.fontSize = "12px";
   head.appendChild(hint);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
   const body = document.createElement("div");
-  body.style.marginTop = "6px";
+  body.className = "abc-helper-body";
   body.style.display = "flex";
   body.style.flexDirection = "column";
   body.style.gap = "8px";
@@ -201,12 +194,8 @@ function openGchordHelperAtCursor({
   actions.style.gap = "8px";
   const applyBtn = document.createElement("button");
   applyBtn.type = "button";
+  applyBtn.className = "primary";
   applyBtn.textContent = "Apply";
-  applyBtn.style.padding = "6px 10px";
-  applyBtn.style.borderRadius = "6px";
-  applyBtn.style.border = "1px solid rgba(0,0,0,0.2)";
-  applyBtn.style.background = "white";
-  applyBtn.style.cursor = "pointer";
   actions.appendChild(applyBtn);
   body.appendChild(actions);
 

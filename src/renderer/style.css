@@ -1139,10 +1139,15 @@ body.chordpro-mode #btnToggleGlobals {
 }
 
 #btnNewTune.file-tune-action,
-#btnTemplates.file-tune-action {
+#btnTemplates.file-tune-action,
+#btnToggleRaw.file-tune-action {
   width: auto;
   padding: 0 10px;
   gap: 6px;
+}
+
+#btnToggleRaw.file-tune-action {
+  min-width: 64px;
 }
 
 .modal-card.templates-card {
@@ -1808,6 +1813,45 @@ svg {
   border-color: #e0e0e0;
   background: #f7f7f7;
   color: #666;
+}
+
+.abc-helper-popover {
+  box-sizing: border-box;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui);
+  line-height: var(--line-height-ui);
+}
+
+.abc-helper-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.abc-helper-title {
+  font-weight: 600;
+}
+
+.abc-helper-hint {
+  color: var(--muted-text);
+  font-size: var(--font-size-sm);
+}
+
+.abc-helper-body {
+  padding: 10px 12px 12px;
+}
+
+.abc-helper-popover input,
+.abc-helper-popover select,
+.abc-helper-popover textarea {
+  color: var(--text);
+  background: var(--panel-bg);
+  border-color: var(--border-color) !important;
 }
 
 .midi-popover{

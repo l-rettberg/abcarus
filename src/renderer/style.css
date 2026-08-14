@@ -1817,6 +1817,10 @@ svg {
 
 .abc-helper-popover {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 20px);
+  overflow: hidden;
   padding: 0;
   color: var(--text);
   background: var(--panel-bg);
@@ -1829,6 +1833,7 @@ svg {
 }
 
 .abc-helper-header {
+  flex: 0 0 auto;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
 }
@@ -1842,8 +1847,46 @@ svg {
   font-size: var(--font-size-sm);
 }
 
+.abc-helper-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.abc-helper-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-text);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.abc-helper-close:hover {
+  color: var(--text);
+  background: var(--button-bg-hover);
+}
+
 .abc-helper-body {
+  min-height: 0;
+  overflow: auto;
   padding: 10px 12px 12px;
+}
+
+.abc-helper-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
 }
 
 .abc-helper-popover input,

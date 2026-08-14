@@ -112,7 +112,17 @@ function openGchordHelperAtCursor({
   const hint = document.createElement("div");
   hint.className = "abc-helper-hint";
   hint.textContent = "Enter=apply · Esc=close";
-  head.appendChild(hint);
+  const headerActions = document.createElement("div");
+  headerActions.className = "abc-helper-header-actions";
+  headerActions.appendChild(hint);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "abc-helper-close";
+  closeBtn.setAttribute("aria-label", "Close Gchord pattern helper");
+  closeBtn.title = "Close";
+  closeBtn.textContent = "×";
+  headerActions.appendChild(closeBtn);
+  head.appendChild(headerActions);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
@@ -189,15 +199,13 @@ function openGchordHelperAtCursor({
   body.appendChild(previewBox);
 
   const actions = document.createElement("div");
-  actions.style.display = "flex";
-  actions.style.justifyContent = "flex-end";
-  actions.style.gap = "8px";
+  actions.className = "abc-helper-footer";
   const applyBtn = document.createElement("button");
   applyBtn.type = "button";
   applyBtn.className = "primary";
   applyBtn.textContent = "Apply";
   actions.appendChild(applyBtn);
-  body.appendChild(actions);
+  pop.appendChild(actions);
 
   const updateStatus = () => {
     const raw = String(patternField.input.value || "");
@@ -275,6 +283,7 @@ function openGchordHelperAtCursor({
   };
 
   applyBtn.addEventListener("click", () => applyChanges());
+  closeBtn.addEventListener("click", () => closePopover());
   const onInputKey = (ev) => {
     try {
       if (!ev) return;

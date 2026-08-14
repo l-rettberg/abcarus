@@ -140,7 +140,22 @@ function openMidiProgramPickerAtCursor({
   const hint = document.createElement("div");
   hint.className = "abc-helper-hint";
   hint.textContent = "Type to filter · Enter=insert · Esc=close";
-  head.appendChild(hint);
+  const headerActions = document.createElement("div");
+  headerActions.className = "abc-helper-header-actions";
+  headerActions.appendChild(hint);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "abc-helper-close";
+  closeBtn.setAttribute("aria-label", "Close GM program helper");
+  closeBtn.title = "Close";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", () => {
+    const close = pop.__abcarusClose;
+    if (typeof close === "function") close();
+    else pop.remove();
+  });
+  headerActions.appendChild(closeBtn);
+  head.appendChild(headerActions);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
@@ -374,7 +389,6 @@ function openKeySignaturePickerAtCursor({
   pop.style.width = "min(720px, calc(100vw - 20px))";
   pop.style.maxWidth = "calc(100vw - 20px)";
   pop.style.maxHeight = "calc(100vh - 20px)";
-  pop.style.overflow = "auto";
 
   const head = document.createElement("div");
   head.className = "abc-helper-header";
@@ -391,7 +405,22 @@ function openKeySignaturePickerAtCursor({
   const hint = document.createElement("div");
   hint.className = "abc-helper-hint";
   hint.textContent = "Search makam or key · Enter=insert · Esc=close";
-  head.appendChild(hint);
+  const headerActions = document.createElement("div");
+  headerActions.className = "abc-helper-header-actions";
+  headerActions.appendChild(hint);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "abc-helper-close";
+  closeBtn.setAttribute("aria-label", "Close key signature helper");
+  closeBtn.title = "Close";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", () => {
+    const close = pop.__abcarusClose;
+    if (typeof close === "function") close();
+    else pop.remove();
+  });
+  headerActions.appendChild(closeBtn);
+  head.appendChild(headerActions);
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);
 
@@ -610,7 +639,6 @@ function openDecorationPickerAtCursor({
   pop.style.width = "min(1040px, calc(100vw - 20px))";
   pop.style.maxWidth = "calc(100vw - 20px)";
   pop.style.maxHeight = "calc(100vh - 20px)";
-  pop.style.overflow = "auto";
   pop.style.resize = "both";
   pop.style.minWidth = "760px";
   pop.style.minHeight = "260px";
@@ -635,7 +663,22 @@ function openDecorationPickerAtCursor({
   hint.textContent = "Drag to move · Resize corner · Enter=insert · Shift+Enter=!name! · (Select text for range) · Esc=close";
   hint.style.fontSize = "11px";
   hint.style.whiteSpace = "nowrap";
-  head.appendChild(hint);
+  const headerActions = document.createElement("div");
+  headerActions.className = "abc-helper-header-actions";
+  headerActions.appendChild(hint);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "abc-helper-close";
+  closeBtn.setAttribute("aria-label", "Close decoration helper");
+  closeBtn.title = "Close";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", () => {
+    const close = pop.__abcarusClose;
+    if (typeof close === "function") close();
+    else pop.remove();
+  });
+  headerActions.appendChild(closeBtn);
+  head.appendChild(headerActions);
 
   pop.appendChild(head);
   if (typeof enableDraggableFixedPopover === "function") enableDraggableFixedPopover(pop, head);

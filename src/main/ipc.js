@@ -1120,14 +1120,19 @@ function registerIpcHandlers(ctx) {
     const parent = getParentForDialog(event, "export:musicxml-all");
     const result = await dialog.showOpenDialog(parent || undefined, {
       title: "Choose Folder for MusicXML Tunes",
-      defaultPath: getDialogPath({ dialogId: "exportMusicXmlAll", directoryOnly: true }),
+      defaultPath: getDialogPath({
+        dialogId: "exportMusicXmlAll",
+        suggestedDir: app.getPath("desktop"),
+        directoryOnly: true,
+        useSharedFallback: false,
+      }),
       properties: ["openDirectory", "createDirectory"],
     });
     const parentDir = result && !result.canceled && result.filePaths && result.filePaths[0]
       ? String(result.filePaths[0])
       : "";
     if (!parentDir) return { ok: false, canceled: true };
-    rememberDialogPath(parentDir, { dialogId: "exportMusicXmlAll", directoryOnly: true });
+    rememberDialogPath(parentDir, { dialogId: "exportMusicXmlAll", isDirectory: true });
 
     const sourceBase = sanitizeSuggestedFileBaseName(data.sourceName, "ABC tunes");
     let outputDir = path.join(parentDir, `${sourceBase} - MusicXML`);
@@ -1171,7 +1176,7 @@ function registerIpcHandlers(ctx) {
         }
         await atomicWriteFileWithRetry(fs, path, path.join(outputDir, "export-report.txt"), `${report.join("\n")}\n`);
       }
-      const choice = dialog.showMessageBoxSync(parent || undefined, {
+      const completionOptions = {
         type: failures.length ? "warning" : "info",
         buttons: ["Open Folder", "OK"],
         defaultId: 0,
@@ -1181,8 +1186,19 @@ function registerIpcHandlers(ctx) {
           ? `Exported ${written} of ${items.length} tunes. See export-report.txt for details.\n\n${outputDir}`
           : `Exported ${written} tunes.\n\n${outputDir}`,
         noLink: true,
+      };
+      // Resolve the invoke first. A nested synchronous dialog can prevent Electron
+      // from delivering the IPC reply after a long-running export.
+      setImmediate(() => {
+        const completionParent = parent && !parent.isDestroyed() ? parent : undefined;
+        dialog.showMessageBox(completionParent, completionOptions)
+          .then(async ({ response }) => {
+            if (response === 0 && shell && typeof shell.openPath === "function") {
+              await shell.openPath(outputDir);
+            }
+          })
+          .catch(() => {});
       });
-      if (choice === 0 && shell && typeof shell.openPath === "function") await shell.openPath(outputDir);
       return {
         ok: true,
         outputDir,

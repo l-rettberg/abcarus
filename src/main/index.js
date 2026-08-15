@@ -926,7 +926,15 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
-function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
+function getDialogDefaultPath({
+  dialogId,
+  suggestedName,
+  suggestedDir,
+  suggestedPath,
+  directoryOnly,
+  preferFileNameOnPortal = false,
+  useSharedFallback = true,
+} = {}) {
   const normalizeFsPath = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -950,7 +958,7 @@ function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggested
     const candidate = normalizeFsPath(scopedPreference && scopedPreference.file);
     try { return candidate && fs.statSync(candidate).isFile() ? candidate : ""; } catch { return ""; }
   })();
-  const rememberedDir = scopedDir || existingDirectory(appState.lastDialogDir);
+  const rememberedDir = scopedDir || (useSharedFallback ? existingDirectory(appState.lastDialogDir) : "");
   const explicitDir = normalizeFsPath(suggestedDir);
   const explicitPath = normalizeFsPath(suggestedPath);
   const explicitPathAbs = explicitPath && path.isAbsolute(explicitPath) ? explicitPath : "";

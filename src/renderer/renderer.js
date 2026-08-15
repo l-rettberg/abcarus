@@ -3508,6 +3508,7 @@ appCommandsDomain = createAppCommandsDomain({
     stopPlaybackTransport,
     toggleSplitOrientation,
     transportStartOver,
+    updateYouTubeMetadata: () => sourceLinkFeature.updateYouTubeMetadata(),
     updateFollowToggle,
     getFocusedEditorView,
     toggleLineComments,

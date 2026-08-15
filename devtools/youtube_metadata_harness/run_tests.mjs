@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { build } from "esbuild";
+import fs from "node:fs";
 
 const bundled = await build({ entryPoints: ["src/renderer/tools/source_link/youtube_metadata_model.js"], bundle: true, format: "esm", platform: "node", write: false });
 const encoded = Buffer.from(bundled.outputFiles[0].text, "utf8").toString("base64");
@@ -27,4 +28,11 @@ assert.equal(second.unchanged, 2);
 assert.equal(second.text, result.text);
 const eofResult = applyYouTubeMetadata("X:3\nF:https://youtu.be/abc123DEF45", metadata);
 assert.match(eofResult.text, /F:https:\/\/youtu\.be\/abc123DEF45\nN:\[YouTube title\] First video\nN:\[YouTube channel\] Channel One\n$/);
+
+const rendererSource = fs.readFileSync("src/renderer/renderer.js", "utf8");
+assert.match(
+  rendererSource,
+  /createAppCommandsDomain\([\s\S]*?actions:\s*\{[\s\S]*?updateYouTubeMetadata:\s*\(\)\s*=>\s*sourceLinkFeature\.updateYouTubeMetadata\(\)/,
+  "app commands must wire the YouTube metadata action to the source-link feature",
+);
 console.log("youtube metadata harness: all tests passed");

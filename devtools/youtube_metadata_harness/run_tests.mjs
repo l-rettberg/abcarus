@@ -35,4 +35,22 @@ assert.match(
   /createAppCommandsDomain\([\s\S]*?actions:\s*\{[\s\S]*?updateYouTubeMetadata:\s*\(\)\s*=>\s*sourceLinkFeature\.updateYouTubeMetadata\(\)/,
   "app commands must wire the YouTube metadata action to the source-link feature",
 );
+
+const printBundle = await build({ entryPoints: ["src/renderer/print/source_link_markup.js"], bundle: true, format: "esm", platform: "node", write: false });
+const printEncoded = Buffer.from(printBundle.outputFiles[0].text, "utf8").toString("base64");
+const { buildPrintSourceLinkMarkup, collectPrintSources } = await import(`data:text/javascript;base64,${printEncoded}`);
+const printSources = collectPrintSources(result.text);
+assert.equal(printSources.length, 2);
+assert.deepEqual(
+  { title: printSources[0].title, channel: printSources[0].channel, videoId: printSources[0].videoId },
+  { title: "First video", channel: "Channel One", videoId: "abc123DEF45" },
+);
+const printMarkup = await buildPrintSourceLinkMarkup(result.text, {
+  includeQr: true,
+  createQrDataUrl: async (url) => `data:image/png;base64,${Buffer.from(url).toString("base64")}`,
+});
+assert.match(printMarkup, />First video</);
+assert.match(printMarkup, />YouTube \/ Channel One</);
+assert.match(printMarkup, />youtu\.be\/abc123DEF45</);
+assert.equal((printMarkup.match(/<img /g) || []).length, 2);
 console.log("youtube metadata harness: all tests passed");

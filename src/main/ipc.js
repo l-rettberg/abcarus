@@ -1477,7 +1477,7 @@ function registerIpcHandlers(ctx) {
     const tmpName = `${safeName}-${Date.now()}.pdf`;
     const tmpPath = path.join(app.getPath("temp"), tmpName);
     const res = await withMainPrintMode(async (contents) => {
-      const pdfData = await contents.printToPDF({ printBackground: true, marginsType: 0 });
+      const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "none" } });
       await fs.promises.writeFile(tmpPath, pdfData);
       return { ok: true, path: tmpPath };
     });
@@ -1493,7 +1493,7 @@ function registerIpcHandlers(ctx) {
     if (typeof printWithDialog === "function") return printWithDialog(svgMarkup, safeName);
     return withMainPrintMode((contents) =>
       new Promise((resolve) => {
-        contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+        contents.print({ printBackground: true, silent: false, margins: { marginType: "none" } }, (success, failureReason) => {
           if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
           resolve({ ok: true });
         });
@@ -1514,8 +1514,7 @@ function registerIpcHandlers(ctx) {
     if (typeof exportPdf === "function") return exportPdf(svgMarkup, filePath);
     return withMainPrintMode(async (contents) => {
       try {
-        const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-        const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+        const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "none" } });
         await fs.promises.writeFile(filePath, pdfData);
         return { ok: true };
       } catch (e) {

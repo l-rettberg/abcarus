@@ -1455,6 +1455,12 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
 </html>`;
 }
 
+function getPrintMargins() {
+  // ABCarus supplies the visible page inset through body padding. Disable the
+  // additional Chromium margin so PDF output does not receive two margins.
+  return { marginType: "none" };
+}
+
 async function withPrintWindow(svgMarkup, action, options) {
   const win = new BrowserWindow({
     show: Boolean(options && options.show),
@@ -1495,7 +1501,7 @@ async function withPrintWindow(svgMarkup, action, options) {
 async function printWithDialog(svgMarkup, suggestedName) {
   return withPrintWindow(svgMarkup, (contents) =>
     new Promise((resolve) => {
-      contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+      contents.print({ printBackground: true, silent: false, margins: getPrintMargins() }, (success, failureReason) => {
         if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
         resolve({ ok: true });
       });
@@ -1505,8 +1511,7 @@ async function printWithDialog(svgMarkup, suggestedName) {
 
 async function exportPdf(svgMarkup, filePath) {
   return withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(filePath, pdfData);
     return { ok: true, path: filePath };
   }, { show: false, suggestedName: filePath ? path.basename(filePath, path.extname(filePath)) : "" });
@@ -1517,8 +1522,7 @@ async function previewPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });
@@ -1533,8 +1537,7 @@ async function printViaPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });

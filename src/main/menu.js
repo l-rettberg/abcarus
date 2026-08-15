@@ -356,6 +356,12 @@ function buildMenuTemplate(appState, sendMenuAction) {
       },
       { type: "separator" },
       { label: "Set List…", click: () => sendMenuAction("setList") },
+      {
+        label: "Source Links",
+        submenu: [
+          { label: "Update YouTube Metadata (Active File)…", click: () => sendMenuAction("updateYouTubeMetadata") },
+        ],
+      },
       ...((appState && appState.settings && (appState.settings.supportMicrotonalNotation || appState.settings.makamToolsEnabled || appState.settings.studyToolsEnabled))
         ? [
             {

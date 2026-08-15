@@ -1531,6 +1531,7 @@ const libraryUiDomain = createLibraryUiDomain({
     resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
     restoreHoverStatus,
     renumberXInActiveFile,
+    updateYouTubeMetadata: () => sourceLinkFeature.updateYouTubeMetadata(),
     safeDirname,
     scheduleSaveLibraryPrefs,
     selectTune,
@@ -2280,6 +2281,23 @@ const sourceLinkFeature = createSourceLinkFeature({
   hasEditor: editorRuntime.hasView,
   isDisabled: () => Boolean(isRawModeActive() || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(settingsSnapshot.get() && settingsSnapshot.get().printSourceQrCodes),
+  fileState: {
+    getActiveFileEntry,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getRawMode: isRawModeActive,
+  },
+  fileActions: {
+    readFile: (filePath) => window.api.readFile(filePath),
+    refreshLibraryFile,
+    requireCleanForFileOp,
+    selectTune,
+    setStatus,
+    showSaveError,
+    showToast,
+    withFileLock,
+    writeFile: (filePath, text, options) => window.api.writeFile(filePath, text, options),
+  },
 });
 const printCurrentFeature = createPrintCurrentFeature({
   api: window.api,

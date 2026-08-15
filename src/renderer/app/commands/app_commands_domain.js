@@ -158,6 +158,7 @@ function createAppCommandsDomain({
       },
       openTemplatesModal: actions.openTemplatesModal,
       renumberXInActiveFile: actions.renumberXInActiveFile,
+      updateYouTubeMetadata: actions.updateYouTubeMetadata,
       requestCloseDocument: actions.requestCloseDocument,
       requestQuitApplication: actions.requestQuitApplication,
       resetLayout: actions.resetLayout,

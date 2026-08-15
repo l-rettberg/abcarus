@@ -167,6 +167,12 @@ PDF / print:
 - `File → Export → PDF…`
 - `File → Export → PDF (All Tunes)…`
 
+Source links:
+- A valid `F:https://…` field is shown as a source action and can be included in print/PDF output.
+- `Tools → Source Links → Update YouTube Metadata (Active File)…` reads YouTube titles and channels for all YouTube `F:` links in the active file.
+- After confirmation, ABCarus writes managed `N:[YouTube title]` and `N:[YouTube channel]` lines immediately after each corresponding `F:` line.
+- Existing user-authored `N:` fields are preserved. Unavailable links are reported but are not written into the ABC file.
+
 MusicXML:
 - Import: `File → Import → MusicXML…`
 - Export: `File → Export → MusicXML…`

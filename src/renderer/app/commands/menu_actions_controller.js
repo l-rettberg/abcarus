@@ -225,6 +225,7 @@ function createMenuActionsController({
       actions.setSplitOrientation(value, { persist: true, userAction: true });
     }
     else if (actionType === "renumberXInFile") await actions.renumberXInActiveFile();
+    else if (actionType === "updateYouTubeMetadata") await actions.updateYouTubeMetadata();
     else if (actionType === "navTunePrev") await actions.navigateTuneByDelta(-1);
     else if (actionType === "navTuneNext") await actions.navigateTuneByDelta(1);
     else if (actionType === "openRecentTune" && action && action.entry) await actions.openRecentTune(action.entry);

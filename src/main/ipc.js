@@ -763,6 +763,49 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("dialog:show-open-error", async (_e, message) => {
     showOpenError(message);
   });
+
+  ipcMain.handle("source:youtube-metadata", async (_event, rawUrl) => {
+    const targetUrl = normalizeYouTubeWatchUrl(rawUrl);
+    if (!targetUrl) return { ok: false, error: "Not a supported YouTube video URL." };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(targetUrl)}&format=json`;
+      const response = await fetch(endpoint, { signal: controller.signal, redirect: "follow" });
+      if (!response.ok) {
+        const unavailable = response.status === 401 || response.status === 403 || response.status === 404;
+        return { ok: false, unavailable, status: response.status, error: unavailable ? "Video is unavailable, private, or deleted." : `YouTube returned HTTP ${response.status}.` };
+      }
+      const text = await response.text();
+      if (text.length > 1024 * 1024) return { ok: false, error: "YouTube metadata response is unexpectedly large." };
+      const data = JSON.parse(text);
+      const title = String(data && data.title ? data.title : "").replace(/\s+/g, " ").trim();
+      const channel = String(data && data.author_name ? data.author_name : "").replace(/\s+/g, " ").trim();
+      if (!title) return { ok: false, error: "YouTube did not return a video title." };
+      return { ok: true, title, channel };
+    } catch (error) {
+      return { ok: false, error: error && error.name === "AbortError" ? "YouTube metadata request timed out." : (error && error.message ? error.message : "Unable to retrieve YouTube metadata.") };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  ipcMain.handle("source:confirm-youtube-metadata", async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const parent = getParentForDialog(event, "source:confirm-youtube-metadata");
+    const detail = String(data.detail || "").slice(0, 12000);
+    const canUpdate = Number(data.updateCount) > 0;
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: canUpdate ? "question" : "info",
+      buttons: canUpdate ? ["Update file", "Cancel"] : ["OK"],
+      defaultId: 0,
+      cancelId: canUpdate ? 1 : 0,
+      message: canUpdate ? "Update YouTube metadata?" : "YouTube metadata report",
+      detail,
+      noLink: true,
+    });
+    return canUpdate && response === 0;
+  });
   ipcMain.handle("sf2:list", async () => {
     try {
       const sf2Dir = path.join(app.getAppPath(), "third_party", "sf2");

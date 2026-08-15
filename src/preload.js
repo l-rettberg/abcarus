@@ -109,6 +109,8 @@ contextBridge.exposeInMainWorld("api", {
   getRecentCandidates: async () => ipcRenderer.invoke("recent:candidates"),
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   previewYouTubeSource: async (url) => ipcRenderer.invoke("source:preview-youtube", url),
+  fetchYouTubeMetadata: async (url) => ipcRenderer.invoke("source:youtube-metadata", url),
+  confirmYouTubeMetadataUpdate: async (payload) => ipcRenderer.invoke("source:confirm-youtube-metadata", payload || {}),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
   cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),

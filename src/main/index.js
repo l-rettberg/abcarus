@@ -1406,6 +1406,33 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
             } catch (_e) {}
           }
         }
+        function alignSourceSections() {
+          const sections = Array.from(document.querySelectorAll(".abcarus-print-source"));
+          for (const section of sections) {
+            try {
+              let node = section.previousElementSibling;
+              while (node && String(node.tagName || "").toLowerCase() !== "svg") {
+                node = node.previousElementSibling;
+              }
+              let svg = node;
+              if (!svg) {
+                const scope = section.closest(".print-tune") || section.parentElement || document;
+                const preceding = Array.from(scope.querySelectorAll("svg"))
+                  .filter(function (candidate) { return Boolean(candidate.compareDocumentPosition(section) & 4); });
+                svg = preceding.length ? preceding[preceding.length - 1] : null;
+              }
+              if (!svg || !svg.getBBox) continue;
+              const bbox = svg.getBBox();
+              const vb = svg.viewBox && svg.viewBox.baseVal;
+              const rect = svg.getBoundingClientRect();
+              if (!vb || !rect.width || !vb.width || !Number.isFinite(bbox.x)) continue;
+              const contentLeft = rect.left + ((bbox.x - vb.x) * rect.width / vb.width);
+              const sectionLeft = section.getBoundingClientRect().left;
+              const inset = Math.max(0, Math.min(rect.width * 0.25, contentLeft - sectionLeft));
+              if (inset > 0.5) section.style.marginLeft = inset.toFixed(2) + "px";
+            } catch (_e) {}
+          }
+        }
         function rasterizeSvg(svg) {
           const xml = new XMLSerializer().serializeToString(svg);
           const svg64 = btoa(unescape(encodeURIComponent(xml)));
@@ -1447,6 +1474,7 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
         }
         window._rasterReadyPromise = waitForFonts().then(function () {
           normalizeSvgBounds();
+          alignSourceSections();
           if (skipRaster) return null;
           return rasterizeAll();
         });

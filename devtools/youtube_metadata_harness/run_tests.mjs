@@ -53,4 +53,5 @@ assert.match(printMarkup, />First video</);
 assert.match(printMarkup, />YouTube \/ Channel One</);
 assert.match(printMarkup, />youtu\.be\/abc123DEF45</);
 assert.equal((printMarkup.match(/<img /g) || []).length, 2);
+assert.doesNotMatch(printMarkup, /border-top/);
 console.log("youtube metadata harness: all tests passed");

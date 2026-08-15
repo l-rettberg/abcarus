@@ -81,7 +81,7 @@ async function buildPrintSourceLinkMarkup(abcText, options = {}) {
     `);
   }
   return `
-    <section class="abcarus-print-source" aria-label="Sources" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 16px;margin:8px 0 0;padding-top:7px;border-top:1px solid #d7d7d7;font-family:sans-serif;color:#444;break-inside:avoid;">
+    <section class="abcarus-print-source" aria-label="Sources" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 16px;margin:7px 0 0;font-family:sans-serif;color:#444;break-inside:avoid;">
       ${rows.join("\n")}
     </section>
   `;

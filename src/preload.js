@@ -4,6 +4,26 @@ const fs = require("fs");
 const path = require("path");
 const { fileURLToPath } = require("url");
 
+let musicXmlBatchRequestId = 0;
+const pendingMusicXmlBatchRequests = new Map();
+
+ipcRenderer.on("export:musicxml-all:result", (_event, message) => {
+  const requestId = message && message.requestId ? String(message.requestId) : "";
+  const pending = pendingMusicXmlBatchRequests.get(requestId);
+  if (!pending) return;
+  pendingMusicXmlBatchRequests.delete(requestId);
+  pending(message.result);
+});
+
+function requestMusicXmlBatchExport(payload) {
+  musicXmlBatchRequestId += 1;
+  const requestId = `${Date.now()}-${musicXmlBatchRequestId}`;
+  return new Promise((resolve) => {
+    pendingMusicXmlBatchRequests.set(requestId, resolve);
+    ipcRenderer.send("export:musicxml-all", { requestId, payload: payload || {} });
+  });
+}
+
 contextBridge.exposeInMainWorld("api", {
   // Dev-only startup profiling flag (used by renderer.js). Enable via:
   // `ABCARUS_DEV_STARTUP_PERF=1 npm start`
@@ -55,7 +75,7 @@ contextBridge.exposeInMainWorld("api", {
   convertMusicXmlFile: async (filePath) => ipcRenderer.invoke("import:musicxml:convert-one", filePath),
   exportMusicXml: async (abcText, suggestedName) =>
     ipcRenderer.invoke("export:musicxml", abcText, suggestedName),
-  exportMusicXmlAll: async (payload) => ipcRenderer.invoke("export:musicxml-all", payload || {}),
+  exportMusicXmlAll: async (payload) => requestMusicXmlBatchExport(payload),
   exportMidi: async (midiBytes, suggestedName) =>
     ipcRenderer.invoke("export:midi", midiBytes, suggestedName),
   exportMp3: async (midiBytes, suggestedName) =>

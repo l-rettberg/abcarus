@@ -1104,7 +1104,7 @@ function registerIpcHandlers(ctx) {
       };
     }
   });
-  ipcMain.handle("export:musicxml-all", async (event, payload) => {
+  const exportMusicXmlAll = async (event, payload) => {
     const data = payload && typeof payload === "object" ? payload : {};
     const rawItems = Array.isArray(data.items) ? data.items : [];
     if (!rawItems.length) return { ok: false, error: "No tunes to export." };
@@ -1176,29 +1176,6 @@ function registerIpcHandlers(ctx) {
         }
         await atomicWriteFileWithRetry(fs, path, path.join(outputDir, "export-report.txt"), `${report.join("\n")}\n`);
       }
-      const completionOptions = {
-        type: failures.length ? "warning" : "info",
-        buttons: ["Open Folder", "OK"],
-        defaultId: 0,
-        cancelId: 1,
-        message: failures.length ? "MusicXML export completed with errors" : "MusicXML export complete",
-        detail: failures.length
-          ? `Exported ${written} of ${items.length} tunes. See export-report.txt for details.\n\n${outputDir}`
-          : `Exported ${written} tunes.\n\n${outputDir}`,
-        noLink: true,
-      };
-      // Resolve the invoke first. A nested synchronous dialog can prevent Electron
-      // from delivering the IPC reply after a long-running export.
-      setImmediate(() => {
-        const completionParent = parent && !parent.isDestroyed() ? parent : undefined;
-        dialog.showMessageBox(completionParent, completionOptions)
-          .then(async ({ response }) => {
-            if (response === 0 && shell && typeof shell.openPath === "function") {
-              await shell.openPath(outputDir);
-            }
-          })
-          .catch(() => {});
-      });
       return {
         ok: true,
         outputDir,
@@ -1214,6 +1191,30 @@ function registerIpcHandlers(ctx) {
         code: error && error.code ? String(error.code) : "",
       };
     }
+  };
+  ipcMain.on("export:musicxml-all", (event, envelope) => {
+    const requestId = envelope && envelope.requestId ? String(envelope.requestId) : "";
+    if (!/^\d+-\d+$/.test(requestId)) return;
+    const payload = envelope && envelope.payload && typeof envelope.payload === "object"
+      ? envelope.payload
+      : {};
+    exportMusicXmlAll(event, payload)
+      .then((result) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", { requestId, result });
+        }
+      })
+      .catch((error) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", {
+            requestId,
+            result: {
+              ok: false,
+              error: error && error.message ? String(error.message) : String(error),
+            },
+          });
+        }
+      });
   });
   ipcMain.handle("export:midi", async (event, midiBytes, suggestedName) => {
     const toBuffer = (value) => {

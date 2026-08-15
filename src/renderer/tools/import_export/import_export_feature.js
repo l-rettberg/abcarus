@@ -545,6 +545,12 @@ function createImportExportFeature({
       setStatus(failed
         ? `Completed (exported ${exported}/${items.length}; ${failed} failed)`
         : `OK (exported ${exported}/${items.length} tunes)`);
+      showToast(
+        failed
+          ? `MusicXML: exported ${exported}/${items.length}. See export-report.txt in ${res.outputDir}`
+          : `MusicXML: exported ${exported} tunes to ${res.outputDir}`,
+        8000,
+      );
     } catch (error) {
       const msg = error && error.message ? error.message : String(error);
       logError(msg);

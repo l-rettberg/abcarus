@@ -7,7 +7,10 @@ const {
   parseArgString,
   runPythonScript,
 } = require("./utils");
-const { convertAbcToMusicXml: runAbcToMusicXml } = require("./backends/abc2xml");
+const {
+  convertAbcBatchToMusicXml: runAbcBatchToMusicXml,
+  convertAbcToMusicXml: runAbcToMusicXml,
+} = require("./backends/abc2xml");
 const { convertMusicXmlToAbc } = require("./backends/xml2abc");
 const { convertMidiToAbc } = require("./backends/midi2abc");
 const { convertMidiToAbcViaMusic21 } = require("./backends/midi2abc_music21");
@@ -115,6 +118,13 @@ async function convertAbcToMusicXml({ abcText, args }) {
   return runAbcToMusicXml({ python, scriptPath, abcText, extraArgs });
 }
 
+async function convertAbcBatchToMusicXml({ items, args }) {
+  const python = await resolvePythonExecutable();
+  const scriptPath = resolveScriptPath("abc2xml");
+  const extraArgs = parseArgString(args);
+  return runAbcBatchToMusicXml({ python, scriptPath, items, extraArgs });
+}
+
 async function checkConversionTools() {
   const result = {
     python: { ok: false, path: null, error: "", detail: "", code: "" },
@@ -215,6 +225,7 @@ async function checkConversionTools() {
 
 module.exports = {
   convertFileToAbc,
+  convertAbcBatchToMusicXml,
   convertAbcToMusicXml,
   resolveThirdPartyRoot,
   ConversionError,

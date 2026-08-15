@@ -177,7 +177,7 @@ function createHeaderLayersController({
     if (next !== prev) scheduleRender();
   }
 
-  function collectLayers(entryHeader, { withKinds = false } = {}) {
+  function collectLayers(entryHeader, { withKinds = false, includeRuntimeFonts = true } = {}) {
     const layers = [];
     const push = (kind, text) => {
       const normalized = normalizeHeaderLayer(text);
@@ -189,8 +189,10 @@ function createHeaderLayersController({
       push("abcarus", globalHeaderLocalText);
       push("abcarus", globalHeaderUserText);
     }
-    const fontLayerRaw = buildAbc2svgFontHeaderLayer();
-    if (fontLayerRaw) layers.push(withKinds ? { kind: "abcarus", text: fontLayerRaw } : fontLayerRaw);
+    if (includeRuntimeFonts) {
+      const fontLayerRaw = buildAbc2svgFontHeaderLayer();
+      if (fontLayerRaw) layers.push(withKinds ? { kind: "abcarus", text: fontLayerRaw } : fontLayerRaw);
+    }
     const fileHeaderRaw = String(entryHeader || "");
     if (fileHeaderRaw.trim()) {
       const text = fileHeaderRaw.replace(/[\r\n]+$/, "");
@@ -215,9 +217,18 @@ function createHeaderLayersController({
     });
   }
 
+  function buildConversionHeaderPrefix(entryHeader, tuneText) {
+    return buildHeaderPrefixFromLayers({
+      layers: collectLayers(entryHeader, { includeRuntimeFonts: false }),
+      includeCheckbars: false,
+      tuneText,
+    });
+  }
+
   return {
     buildHeaderPrefix,
     buildHeaderPrefixWithLayerSpans,
+    buildConversionHeaderPrefix,
     getSettingsSignature,
     isGlobalHeaderEnabled,
     refreshHeaderLayers,

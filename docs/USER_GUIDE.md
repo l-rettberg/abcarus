@@ -176,6 +176,8 @@ Source links:
 MusicXML:
 - Import: `File → Import → MusicXML…`
 - Export: `File → Export → MusicXML…`
+- Export every tune in the active ABC file: `File → Export → MusicXML (All Tunes)…`. ABCarus creates a new `File name - MusicXML` folder containing one standard `.musicxml` file per tune. Existing export folders are never overwritten.
+- Batch MusicXML export applies the same enabled Global Header hierarchy and File Header to each tune, with tune-level directives taking precedence. ABCarus runtime font paths are intentionally excluded.
 
 MIDI:
 - Import: `File → Import → MIDI…` (experimental, converts `.mid/.midi` to ABC)

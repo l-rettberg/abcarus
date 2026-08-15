@@ -25,7 +25,9 @@ function createImportExportFeature({
   getSuggestedBaseName = () => "untitled",
   getCurrentDoc = () => null,
   getActiveFilePath = () => "",
+  getActiveFileEntry = () => null,
   getActiveTuneMeta = () => null,
+  buildConversionHeaderPrefix = (_entryHeader, _tuneText) => ({ text: "" }),
   getSettings = () => ({}),
   getPlaybackPayload = () => ({ text: "" }),
   ensureSafeToAbandonCurrentDoc = async () => false,
@@ -66,6 +68,7 @@ function createImportExportFeature({
   ensureMidiGenLoaded = async () => {},
 } = {}) {
   let midiImportInProgress = false;
+  let musicXmlBatchExportInProgress = false;
 
   function deriveTitleFromPath(filePath) {
     if (!filePath) return "Imported tune";
@@ -119,6 +122,18 @@ function createImportExportFeature({
       }
       const src = payload.sourcePath ? safeBasename(String(payload.sourcePath)) : "";
       setStatus(src ? `Importing MIDI… ${done}/${total} (${src})` : `Importing MIDI… ${done}/${total}`);
+    });
+    return true;
+  }
+
+  function installMusicXmlBatchProgressHandler() {
+    if (!api || typeof api.onExportMusicXmlAllProgress !== "function") return false;
+    api.onExportMusicXmlAllProgress((payload) => {
+      if (!musicXmlBatchExportInProgress || !payload) return;
+      const done = Number(payload.done) || 0;
+      const total = Number(payload.total) || 0;
+      const verb = payload.phase === "write" ? "Writing MusicXML" : "Converting MusicXML";
+      setStatus(total > 0 ? `${verb}… ${done}/${total}` : `${verb}…`);
     });
     return true;
   }
@@ -466,6 +481,78 @@ function createImportExportFeature({
     }
   }
 
+  async function exportMusicXmlAll() {
+    if (!api || typeof api.exportMusicXmlAll !== "function") return;
+    const filePath = String(getActiveFilePath() || "");
+    if (!filePath) {
+      setStatus("No active file to export.");
+      return;
+    }
+    if (!(await requireCleanForFileOp(filePath, "exporting all tunes to MusicXML"))) {
+      setStatus("Ready");
+      return;
+    }
+    setStatus("Preparing MusicXML export…");
+    try {
+      const refreshed = await refreshLibraryFile(filePath, { force: true });
+      const entry = refreshed || getActiveFileEntry();
+      const readRes = await readFile(filePath);
+      if (!readRes || !readRes.ok) throw new Error(readRes && readRes.error ? readRes.error : "Unable to read active file.");
+      const content = String(readRes.data || "");
+      const tunes = entry && Array.isArray(entry.tunes) ? entry.tunes : [];
+      if (!tunes.length) throw new Error("The active file contains no tunes.");
+      const items = [];
+      for (let i = 0; i < tunes.length; i += 1) {
+        const tune = tunes[i];
+        if (!tune || !Number.isFinite(tune.startOffset) || !Number.isFinite(tune.endOffset)) {
+          throw new Error(`Tune ${i + 1} has invalid file boundaries. Refresh the Library and try again.`);
+        }
+        const tuneText = content.slice(tune.startOffset, tune.endOffset);
+        if (!tuneText.trim()) continue;
+        const prefix = buildConversionHeaderPrefix(entry.headerText || "", tuneText);
+        items.push({
+          abcText: `${prefix && prefix.text ? prefix.text : ""}${tuneText}`,
+          xNumber: tune.xNumber || "",
+          title: tune.title || "",
+        });
+      }
+      if (!items.length) throw new Error("The active file contains no exportable tunes.");
+      setStatus(`Converting MusicXML… 0/${items.length}`);
+      musicXmlBatchExportInProgress = true;
+      let res = null;
+      try {
+        res = await api.exportMusicXmlAll({
+          sourceName: stripFileExtension(safeBasename(filePath)) || "ABC tunes",
+          items,
+        });
+      } finally {
+        musicXmlBatchExportInProgress = false;
+      }
+      if (!res || res.canceled) {
+        setStatus("Ready");
+        return;
+      }
+      if (!res.ok) {
+        const msg = formatConversionError(res);
+        logError(msg);
+        setStatus("Error");
+        await showSaveError(msg);
+        return;
+      }
+      if (res.warnings) logError(`Export warning: ${res.warnings}`);
+      const exported = Number(res.exported) || 0;
+      const failed = Number(res.failed) || 0;
+      setStatus(failed
+        ? `Completed (exported ${exported}/${items.length}; ${failed} failed)`
+        : `OK (exported ${exported}/${items.length} tunes)`);
+    } catch (error) {
+      const msg = error && error.message ? error.message : String(error);
+      logError(msg);
+      setStatus("Error");
+      await showSaveError(msg);
+    }
+  }
+
   async function buildMidiBytesFromAbc() {
     ensureAbc2svgLoader();
     const AbcCtor = getAbcCtor();
@@ -574,9 +661,11 @@ function createImportExportFeature({
     exportMidi: () => exportMidiLike("midi"),
     exportMp3: () => exportMidiLike("mp3"),
     exportMusicXml,
+    exportMusicXmlAll,
     importMidi,
     importMusicXml,
     importPreparedAbcItems,
+    installMusicXmlBatchProgressHandler,
     installMidiProgressHandler,
   };
 }

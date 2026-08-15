@@ -1,5 +1,6 @@
 const {
   convertFileToAbc,
+  convertAbcBatchToMusicXml,
   convertAbcToMusicXml,
   checkConversionTools,
 } = require("./conversion");
@@ -1100,6 +1101,101 @@ function registerIpcHandlers(ctx) {
         error: e && e.message ? e.message : String(e),
         detail: e && e.detail ? e.detail : "",
         code: e && e.code ? e.code : "",
+      };
+    }
+  });
+  ipcMain.handle("export:musicxml-all", async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const rawItems = Array.isArray(data.items) ? data.items : [];
+    if (!rawItems.length) return { ok: false, error: "No tunes to export." };
+    if (rawItems.length > 10000) return { ok: false, error: "Too many tunes to export at once." };
+    const items = rawItems.map((item, index) => ({
+      abcText: String(item && item.abcText ? item.abcText : ""),
+      xNumber: String(item && item.xNumber ? item.xNumber : ""),
+      title: String(item && item.title ? item.title : ""),
+      ordinal: index + 1,
+    }));
+    const totalChars = items.reduce((sum, item) => sum + item.abcText.length, 0);
+    if (totalChars > 100 * 1024 * 1024) return { ok: false, error: "ABC export payload is too large." };
+    const parent = getParentForDialog(event, "export:musicxml-all");
+    const result = await dialog.showOpenDialog(parent || undefined, {
+      title: "Choose Folder for MusicXML Tunes",
+      defaultPath: getDialogPath({ dialogId: "exportMusicXmlAll", directoryOnly: true }),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const parentDir = result && !result.canceled && result.filePaths && result.filePaths[0]
+      ? String(result.filePaths[0])
+      : "";
+    if (!parentDir) return { ok: false, canceled: true };
+    rememberDialogPath(parentDir, { dialogId: "exportMusicXmlAll", directoryOnly: true });
+
+    const sourceBase = sanitizeSuggestedFileBaseName(data.sourceName, "ABC tunes");
+    let outputDir = path.join(parentDir, `${sourceBase} - MusicXML`);
+    for (let suffix = 2; fs.existsSync(outputDir); suffix += 1) {
+      outputDir = path.join(parentDir, `${sourceBase} - MusicXML (${suffix})`);
+    }
+    try {
+      event.sender.send("export:musicxml-all:progress", { phase: "convert", done: 0, total: items.length });
+      const settings = getSettings ? getSettings() : {};
+      const converted = await convertAbcBatchToMusicXml({ items, args: settings.abc2xmlArgs || "" });
+      await fs.promises.mkdir(outputDir, { recursive: false });
+      const width = Math.max(3, String(items.length).length);
+      let written = 0;
+      for (const output of converted.converted || []) {
+        const index = Number(output && output.index);
+        if (!Number.isInteger(index) || index < 0 || index >= items.length) continue;
+        const item = items[index];
+        const xPart = item.xNumber ? `-X${sanitizeSuggestedFileBaseName(item.xNumber, "tune").slice(0, 24)}` : "";
+        const titlePart = sanitizeSuggestedFileBaseName(item.title, "Untitled").slice(0, 70);
+        const fileName = `${String(index + 1).padStart(width, "0")}${xPart}-${titlePart}.musicxml`;
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, fileName), String(output.xmlText || ""));
+        written += 1;
+        if (written === items.length || written % 10 === 0) {
+          event.sender.send("export:musicxml-all:progress", { phase: "write", done: written, total: items.length });
+        }
+      }
+      const failures = Array.isArray(converted.failures) ? converted.failures : [];
+      if (failures.length) {
+        const report = [
+          `ABCarus MusicXML batch export`,
+          `Exported: ${written}/${items.length}`,
+          "",
+          "Failed tunes:",
+        ];
+        for (const failure of failures) {
+          const index = Number(failure && failure.index);
+          const item = Number.isInteger(index) && items[index] ? items[index] : null;
+          const label = item ? `${index + 1}. X:${item.xNumber || "?"} ${item.title || "Untitled"}` : `Tune ${index + 1}`;
+          report.push(`${label}: ${String(failure && failure.error ? failure.error : "Conversion failed.")}`);
+          if (failure && failure.detail) report.push(`  ${String(failure.detail).replace(/\s+/g, " ").trim()}`);
+        }
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, "export-report.txt"), `${report.join("\n")}\n`);
+      }
+      const choice = dialog.showMessageBoxSync(parent || undefined, {
+        type: failures.length ? "warning" : "info",
+        buttons: ["Open Folder", "OK"],
+        defaultId: 0,
+        cancelId: 1,
+        message: failures.length ? "MusicXML export completed with errors" : "MusicXML export complete",
+        detail: failures.length
+          ? `Exported ${written} of ${items.length} tunes. See export-report.txt for details.\n\n${outputDir}`
+          : `Exported ${written} tunes.\n\n${outputDir}`,
+        noLink: true,
+      });
+      if (choice === 0 && shell && typeof shell.openPath === "function") await shell.openPath(outputDir);
+      return {
+        ok: true,
+        outputDir,
+        exported: written,
+        failed: failures.length,
+        warnings: converted.warnings || null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error && error.message ? String(error.message) : String(error),
+        detail: error && error.detail ? String(error.detail) : "",
+        code: error && error.code ? String(error.code) : "",
       };
     }
   });

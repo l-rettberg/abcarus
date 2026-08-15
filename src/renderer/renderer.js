@@ -2288,7 +2288,7 @@ const sourceLinkFeature = createSourceLinkFeature({
     getRawMode: isRawModeActive,
   },
   fileActions: {
-    readFile: (filePath) => window.api.readFile(filePath),
+    readFile,
     refreshLibraryFile,
     requireCleanForFileOp,
     selectTune,
@@ -2296,7 +2296,7 @@ const sourceLinkFeature = createSourceLinkFeature({
     showSaveError,
     showToast,
     withFileLock,
-    writeFile: (filePath, text, options) => window.api.writeFile(filePath, text, options),
+    writeFile,
   },
 });
 const printCurrentFeature = createPrintCurrentFeature({
@@ -2320,7 +2320,9 @@ const importExportFeature = createImportExportFeature({
   getSuggestedBaseName,
   getCurrentDoc: getCurrentDocument,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
+  getActiveFileEntry,
   getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+  buildConversionHeaderPrefix: (entryHeader, tuneText) => headerLayersController.buildConversionHeaderPrefix(entryHeader, tuneText),
   getPlaybackPayload,
   ensureSafeToAbandonCurrentDoc,
   requireCleanForFileOp,
@@ -2387,6 +2389,7 @@ const importExportFeature = createImportExportFeature({
   ensureMidiGenLoaded,
 });
 importExportFeature.installMidiProgressHandler();
+importExportFeature.installMusicXmlBatchProgressHandler();
 abcTransformFeature = createAbcTransformFeature({
   windowRef: window,
   devConfig,
@@ -3455,6 +3458,7 @@ appCommandsDomain = createAppCommandsDomain({
     exportMidi: () => importExportFeature.exportMidi(),
     exportMp3: () => importExportFeature.exportMp3(),
     exportMusicXml: () => importExportFeature.exportMusicXml(),
+    exportMusicXmlAll: () => importExportFeature.exportMusicXmlAll(),
     fileNew,
     fileNewFromTemplate,
     fileNewTune,

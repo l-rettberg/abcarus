@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld("api", {
   convertMusicXmlFile: async (filePath) => ipcRenderer.invoke("import:musicxml:convert-one", filePath),
   exportMusicXml: async (abcText, suggestedName) =>
     ipcRenderer.invoke("export:musicxml", abcText, suggestedName),
+  exportMusicXmlAll: async (payload) => ipcRenderer.invoke("export:musicxml-all", payload || {}),
   exportMidi: async (midiBytes, suggestedName) =>
     ipcRenderer.invoke("export:midi", midiBytes, suggestedName),
   exportMp3: async (midiBytes, suggestedName) =>
@@ -132,6 +133,9 @@ contextBridge.exposeInMainWorld("api", {
   },
   onImportMidiProgress: (handler) => {
     ipcRenderer.on("import:midi:progress", (_evt, payload) => handler(payload));
+  },
+  onExportMusicXmlAllProgress: (handler) => {
+    ipcRenderer.on("export:musicxml-all:progress", (_evt, payload) => handler(payload));
   },
   onSettingsChanged: (handler) => {
     ipcRenderer.on("settings:changed", (_evt, settings) => handler(settings));

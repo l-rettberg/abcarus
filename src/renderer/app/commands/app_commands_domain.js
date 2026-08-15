@@ -100,6 +100,7 @@ function createAppCommandsDomain({
       exportMidi: actions.exportMidi,
       exportMp3: actions.exportMp3,
       exportMusicXml: actions.exportMusicXml,
+      exportMusicXmlAll: actions.exportMusicXmlAll,
       exportSettings: () => {
         const settings = getSettingsDomain();
         return settings && typeof settings.exportSettings === "function"

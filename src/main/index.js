@@ -1323,8 +1323,9 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <meta charset="utf-8">
     <title>${escapeHtmlText(title)}</title>
     <style>
+      @page { margin: 0; }
       html, body { margin: 0; padding: 0; }
-      body { padding: 24px; font-family: sans-serif; }
+      body { padding: 16px; font-family: sans-serif; }
       svg { max-width: 100%; height: auto; display: block; overflow: visible; }
       img { max-width: 100%; height: auto; display: block; }
       .nobrk { page-break-inside: avoid; break-inside: avoid; }
@@ -1456,9 +1457,9 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
 }
 
 function getPrintMargins() {
-  // ABCarus supplies the visible page inset through body padding. Disable the
-  // additional Chromium margin so PDF output does not receive two margins.
-  return { marginType: "none" };
+  // ABCarus supplies the visible page inset through body padding. Explicit
+  // zeroes cover Chromium versions that ignore marginType alone.
+  return { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 };
 }
 
 async function withPrintWindow(svgMarkup, action, options) {

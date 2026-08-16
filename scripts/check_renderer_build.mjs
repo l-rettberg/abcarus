@@ -293,7 +293,7 @@ async function assertInlineToolbarIconsCompatibility() {
   }
 
   const requiredSymbols = [
-    "ui-fonts",
+    "ui-settings",
     "ui-focus",
     "ui-split",
     "ui-alert",

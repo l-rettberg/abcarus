@@ -4,6 +4,26 @@ const fs = require("fs");
 const path = require("path");
 const { fileURLToPath } = require("url");
 
+let musicXmlBatchRequestId = 0;
+const pendingMusicXmlBatchRequests = new Map();
+
+ipcRenderer.on("export:musicxml-all:result", (_event, message) => {
+  const requestId = message && message.requestId ? String(message.requestId) : "";
+  const pending = pendingMusicXmlBatchRequests.get(requestId);
+  if (!pending) return;
+  pendingMusicXmlBatchRequests.delete(requestId);
+  pending(message.result);
+});
+
+function requestMusicXmlBatchExport(payload) {
+  musicXmlBatchRequestId += 1;
+  const requestId = `${Date.now()}-${musicXmlBatchRequestId}`;
+  return new Promise((resolve) => {
+    pendingMusicXmlBatchRequests.set(requestId, resolve);
+    ipcRenderer.send("export:musicxml-all", { requestId, payload: payload || {} });
+  });
+}
+
 contextBridge.exposeInMainWorld("api", {
   // Dev-only startup profiling flag (used by renderer.js). Enable via:
   // `ABCARUS_DEV_STARTUP_PERF=1 npm start`
@@ -55,6 +75,7 @@ contextBridge.exposeInMainWorld("api", {
   convertMusicXmlFile: async (filePath) => ipcRenderer.invoke("import:musicxml:convert-one", filePath),
   exportMusicXml: async (abcText, suggestedName) =>
     ipcRenderer.invoke("export:musicxml", abcText, suggestedName),
+  exportMusicXmlAll: async (payload) => requestMusicXmlBatchExport(payload),
   exportMidi: async (midiBytes, suggestedName) =>
     ipcRenderer.invoke("export:midi", midiBytes, suggestedName),
   exportMp3: async (midiBytes, suggestedName) =>
@@ -100,6 +121,8 @@ contextBridge.exposeInMainWorld("api", {
   installFont: async (srcPath) => ipcRenderer.invoke("fonts:install", srcPath),
   removeFont: async (fileName) => ipcRenderer.invoke("fonts:remove", fileName),
   getSettingsPaths: async () => ipcRenderer.invoke("settings:paths"),
+  readGlobalHeader: async () => ipcRenderer.invoke("settings:global-header-read"),
+  writeGlobalHeader: async (text) => ipcRenderer.invoke("settings:global-header-write", text),
   exportSettings: async () => ipcRenderer.invoke("settings:export"),
   importSettings: async () => ipcRenderer.invoke("settings:import"),
   openSettingsFolder: async () => ipcRenderer.invoke("settings:open-folder"),
@@ -107,6 +130,8 @@ contextBridge.exposeInMainWorld("api", {
   getRecentCandidates: async () => ipcRenderer.invoke("recent:candidates"),
   openExternal: async (url) => ipcRenderer.invoke("shell:open-external", url),
   previewYouTubeSource: async (url) => ipcRenderer.invoke("source:preview-youtube", url),
+  fetchYouTubeMetadata: async (url) => ipcRenderer.invoke("source:youtube-metadata", url),
+  confirmYouTubeMetadataUpdate: async (payload) => ipcRenderer.invoke("source:confirm-youtube-metadata", payload || {}),
   getAboutInfo: async () => ipcRenderer.invoke("app:about"),
   cancelQuitRequest: async () => ipcRenderer.invoke("app:cancel-quit"),
   reportStartupStatus: async (text) => ipcRenderer.invoke("app:startup-status", text),
@@ -128,6 +153,9 @@ contextBridge.exposeInMainWorld("api", {
   },
   onImportMidiProgress: (handler) => {
     ipcRenderer.on("import:midi:progress", (_evt, payload) => handler(payload));
+  },
+  onExportMusicXmlAllProgress: (handler) => {
+    ipcRenderer.on("export:musicxml-all:progress", (_evt, payload) => handler(payload));
   },
   onSettingsChanged: (handler) => {
     ipcRenderer.on("settings:changed", (_evt, settings) => handler(settings));

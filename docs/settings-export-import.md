@@ -1,37 +1,62 @@
-# Settings Export/Import (offline, portable)
+# ABCarus Profile, Export, and Import
 
-ABCarus is intentionally offline: no cloud accounts and no network sync.
-To make your setup portable (SciTE-style), use the built-in **Export Settings** / **Import Settings** commands.
+ABCarus uses one JSON profile for application preferences and working UI state:
 
-## Files
+```text
+abcarus-profile.json
+```
 
-Export creates:
-- `abcarus.properties` — the complete portable settings file, including Global Header as an escaped JSON string.
-- `user_settings.abc` — a legacy-compatible copy of the user header layer (if present).
+It contains ordinary settings, recent files and folders, dialog preferences,
+Library UI state, and window state. It does not contain tunes or Global Header ABC.
 
-Import reads:
-- `abcarus.properties`
-- and optionally the legacy `user_settings.abc` if it is in the same folder.
+## Runtime location
 
-The properties file is now self-contained for portability: copying only
-`abcarus.properties` is sufficient to transfer Global Header settings. Existing
-exports that rely on a neighboring `user_settings.abc` remain supported.
+- Installed builds: the Electron user-data folder.
+- Windows single-file portable builds: beside the executable.
+- Windows and Linux portable-folder builds: the extracted application folder.
 
-## Optional: attach a canonical settings file
+If the profile is absent, ABCarus starts with defaults and creates it automatically.
+The adjacent `abcarus-profile.json.bak` is the last automatic profile backup.
 
-By default, ABCarus keeps settings internally (under the OS profile).
+On the first upgraded launch, legacy `state.json` and any attached
+`abcarus.properties` preferences are read once. ABCarus writes the unified
+profile successfully before removing the obsolete state files. The external
+legacy `.properties` file itself is left untouched as a user-owned backup.
 
-When you **Export Settings…** (or **Import Settings…**), the selected `abcarus.properties` becomes the **canonical**
-settings source of truth on the next start.
+## Export
 
-If you later edit the canonical file externally, ABCarus will pick it up on the next start and also when the app
-regains focus (best-effort, without background watchers).
+**Export Profile** writes a standalone copy named `abcarus-profile.json` to the
+chosen location. Export does not attach that copy to ABCarus and later changes do
+not modify it.
 
-If the canonical file disappears, ABCarus falls back to the last internal snapshot and continues to work.
+If the optional Global Header exists, Export also writes this neighboring file:
 
-## Where settings live by default
+```text
+user_settings.abc
+```
 
-ABCarus also keeps its live state under the OS user profile (`app.getPath('userData')`).
-Uninstall behavior differs by OS/installer, so **Export Settings** is the reliable way to preserve your configuration.
+Fonts added through Settings are copied into the neighboring `fonts/` directory.
+Keep the profile, optional Global Header, and `fonts/` directory together for a
+complete portable backup.
 
-Tip: the userData folder can be opened via **Help → Open Settings Folder**.
+## Import
+
+**Import Profile** reads the selected profile once, applies it to the canonical
+runtime profile, and then closes the source file. There is no synchronization or
+external-file watcher after Import.
+
+For backward compatibility, Import also accepts legacy `abcarus.properties`
+files. Their `key=value` preferences are merged once into the current profile.
+Legacy embedded `globalHeaderText` is migrated to `user_settings.abc`.
+If a neighboring `fonts/` directory exists, its supported font files are copied
+into ABCarus font storage and become available to Interface, Library, Editor,
+and notation/text selectors.
+
+## Global Header
+
+`user_settings.abc` remains separate because it contains ABC directives rather
+than application state. `Settings -> Global Header` edits it directly and saves
+changes automatically. Its exact path is shown below the editor.
+
+**Help -> Open Settings Folder** opens the directory containing the active profile
+and `user_settings.abc` location.

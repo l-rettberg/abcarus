@@ -23,6 +23,48 @@ const { createRenderRuntime } = await importBundledModule(
 const { createScoreInteractionController } = await importBundledModule(
   "src/renderer/render/score_interaction_controller.js",
 );
+const { createHeaderLayersController } = await importBundledModule(
+  "src/renderer/render/header_layers_controller.js",
+);
+
+{
+  const files = new Map([
+    ["/app/global_settings.abc", "%%titlefont Default 20"],
+    ["/scores/local_settings.abc", "%%pagewidth 20cm"],
+    ["/profile/user_settings.abc", "%%MIDI program 24"],
+  ]);
+  const controller = createHeaderLayersController({
+    api: {
+      getSettingsPaths: async () => ({
+        globalPath: "/app/global_settings.abc",
+        userPath: "/profile/user_settings.abc",
+      }),
+      pathDirname: () => "/scores",
+      pathJoin: (dir, name) => `${dir}/${name}`,
+    },
+    readFile: async (filePath) => files.has(filePath)
+      ? { ok: true, data: files.get(filePath) }
+      : { ok: false },
+    getActiveFilePath: () => "/scores/tunes.abc",
+  });
+
+  controller.setFromSettings({
+    globalHeaderEnabled: true,
+    globalHeaderText: "%%MIDI program 1",
+  });
+  await controller.refreshHeaderLayers();
+  const enabled = controller.buildHeaderPrefix("%%scale 0.8", false, "X:1\nK:C\n").text;
+  assert.match(enabled, /%%titlefont Default 20/);
+  assert.match(enabled, /%%pagewidth 20cm/);
+  assert.match(enabled, /%%MIDI program 24/);
+  assert.doesNotMatch(enabled, /%%MIDI program 1/);
+  assert.match(enabled, /%%scale 0\.8/);
+
+  controller.setFromSettings({ globalHeaderEnabled: false });
+  const disabled = controller.buildHeaderPrefix("%%scale 0.8", false, "X:1\nK:C\n").text;
+  assert.doesNotMatch(disabled, /%%titlefont|%%pagewidth|%%MIDI program 24/);
+  assert.match(disabled, /%%scale 0\.8/);
+}
 
 {
   const errors = [];

@@ -187,8 +187,11 @@ function createSettingsDomain({
     }
     const res = await api.exportSettings();
     if (res && res.ok) {
-      const note = res.exportedHeader ? " (incl. Global Header)" : "";
-      call(actions.showToast, `Settings exported${note} and will be used next time.`, 4200);
+      const additions = [];
+      if (res.exportedHeader) additions.push("Global Header");
+      if (Number(res.exportedFonts) > 0) additions.push(`${Number(res.exportedFonts)} font file(s)`);
+      const note = additions.length ? ` (incl. ${additions.join(", ")})` : "";
+      call(actions.showToast, `Profile exported${note}.`, 4200);
     } else if (res && res.error && res.error !== "Canceled") {
       call(actions.showToast, String(res.error), 3200);
     }
@@ -203,9 +206,12 @@ function createSettingsDomain({
     if (res && res.ok) {
       call(
         actions.showToast,
-        res.importedHeader
-          ? "Settings imported (incl. Global Header) and will be used next time."
-          : "Settings imported and will be used next time.",
+        (res.importedHeader || Number(res.importedFonts) > 0)
+          ? `Profile imported (incl. ${[
+              res.importedHeader ? "Global Header" : "",
+              Number(res.importedFonts) > 0 ? `${Number(res.importedFonts)} font file(s)` : "",
+            ].filter(Boolean).join(", ")}).`
+          : "Profile imported.",
         4200
       );
       Promise.resolve(refreshHeaderLayers()).catch(() => {});

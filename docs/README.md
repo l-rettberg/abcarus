@@ -61,7 +61,7 @@ Packaging scripts are available:
 
 ## Settings
 - Settings structure + schema workflow: [docs/settings-structure.md](settings-structure.md)
-- Export/import settings (offline): [docs/settings-export-import.md](settings-export-import.md)
+- Profile storage, backup, and import/export: [docs/settings-export-import.md](settings-export-import.md)
 - Settings audit notes: [docs/settings-audit.md](settings-audit.md)
 
 ## Detailed docs

@@ -1,8 +1,10 @@
-const STATE_VERSION = 1;
+const PROFILE_VERSION = 1;
+const STATE_VERSION = PROFILE_VERSION;
 let temporaryPathSequence = 0;
 
 const KNOWN_STATE_KEYS = new Set([
   "stateVersion",
+  "profileVersion",
   "lastFolder",
   "lastDialogDir",
   "dialogPreferences",
@@ -11,11 +13,27 @@ const KNOWN_STATE_KEYS = new Set([
   "recentFolders",
   "settings",
   "settingsFile",
+  "globalHeaderMigrationVersion",
   "windowState",
 ]);
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseProfileDocument(text) {
+  const parsed = JSON.parse(String(text || ""));
+  const hasSettings = isPlainObject(parsed && parsed.settings);
+  const hasVersion = parsed && (Number.isFinite(Number(parsed.profileVersion)) || Number.isFinite(Number(parsed.stateVersion)));
+  if (!isPlainObject(parsed) || (!hasSettings && !hasVersion)) {
+    throw new Error("The selected JSON file is not an ABCarus profile.");
+  }
+  return parsed;
+}
+
+function serializeProfileDocument(document) {
+  if (!isPlainObject(document)) throw new TypeError("Invalid ABCarus profile document.");
+  return `${JSON.stringify(document, null, 2)}\n`;
 }
 
 function splitStateDocument(value) {
@@ -32,11 +50,14 @@ function splitStateDocument(value) {
 function composeStateDocument(known, extras = {}) {
   const safeExtras = isPlainObject(extras) ? extras : {};
   const safeKnown = isPlainObject(known) ? known : {};
-  return {
+  const document = {
     ...safeExtras,
     ...safeKnown,
-    stateVersion: STATE_VERSION,
+    profileVersion: PROFILE_VERSION,
   };
+  delete document.stateVersion;
+  delete document.settingsFile;
+  return document;
 }
 
 function isMissingFileError(err) {
@@ -142,10 +163,22 @@ async function loadStateDocument({ fs, filePath }) {
   return { data: null, source: "none", recovered: false, error: primary.error };
 }
 
+async function loadProfileDocument({ fs, profilePath, legacyStatePath }) {
+  const profile = await loadStateDocument({ fs, filePath: profilePath });
+  if (profile.data) return { ...profile, legacy: false };
+  const legacy = await loadStateDocument({ fs, filePath: legacyStatePath });
+  if (legacy.data) return { ...legacy, legacy: true, profileError: profile.error };
+  return { ...profile, legacy: false, legacyError: legacy.error };
+}
+
 module.exports = {
+  PROFILE_VERSION,
   STATE_VERSION,
   composeStateDocument,
   loadStateDocument,
+  loadProfileDocument,
+  parseProfileDocument,
   saveStateDocument,
+  serializeProfileDocument,
   splitStateDocument,
 };

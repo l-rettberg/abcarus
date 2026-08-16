@@ -1,75 +1,7 @@
 /*
-PLAN (Architect prompts 1→7) — Settings dialog redesign (desktop-grade)
-
-Scope for this prompt: plan only. Do NOT implement yet.
-Allowed files for the full sequence: `src/renderer/index.html`, `src/renderer/style.css`, `src/renderer/settings.js`
-(and `src/renderer/settings_store.js` only if section reset needs a helper).
-
-Current state (audit notes, high-level):
-- Markup: Settings modal lives in `src/renderer/index.html` under `#settingsModal` with left-nav containing
-  tabs container `#settingsTabs`, panels container `#settingsPanels`, and header Search (`#settingsFilter`).
-- CSS: `.modal-card.settings-card` is resizable and there are responsive rules that reflow to 1-column; multiple scroll
-  containers can cause “jumping”.
-- JS: `settings.js` builds tabs/panels from schema, searches across all panels, and can change active tab;
-  settings are staged until Apply/OK.
-
-Target layout (DOM changes in `index.html`):
-1) Header:
-   - Keep title “Settings”.
-   - Search input moved here (keep id `#settingsFilter`, accessible label/aria-label).
-2) Left pane:
-   - Navigation only: keep `#settingsTabs` list.
-   - Remove Search and remove “Show advanced” checkbox from visible UI (no `#settingsShowAdvanced` in UI).
-3) Right pane:
-   - Add section header bar above content: `#settingsSectionTitle` and optional `#settingsSectionHint`.
-   - Keep `#settingsNoResults` and `#settingsPanels`.
-4) Footer:
-   - Left: `#settingsResetSection` (“Reset Section…”).
-   - Right: `#settingsCancel`, `#settingsOk`.
-   - Remove/stop using old ids `#settingsReset` / `#settingsClose` (updated in JS in later prompts).
-
-Desktop styling changes in `style.css`:
-- Remove free resize on settings modal (`resize: both`).
-- Stable geometry: set a default size (e.g. ~960×600) with min/max constraints; no responsive 1-column collapse.
-- Single-scroll rule: only right pane content scrolls (`.settings-panels`); left nav is fixed-width and stable.
-- Left nav: strong selected state, clean list.
-- Right pane: section header bar typography; groups as “cards” (`.settings-group`), consistent spacing.
-- Rows: predictable 2-column alignment; avoid far-right floating checkboxes; inputs not overly wide.
-- Advanced settings are shown in the same page as regular settings.
-
-Behavior changes in `settings.js`:
-1) Modes:
-   - Settings use one mode; all schema-backed settings are visible in their section.
-2) Sections:
-   - Keep an `activeSectionId` persisted in localStorage; update `#settingsSectionTitle/#settingsSectionHint` on change.
-3) Rendering:
-   - Render entries exactly once (fix duplication risks, e.g. global header enable appearing twice).
-   - Group entries into `.settings-group` cards.
-4) Search:
-   - Search applies across all sections, narrows the left nav, and opens the only matching section automatically.
-   - When query is empty: normal view; when non-empty: hide non-matching entries; show `#settingsNoResults` if none.
-   - Search query is NOT persisted across restarts.
-5) Footer semantics:
-   - Switch to staged edits so Cancel has no side effects:
-     - Maintain `draftSettingsPatch` (in-memory) while dialog is open; controls update draft only.
-     - Apply/OK: send the accumulated patch via `store.update`, then clear draft; OK closes.
-     - Cancel: discard draft and close; reload persisted settings next open.
-   - Reset Section…:
-     - Confirm.
-     - Reset only keys belonging to active section (based on schema entries rendered in that section).
-     - Apply reset via `store.update`, keep dialog open.
-6) Safety checks (QA prompt 6+):
-   - After editing this file, run: `node --experimental-default-type=module --check src/renderer/settings.js`.
-
-Minimal touch-points:
-- `index.html`: only `#settingsModal` subtree changes (header/nav/content/footer), keep ids required by JS.
-- `style.css`: only settings-related selectors (.settings-*, .modal-card.settings-card) and override media query behavior.
-- `settings.js`: rewrite UI wiring to new ids and staged apply model; avoid reflow/jumping; keep store API unchanged.
-*/
-
-/*
 SETTINGS UX (maintainer summary)
 - Changes are staged while Settings is open; `Apply`/`OK` commits via `store.update`, `Cancel` discards.
+- Global Header is an external ABC file and is saved directly after edits.
 - Search filters across all Settings pages, narrows the left nav, and opens the only matching page automatically.
 - Advanced settings render in the same page as regular settings.
 - “Reset Section…” resets only the active section keys to schema defaults.
@@ -83,6 +15,19 @@ import {
   rectangularSelection,
 } from "../../third_party/codemirror/cm.js";
 import { createSettingsStore } from "./settings_store.js";
+import {
+  buildUserFontFaceCss,
+  createInterfaceFontControl,
+  getCatalogUserFontFiles as collectCatalogUserFontFiles,
+  interfaceFontFamilyForFile as buildInterfaceFontFamily,
+  isSoundfontPath,
+  normalizeFontCatalog,
+  normalizeUserFontFiles,
+  settingsPatchForRemovedUserFont as buildRemovedFontSettingsPatch,
+  safeBasename,
+  toFileUrl,
+  userFontFileFromFamily,
+} from "./app/ui/font_settings_model.js";
 
 const ZOOM_STEP = 0.1;
 const SETTINGS_UI_STATE_KEY = "abcarus.settings.uiState.v1";
@@ -159,9 +104,9 @@ const FALLBACK_SCHEMA = [
   { key: "renderZoom", type: "number", default: 1, section: "General", label: "Score zoom (%)", ui: { input: "percent", min: 50, max: 800, step: 5 } },
   { key: "editorZoom", type: "number", default: 1, section: "General", label: "Editor zoom (%)", ui: { input: "percent", min: 50, max: 800, step: 5 } },
   { key: "editorHelpEnabled", type: "boolean", default: true, section: "General", group: "Editor Help", groupOrder: 30, label: "Enable editor help", ui: { input: "checkbox" } },
-  { key: "uiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Font family", ui: { input: "text" } },
+  { key: "uiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Font family", ui: { input: "select", options: "interfaceFonts" } },
   { key: "uiFontSize", type: "number", default: 13, section: "Fonts", group: "Interface", label: "Font size", ui: { input: "number", min: 10, max: 28, step: 1 } },
-  { key: "libraryUiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Library font family", ui: { input: "text" } },
+  { key: "libraryUiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Library font family", ui: { input: "select", options: "interfaceFonts" } },
   { key: "libraryUiFontSize", type: "number", default: 12, section: "Fonts", group: "Interface", label: "Library font size", ui: { input: "number", min: 10, max: 40, step: 1 } },
   { key: "editorFontFamily", type: "string", default: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", section: "Fonts", group: "Editor", label: "Font family", ui: { input: "text" } },
   { key: "editorFontSize", type: "number", default: 13, section: "Fonts", group: "Editor", label: "Font size", ui: { input: "number", min: 8, max: 32, step: 1 } },
@@ -197,7 +142,7 @@ const FALLBACK_SCHEMA = [
   { key: "noteTypingPreviewRetriggerDuration", type: "boolean", default: true, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Typing preview: retrigger on duration", ui: { input: "checkbox" }, advanced: true },
   { key: "noteTypingPreviewSkipMicrotones", type: "boolean", default: true, section: "Tools", group: "MIDI Input", groupOrder: 30, label: "Typing preview: skip microtonal tokens", ui: { input: "checkbox" }, advanced: true },
   { key: "globalHeaderEnabled", type: "boolean", default: true, section: "Header", label: "Enable global header", ui: { input: "checkbox" } },
-  { key: "globalHeaderText", type: "string", default: "", section: "Header", label: "Global header", ui: { input: "code" } },
+  { key: "globalHeaderText", type: "string", default: "", legacy: true },
   { key: "usePortalFileDialogs", type: "boolean", default: true, section: "Dialogs", label: "Use portal file dialogs (Linux)", ui: { input: "checkbox" }, advanced: true },
   { key: "startupSplashSeconds", type: "number", default: 0, section: "General", group: "Startup", groupOrder: 12, label: "Startup splash duration (s)", help: "Minimum time to keep the startup splash visible. Set 0 to disable splash.", ui: { input: "number", min: 0, max: 30, step: 1 } },
   { key: "libraryAutoRenumberAfterMove", type: "boolean", default: false, section: "Library", label: "Auto-renumber X after move", ui: { input: "checkbox" } },
@@ -235,6 +180,16 @@ const FALLBACK_SCHEMA = [
   { key: "abc2svgTextFontFile", type: "string", default: "", section: "Fonts", label: "Text font", ui: { input: "select", options: "textFonts" } },
 ];
 
+const GLOBAL_HEADER_EDITOR_ENTRY = {
+  key: "__globalHeaderFile",
+  section: "Header",
+  group: "Global header",
+  groupOrder: 10,
+  label: "Global header text",
+  help: "Edits user_settings.abc directly. Changes are saved automatically.",
+  ui: { input: "code" },
+};
+
 function buildDefaults(schema) {
   const out = {};
   for (const entry of schema) {
@@ -245,7 +200,10 @@ function buildDefaults(schema) {
 }
 
 function groupSchemaForModal(schema) {
-  const uiEntries = (schema || []).filter((e) => e && e.ui && e.ui.input && !e.legacy);
+  const uiEntries = [
+    ...(schema || []).filter((e) => e && e.ui && e.ui.input && !e.legacy),
+    GLOBAL_HEADER_EDITOR_ENTRY,
+  ];
   const bySection = new Map();
   for (const entry of uiEntries) {
     const section = String(entry.section || "Other");
@@ -348,7 +306,7 @@ export function initSettings(api) {
 
     const optDefault = document.createElement("option");
     optDefault.value = "";
-    optDefault.textContent = "Default";
+    optDefault.textContent = "Default (bundled)";
     selectEl.appendChild(optDefault);
 
     const pushOptions = (refs) => {
@@ -385,6 +343,39 @@ export function initSettings(api) {
     return "";
   }
 
+  function getCatalogUserFontFiles() {
+    return collectCatalogUserFontFiles(cachedFontLists);
+  }
+
+  function interfaceFontFamilyForFile(fileName, defaultFamily = defaultSettings.uiFontFamily) {
+    return buildInterfaceFontFamily(fileName, defaultFamily);
+  }
+
+  async function reloadFontCatalog() {
+    if (!api || typeof api.listFonts !== "function") return false;
+    const list = await api.listFonts().catch(() => null);
+    if (!list || !list.ok) return false;
+    cachedFontLists = normalizeFontCatalog(list);
+    return true;
+  }
+
+  function refreshInterfaceFontControls() {
+    for (const meta of controlByKey.values()) {
+      const optionsKey = meta && meta.entry && meta.entry.ui ? meta.entry.ui.options : "";
+      if (optionsKey !== "interfaceFonts" || !meta.el) continue;
+      if (typeof meta.refresh === "function") meta.refresh(getEffectiveSettings()[meta.entry.key]);
+      if (typeof meta.updateRemoveEnabled === "function") meta.updateRemoveEnabled();
+    }
+  }
+
+  function settingsPatchForRemovedUserFont(fileName, settings) {
+    return buildRemovedFontSettingsPatch({
+      fileName,
+      settings: settings || getEffectiveSettings(),
+      defaults: defaultSettings,
+    });
+  }
+
   function refreshFontSelectControls() {
     const effective = getEffectiveSettings();
     for (const [key, meta] of controlByKey.entries()) {
@@ -397,19 +388,6 @@ export function initSettings(api) {
       meta.el.value = v;
       if (meta.el.value !== v) meta.el.value = "";
     }
-  }
-
-  function safeBasename(value) {
-    const s = String(value || "");
-    if (!s) return "";
-    const normalized = s.replace(/\\/g, "/");
-    const parts = normalized.split("/");
-    return parts[parts.length - 1] || s;
-  }
-
-  function isSoundfontPath(value) {
-    const s = String(value || "");
-    return s.startsWith("file://") || /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith("/");
   }
 
   function populateSoundfontSelect(selectEl) {
@@ -464,7 +442,13 @@ export function initSettings(api) {
   const controlByKey = new Map(); // key -> { entry, el, kind }
   let globalHeaderView = null;
   let suppressGlobalUpdate = false;
-  let globalUpdateTimer = null;
+  let globalHeaderFileText = "";
+  let globalHeaderFileExists = false;
+  let globalHeaderDraftDirty = false;
+  let globalHeaderSaveTimer = null;
+  let globalHeaderSavePromise = null;
+  let globalHeaderStatusEl = null;
+  let globalHeaderPath = "";
 
   function readUiState() {
     try {
@@ -487,33 +471,11 @@ export function initSettings(api) {
 
   function getEditorFontUserFiles() {
     const ui = readUiState() || {};
-    const raw = ui.editorFontUserFiles;
-    if (!Array.isArray(raw)) return [];
-    const out = [];
-    const seen = new Set();
-    for (const item of raw) {
-      const s = String(item || "").trim();
-      if (!s) continue;
-      if (seen.has(s)) continue;
-      seen.add(s);
-      out.push(s);
-      if (out.length >= 50) break;
-    }
-    return out;
+    return normalizeUserFontFiles(getCatalogUserFontFiles(), ui.editorFontUserFiles);
   }
 
   function setEditorFontUserFiles(list) {
-    const next = [];
-    const seen = new Set();
-    for (const item of Array.isArray(list) ? list : []) {
-      const s = String(item || "").trim();
-      if (!s) continue;
-      if (seen.has(s)) continue;
-      seen.add(s);
-      next.push(s);
-      if (next.length >= 50) break;
-    }
-    writeUiState({ editorFontUserFiles: next });
+    writeUiState({ editorFontUserFiles: normalizeUserFontFiles(list) });
   }
 
   async function updateSettings(patch) {
@@ -544,6 +506,100 @@ export function initSettings(api) {
     return true;
   }
 
+  function setGlobalHeaderEditorText(text) {
+    const nextText = String(text == null ? "" : text);
+    if (!globalHeaderView) return;
+    const currentText = globalHeaderView.state.doc.toString();
+    if (currentText === nextText) return;
+    suppressGlobalUpdate = true;
+    globalHeaderView.dispatch({
+      changes: { from: 0, to: globalHeaderView.state.doc.length, insert: nextText },
+    });
+    suppressGlobalUpdate = false;
+  }
+
+  function updateGlobalHeaderStatus(message, { error = false } = {}) {
+    if (!globalHeaderStatusEl) return;
+    const prefix = globalHeaderPath ? `${globalHeaderPath}\n` : "";
+    globalHeaderStatusEl.textContent = `${prefix}${String(message || "")}`.trim();
+    globalHeaderStatusEl.classList.toggle("settings-error", Boolean(error));
+  }
+
+  async function loadGlobalHeaderFile() {
+    if (!api || typeof api.readGlobalHeader !== "function") {
+      globalHeaderFileText = "";
+      globalHeaderFileExists = false;
+      globalHeaderDraftDirty = false;
+      setGlobalHeaderEditorText("");
+      return true;
+    }
+    const result = await api.readGlobalHeader().catch(() => null);
+    if (!result || !result.ok) {
+      alert((result && result.error) ? result.error : "Unable to read Global Header.");
+      return false;
+    }
+    globalHeaderFileText = String(result.text == null ? "" : result.text);
+    globalHeaderFileExists = Boolean(result.exists);
+    globalHeaderPath = String(result.path || "");
+    globalHeaderDraftDirty = false;
+    setGlobalHeaderEditorText(globalHeaderFileText);
+    updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
+    return true;
+  }
+
+  function scheduleGlobalHeaderSave() {
+    if (globalHeaderSaveTimer) clearTimeout(globalHeaderSaveTimer);
+    updateGlobalHeaderStatus("Pending save...");
+    globalHeaderSaveTimer = setTimeout(() => {
+      globalHeaderSaveTimer = null;
+      flushGlobalHeaderSave().catch(() => {});
+    }, 400);
+  }
+
+  async function flushGlobalHeaderSave() {
+    if (globalHeaderSaveTimer) {
+      clearTimeout(globalHeaderSaveTimer);
+      globalHeaderSaveTimer = null;
+    }
+    if (globalHeaderSavePromise) {
+      const priorOk = await globalHeaderSavePromise;
+      if (!priorOk) return false;
+    }
+    if (!globalHeaderView) return true;
+    const text = globalHeaderView.state.doc.toString();
+    if (text === globalHeaderFileText) {
+      globalHeaderDraftDirty = false;
+      updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
+      return true;
+    }
+    if (!api || typeof api.writeGlobalHeader !== "function") {
+      updateGlobalHeaderStatus("Unable to save Global Header.", { error: true });
+      return false;
+    }
+    updateGlobalHeaderStatus("Saving...");
+    globalHeaderSavePromise = (async () => {
+      const result = await api.writeGlobalHeader(text).catch(() => null);
+      if (!result || !result.ok) {
+        updateGlobalHeaderStatus(
+          (result && result.error) ? `Save failed: ${result.error}` : "Save failed.",
+          { error: true },
+        );
+        return false;
+      }
+      globalHeaderFileText = String(result.text == null ? text : result.text);
+      globalHeaderFileExists = Boolean(result.exists);
+      globalHeaderPath = String(result.path || globalHeaderPath);
+      const currentText = globalHeaderView ? globalHeaderView.state.doc.toString() : globalHeaderFileText;
+      globalHeaderDraftDirty = currentText !== globalHeaderFileText;
+      updateGlobalHeaderStatus(globalHeaderDraftDirty ? "Pending save..." : "Saved");
+      return true;
+    })();
+    const saved = await globalHeaderSavePromise;
+    globalHeaderSavePromise = null;
+    if (saved && globalHeaderDraftDirty) return flushGlobalHeaderSave();
+    return saved;
+  }
+
   function stageSetting(key, value) {
     if (!key) return;
     const effective = getEffectiveSettings();
@@ -554,42 +610,26 @@ export function initSettings(api) {
     applySettings(currentSettings);
   }
 
-  function toFileUrl(filePath) {
-    const raw = String(filePath || "");
-    if (!raw) return "";
-    const s = raw.replace(/\\/g, "/");
-    if (/^[a-zA-Z]:\\/.test(raw)) return encodeURI(`file:///${s}`);
-    if (s.startsWith("/")) return encodeURI(`file://${s}`);
-    return encodeURI(`file://${s}`);
-  }
-
-  function ensureEditorUserFontFaces() {
+  function ensureUserFontFaces() {
     const userDir = String(cachedFontDirs && cachedFontDirs.userDir ? cachedFontDirs.userDir : "");
     if (!userDir) return;
-    const files = getEditorFontUserFiles();
-    const rules = [];
-    for (const fileName of files) {
-      const safeName = String(fileName || "").trim();
-      if (!safeName) continue;
-      const abs = `${userDir.replace(/\\/g, "/").replace(/\/$/, "")}/${safeName}`;
-      const url = toFileUrl(abs);
-      if (!url) continue;
-      const family = `ABCarus User Font: ${safeName}`;
-      rules.push(`@font-face{font-family:"${family.replace(/"/g, '\\"')}";src:url("${url}") format("truetype");font-weight:normal;font-style:normal;}`);
-    }
     let styleEl = document.getElementById("abcarusEditorUserFonts");
     if (!styleEl) {
       styleEl = document.createElement("style");
       styleEl.id = "abcarusEditorUserFonts";
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = rules.join("\n");
+    styleEl.textContent = buildUserFontFaceCss({
+      userDir,
+      fontFiles: getEditorFontUserFiles(),
+      toFileUrl,
+    });
   }
 
   function applySettings(settings) {
     currentSettings = { ...defaultSettings, ...(settings || {}) };
     const effectiveSettings = getEffectiveSettings();
-    if (isSettingsOpen) ensureEditorUserFontFaces();
+    ensureUserFontFaces();
 
     const root = document.documentElement.style;
     root.setProperty("--editor-font-family", effectiveSettings.editorFontFamily);
@@ -639,7 +679,9 @@ export function initSettings(api) {
     }
 
     if (globalHeaderView) {
-      const nextText = String(effectiveSettings.globalHeaderText || "");
+      const nextText = globalHeaderDraftDirty
+        ? globalHeaderView.state.doc.toString()
+        : globalHeaderFileText;
       const doc = globalHeaderView.state.doc.toString();
       if (doc !== nextText) {
         suppressGlobalUpdate = true;
@@ -652,7 +694,10 @@ export function initSettings(api) {
 
   }
 
-  function openSettings() {
+  async function openSettings() {
+    await initPromise.catch(() => {});
+    const loaded = await loadGlobalHeaderFile();
+    if (!loaded) return;
     if (!$settingsModal) return;
     isSettingsOpen = true;
     $settingsModal.classList.add("open");
@@ -669,14 +714,17 @@ export function initSettings(api) {
     }, 0);
   }
 
-  function closeSettings({ discardDraft = false } = {}) {
+  async function closeSettings({ discardDraft = false } = {}) {
     if (!$settingsModal) return;
+    const headerSaved = await flushGlobalHeaderSave();
+    if (!headerSaved) return false;
     isSettingsOpen = false;
     if (discardDraft) discardDraftPatch();
     if ($settingsFilter) $settingsFilter.value = "";
     if (applySettingsFilter && $settingsFilter) applySettingsFilter("");
     $settingsModal.classList.remove("open");
     $settingsModal.setAttribute("aria-hidden", "true");
+    return true;
   }
 
   function readModalPosition() {
@@ -870,6 +918,7 @@ export function initSettings(api) {
     if (kind === "number" || kind === "percent") {
       input = document.createElement("input");
       input.type = "number";
+      if (entry.section === "Fonts" && entry.help) input.title = String(entry.help);
       if (entry.ui.min != null) input.min = String(entry.ui.min);
       if (entry.ui.max != null) input.max = String(entry.ui.max);
       if (entry.ui.step != null) input.step = String(entry.ui.step);
@@ -889,6 +938,7 @@ export function initSettings(api) {
     if (kind === "text") {
       input = document.createElement("input");
       input.type = "text";
+      if (entry.section === "Fonts" && entry.help) input.title = String(entry.help);
       if (entry.ui.placeholder) input.placeholder = String(entry.ui.placeholder);
       input.addEventListener("change", () => {
         stageSetting(entry.key, input.value || "");
@@ -900,10 +950,70 @@ export function initSettings(api) {
 
     if (kind === "select") {
       const select = document.createElement("select");
+      select.dataset.settingsKey = String(entry.key || "");
+      if (entry.section === "Fonts" && entry.help) select.title = String(entry.help);
       const optionsKey = entry.ui && entry.ui.options ? String(entry.ui.options) : "";
       const isFontSelect = optionsKey === "notationFonts" || optionsKey === "textFonts";
       const isSoundfontSelect = optionsKey === "soundfonts";
+      const isInterfaceFontFamily = optionsKey === "interfaceFonts";
       const isEditorFontFamily = entry.key === "editorFontFamily";
+
+      if (isInterfaceFontFamily) {
+        const defaultFamily = String(defaultSettings[entry.key] || defaultSettings.uiFontFamily || entry.default || "");
+        const control = createInterfaceFontControl({
+          documentRef: document,
+          entry,
+          selected: getEffectiveSettings()[entry.key],
+          defaultFamily,
+          getUserFontFiles: getCatalogUserFontFiles,
+          onChange: (value) => stageSetting(entry.key, value),
+          onAdd: async () => {
+            if (!api || typeof api.pickFont !== "function" || typeof api.installFont !== "function") return "";
+            const pick = await api.pickFont().catch(() => null);
+            if (!pick || !pick.ok || !pick.path) return "";
+            const res = await api.installFont(pick.path).catch(() => null);
+            if (!res || !res.ok || !res.name) {
+              alert(res && res.error ? res.error : "Failed to add font.");
+              return "";
+            }
+            const remembered = getEditorFontUserFiles();
+            if (!remembered.includes(res.name)) setEditorFontUserFiles([res.name, ...remembered]);
+            await reloadFontCatalog();
+            ensureUserFontFaces();
+            refreshInterfaceFontControls();
+            return interfaceFontFamilyForFile(res.name, defaultFamily);
+          },
+          onRemove: async (fileName) => {
+            if (!confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`)) return false;
+            if (!api || typeof api.removeFont !== "function") return false;
+            const effectiveBeforeRemove = getEffectiveSettings();
+            const res = await api.removeFont(fileName).catch(() => null);
+            if (!res || !res.ok) {
+              alert(res && res.error ? res.error : "Failed to remove font.");
+              return false;
+            }
+            const patch = settingsPatchForRemovedUserFont(fileName, effectiveBeforeRemove);
+            const nextDraft = { ...(draftPatch || {}) };
+            for (const key of Object.keys(patch)) delete nextDraft[key];
+            setDraftPatch(nextDraft);
+            if (Object.keys(patch).length) await updateSettings(patch).catch(() => {});
+            setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => name !== fileName));
+            await reloadFontCatalog();
+            ensureUserFontFaces();
+            refreshFontSelectControls();
+            refreshInterfaceFontControls();
+            return true;
+          },
+        });
+        row.appendChild(control.wrap);
+        controlByKey.set(entry.key, {
+          entry,
+          el: control.select,
+          refresh: control.refresh,
+          updateRemoveEnabled: control.updateRemoveEnabled,
+        });
+        return row;
+      }
 
       if (isEditorFontFamily) {
         const defaultFamily = String(defaultSettings.editorFontFamily || entry.default || "");
@@ -955,6 +1065,7 @@ export function initSettings(api) {
         const addBtn = document.createElement("button");
         addBtn.type = "button";
         addBtn.textContent = "Add…";
+        addBtn.title = "Copy a font into ABCarus and use it in the editor.";
         addBtn.addEventListener("click", async () => {
           if (!api || typeof api.pickFont !== "function" || typeof api.installFont !== "function") return;
           const pick = await api.pickFont().catch(() => null);
@@ -966,12 +1077,14 @@ export function initSettings(api) {
             next.unshift(res.name);
             setEditorFontUserFiles(next);
           }
+          await reloadFontCatalog();
           const option = document.createElement("option");
           option.value = `user:${res.name}`;
           option.textContent = `${res.name} (user)`;
           select.appendChild(option);
           select.value = option.value;
-          ensureEditorUserFontFaces();
+          ensureUserFontFaces();
+          refreshInterfaceFontControls();
           const family = `\"ABCarus User Font: ${res.name}\", ${systemFamily}`;
           stageSetting(entry.key, family);
         });
@@ -986,10 +1099,10 @@ export function initSettings(api) {
           const file = m ? String(m[1] || "") : "";
           const canRemove = Boolean(file && getEditorFontUserFiles().includes(file));
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
-            : "No ABCarus-installed editor font copy is selected.";
+            : "Select a font added to ABCarus to remove it.";
         };
 
         removeBtn.addEventListener("click", async () => {
@@ -1001,14 +1114,22 @@ export function initSettings(api) {
           if (!list.includes(file)) return;
           if (!confirm(`Delete ABCarus installed copy of "${file}"?\n\nThe original external font file will not be touched.`)) return;
           if (!api || typeof api.removeFont !== "function") return;
+          const effectiveBeforeRemove = getEffectiveSettings();
           const res = await api.removeFont(file).catch(() => null);
           if (!res || !res.ok) return;
+          const patch = settingsPatchForRemovedUserFont(file, effectiveBeforeRemove);
+          const nextDraft = { ...(draftPatch || {}) };
+          for (const key of Object.keys(patch)) delete nextDraft[key];
+          setDraftPatch(nextDraft);
+          if (Object.keys(patch).length) await updateSettings(patch).catch(() => {});
           setEditorFontUserFiles(list.filter((x) => x !== file));
           const opt = Array.from(select.options).find((o) => String(o.value) === `user:${file}`);
           if (opt) opt.remove();
+          await reloadFontCatalog();
           select.value = "";
-          stageSetting(entry.key, defaultFamily);
-          ensureEditorUserFontFaces();
+          ensureUserFontFaces();
+          refreshFontSelectControls();
+          refreshInterfaceFontControls();
           updateRemoveEnabled();
         });
 
@@ -1068,6 +1189,9 @@ export function initSettings(api) {
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.textContent = "Add…";
+      addBtn.title = isSoundfontSelect
+        ? "Add an external SoundFont reference. The original file stays in its current location."
+        : "Copy a font into ABCarus and add it to this list.";
       addBtn.addEventListener("click", async () => {
         if (isSoundfontSelect) {
           if (!api || typeof api.pickSoundfont !== "function") return;
@@ -1103,21 +1227,10 @@ export function initSettings(api) {
           alert(res && res.error ? res.error : "Failed to add font.");
           return;
         }
-        const list = await api.listFonts().catch(() => null);
-        if (list && list.ok) {
-          cachedFontLists = {
-            notation: [
-              ...(list.bundled && list.bundled.notation ? list.bundled.notation.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.notation ? list.user.notation.map((n) => `user:${n}`) : []),
-            ],
-            text: [
-              ...(list.bundled && list.bundled.text ? list.bundled.text.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.text ? list.user.text.map((n) => `user:${n}`) : []),
-            ],
-          };
-        }
+        await reloadFontCatalog();
         const newRef = `user:${String(res.name || "")}`;
         refreshFontSelectControls();
+        refreshInterfaceFontControls();
 
         const category = classifyFontRef(newRef);
         const keyByCategory = {
@@ -1176,23 +1289,13 @@ export function initSettings(api) {
         const ok = confirm(`Delete ABCarus installed copy of "${fileName}"?\n\nThe original external font file will not be touched.`);
         if (!ok) return;
         if (!api || typeof api.removeFont !== "function") return;
-        const removedRef = `user:${fileName}`;
         const effectiveBeforeRemove = getEffectiveSettings();
         const res = await api.removeFont(fileName).catch(() => null);
         if (!res || !res.ok) {
           alert(res && res.error ? res.error : "Failed to remove font.");
           return;
         }
-        const patch = {};
-        if (String(effectiveBeforeRemove.abc2svgNotationFontFile || "") === removedRef) {
-          patch.abc2svgNotationFontFile = "";
-        }
-        if (String(effectiveBeforeRemove.abc2svgTextFontFile || "") === removedRef) {
-          patch.abc2svgTextFontFile = "";
-        }
-        if (String(effectiveBeforeRemove.editorFontFamily || "").includes(`ABCarus User Font: ${fileName}`)) {
-          patch.editorFontFamily = String(defaultSettings.editorFontFamily || "");
-        }
+        const patch = settingsPatchForRemovedUserFont(fileName, effectiveBeforeRemove);
         if (Object.keys(patch).length) {
           const nextDraft = { ...(draftPatch || {}) };
           for (const key of Object.keys(patch)) delete nextDraft[key];
@@ -1200,21 +1303,10 @@ export function initSettings(api) {
           await updateSettings(patch).catch(() => {});
         }
         setEditorFontUserFiles(getEditorFontUserFiles().filter((name) => String(name || "") !== fileName));
-        ensureEditorUserFontFaces();
-        const list = await api.listFonts().catch(() => null);
-        if (list && list.ok) {
-          cachedFontLists = {
-            notation: [
-              ...(list.bundled && list.bundled.notation ? list.bundled.notation.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.notation ? list.user.notation.map((n) => `user:${n}`) : []),
-            ],
-            text: [
-              ...(list.bundled && list.bundled.text ? list.bundled.text.map((n) => `bundled:${n}`) : []),
-              ...(list.user && list.user.text ? list.user.text.map((n) => `user:${n}`) : []),
-            ],
-          };
-        }
+        await reloadFontCatalog();
+        ensureUserFontFaces();
         refreshFontSelectControls();
+        refreshInterfaceFontControls();
         updateRemoveEnabled();
       });
 
@@ -1223,17 +1315,17 @@ export function initSettings(api) {
         if (isSoundfontSelect) {
           const canRemove = isSoundfontPath(current);
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Remove link" : "No link";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Remove this external soundfont reference from ABCarus. The file will not be deleted."
-            : "Bundled/default soundfonts cannot be removed from this list.";
+            : "Select an external SoundFont to remove its reference.";
         } else {
           const canRemove = /^user:/.test(current);
           removeBtn.disabled = !canRemove;
-          removeBtn.textContent = canRemove ? "Delete copy" : "No copy";
+          removeBtn.textContent = "Remove";
           removeBtn.title = canRemove
             ? "Delete the ABCarus-installed copy. The original external font file will not be touched."
-            : "Only ABCarus-installed font copies can be deleted.";
+            : "Select a font added to ABCarus to remove it.";
         }
       };
       select.addEventListener("change", updateRemoveEnabled);
@@ -1287,6 +1379,7 @@ export function initSettings(api) {
       try { globalHeaderView.destroy(); } catch {}
       globalHeaderView = null;
     }
+    globalHeaderStatusEl = null;
 
     const bySectionRaw = groupSchemaForModal(schema);
     const bySection = new Map();
@@ -1400,6 +1493,7 @@ export function initSettings(api) {
             if (!row) return;
             const block = document.createElement("div");
             block.className = "settings-entry";
+            if (sectionName === "Fonts") block.classList.add("settings-entry--font-choice");
             block.dataset.settingsSearch = `${entry.key} ${entry.label || ""} ${entry.help || ""} ${sectionName} ${g.title}`.toLowerCase();
             block.dataset.settingsKey = String(entry.key || "");
             block.appendChild(row);
@@ -1483,7 +1577,9 @@ export function initSettings(api) {
 
               const familyRow = createRow(familyEntry);
               const sizeRow = createRow(sizeEntry);
-              const familyControl = familyRow ? familyRow.querySelector("input, select, textarea") : null;
+              const familyControl = familyRow
+                ? (familyRow.querySelector(".settings-select-row") || familyRow.querySelector("input, select, textarea"))
+                : null;
               const sizeControl = sizeRow ? sizeRow.querySelector("input, select, textarea") : null;
               if (!familyControl || !sizeControl) continue;
               resolved.push({
@@ -1619,11 +1715,8 @@ export function initSettings(api) {
 
             const updateListener = EditorView.updateListener.of((update) => {
               if (!update.docChanged || suppressGlobalUpdate) return;
-              if (globalUpdateTimer) clearTimeout(globalUpdateTimer);
-              globalUpdateTimer = setTimeout(() => {
-                if (!globalHeaderView) return;
-                stageSetting(codeEntry.key, globalHeaderView.state.doc.toString());
-              }, 400);
+              globalHeaderDraftDirty = update.state.doc.toString() !== globalHeaderFileText;
+              if (globalHeaderDraftDirty) scheduleGlobalHeaderSave();
             });
             const state = EditorState.create({
               doc: "",
@@ -1636,6 +1729,10 @@ export function initSettings(api) {
               ],
             });
             globalHeaderView = new EditorView({ state, parent: editorHost });
+            globalHeaderStatusEl = document.createElement("div");
+            globalHeaderStatusEl.className = "settings-help settings-global-header-status";
+            editorBlock.appendChild(globalHeaderStatusEl);
+            updateGlobalHeaderStatus(globalHeaderFileExists ? "Saved" : "Optional file does not exist yet.");
             group.appendChild(editorBlock);
           }
 
@@ -1710,16 +1807,13 @@ export function initSettings(api) {
   }
 
   if ($settingsClose) {
-    $settingsClose.addEventListener("click", () => closeSettings({ discardDraft: true }));
+    $settingsClose.addEventListener("click", () => { void closeSettings({ discardDraft: true }); });
   }
   if ($settingsModal) {
-    $settingsModal.addEventListener("click", (e) => {
-      if (e.target === $settingsModal) closeSettings({ discardDraft: true });
-    });
     $settingsModal.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        closeSettings({ discardDraft: true });
+        void closeSettings({ discardDraft: true });
       }
     });
   }
@@ -1729,7 +1823,7 @@ export function initSettings(api) {
     });
   }
   if ($settingsReset) {
-    $settingsReset.addEventListener("click", () => {
+    $settingsReset.addEventListener("click", async () => {
       // Preserve previous behavior: reset only what the Settings modal owns.
       const patch = {};
       for (const entry of schema) {
@@ -1738,14 +1832,18 @@ export function initSettings(api) {
         if (String(entry.section || "").toLowerCase() === "drums") continue;
         patch[entry.key] = entry.default;
       }
-      updateSettings(patch).catch(() => {});
+      await flushGlobalHeaderSave().catch(() => false);
+      await updateSettings(patch).catch(() => {});
     });
   }
-  if ($settingsCancel) $settingsCancel.addEventListener("click", () => closeSettings({ discardDraft: true }));
+  if ($settingsCancel) $settingsCancel.addEventListener("click", () => { void closeSettings({ discardDraft: true }); });
   if ($settingsOk) {
     $settingsOk.addEventListener("click", async () => {
-      await applyDraftPatch().catch(() => {});
-      closeSettings({ discardDraft: false });
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
+      const settingsSaved = await applyDraftPatch().catch(() => false);
+      if (!settingsSaved) return;
+      await closeSettings({ discardDraft: false });
     });
   }
   if ($settingsResetSection) {
@@ -1767,6 +1865,8 @@ export function initSettings(api) {
       for (const key of Object.keys(patch)) delete nextDraft[key];
       setDraftPatch(nextDraft);
 
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       await updateSettings(patch).catch(() => {});
       buildSettingsUi();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
@@ -1776,31 +1876,46 @@ export function initSettings(api) {
   if ($settingsExport) {
     $settingsExport.addEventListener("click", async () => {
       if (!api || typeof api.exportSettings !== "function") return;
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       const res = await api.exportSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok || !res.path) {
-        alert((res && res.error) ? res.error : "Failed to export settings.");
+        alert((res && res.error) ? res.error : "Failed to export profile.");
         return;
       }
-      const note = res.exportedHeader ? "\n(incl. user_settings.abc)" : "";
-      alert(`Settings exported:\n${res.path}${note}`);
+      const exported = [];
+      if (res.exportedHeader) exported.push("user_settings.abc");
+      if (Number(res.exportedFonts) > 0) exported.push(`${Number(res.exportedFonts)} added font file(s)`);
+      const note = exported.length ? `\n(incl. ${exported.join(", ")})` : "";
+      alert(`Profile exported:\n${res.path}${note}`);
     });
   }
 
   if ($settingsImport) {
     $settingsImport.addEventListener("click", async () => {
       if (!api || typeof api.importSettings !== "function") return;
+      const headerSaved = await flushGlobalHeaderSave().catch(() => false);
+      if (!headerSaved) return;
       const res = await api.importSettings().catch(() => null);
       if (res && res.ok === false && String(res.error || "").toLowerCase() === "canceled") return;
       if (!res || !res.ok) {
-        alert((res && res.error) ? res.error : "Failed to import settings.");
+        alert((res && res.error) ? res.error : "Failed to import profile.");
         return;
       }
       if (res.settings) applySettings(res.settings);
+      if (Number(res.importedFonts) > 0) {
+        await reloadFontCatalog();
+        ensureUserFontFaces();
+      }
       buildSettingsUi();
+      await loadGlobalHeaderFile();
       if (typeof setActiveTab === "function") setActiveTab(lastActiveTab);
-      const note = res.importedHeader ? " (incl. Global Header)" : "";
-      alert(`Settings imported${note}.\nSome changes apply immediately; others may require a restart.`);
+      const imported = [];
+      if (res.importedHeader) imported.push("Global Header");
+      if (Number(res.importedFonts) > 0) imported.push(`${Number(res.importedFonts)} font file(s)`);
+      const note = imported.length ? ` (incl. ${imported.join(", ")})` : "";
+      alert(`Profile imported${note}.\nSome changes apply immediately; others may require a restart.`);
     });
   }
 
@@ -1824,21 +1939,7 @@ export function initSettings(api) {
         cachedFontDirs = { bundledDir: String(res.bundledDir || ""), userDir: String(res.userDir || "") };
       }
     }
-    if (api && typeof api.listFonts === "function") {
-      const res = await api.listFonts().catch(() => null);
-      if (res && res.ok) {
-        cachedFontLists = {
-          notation: [
-            ...(res.bundled && Array.isArray(res.bundled.notation) ? res.bundled.notation.map((n) => `bundled:${n}`) : []),
-            ...(res.user && Array.isArray(res.user.notation) ? res.user.notation.map((n) => `user:${n}`) : []),
-          ],
-          text: [
-            ...(res.bundled && Array.isArray(res.bundled.text) ? res.bundled.text.map((n) => `bundled:${n}`) : []),
-            ...(res.user && Array.isArray(res.user.text) ? res.user.text.map((n) => `user:${n}`) : []),
-          ],
-        };
-      }
-    }
+    await reloadFontCatalog();
     if (api && typeof api.listSoundfonts === "function") {
       const list = await api.listSoundfonts().catch(() => []);
       cachedSoundfonts = Array.isArray(list) ? list : [];
@@ -1848,6 +1949,7 @@ export function initSettings(api) {
     initSettingsDrag();
     const settings = await store.get().catch(() => null);
     if (settings) applySettings(settings);
+    await loadGlobalHeaderFile();
     if (applySettingsFilter && $settingsFilter) applySettingsFilter($settingsFilter.value);
   })();
 
@@ -1868,7 +1970,7 @@ export function initSettings(api) {
   async function openTab(tabKey) {
     await initPromise.catch(() => {});
     lastActiveTab = normalizeTabKey(tabKey);
-    openSettings();
+    await openSettings();
   }
 
   return {

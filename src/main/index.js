@@ -10,11 +10,16 @@ const { createSoundfontProtocol, registerSoundfontScheme } = require("./soundfon
 const { resolveThirdPartyRoot } = require("./conversion");
 const { getSettingsSchema, getDefaultSettings: getDefaultSettingsFromSchema } = require("./settings_schema");
 const { normalizeMicrotonalSettings } = require("./settings_normalize");
-const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
+const { parseSettingsPatchFromProperties } = require("./properties");
+const {
+  PORTABLE_MARKER_FILE,
+  migrateLegacyGlobalHeader,
+  resolveGlobalHeaderPath,
+} = require("./global_header_store");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
 const {
   composeStateDocument,
-  loadStateDocument,
+  loadProfileDocument,
   saveStateDocument,
   splitStateDocument,
 } = require("./state_store");
@@ -78,11 +83,7 @@ const appState = {
   recentFiles: [],
   recentFolders: [],
   settings: null,
-  settingsFile: {
-    mode: "internal", // "internal" | "file"
-    path: null,
-    lastKnownMtimeMs: 0,
-  },
+  globalHeaderMigrationVersion: 0,
   debugFlags: {
     showMessages: false,
     autoDump: false,
@@ -208,7 +209,10 @@ app.on("second-instance", (_event, argv) => {
 
 async function resetFactoryStateOnDisk() {
   try {
-    await fs.promises.rm(getStatePath(), { force: true });
+    await fs.promises.rm(getProfilePath(), { force: true });
+    await fs.promises.rm(`${getProfilePath()}.bak`, { force: true });
+    await fs.promises.rm(getLegacyStatePath(), { force: true });
+    await fs.promises.rm(`${getLegacyStatePath()}.bak`, { force: true });
   } catch {}
   try {
     const settingsPaths = getSettingsPaths();
@@ -476,13 +480,29 @@ function getDefaultSettings() {
   return getDefaultSettingsFromSchema();
 }
 
-function getStatePath() {
+function getLegacyStatePath() {
   return path.join(app.getPath("userData"), "state.json");
+}
+
+function getProfilePath() {
+  return getSettingsPaths().profilePath;
+}
+
+async function removeLegacyStateFiles() {
+  await Promise.all([
+    fs.promises.rm(getLegacyStatePath(), { force: true }),
+    fs.promises.rm(`${getLegacyStatePath()}.bak`, { force: true }),
+  ]);
 }
 
 function readStartupSplashSecondsPreferenceSync() {
   try {
-    const raw = fs.readFileSync(getStatePath(), "utf8");
+    let raw = "";
+    try {
+      raw = fs.readFileSync(getProfilePath(), "utf8");
+    } catch {
+      raw = fs.readFileSync(getLegacyStatePath(), "utf8");
+    }
     const data = JSON.parse(raw);
     const settings = data && data.settings ? data.settings : null;
     const secsRaw = settings ? settings.startupSplashSeconds : undefined;
@@ -497,49 +517,63 @@ function readStartupSplashSecondsPreferenceSync() {
 }
 
 function getSettingsPaths() {
+  const executablePath = String(process.execPath || "");
+  const portableMarkerPath = executablePath
+    ? path.join(path.dirname(executablePath), PORTABLE_MARKER_FILE)
+    : "";
+  const userPath = resolveGlobalHeaderPath({
+    path,
+    userDataPath: app.getPath("userData"),
+    executablePath,
+    portableExecutableDir: process.env.PORTABLE_EXECUTABLE_DIR || process.env.ABCARUS_PORTABLE_DIR || "",
+    portableMarkerPresent: Boolean(portableMarkerPath && fs.existsSync(portableMarkerPath)),
+  });
   return {
     globalPath: path.join(app.getAppPath(), "assets", "global_settings.abc"),
-    userPath: path.join(app.getPath("userData"), "user_settings.abc"),
+    userPath,
+    profilePath: path.join(path.dirname(userPath), "abcarus-profile.json"),
   };
 }
 
-async function loadSettingsFromAttachedFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-  const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-  if (!filePath) {
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
-    return;
-  }
+async function migrateLegacyGlobalHeaderAtStartup() {
+  const previousVersion = appState.globalHeaderMigrationVersion;
   try {
-    const stat = await fs.promises.stat(filePath);
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const schema = getSettingsSchema();
-    const patch = parseSettingsPatchFromProperties(raw, schema);
-    if (patch && typeof patch === "object") {
-      const hasV = Object.prototype.hasOwnProperty.call(patch, "layoutRenderZoomVertical");
-      const hasH = Object.prototype.hasOwnProperty.call(patch, "layoutRenderZoomHorizontal");
-      if (!hasV || !hasH) {
-        const base = Number.isFinite(Number(patch.renderZoom))
-          ? Number(patch.renderZoom)
-          : (appState.settings && Number.isFinite(Number(appState.settings.renderZoom)) ? Number(appState.settings.renderZoom) : 1);
-        if (!hasV) patch.layoutRenderZoomVertical = base;
-        if (!hasH) patch.layoutRenderZoomHorizontal = base;
-      }
-    }
-    updateSettingsFromFile(patch || {});
-    appState.settingsFile.lastKnownMtimeMs = stat.mtimeMs || 0;
+    const result = await migrateLegacyGlobalHeader({
+      fs,
+      path,
+      headerPath: getSettingsPaths().userPath,
+      legacyText: appState.settings && appState.settings.globalHeaderText,
+      migrationVersion: appState.globalHeaderMigrationVersion,
+    });
+    appState.globalHeaderMigrationVersion = result.migrationVersion;
+    if (appState.globalHeaderMigrationVersion !== previousVersion) await saveState();
+  } catch (error) {
+    console.warn("Unable to migrate legacy Global Header; the legacy value remains available for a later retry.", error);
+  }
+}
+
+async function readLegacyAttachedSettings(state) {
+  const base = state && state.settings && typeof state.settings === "object" ? state.settings : null;
+  const legacyFile = state && state.settingsFile && state.settingsFile.mode === "file"
+    ? String(state.settingsFile.path || "")
+    : "";
+  if (!legacyFile) return base;
+  try {
+    const raw = await fs.promises.readFile(legacyFile, "utf8");
+    const patch = parseSettingsPatchFromProperties(raw, getSettingsSchema());
+    return { ...(base || {}), ...(patch || {}) };
   } catch {
-    // Graceful fallback: keep last internal snapshot.
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
+    return base;
   }
 }
 
 async function loadState() {
-  const loaded = await loadStateDocument({ fs, filePath: getStatePath() });
+  const loaded = await loadProfileDocument({
+    fs,
+    profilePath: getProfilePath(),
+    legacyStatePath: getLegacyStatePath(),
+  });
+  const loadedLegacyState = Boolean(loaded.legacy && loaded.data);
   const data = loaded.data;
   if (data) {
     const { known, extras } = splitStateDocument(data);
@@ -549,6 +583,7 @@ async function loadState() {
       console.warn("Recovered application state from backup after the primary state file could not be read.");
     }
     const state = known;
+    const persistedSettings = await readLegacyAttachedSettings(state);
     appState.lastFolder = state.lastFolder || null;
     appState.lastDialogDir = state.lastDialogDir || state.lastDialogPath || null;
     appState.dialogPreferences = state.dialogPreferences && typeof state.dialogPreferences === "object" && !Array.isArray(state.dialogPreferences)
@@ -557,20 +592,12 @@ async function loadState() {
     appState.recentTunes = Array.isArray(state.recentTunes) ? state.recentTunes : [];
     appState.recentFiles = Array.isArray(state.recentFiles) ? state.recentFiles : [];
     appState.recentFolders = Array.isArray(state.recentFolders) ? state.recentFolders : [];
-    if (state.settingsFile && typeof state.settingsFile === "object") {
-      const mode = state.settingsFile.mode === "file" ? "file" : "internal";
-      const p = state.settingsFile.path ? String(state.settingsFile.path) : null;
-      appState.settingsFile = {
-        mode,
-        path: p,
-        lastKnownMtimeMs: Number(state.settingsFile.lastKnownMtimeMs) || 0,
-      };
-    }
-    if (state.settings && typeof state.settings === "object") {
-      const merged = { ...getDefaultSettings(), ...state.settings };
-      if (state.settings.zoomFactor && !state.settings.renderZoom && !state.settings.editorZoom) {
-        merged.renderZoom = state.settings.zoomFactor;
-        merged.editorZoom = state.settings.zoomFactor;
+    appState.globalHeaderMigrationVersion = Number(state.globalHeaderMigrationVersion) || 0;
+    if (persistedSettings && typeof persistedSettings === "object") {
+      const merged = { ...getDefaultSettings(), ...persistedSettings };
+      if (persistedSettings.zoomFactor && !persistedSettings.renderZoom && !persistedSettings.editorZoom) {
+        merged.renderZoom = persistedSettings.zoomFactor;
+        merged.editorZoom = persistedSettings.zoomFactor;
       }
       // Default portal dialogs ON for Linux unless explicitly set by the user.
       if (process.platform === "linux" && merged.usePortalFileDialogsSetByUser !== true) {
@@ -579,15 +606,15 @@ async function loadState() {
       // Errors feature is intentionally session-only and defaults to off.
       merged.errorsEnabled = false;
       // Per-split zoom migration: keep old single zoom for both orientations.
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomVertical")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "layoutRenderZoomVertical")) {
         merged.layoutRenderZoomVertical = merged.renderZoom;
       }
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "layoutRenderZoomHorizontal")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "layoutRenderZoomHorizontal")) {
         merged.layoutRenderZoomHorizontal = merged.renderZoom;
       }
       // Migration: old builds defaulted MIDI import backend to bundled midi2abc.
       // If the backend was never explicitly chosen, move to auto mode.
-      if (!Object.prototype.hasOwnProperty.call(state.settings, "midiImportBackendSetByUser")) {
+      if (!Object.prototype.hasOwnProperty.call(persistedSettings, "midiImportBackendSetByUser")) {
         if (String(merged.midiImportBackend || "").trim() === "midi2abc") {
           merged.midiImportBackend = "auto";
         }
@@ -600,9 +627,15 @@ async function loadState() {
   }
   if (!appState.settings) appState.settings = getDefaultSettings();
   if (!appState.windowState) appState.windowState = normalizeWindowState(null);
-  // If the user explicitly attached a properties file, prefer it as the source of truth.
-  // Missing/unreadable file should not prevent startup.
-  await loadSettingsFromAttachedFile();
+  await migrateLegacyGlobalHeaderAtStartup();
+  if (loadedLegacyState) {
+    const migrated = await saveState();
+    if (migrated) await removeLegacyStateFiles();
+  } else if (data) {
+    // Migration is one-way. A stale state.json must never become authoritative
+    // again if the canonical profile is later removed or damaged.
+    await removeLegacyStateFiles();
+  }
 }
 
 async function pathExists(p) {
@@ -692,24 +725,11 @@ async function migrateStatePaths() {
 
 async function persistState() {
   try {
-    const payload = composeStateDocument(
-      {
-        lastFolder: appState.lastFolder,
-        lastDialogDir: appState.lastDialogDir,
-        dialogPreferences: appState.dialogPreferences,
-        recentTunes: appState.recentTunes,
-        recentFiles: appState.recentFiles,
-        recentFolders: appState.recentFolders,
-        settings: appState.settings,
-        settingsFile: appState.settingsFile,
-        windowState: appState.windowState,
-      },
-      stateDocumentExtras,
-    );
+    const payload = buildProfileDocument();
     await saveStateDocument({
       fs,
       path,
-      filePath: getStatePath(),
+      filePath: getProfilePath(),
       data: payload,
       skipBackup: stateRecoveredFromBackup,
     });
@@ -719,6 +739,25 @@ async function persistState() {
     return false;
   }
   return true;
+}
+
+function buildProfileDocument() {
+  const settings = { ...(appState.settings || getDefaultSettings()) };
+  delete settings.globalHeaderText;
+  return composeStateDocument(
+    {
+      lastFolder: appState.lastFolder,
+      lastDialogDir: appState.lastDialogDir,
+      dialogPreferences: appState.dialogPreferences,
+      recentTunes: appState.recentTunes,
+      recentFiles: appState.recentFiles,
+      recentFolders: appState.recentFolders,
+      settings,
+      globalHeaderMigrationVersion: appState.globalHeaderMigrationVersion,
+      windowState: appState.windowState,
+    },
+    stateDocumentExtras,
+  );
 }
 
 function saveState() {
@@ -887,7 +926,15 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
-function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
+function getDialogDefaultPath({
+  dialogId,
+  suggestedName,
+  suggestedDir,
+  suggestedPath,
+  directoryOnly,
+  preferFileNameOnPortal = false,
+  useSharedFallback = true,
+} = {}) {
   const normalizeFsPath = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -911,7 +958,7 @@ function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggested
     const candidate = normalizeFsPath(scopedPreference && scopedPreference.file);
     try { return candidate && fs.statSync(candidate).isFile() ? candidate : ""; } catch { return ""; }
   })();
-  const rememberedDir = scopedDir || existingDirectory(appState.lastDialogDir);
+  const rememberedDir = scopedDir || (useSharedFallback ? existingDirectory(appState.lastDialogDir) : "");
   const explicitDir = normalizeFsPath(suggestedDir);
   const explicitPath = normalizeFsPath(suggestedPath);
   const explicitPathAbs = explicitPath && path.isAbsolute(explicitPath) ? explicitPath : "";
@@ -1284,8 +1331,9 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <meta charset="utf-8">
     <title>${escapeHtmlText(title)}</title>
     <style>
+      @page { margin: 0; }
       html, body { margin: 0; padding: 0; }
-      body { padding: 24px; font-family: sans-serif; }
+      body { padding: 16px; font-family: sans-serif; }
       svg { max-width: 100%; height: auto; display: block; overflow: visible; }
       img { max-width: 100%; height: auto; display: block; }
       .nobrk { page-break-inside: avoid; break-inside: avoid; }
@@ -1366,6 +1414,33 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
             } catch (_e) {}
           }
         }
+        function alignSourceSections() {
+          const sections = Array.from(document.querySelectorAll(".abcarus-print-source"));
+          for (const section of sections) {
+            try {
+              let node = section.previousElementSibling;
+              while (node && String(node.tagName || "").toLowerCase() !== "svg") {
+                node = node.previousElementSibling;
+              }
+              let svg = node;
+              if (!svg) {
+                const scope = section.closest(".print-tune") || section.parentElement || document;
+                const preceding = Array.from(scope.querySelectorAll("svg"))
+                  .filter(function (candidate) { return Boolean(candidate.compareDocumentPosition(section) & 4); });
+                svg = preceding.length ? preceding[preceding.length - 1] : null;
+              }
+              if (!svg || !svg.getBBox) continue;
+              const bbox = svg.getBBox();
+              const vb = svg.viewBox && svg.viewBox.baseVal;
+              const rect = svg.getBoundingClientRect();
+              if (!vb || !rect.width || !vb.width || !Number.isFinite(bbox.x)) continue;
+              const contentLeft = rect.left + ((bbox.x - vb.x) * rect.width / vb.width);
+              const sectionLeft = section.getBoundingClientRect().left;
+              const inset = Math.max(0, Math.min(rect.width * 0.25, contentLeft - sectionLeft));
+              if (inset > 0.5) section.style.marginLeft = inset.toFixed(2) + "px";
+            } catch (_e) {}
+          }
+        }
         function rasterizeSvg(svg) {
           const xml = new XMLSerializer().serializeToString(svg);
           const svg64 = btoa(unescape(encodeURIComponent(xml)));
@@ -1407,6 +1482,7 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
         }
         window._rasterReadyPromise = waitForFonts().then(function () {
           normalizeSvgBounds();
+          alignSourceSections();
           if (skipRaster) return null;
           return rasterizeAll();
         });
@@ -1414,6 +1490,12 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     </script>
   </body>
 </html>`;
+}
+
+function getPrintMargins() {
+  // ABCarus supplies the visible page inset through body padding. Explicit
+  // zeroes cover Chromium versions that ignore marginType alone.
+  return { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 };
 }
 
 async function withPrintWindow(svgMarkup, action, options) {
@@ -1456,7 +1538,7 @@ async function withPrintWindow(svgMarkup, action, options) {
 async function printWithDialog(svgMarkup, suggestedName) {
   return withPrintWindow(svgMarkup, (contents) =>
     new Promise((resolve) => {
-      contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+      contents.print({ printBackground: true, silent: false, margins: getPrintMargins() }, (success, failureReason) => {
         if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
         resolve({ ok: true });
       });
@@ -1466,8 +1548,7 @@ async function printWithDialog(svgMarkup, suggestedName) {
 
 async function exportPdf(svgMarkup, filePath) {
   return withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(filePath, pdfData);
     return { ok: true, path: filePath };
   }, { show: false, suggestedName: filePath ? path.basename(filePath, path.extname(filePath)) : "" });
@@ -1478,8 +1559,7 @@ async function previewPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });
@@ -1494,8 +1574,7 @@ async function printViaPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });
@@ -1606,44 +1685,7 @@ async function atomicWriteFileWithRetry(filePath, data, { attempts = 5 } = {}) {
   throw lastErr || new Error("Unable to write file.");
 }
 
-let attachedSettingsWriteTimer = null;
-let attachedSettingsWritePromise = null;
-async function persistAttachedSettingsFile() {
-  if (attachedSettingsWritePromise) return attachedSettingsWritePromise;
-  attachedSettingsWritePromise = (async () => {
-    if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-    const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-    if (!filePath) return;
-    const schema = getSettingsSchema();
-    const propsText = encodePropertiesFromSchema(appState.settings || getDefaultSettings(), schema);
-    try {
-      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-      await atomicWriteFileWithRetry(filePath, propsText);
-      try {
-        const st = await fs.promises.stat(filePath);
-        appState.settingsFile.lastKnownMtimeMs = st.mtimeMs || 0;
-      } catch {}
-    } catch {
-      // Silent failure: user may have removed the file or directory; internal snapshot remains valid.
-    }
-  })();
-  try {
-    await attachedSettingsWritePromise;
-  } finally {
-    attachedSettingsWritePromise = null;
-  }
-}
-
-function schedulePersistAttachedSettingsFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return;
-  if (attachedSettingsWriteTimer) clearTimeout(attachedSettingsWriteTimer);
-  attachedSettingsWriteTimer = setTimeout(() => {
-    attachedSettingsWriteTimer = null;
-    persistAttachedSettingsFile().catch(() => {});
-  }, 250);
-}
-
-function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
+function applySettingsPatch(patch) {
   const next = { ...getDefaultSettings(), ...appState.settings, ...patch };
   if (patch && patch.libraryUiStateByRoot && typeof patch.libraryUiStateByRoot === "object") {
     const prev = appState.settings && appState.settings.libraryUiStateByRoot && typeof appState.settings.libraryUiStateByRoot === "object"
@@ -1698,7 +1740,6 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
   next.errorsEnabled = false;
   appState.settings = next;
   saveState();
-  if (persistToSettingsFile) schedulePersistAttachedSettingsFile();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("settings:changed", withDevSoundfont(next));
   }
@@ -1716,37 +1757,30 @@ function applySettingsPatch(patch, { persistToSettingsFile = true } = {}) {
 }
 
 function updateSettings(patch) {
-  return applySettingsPatch(patch, { persistToSettingsFile: true });
+  return applySettingsPatch(patch);
 }
 
-function updateSettingsFromFile(patch) {
-  // File-backed settings are the source of truth; applying them should not rewrite the file.
-  return applySettingsPatch(patch, { persistToSettingsFile: false });
-}
-
-async function maybeReloadSettingsFromAttachedFile() {
-  if (!appState.settingsFile || appState.settingsFile.mode !== "file") return false;
-  const filePath = appState.settingsFile.path ? String(appState.settingsFile.path) : "";
-  if (!filePath) return false;
-  try {
-    const stat = await fs.promises.stat(filePath);
-    const mtimeMs = stat && stat.mtimeMs ? Number(stat.mtimeMs) : 0;
-    if (!mtimeMs || mtimeMs <= (Number(appState.settingsFile.lastKnownMtimeMs) || 0)) return false;
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const schema = getSettingsSchema();
-    const patch = parseSettingsPatchFromProperties(raw, schema);
-    updateSettingsFromFile(patch || {});
-    appState.settingsFile.lastKnownMtimeMs = mtimeMs;
-    saveState();
-    return true;
-  } catch {
-    // Graceful fallback to internal snapshot.
-    appState.settingsFile.mode = "internal";
-    appState.settingsFile.path = null;
-    appState.settingsFile.lastKnownMtimeMs = 0;
-    saveState();
-    return false;
+async function importProfileSnapshot(document) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new TypeError("Invalid ABCarus profile document.");
   }
+  const { known, extras } = splitStateDocument(document);
+  stateDocumentExtras = extras;
+  appState.lastFolder = known.lastFolder || null;
+  appState.lastDialogDir = known.lastDialogDir || null;
+  appState.dialogPreferences = known.dialogPreferences && typeof known.dialogPreferences === "object" && !Array.isArray(known.dialogPreferences)
+    ? known.dialogPreferences
+    : {};
+  appState.recentTunes = Array.isArray(known.recentTunes) ? known.recentTunes : [];
+  appState.recentFiles = Array.isArray(known.recentFiles) ? known.recentFiles : [];
+  appState.recentFolders = Array.isArray(known.recentFolders) ? known.recentFolders : [];
+  appState.globalHeaderMigrationVersion = Number(known.globalHeaderMigrationVersion) || 0;
+  appState.windowState = normalizeWindowState(known.windowState);
+  appState.settings = getDefaultSettings();
+  const settings = applySettingsPatch(known.settings && typeof known.settings === "object" ? known.settings : {});
+  await saveState();
+  refreshMenu();
+  return settings;
 }
 function addRecentTune(entry) {
   if (!entry || !entry.path || entry.startOffset == null || entry.endOffset == null) return;
@@ -2821,12 +2855,11 @@ async function createWindow() {
   const shouldForwardConsole = (process.env.ABCARUS_DEV_FORWARD_CONSOLE === "1")
     || (process.env.NODE_ENV !== "production" && !app.isPackaged);
   if (shouldForwardConsole) {
-    win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    win.webContents.on("console-message", ({ level, message, lineNumber, sourceId }) => {
       try {
-        const lvl = Number(level);
-        const tag = Number.isFinite(lvl) ? String(lvl) : "?";
+        const tag = String(level || "?");
         // eslint-disable-next-line no-console
-        console.log(`[renderer:${tag}] ${message} (${sourceId}:${line})`);
+        console.log(`[renderer:${tag}] ${message} (${sourceId}:${lineNumber})`);
       } catch {}
     });
     win.webContents.on("render-process-gone", (_event, details) => {
@@ -2912,10 +2945,6 @@ async function createWindow() {
         try { app.quit(); } catch { process.exit(0); }
       }, 1500);
     } catch {}
-  });
-  win.on("focus", () => {
-    // Best-effort: if the canonical settings file was edited externally, reload it when the app regains focus.
-    maybeReloadSettingsFromAttachedFile().catch(() => {});
   });
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
@@ -3371,6 +3400,111 @@ async function runUiSmoke(win) {
         await wait(120);
       }
       const shownOutOfFocus = !isHidden();
+      const hook = window.__abcarusDevUiSmoke;
+      let fontChoicesOk = false;
+      let interfaceFontPresetsOk = false;
+      let interfaceFontSelections = [];
+      let fontSelectWidths = [];
+      let fontRemoveLabels = [];
+      let modalCloseButtonsOk = false;
+      let modalBackdropSafe = false;
+      let compactModalOk = false;
+      let toolbarDomainsOk = false;
+      if (hook && typeof hook.dispatchAction === "function") {
+        await hook.dispatchAction({ type: "fonts" });
+        await wait(250);
+        const fontsPanel = document.querySelector('[data-settings-panel="fonts"].active');
+        const chooserRows = fontsPanel
+          ? Array.from(fontsPanel.querySelectorAll(".settings-select-row"))
+          : [];
+        fontSelectWidths = chooserRows.map((row) => {
+          const select = row.querySelector("select");
+          return select ? Math.round(select.getBoundingClientRect().width) : 0;
+        });
+        fontRemoveLabels = chooserRows.map((row) => {
+          const buttons = row.querySelectorAll("button");
+          const remove = buttons.length ? buttons[buttons.length - 1] : null;
+          return remove ? String(remove.textContent || "").trim() : "";
+        });
+        fontChoicesOk = chooserRows.length >= 4
+          && fontSelectWidths.every((width) => width >= 140)
+          && fontRemoveLabels.every((label) => label === "Remove");
+        const interfaceFontKeys = ["uiFontFamily", "libraryUiFontFamily"];
+        interfaceFontPresetsOk = interfaceFontKeys.every((key) => {
+          const select = fontsPanel.querySelector('select[data-settings-key="' + key + '"]');
+          const labels = select ? Array.from(select.options).map((option) => String(option.textContent || "").trim()) : [];
+          interfaceFontSelections.push(select && select.selectedOptions[0]
+            ? String(select.selectedOptions[0].textContent || "").trim()
+            : "");
+          return labels.includes("System default")
+            && labels.includes("Sans serif")
+            && labels.includes("Serif")
+            && labels.includes("Monospace");
+        });
+
+        const modalCloseIds = [
+          "templatesClose",
+          "makamDnaClose",
+          "settingsClose",
+          "moveTuneClose",
+          "aboutClose",
+          "setListClose",
+          "setListHeaderClose",
+          "xIssuesClose",
+          "printAllOptionsClose",
+          "disclaimerClose",
+        ];
+        modalCloseButtonsOk = modalCloseIds.every((id) => {
+          const button = byId(id);
+          if (!button || button.hidden) return false;
+          const style = getComputedStyle(button);
+          return String(button.textContent || "").trim() === "×"
+            && Math.round(Number.parseFloat(style.width || "0")) === 32
+            && Math.round(Number.parseFloat(style.height || "0")) === 32;
+        });
+        const settingsModal = byId("settingsModal");
+        if (settingsModal && settingsModal.classList.contains("open")) {
+          settingsModal.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          await wait(30);
+          modalBackdropSafe = settingsModal.classList.contains("open");
+          const cancel = byId("settingsCancel");
+          if (cancel) cancel.click();
+        }
+
+        const rawButton = byId("btnToggleRaw");
+        const settingsButton = byId("btnSettings");
+        const splitButton = byId("btnToggleSplit");
+        const resetButton = byId("btnResetLayout");
+        const focusGroup = focusBtn ? focusBtn.closest(".segmented") : null;
+        toolbarDomainsOk = Boolean(
+          rawButton
+          && rawButton.closest(".file-header-bar")
+          && Number.parseFloat(getComputedStyle(rawButton).minWidth || "0") >= 60
+          && settingsButton
+          && !byId("btnFonts")
+          && focusGroup
+          && focusGroup.getAttribute("aria-label") === "Playback and input modes"
+          && followBtn.closest(".segmented") === focusGroup
+          && splitButton
+          && splitButton.closest(".file-header-toggles")
+          && resetButton
+          && followBtn.getBoundingClientRect().left < resetButton.getBoundingClientRect().left
+        );
+
+        hook.dispatchAction({ type: "playGotoMeasure" });
+        await wait(80);
+        const compactModal = document.querySelector(".compact-modal-card");
+        const compactBackdrop = compactModal ? compactModal.closest(".modal") : null;
+        const compactClose = compactModal ? compactModal.querySelector(".modal-close") : null;
+        compactModalOk = Boolean(
+          compactModal
+          && compactBackdrop
+          && compactBackdrop.classList.contains("open")
+          && compactModal.getAttribute("aria-modal") === "true"
+          && compactClose
+        );
+        if (compactClose) compactClose.click();
+      }
       return {
         ok: errorsVisible
           && followVisible
@@ -3380,7 +3514,13 @@ async function runUiSmoke(win) {
           && selTuneRadiusPx >= 7
           && selTempoHeightPx >= 27
           && hiddenInFocus
-          && shownOutOfFocus,
+          && shownOutOfFocus
+          && fontChoicesOk
+          && interfaceFontPresetsOk
+          && modalCloseButtonsOk
+          && modalBackdropSafe
+          && compactModalOk
+          && toolbarDomainsOk,
         visualGapPx,
         togglesGapPx,
         libRadiusPx,
@@ -3391,6 +3531,15 @@ async function runUiSmoke(win) {
         followDisplay,
         hiddenInFocus,
         shownOutOfFocus,
+        fontChoicesOk,
+        interfaceFontPresetsOk,
+        interfaceFontSelections,
+        fontSelectWidths,
+        fontRemoveLabels,
+        modalCloseButtonsOk,
+        modalBackdropSafe,
+        compactModalOk,
+        toolbarDomainsOk,
       };
     })()`,
     true
@@ -3503,11 +3652,8 @@ registerIpcHandlers({
   addRecentFile,
   addRecentFolder,
   getSettingsPaths,
-  getSettingsFile: () => appState.settingsFile,
-  setSettingsFile: async (next) => {
-    appState.settingsFile = next;
-    await saveState();
-  },
+  getProfileSnapshot: () => buildProfileDocument(),
+  importProfileSnapshot,
   getSettings: () => {
     const settings = appState.settings || getDefaultSettings();
     return withDevSoundfont(settings);
@@ -3539,12 +3685,7 @@ registerIpcHandlers({
   requestQuit: async () => {
     if (quitPromise) return quitPromise;
     isQuitting = true;
-    if (attachedSettingsWriteTimer) {
-      clearTimeout(attachedSettingsWriteTimer);
-      attachedSettingsWriteTimer = null;
-    }
     quitPromise = (async () => {
-      await persistAttachedSettingsFile();
       await saveState();
       app.quit();
     })();

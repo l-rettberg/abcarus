@@ -733,12 +733,8 @@ function getSettingsSchema() {
       key: "globalHeaderText",
       type: "string",
       default: "",
-      section: "Header",
-      group: "Global header",
-      groupOrder: 10,
-      label: "Global header text",
-      help: "Prepended before file headers and tunes during render/playback.",
-      ui: { input: "code" },
+      legacy: true,
+      propertiesExport: false,
     },
     {
       key: "abc2svgNotationFontFile",
@@ -771,7 +767,7 @@ function getSettingsSchema() {
       groupOrder: 5,
       label: "Font family",
       help: "CSS font-family used for the app interface (does not affect the OS menu bar).",
-      ui: { input: "text", placeholder: "" },
+      ui: { input: "select", options: "interfaceFonts" },
     },
     {
       key: "uiFontSize",
@@ -793,7 +789,7 @@ function getSettingsSchema() {
       groupOrder: 5,
       label: "Library font family",
       help: "Optional override for the Library list.",
-      ui: { input: "text", placeholder: "" },
+      ui: { input: "select", options: "interfaceFonts" },
     },
     {
       key: "libraryUiFontSize",

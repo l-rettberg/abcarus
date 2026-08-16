@@ -36,9 +36,8 @@ Allowed repair actions (safe to regenerate):
 - delete `Code Cache`
 
 Must preserve (do not delete without explicit user intent):
-- `state.json`
+- `abcarus-profile.json`
 - `user_settings.abc`
-- `abcarus.properties` (if present)
 - `fonts/`
 - `templates/`
 - any user-created data files

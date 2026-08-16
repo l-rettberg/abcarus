@@ -34,6 +34,7 @@ function createPrintAllFeature({
     modal: elements.optionsModal,
     pageBreaksSelect: elements.pageBreaksSelect,
     rememberCheckbox: elements.rememberCheckbox,
+    closeButton: elements.closeButton,
     cancelButton: elements.cancelButton,
     okButton: elements.okButton,
   });

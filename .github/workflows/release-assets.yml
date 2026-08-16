@@ -66,11 +66,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 22.12.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Verify release checks
         run: |
@@ -92,11 +95,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 22.12.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Install appimagetool
         run: |
@@ -113,6 +119,7 @@ jobs:
 
       - name: Create portable tar.gz (AppDir)
         run: |
+          touch dist/appimage/AppDir/ABCarus.portable
           cat > dist/appimage/AppDir/ABCarus <<'EOF'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -133,6 +140,10 @@ jobs:
           
           Notes:
             - Keep the folder structure intact.
+            - Preferences and UI state are stored as abcarus-profile.json here.
+            - Global Header is stored as user_settings.abc in this folder.
+              Back up that file or copy it here when moving ABCarus.
+            - Fonts added through Settings are stored under fonts/.
             - If you prefer a single-file app, use the AppImage build instead.
           EOF
           chmod 0644 dist/appimage/AppDir/README-PORTABLE.txt
@@ -166,11 +177,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 22.12.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check
@@ -218,11 +232,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 22.12.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check
@@ -273,11 +290,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: 22.12.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Verify PBS locks
         run: npm run -s pbs:check
@@ -310,6 +330,7 @@ jobs:
             Get-ChildItem -Force -Path $src | ForEach-Object { Write-Host ("  - " + $_.Name) }
             throw "ffmpeg.dll is missing in win-unpacked"
           }
+          New-Item -ItemType File -Force -Path (Join-Path $src "ABCarus.portable") | Out-Null
           $readme = @(
             "ABCarus portable build (Windows)",
             "",
@@ -319,7 +340,11 @@ jobs:
             "",
             "  - Extract the entire zip to a folder before running.",
             "  - Do NOT run ABCarus.exe directly from inside the zip viewer,",
-            "    otherwise required DLLs (e.g. ffmpeg.dll) may not be found."
+            "    otherwise required DLLs (e.g. ffmpeg.dll) may not be found.",
+            "  - Preferences and UI state are stored as abcarus-profile.json here.",
+            "  - Global Header is stored as user_settings.abc in this folder.",
+            "    Back up that file or copy it here when moving ABCarus.",
+            "  - Fonts added through Settings are stored under fonts/."
           ) -join "`r`n"
           $readme | Out-File -Encoding ascii (Join-Path $src "README-PORTABLE.txt")
           if (Test-Path $zip) { Remove-Item -Force $zip }

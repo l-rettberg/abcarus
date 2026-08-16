@@ -47,11 +47,6 @@ function encodeValue(value, type) {
   return String(value == null ? "" : value);
 }
 
-function encodeGlobalHeaderText(value) {
-  // Keep the portable export single-file and preserve newlines safely.
-  try { return JSON.stringify(String(value == null ? "" : value)); } catch { return "\"\""; }
-}
-
 function parseGlobalHeaderText(raw) {
   const text = String(raw == null ? "" : raw);
   try {
@@ -74,7 +69,7 @@ function encodePropertiesFromSchema(settings, schema) {
   lines.push("");
   const bySection = new Map();
   for (const entry of (Array.isArray(schema) ? schema : [])) {
-    if (!entry || !entry.key) continue;
+    if (!entry || !entry.key || entry.propertiesExport === false) continue;
     const section = entry.section || "General";
     if (!bySection.has(section)) bySection.set(section, []);
     bySection.get(section).push(entry);
@@ -86,9 +81,7 @@ function encodePropertiesFromSchema(settings, schema) {
       const value = (Object.prototype.hasOwnProperty.call(s, entry.key) && s[entry.key] !== undefined)
         ? s[entry.key]
         : entry.default;
-      const raw = entry.key === "globalHeaderText"
-        ? encodeGlobalHeaderText(value)
-        : encodeValue(value, entry.type);
+      const raw = encodeValue(value, entry.type);
       lines.push(`${entry.key}=${raw}`);
     }
     lines.push("");

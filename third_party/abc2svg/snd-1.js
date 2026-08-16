@@ -433,7 +433,7 @@ return}
 s_p=s.part1
 if(!s_p||!s_p.p_s)
 continue
-for(i=0;i<s_p.p_s.length;i++){if(s_p.p_s[i]==s){po.i_p=i-1
+for(i=0;i<s_p.p_s.length;i++){if(s_p.p_s[i]==s){po.i_p=i-(po.s_cur==s?1:0)
 po.ps=s_p.p_s
 return}}}}
 if(po.stop){if(po.onend)
@@ -522,10 +522,10 @@ parm.buffer=ac.createBuffer(1,sample.length,sample_hdr.sampleRate)
 sample_cp(parm.buffer,sample)
 if(gen.sampleModes?.amount&1){parm.sm=1
 parm.loopStart=(sample_hdr.startLoop
-+gen.startloopAddrsOffset?.amount||0)
++(gen.startloopAddrsOffset?.amount||0))
 / sample_hdr.sampleRate
 parm.loopEnd=(sample_hdr.endLoop
-+gen.endloopAddrsOffset?.amount||0)
++(gen.endloopAddrsOffset?.amount||0))
 / sample_hdr.sampleRate}
 scale=(gen.scaleTuning?gen.scaleTuning.amount:100)/100,tune=(gen.coarseTune?gen.coarseTune.amount:0)+
 (gen.fineTune?gen.fineTune.amount:0)/100+

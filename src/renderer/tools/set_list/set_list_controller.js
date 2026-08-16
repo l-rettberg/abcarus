@@ -227,9 +227,6 @@ function createSetListController({
   }
 
   if (modal) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) close();
-    });
     modal.addEventListener("keydown", (e) => {
       if (!e || e.key !== "Escape") return;
       e.preventDefault();
@@ -242,9 +239,6 @@ function createSetListController({
   if (headerCloseButton) headerCloseButton.addEventListener("click", closeHeaderEditor);
 
   if (headerModal) {
-    headerModal.addEventListener("click", (e) => {
-      if (e.target === headerModal) closeHeaderEditor();
-    });
     headerModal.addEventListener("keydown", (e) => {
       if (!e || e.key !== "Escape") return;
       e.preventDefault();

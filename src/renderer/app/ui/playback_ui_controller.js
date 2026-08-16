@@ -38,7 +38,7 @@ function createPlaybackUiController({
     selectionGchordsEnabled = null,
     selectionDrumsEnabled = null,
     selectionMutedVoices = null,
-    fontsButton = null,
+    settingsButton = null,
     xIssuesAutoFixButton = null,
     xIssuesJumpButton = null,
     xIssuesCopyButton = null,
@@ -159,7 +159,7 @@ function createPlaybackUiController({
     disable(selectionDrumsEnabled);
     disable(selectionMutedVoices);
 
-    disable(fontsButton);
+    disable(settingsButton);
 
     disable(xIssuesAutoFixButton);
     disable(xIssuesJumpButton);

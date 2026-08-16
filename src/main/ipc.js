@@ -1,11 +1,13 @@
 const {
   convertFileToAbc,
+  convertAbcBatchToMusicXml,
   convertAbcToMusicXml,
   checkConversionTools,
 } = require("./conversion");
 const { resolvePythonExecutable, pythonEnvForExecutable } = require("./conversion/utils");
 const { getSettingsSchema } = require("./settings_schema");
-const { encodePropertiesFromSchema, parseSettingsPatchFromProperties } = require("./properties");
+const { parseSettingsPatchFromProperties } = require("./properties");
+const { parseProfileDocument, serializeProfileDocument } = require("./state_store");
 const { decodeAbcTextFromBuffer, encodeAbcTextToBuffer } = require("./abcCharset");
 
 const os = require("os");
@@ -479,8 +481,8 @@ function registerIpcHandlers(ctx) {
       getDialogDefaultPath,
       getDialogFilterIndex,
       rememberDialogSelection,
-	    getSettingsFile,
-	    setSettingsFile,
+      getProfileSnapshot,
+      importProfileSnapshot,
 	    updateSettings,
 	    requestQuit,
 	    getLastRecent,
@@ -761,6 +763,49 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.handle("dialog:show-open-error", async (_e, message) => {
     showOpenError(message);
+  });
+
+  ipcMain.handle("source:youtube-metadata", async (_event, rawUrl) => {
+    const targetUrl = normalizeYouTubeWatchUrl(rawUrl);
+    if (!targetUrl) return { ok: false, error: "Not a supported YouTube video URL." };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(targetUrl)}&format=json`;
+      const response = await fetch(endpoint, { signal: controller.signal, redirect: "follow" });
+      if (!response.ok) {
+        const unavailable = response.status === 401 || response.status === 403 || response.status === 404;
+        return { ok: false, unavailable, status: response.status, error: unavailable ? "Video is unavailable, private, or deleted." : `YouTube returned HTTP ${response.status}.` };
+      }
+      const text = await response.text();
+      if (text.length > 1024 * 1024) return { ok: false, error: "YouTube metadata response is unexpectedly large." };
+      const data = JSON.parse(text);
+      const title = String(data && data.title ? data.title : "").replace(/\s+/g, " ").trim();
+      const channel = String(data && data.author_name ? data.author_name : "").replace(/\s+/g, " ").trim();
+      if (!title) return { ok: false, error: "YouTube did not return a video title." };
+      return { ok: true, title, channel };
+    } catch (error) {
+      return { ok: false, error: error && error.name === "AbortError" ? "YouTube metadata request timed out." : (error && error.message ? error.message : "Unable to retrieve YouTube metadata.") };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  ipcMain.handle("source:confirm-youtube-metadata", async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const parent = getParentForDialog(event, "source:confirm-youtube-metadata");
+    const detail = String(data.detail || "").slice(0, 12000);
+    const canUpdate = Number(data.updateCount) > 0;
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: canUpdate ? "question" : "info",
+      buttons: canUpdate ? ["Update file", "Cancel"] : ["OK"],
+      defaultId: 0,
+      cancelId: canUpdate ? 1 : 0,
+      message: canUpdate ? "Update YouTube metadata?" : "YouTube metadata report",
+      detail,
+      noLink: true,
+    });
+    return canUpdate && response === 0;
   });
   ipcMain.handle("sf2:list", async () => {
     try {
@@ -1058,6 +1103,118 @@ function registerIpcHandlers(ctx) {
         code: e && e.code ? e.code : "",
       };
     }
+  });
+  const exportMusicXmlAll = async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const rawItems = Array.isArray(data.items) ? data.items : [];
+    if (!rawItems.length) return { ok: false, error: "No tunes to export." };
+    if (rawItems.length > 10000) return { ok: false, error: "Too many tunes to export at once." };
+    const items = rawItems.map((item, index) => ({
+      abcText: String(item && item.abcText ? item.abcText : ""),
+      xNumber: String(item && item.xNumber ? item.xNumber : ""),
+      title: String(item && item.title ? item.title : ""),
+      ordinal: index + 1,
+    }));
+    const totalChars = items.reduce((sum, item) => sum + item.abcText.length, 0);
+    if (totalChars > 100 * 1024 * 1024) return { ok: false, error: "ABC export payload is too large." };
+    const parent = getParentForDialog(event, "export:musicxml-all");
+    const result = await dialog.showOpenDialog(parent || undefined, {
+      title: "Choose Folder for MusicXML Tunes",
+      defaultPath: getDialogPath({
+        dialogId: "exportMusicXmlAll",
+        suggestedDir: app.getPath("desktop"),
+        directoryOnly: true,
+        useSharedFallback: false,
+      }),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const parentDir = result && !result.canceled && result.filePaths && result.filePaths[0]
+      ? String(result.filePaths[0])
+      : "";
+    if (!parentDir) return { ok: false, canceled: true };
+    rememberDialogPath(parentDir, { dialogId: "exportMusicXmlAll", isDirectory: true });
+
+    const sourceBase = sanitizeSuggestedFileBaseName(data.sourceName, "ABC tunes");
+    let outputDir = path.join(parentDir, `${sourceBase} - MusicXML`);
+    for (let suffix = 2; fs.existsSync(outputDir); suffix += 1) {
+      outputDir = path.join(parentDir, `${sourceBase} - MusicXML (${suffix})`);
+    }
+    try {
+      event.sender.send("export:musicxml-all:progress", { phase: "convert", done: 0, total: items.length });
+      const settings = getSettings ? getSettings() : {};
+      const converted = await convertAbcBatchToMusicXml({ items, args: settings.abc2xmlArgs || "" });
+      await fs.promises.mkdir(outputDir, { recursive: false });
+      const width = Math.max(3, String(items.length).length);
+      let written = 0;
+      for (const output of converted.converted || []) {
+        const index = Number(output && output.index);
+        if (!Number.isInteger(index) || index < 0 || index >= items.length) continue;
+        const item = items[index];
+        const xPart = item.xNumber ? `-X${sanitizeSuggestedFileBaseName(item.xNumber, "tune").slice(0, 24)}` : "";
+        const titlePart = sanitizeSuggestedFileBaseName(item.title, "Untitled").slice(0, 70);
+        const fileName = `${String(index + 1).padStart(width, "0")}${xPart}-${titlePart}.musicxml`;
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, fileName), String(output.xmlText || ""));
+        written += 1;
+        if (written === items.length || written % 10 === 0) {
+          event.sender.send("export:musicxml-all:progress", { phase: "write", done: written, total: items.length });
+        }
+      }
+      const failures = Array.isArray(converted.failures) ? converted.failures : [];
+      if (failures.length) {
+        const report = [
+          `ABCarus MusicXML batch export`,
+          `Exported: ${written}/${items.length}`,
+          "",
+          "Failed tunes:",
+        ];
+        for (const failure of failures) {
+          const index = Number(failure && failure.index);
+          const item = Number.isInteger(index) && items[index] ? items[index] : null;
+          const label = item ? `${index + 1}. X:${item.xNumber || "?"} ${item.title || "Untitled"}` : `Tune ${index + 1}`;
+          report.push(`${label}: ${String(failure && failure.error ? failure.error : "Conversion failed.")}`);
+          if (failure && failure.detail) report.push(`  ${String(failure.detail).replace(/\s+/g, " ").trim()}`);
+        }
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, "export-report.txt"), `${report.join("\n")}\n`);
+      }
+      return {
+        ok: true,
+        outputDir,
+        exported: written,
+        failed: failures.length,
+        warnings: converted.warnings || null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error && error.message ? String(error.message) : String(error),
+        detail: error && error.detail ? String(error.detail) : "",
+        code: error && error.code ? String(error.code) : "",
+      };
+    }
+  };
+  ipcMain.on("export:musicxml-all", (event, envelope) => {
+    const requestId = envelope && envelope.requestId ? String(envelope.requestId) : "";
+    if (!/^\d+-\d+$/.test(requestId)) return;
+    const payload = envelope && envelope.payload && typeof envelope.payload === "object"
+      ? envelope.payload
+      : {};
+    exportMusicXmlAll(event, payload)
+      .then((result) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", { requestId, result });
+        }
+      })
+      .catch((error) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", {
+            requestId,
+            result: {
+              ok: false,
+              error: error && error.message ? String(error.message) : String(error),
+            },
+          });
+        }
+      });
   });
   ipcMain.handle("export:midi", async (event, midiBytes, suggestedName) => {
     const toBuffer = (value) => {
@@ -1433,7 +1590,7 @@ function registerIpcHandlers(ctx) {
     const tmpName = `${safeName}-${Date.now()}.pdf`;
     const tmpPath = path.join(app.getPath("temp"), tmpName);
     const res = await withMainPrintMode(async (contents) => {
-      const pdfData = await contents.printToPDF({ printBackground: true, marginsType: 0 });
+      const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } });
       await fs.promises.writeFile(tmpPath, pdfData);
       return { ok: true, path: tmpPath };
     });
@@ -1449,7 +1606,7 @@ function registerIpcHandlers(ctx) {
     if (typeof printWithDialog === "function") return printWithDialog(svgMarkup, safeName);
     return withMainPrintMode((contents) =>
       new Promise((resolve) => {
-        contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+        contents.print({ printBackground: true, silent: false, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } }, (success, failureReason) => {
           if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
           resolve({ ok: true });
         });
@@ -1470,8 +1627,7 @@ function registerIpcHandlers(ctx) {
     if (typeof exportPdf === "function") return exportPdf(svgMarkup, filePath);
     return withMainPrintMode(async (contents) => {
       try {
-        const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-        const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+        const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } });
         await fs.promises.writeFile(filePath, pdfData);
         return { ok: true };
       } catch (e) {
@@ -1527,7 +1683,10 @@ function registerIpcHandlers(ctx) {
     const appRoot = (app && typeof app.getAppPath === "function") ? app.getAppPath() : process.cwd();
     const bundledDir = path.join(appRoot, "assets", "fonts", "notation");
     const userData = (app && typeof app.getPath === "function") ? app.getPath("userData") : "";
-    const userDir = userData ? path.join(userData, "fonts", "notation") : "";
+    const settingsPaths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : null;
+    const profilePath = settingsPaths && settingsPaths.profilePath ? String(settingsPaths.profilePath) : "";
+    const profileDir = profilePath ? path.dirname(profilePath) : userData;
+    const userDir = profileDir ? path.join(profileDir, "fonts", "notation") : "";
     if (userDir) {
       try { await fs.promises.mkdir(userDir, { recursive: true }); } catch {}
     }
@@ -1637,6 +1796,48 @@ function registerIpcHandlers(ctx) {
     if (ctx && typeof ctx.getSettingsPaths === "function") return ctx.getSettingsPaths();
     return { globalPath: "", userPath: "" };
   });
+  ipcMain.handle("settings:global-header-read", async () => {
+    try {
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const filePath = paths && paths.userPath ? String(paths.userPath) : "";
+      if (!filePath) return { ok: false, error: "Global Header path is unavailable." };
+      try {
+        const text = await fs.promises.readFile(filePath, "utf8");
+        return { ok: true, path: filePath, exists: true, text };
+      } catch (error) {
+        if (error && error.code === "ENOENT") {
+          return { ok: true, path: filePath, exists: false, text: "" };
+        }
+        throw error;
+      }
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : String(error) };
+    }
+  });
+  ipcMain.handle("settings:global-header-write", async (event, value) => {
+    try {
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const filePath = paths && paths.userPath ? String(paths.userPath) : "";
+      if (!filePath) return { ok: false, error: "Global Header path is unavailable." };
+      const text = String(value == null ? "" : value);
+      let exists = false;
+      try {
+        const stat = await fs.promises.stat(filePath);
+        exists = Boolean(stat && stat.isFile());
+      } catch (error) {
+        if (!(error && error.code === "ENOENT")) throw error;
+      }
+      if (!exists && !text.trim()) {
+        return { ok: true, path: filePath, exists: false, text: "" };
+      }
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await atomicWriteFileWithRetry(fs, path, filePath, text);
+      try { event.sender.send("settings:changed", getSettings()); } catch {}
+      return { ok: true, path: filePath, exists: true, text };
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : String(error) };
+    }
+  });
   ipcMain.handle("settings:update", async (_event, patch) => {
     return updateSettings(patch || {});
   });
@@ -1648,48 +1849,60 @@ function registerIpcHandlers(ctx) {
       if (suggestedDir) {
         try { await fs.promises.mkdir(suggestedDir, { recursive: true }); } catch {}
       }
-      const defaultPath = suggestedDir ? path.join(suggestedDir, "abcarus.properties") : "abcarus.properties";
+      const defaultPath = suggestedDir ? path.join(suggestedDir, "abcarus-profile.json") : "abcarus-profile.json";
       const result = await dialog.showSaveDialog(parent || undefined, {
         modal: true,
-        title: "Export Settings",
+        title: "Export ABCarus Profile",
         defaultPath: getDialogPath({
-          suggestedName: "abcarus.properties",
+          suggestedName: "abcarus-profile.json",
           suggestedDir: suggestedDir || "",
           suggestedPath: defaultPath,
           preferFileNameOnPortal: true,
         }),
-        filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
+        filters: [{ name: "ABCarus Profile", extensions: ["json"] }, { name: "All Files", extensions: ["*"] }],
       });
       if (!result || result.canceled || !result.filePath) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePath);
       rememberDialogPath(filePath);
 
-      const schema = getSettingsSchema();
-      const current = getSettings();
-      const propsText = encodePropertiesFromSchema(current, schema);
-      await atomicWriteFileWithRetry(fs, path, filePath, propsText);
-      // Export implies: this file becomes the canonical source of truth.
-      if (typeof setSettingsFile === "function") {
-        let mtimeMs = 0;
-        try { mtimeMs = (await fs.promises.stat(filePath)).mtimeMs || 0; } catch {}
-        await setSettingsFile({ mode: "file", path: filePath, lastKnownMtimeMs: mtimeMs });
+      const profile = typeof getProfileSnapshot === "function" ? getProfileSnapshot() : null;
+      if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+        throw new Error("ABCarus profile is unavailable.");
       }
+      await atomicWriteFileWithRetry(fs, path, filePath, serializeProfileDocument(profile));
 
       const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
       const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
       const exportDir = path.dirname(filePath);
       const exportHeaderPath = path.join(exportDir, "user_settings.abc");
       let userHeaderText = "";
+      let userHeaderExists = false;
       try {
-        if (userHeaderPath) userHeaderText = await fs.promises.readFile(userHeaderPath, "utf8");
-      } catch {}
-      if (!userHeaderText && current && typeof current.globalHeaderText === "string" && current.globalHeaderText.trim()) {
-        userHeaderText = current.globalHeaderText;
+        if (userHeaderPath) {
+          userHeaderText = await fs.promises.readFile(userHeaderPath, "utf8");
+          userHeaderExists = true;
+        }
+      } catch (error) {
+        const code = error && error.code ? String(error.code) : "";
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
       }
-      if (userHeaderText && userHeaderText.trim()) {
+      if (userHeaderExists) {
         await atomicWriteFileWithRetry(fs, path, exportHeaderPath, userHeaderText);
       }
-      return { ok: true, path: filePath, exportedHeader: Boolean(userHeaderText && userHeaderText.trim()) };
+
+      let exportedFonts = 0;
+      const { userDir: userFontsDir } = await resolveFontDirs();
+      const userFontFiles = await readFontDirFonts(userFontsDir);
+      const exportFontsDir = path.join(exportDir, "fonts", "notation");
+      for (const fontFile of userFontFiles) {
+        const sourcePath = path.join(userFontsDir, fontFile);
+        const targetPath = path.join(exportFontsDir, fontFile);
+        if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+        await fs.promises.mkdir(exportFontsDir, { recursive: true });
+        await atomicCopyFileWithRetry(fs, path, sourcePath, targetPath);
+        exportedFonts += 1;
+      }
+      return { ok: true, path: filePath, exportedHeader: userHeaderExists, exportedFonts };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1702,20 +1915,30 @@ function registerIpcHandlers(ctx) {
       const suggestedDir = documentsDir ? path.join(documentsDir, "ABCarus") : "";
       const result = await dialog.showOpenDialog(parent || undefined, {
         modal: true,
-        title: "Import Settings",
+        title: "Import ABCarus Profile",
         properties: ["openFile"],
         defaultPath: getDialogPath({
           suggestedPath: suggestedDir || "",
           directoryOnly: true,
         }),
-        filters: [{ name: "Properties", extensions: ["properties"] }, { name: "All Files", extensions: ["*"] }],
+        filters: [
+          { name: "ABCarus Profile", extensions: ["json"] },
+          { name: "Legacy Properties", extensions: ["properties"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
       });
       if (!result || result.canceled || !result.filePaths || !result.filePaths.length) return { ok: false, error: "Canceled" };
       const filePath = String(result.filePaths[0]);
       rememberDialogPath(filePath);
       const raw = await fs.promises.readFile(filePath, "utf8");
       const schema = getSettingsSchema();
-      const patch = parseSettingsPatchFromProperties(raw, schema);
+      let profile = null;
+      try {
+        profile = parseProfileDocument(raw);
+      } catch (error) {
+        if (/\.json$/i.test(filePath)) throw error;
+      }
+      const patch = profile ? null : parseSettingsPatchFromProperties(raw, schema);
 
       const importDir = path.dirname(filePath);
       const importedHeaderPath = path.join(importDir, "user_settings.abc");
@@ -1725,39 +1948,52 @@ function registerIpcHandlers(ctx) {
       let importedHeaderText = "";
       let hasImportedHeader = false;
       try {
-        await fs.promises.access(importedHeaderPath, fs.constants.F_OK);
         importedHeaderText = await fs.promises.readFile(importedHeaderPath, "utf8");
         hasImportedHeader = true;
-      } catch {}
+      } catch (error) {
+        const code = error && error.code ? String(error.code) : "";
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+      }
 
-      // New exports carry Global Header in the properties file. Keep the
-      // legacy sidecar authoritative when it is present, then mirror the
-      // resolved value into userData so the renderer sees one consistent layer.
-      const hasEmbeddedHeader = Object.prototype.hasOwnProperty.call(patch || {}, "globalHeaderText");
-      if (!hasImportedHeader && hasEmbeddedHeader) {
-        importedHeaderText = String(patch.globalHeaderText || "");
+      // New exports use the sidecar. Embedded text is accepted only for
+      // backward compatibility with older .properties files.
+      const embeddedHeader = profile && profile.settings && typeof profile.settings === "object"
+        ? profile.settings.globalHeaderText
+        : patch && patch.globalHeaderText;
+      const hasEmbeddedHeader = embeddedHeader != null;
+      if (!hasImportedHeader && hasEmbeddedHeader && String(embeddedHeader || "").trim()) {
+        importedHeaderText = String(embeddedHeader || "");
         hasImportedHeader = true;
       }
       if (hasImportedHeader) {
-        patch.globalHeaderText = importedHeaderText;
         if (userHeaderPath) {
-          if (importedHeaderText.trim()) {
-            await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
-          } else {
-            await fs.promises.rm(userHeaderPath, { force: true });
-          }
+          await atomicWriteFileWithRetry(fs, path, userHeaderPath, importedHeaderText);
           importedHeader = true;
         }
       }
-
-      const next = updateSettings(patch || {});
-      // Import implies: this file becomes the canonical source of truth.
-      if (typeof setSettingsFile === "function") {
-        let mtimeMs = 0;
-        try { mtimeMs = (await fs.promises.stat(filePath)).mtimeMs || 0; } catch {}
-        await setSettingsFile({ mode: "file", path: filePath, lastKnownMtimeMs: mtimeMs });
+      if (profile && profile.settings && typeof profile.settings === "object") {
+        delete profile.settings.globalHeaderText;
       }
-      return { ok: true, path: filePath, importedHeader, settings: next };
+      if (patch) delete patch.globalHeaderText;
+
+      let importedFonts = 0;
+      const importFontsDir = path.join(importDir, "fonts", "notation");
+      const importedFontFiles = await readFontDirFonts(importFontsDir);
+      if (importedFontFiles.length) {
+        const { userDir: userFontsDir } = await resolveFontDirs();
+        for (const fontFile of importedFontFiles) {
+          const sourcePath = path.join(importFontsDir, fontFile);
+          const targetPath = path.join(userFontsDir, fontFile);
+          if (path.resolve(sourcePath) === path.resolve(targetPath)) continue;
+          await atomicCopyFileWithRetry(fs, path, sourcePath, targetPath);
+          importedFonts += 1;
+        }
+      }
+
+      const next = profile && typeof importProfileSnapshot === "function"
+        ? await importProfileSnapshot(profile)
+        : updateSettings(patch || {});
+      return { ok: true, path: filePath, importedHeader, importedFonts, settings: next };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };
     }
@@ -1765,10 +2001,12 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle("settings:open-folder", async () => {
     try {
-      if (!app || typeof app.getPath !== "function") return { ok: false, error: "Unavailable." };
-      const userData = app.getPath("userData");
-      if (!userData) return { ok: false, error: "Unavailable." };
-      await shell.openPath(String(userData));
+      const paths = (typeof getSettingsPaths === "function") ? getSettingsPaths() : { userPath: "" };
+      const userHeaderPath = paths && paths.userPath ? String(paths.userPath) : "";
+      const settingsDir = userHeaderPath ? path.dirname(userHeaderPath) : "";
+      if (!settingsDir) return { ok: false, error: "Unavailable." };
+      await fs.promises.mkdir(settingsDir, { recursive: true });
+      await shell.openPath(settingsDir);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e && e.message ? e.message : String(e) };

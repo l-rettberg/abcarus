@@ -8,14 +8,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.5.0] - 2026-08-16
+### Added
+- Source-link tools can fetch YouTube title, channel, and availability metadata into `N:` fields for use in the editor and printed output.
+- `File -> Export -> MusicXML (All Tunes)...` exports every tune in the active ABC file as an individually named MusicXML document, applying the effective Global and File Header hierarchy and reporting partial conversion failures.
+
+### Changed
+- Dialogs, toolbar controls, menus, and ABC helper popovers use a more consistent visual and interaction model.
+- Printed YouTube sources use a compact metadata layout with aligned QR codes and tighter, predictable PDF page insets.
+
+### Fixed
+- Printed source links and QR codes are positioned relative to the notation area without an unwanted separator line.
+- Long-running batch MusicXML export uses an explicit request/reply protocol, preventing successful exports from ending with a false IPC error.
+- Batch MusicXML export remembers its own destination folder and starts on the Desktop when no prior destination exists.
+
+## [1.4.1] - 2026-08-13
+### Fixed
+- Playback started from inside a `P:` part now continues with the correct remaining part sequence instead of restarting the current part; updated abc2svg to upstream check-in `c64c0aea48` and added a regression test for boundary and mid-part starts.
+
+## [1.4.0] - 2026-08-10
+### Changed
+- Application preferences and working UI state now share one canonical `abcarus-profile.json`; Export and Import operate on standalone copies instead of attaching an external settings file.
+- Existing `state.json` and attached `abcarus.properties` settings are migrated one way into the unified profile; obsolete state files are removed only after the new profile is written successfully.
+- Global Header ABC now has one runtime source of truth: `user_settings.abc`. The Settings editor writes that file directly, while `globalHeaderEnabled` remains an ordinary application preference.
+- Portable-folder builds resolve `user_settings.abc` beside the application; installed builds continue to use the OS user-data directory.
+- New exports keep the JSON profile in `abcarus-profile.json` and Global Header ABC in the neighboring `user_settings.abc` file.
+- Interface and Library fonts use friendly presets and shared user-font selectors instead of exposing CSS fallback strings as the primary UI.
+- Profile export/import carries fonts added to ABCarus in a neighboring `fonts/` directory.
+
+### Fixed
+- Legacy embedded `globalHeaderText` is migrated once without allowing a deliberately deleted `user_settings.abc` to reappear on later launches.
+
 ## [1.3.0] - 2026-08-08
 ### Added
 - Settings is reorganized into task-oriented panels, including grouped Import & Export controls.
 - File dialogs remember operation-specific folders and selected file filters, with graceful fallback when paths are unavailable.
+- Packaged builds now include the bundled `midi2abc` converter in the available tool set.
+
+### Changed
+- Updated Electron to 43 for the experimental cross-platform build line.
+- Updated abc2svg to the upstream tip containing the SF2 loop-point fix.
 
 ### Fixed
 - Tune saves can reconstruct missing single-tune document parts from the current file when stable offsets remain valid.
 - Linux file dialogs retain portal positioning behavior while keeping the remembered-path state available for future Electron dialog improvements.
+- SF2 playback no longer uses the broken loop-point expression from abc2svg v1.23.4.
 
 ## [1.2.3] - 2026-08-05
 ### Changed

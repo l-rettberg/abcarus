@@ -11,7 +11,7 @@ ABCarus is an Electron app with a main process and a renderer process:
 ## Main process responsibilities
 `src/main/index.js`:
 - Creates the `BrowserWindow` and loads `src/renderer/index.html`.
-- Controls application state (recent items, settings) and persists it to `state.json` in `app.getPath("userData")`.
+- Controls application state (recent items and settings) and persists it to the single `abcarus-profile.json` profile.
 - Scans folders and parses `.abc` files into tunes (tune boundaries and metadata).
 - Provides printing and PDF export using Electron's printing APIs.
 

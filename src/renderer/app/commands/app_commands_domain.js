@@ -100,6 +100,7 @@ function createAppCommandsDomain({
       exportMidi: actions.exportMidi,
       exportMp3: actions.exportMp3,
       exportMusicXml: actions.exportMusicXml,
+      exportMusicXmlAll: actions.exportMusicXmlAll,
       exportSettings: () => {
         const settings = getSettingsDomain();
         return settings && typeof settings.exportSettings === "function"
@@ -158,6 +159,7 @@ function createAppCommandsDomain({
       },
       openTemplatesModal: actions.openTemplatesModal,
       renumberXInActiveFile: actions.renumberXInActiveFile,
+      updateYouTubeMetadata: actions.updateYouTubeMetadata,
       requestCloseDocument: actions.requestCloseDocument,
       requestQuitApplication: actions.requestQuitApplication,
       resetLayout: actions.resetLayout,
@@ -326,7 +328,7 @@ function createAppCommandsDomain({
       restartButton,
       prevMeasureButton,
       nextMeasureButton,
-      fontsButton,
+      settingsButton,
       resetLayoutButton,
       toggleSplitButton,
       toggleFollowButton,
@@ -383,10 +385,10 @@ function createAppCommandsDomain({
       nextMeasureButton.addEventListener("click", () => guardedRun(() => actions.activateErrorByNav(1), { setStatusOnError: true }));
     }
 
-    if (fontsButton) {
-      fontsButton.addEventListener("click", () => {
+    if (settingsButton) {
+      settingsButton.addEventListener("click", () => {
         const settings = getSettingsDomain();
-        if (settings && typeof settings.openFontsSettings === "function") settings.openFontsSettings();
+        if (settings && typeof settings.openSettings === "function") settings.openSettings();
       });
     }
 

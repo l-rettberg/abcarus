@@ -55,6 +55,7 @@ const RAW_BLOCKED_ACTIONS = new Set([
   "exportPdf",
   "exportPdfAll",
   "exportMusicXml",
+  "exportMusicXmlAll",
   "exportMidi",
   "exportMp3",
   "importMusicXml",
@@ -209,6 +210,7 @@ function createMenuActionsController({
     else if (actionType === "print") await actions.runPrintAction("print");
     else if (actionType === "printAll") await actions.runPrintAllAction("print");
     else if (actionType === "exportMusicXml") await actions.exportMusicXml();
+    else if (actionType === "exportMusicXmlAll") await actions.exportMusicXmlAll();
     else if (actionType === "exportMidi") await actions.exportMidi();
     else if (actionType === "exportMp3") await actions.exportMp3();
     else if (actionType === "exportPdf") await actions.runPrintAction("pdf");
@@ -225,6 +227,12 @@ function createMenuActionsController({
       actions.setSplitOrientation(value, { persist: true, userAction: true });
     }
     else if (actionType === "renumberXInFile") await actions.renumberXInActiveFile();
+    else if (actionType === "updateYouTubeMetadata") {
+      if (typeof actions.updateYouTubeMetadata !== "function") {
+        throw new Error("YouTube metadata command is unavailable.");
+      }
+      await actions.updateYouTubeMetadata();
+    }
     else if (actionType === "navTunePrev") await actions.navigateTuneByDelta(-1);
     else if (actionType === "navTuneNext") await actions.navigateTuneByDelta(1);
     else if (actionType === "openRecentTune" && action && action.entry) await actions.openRecentTune(action.entry);

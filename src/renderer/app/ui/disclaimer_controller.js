@@ -1,5 +1,6 @@
 function createDisclaimerController({
   modal = null,
+  closeButton = null,
   confirmButton = null,
   api = null,
   enableDraggableModal = null,
@@ -25,6 +26,11 @@ function createDisclaimerController({
   }
 
   function wire() {
+    if (closeButton) {
+      closeButton.addEventListener("click", () => {
+        dismiss().catch(() => {});
+      });
+    }
     if (confirmButton) {
       confirmButton.addEventListener("click", () => {
         dismiss().catch(() => {});

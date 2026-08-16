@@ -926,7 +926,15 @@ function prepareDialogParent(senderOrEvent, reason) {
   return parent;
 }
 
-function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggestedPath, directoryOnly, preferFileNameOnPortal = false } = {}) {
+function getDialogDefaultPath({
+  dialogId,
+  suggestedName,
+  suggestedDir,
+  suggestedPath,
+  directoryOnly,
+  preferFileNameOnPortal = false,
+  useSharedFallback = true,
+} = {}) {
   const normalizeFsPath = (value) => {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -950,7 +958,7 @@ function getDialogDefaultPath({ dialogId, suggestedName, suggestedDir, suggested
     const candidate = normalizeFsPath(scopedPreference && scopedPreference.file);
     try { return candidate && fs.statSync(candidate).isFile() ? candidate : ""; } catch { return ""; }
   })();
-  const rememberedDir = scopedDir || existingDirectory(appState.lastDialogDir);
+  const rememberedDir = scopedDir || (useSharedFallback ? existingDirectory(appState.lastDialogDir) : "");
   const explicitDir = normalizeFsPath(suggestedDir);
   const explicitPath = normalizeFsPath(suggestedPath);
   const explicitPathAbs = explicitPath && path.isAbsolute(explicitPath) ? explicitPath : "";
@@ -1323,8 +1331,9 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     <meta charset="utf-8">
     <title>${escapeHtmlText(title)}</title>
     <style>
+      @page { margin: 0; }
       html, body { margin: 0; padding: 0; }
-      body { padding: 24px; font-family: sans-serif; }
+      body { padding: 16px; font-family: sans-serif; }
       svg { max-width: 100%; height: auto; display: block; overflow: visible; }
       img { max-width: 100%; height: auto; display: block; }
       .nobrk { page-break-inside: avoid; break-inside: avoid; }
@@ -1405,6 +1414,33 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
             } catch (_e) {}
           }
         }
+        function alignSourceSections() {
+          const sections = Array.from(document.querySelectorAll(".abcarus-print-source"));
+          for (const section of sections) {
+            try {
+              let node = section.previousElementSibling;
+              while (node && String(node.tagName || "").toLowerCase() !== "svg") {
+                node = node.previousElementSibling;
+              }
+              let svg = node;
+              if (!svg) {
+                const scope = section.closest(".print-tune") || section.parentElement || document;
+                const preceding = Array.from(scope.querySelectorAll("svg"))
+                  .filter(function (candidate) { return Boolean(candidate.compareDocumentPosition(section) & 4); });
+                svg = preceding.length ? preceding[preceding.length - 1] : null;
+              }
+              if (!svg || !svg.getBBox) continue;
+              const bbox = svg.getBBox();
+              const vb = svg.viewBox && svg.viewBox.baseVal;
+              const rect = svg.getBoundingClientRect();
+              if (!vb || !rect.width || !vb.width || !Number.isFinite(bbox.x)) continue;
+              const contentLeft = rect.left + ((bbox.x - vb.x) * rect.width / vb.width);
+              const sectionLeft = section.getBoundingClientRect().left;
+              const inset = Math.max(0, Math.min(rect.width * 0.25, contentLeft - sectionLeft));
+              if (inset > 0.5) section.style.marginLeft = inset.toFixed(2) + "px";
+            } catch (_e) {}
+          }
+        }
         function rasterizeSvg(svg) {
           const xml = new XMLSerializer().serializeToString(svg);
           const svg64 = btoa(unescape(encodeURIComponent(xml)));
@@ -1446,6 +1482,7 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
         }
         window._rasterReadyPromise = waitForFonts().then(function () {
           normalizeSvgBounds();
+          alignSourceSections();
           if (skipRaster) return null;
           return rasterizeAll();
         });
@@ -1453,6 +1490,12 @@ function buildPrintHtml(svgMarkup, fontBase64, suggestedName) {
     </script>
   </body>
 </html>`;
+}
+
+function getPrintMargins() {
+  // ABCarus supplies the visible page inset through body padding. Explicit
+  // zeroes cover Chromium versions that ignore marginType alone.
+  return { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 };
 }
 
 async function withPrintWindow(svgMarkup, action, options) {
@@ -1495,7 +1538,7 @@ async function withPrintWindow(svgMarkup, action, options) {
 async function printWithDialog(svgMarkup, suggestedName) {
   return withPrintWindow(svgMarkup, (contents) =>
     new Promise((resolve) => {
-      contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+      contents.print({ printBackground: true, silent: false, margins: getPrintMargins() }, (success, failureReason) => {
         if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
         resolve({ ok: true });
       });
@@ -1505,8 +1548,7 @@ async function printWithDialog(svgMarkup, suggestedName) {
 
 async function exportPdf(svgMarkup, filePath) {
   return withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(filePath, pdfData);
     return { ok: true, path: filePath };
   }, { show: false, suggestedName: filePath ? path.basename(filePath, path.extname(filePath)) : "" });
@@ -1517,8 +1559,7 @@ async function previewPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });
@@ -1533,8 +1574,7 @@ async function printViaPdf(svgMarkup, suggestedName) {
   const tmpName = `${safeName}-${Date.now()}.pdf`;
   const tmpPath = path.join(app.getPath("temp"), tmpName);
   const res = await withPrintWindow(svgMarkup, async (contents) => {
-    const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-    const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+    const pdfData = await contents.printToPDF({ printBackground: true, margins: getPrintMargins() });
     await fs.promises.writeFile(tmpPath, pdfData);
     return { ok: true, path: tmpPath };
   }, { show: false, suggestedName: safeName });
@@ -3366,6 +3406,10 @@ async function runUiSmoke(win) {
       let interfaceFontSelections = [];
       let fontSelectWidths = [];
       let fontRemoveLabels = [];
+      let modalCloseButtonsOk = false;
+      let modalBackdropSafe = false;
+      let compactModalOk = false;
+      let toolbarDomainsOk = false;
       if (hook && typeof hook.dispatchAction === "function") {
         await hook.dispatchAction({ type: "fonts" });
         await wait(250);
@@ -3397,6 +3441,69 @@ async function runUiSmoke(win) {
             && labels.includes("Serif")
             && labels.includes("Monospace");
         });
+
+        const modalCloseIds = [
+          "templatesClose",
+          "makamDnaClose",
+          "settingsClose",
+          "moveTuneClose",
+          "aboutClose",
+          "setListClose",
+          "setListHeaderClose",
+          "xIssuesClose",
+          "printAllOptionsClose",
+          "disclaimerClose",
+        ];
+        modalCloseButtonsOk = modalCloseIds.every((id) => {
+          const button = byId(id);
+          if (!button || button.hidden) return false;
+          const style = getComputedStyle(button);
+          return String(button.textContent || "").trim() === "×"
+            && Math.round(Number.parseFloat(style.width || "0")) === 32
+            && Math.round(Number.parseFloat(style.height || "0")) === 32;
+        });
+        const settingsModal = byId("settingsModal");
+        if (settingsModal && settingsModal.classList.contains("open")) {
+          settingsModal.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          await wait(30);
+          modalBackdropSafe = settingsModal.classList.contains("open");
+          const cancel = byId("settingsCancel");
+          if (cancel) cancel.click();
+        }
+
+        const rawButton = byId("btnToggleRaw");
+        const settingsButton = byId("btnSettings");
+        const splitButton = byId("btnToggleSplit");
+        const resetButton = byId("btnResetLayout");
+        const focusGroup = focusBtn ? focusBtn.closest(".segmented") : null;
+        toolbarDomainsOk = Boolean(
+          rawButton
+          && rawButton.closest(".file-header-bar")
+          && Number.parseFloat(getComputedStyle(rawButton).minWidth || "0") >= 60
+          && settingsButton
+          && !byId("btnFonts")
+          && focusGroup
+          && focusGroup.getAttribute("aria-label") === "Playback and input modes"
+          && followBtn.closest(".segmented") === focusGroup
+          && splitButton
+          && splitButton.closest(".file-header-toggles")
+          && resetButton
+          && followBtn.getBoundingClientRect().left < resetButton.getBoundingClientRect().left
+        );
+
+        hook.dispatchAction({ type: "playGotoMeasure" });
+        await wait(80);
+        const compactModal = document.querySelector(".compact-modal-card");
+        const compactBackdrop = compactModal ? compactModal.closest(".modal") : null;
+        const compactClose = compactModal ? compactModal.querySelector(".modal-close") : null;
+        compactModalOk = Boolean(
+          compactModal
+          && compactBackdrop
+          && compactBackdrop.classList.contains("open")
+          && compactModal.getAttribute("aria-modal") === "true"
+          && compactClose
+        );
+        if (compactClose) compactClose.click();
       }
       return {
         ok: errorsVisible
@@ -3409,7 +3516,11 @@ async function runUiSmoke(win) {
           && hiddenInFocus
           && shownOutOfFocus
           && fontChoicesOk
-          && interfaceFontPresetsOk,
+          && interfaceFontPresetsOk
+          && modalCloseButtonsOk
+          && modalBackdropSafe
+          && compactModalOk
+          && toolbarDomainsOk,
         visualGapPx,
         togglesGapPx,
         libRadiusPx,
@@ -3425,6 +3536,10 @@ async function runUiSmoke(win) {
         interfaceFontSelections,
         fontSelectWidths,
         fontRemoveLabels,
+        modalCloseButtonsOk,
+        modalBackdropSafe,
+        compactModalOk,
+        toolbarDomainsOk,
       };
     })()`,
     true

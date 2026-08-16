@@ -1,5 +1,6 @@
 const {
   convertFileToAbc,
+  convertAbcBatchToMusicXml,
   convertAbcToMusicXml,
   checkConversionTools,
 } = require("./conversion");
@@ -763,6 +764,49 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle("dialog:show-open-error", async (_e, message) => {
     showOpenError(message);
   });
+
+  ipcMain.handle("source:youtube-metadata", async (_event, rawUrl) => {
+    const targetUrl = normalizeYouTubeWatchUrl(rawUrl);
+    if (!targetUrl) return { ok: false, error: "Not a supported YouTube video URL." };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(targetUrl)}&format=json`;
+      const response = await fetch(endpoint, { signal: controller.signal, redirect: "follow" });
+      if (!response.ok) {
+        const unavailable = response.status === 401 || response.status === 403 || response.status === 404;
+        return { ok: false, unavailable, status: response.status, error: unavailable ? "Video is unavailable, private, or deleted." : `YouTube returned HTTP ${response.status}.` };
+      }
+      const text = await response.text();
+      if (text.length > 1024 * 1024) return { ok: false, error: "YouTube metadata response is unexpectedly large." };
+      const data = JSON.parse(text);
+      const title = String(data && data.title ? data.title : "").replace(/\s+/g, " ").trim();
+      const channel = String(data && data.author_name ? data.author_name : "").replace(/\s+/g, " ").trim();
+      if (!title) return { ok: false, error: "YouTube did not return a video title." };
+      return { ok: true, title, channel };
+    } catch (error) {
+      return { ok: false, error: error && error.name === "AbortError" ? "YouTube metadata request timed out." : (error && error.message ? error.message : "Unable to retrieve YouTube metadata.") };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  ipcMain.handle("source:confirm-youtube-metadata", async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const parent = getParentForDialog(event, "source:confirm-youtube-metadata");
+    const detail = String(data.detail || "").slice(0, 12000);
+    const canUpdate = Number(data.updateCount) > 0;
+    const response = dialog.showMessageBoxSync(parent || undefined, {
+      type: canUpdate ? "question" : "info",
+      buttons: canUpdate ? ["Update file", "Cancel"] : ["OK"],
+      defaultId: 0,
+      cancelId: canUpdate ? 1 : 0,
+      message: canUpdate ? "Update YouTube metadata?" : "YouTube metadata report",
+      detail,
+      noLink: true,
+    });
+    return canUpdate && response === 0;
+  });
   ipcMain.handle("sf2:list", async () => {
     try {
       const sf2Dir = path.join(app.getAppPath(), "third_party", "sf2");
@@ -1059,6 +1103,118 @@ function registerIpcHandlers(ctx) {
         code: e && e.code ? e.code : "",
       };
     }
+  });
+  const exportMusicXmlAll = async (event, payload) => {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const rawItems = Array.isArray(data.items) ? data.items : [];
+    if (!rawItems.length) return { ok: false, error: "No tunes to export." };
+    if (rawItems.length > 10000) return { ok: false, error: "Too many tunes to export at once." };
+    const items = rawItems.map((item, index) => ({
+      abcText: String(item && item.abcText ? item.abcText : ""),
+      xNumber: String(item && item.xNumber ? item.xNumber : ""),
+      title: String(item && item.title ? item.title : ""),
+      ordinal: index + 1,
+    }));
+    const totalChars = items.reduce((sum, item) => sum + item.abcText.length, 0);
+    if (totalChars > 100 * 1024 * 1024) return { ok: false, error: "ABC export payload is too large." };
+    const parent = getParentForDialog(event, "export:musicxml-all");
+    const result = await dialog.showOpenDialog(parent || undefined, {
+      title: "Choose Folder for MusicXML Tunes",
+      defaultPath: getDialogPath({
+        dialogId: "exportMusicXmlAll",
+        suggestedDir: app.getPath("desktop"),
+        directoryOnly: true,
+        useSharedFallback: false,
+      }),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const parentDir = result && !result.canceled && result.filePaths && result.filePaths[0]
+      ? String(result.filePaths[0])
+      : "";
+    if (!parentDir) return { ok: false, canceled: true };
+    rememberDialogPath(parentDir, { dialogId: "exportMusicXmlAll", isDirectory: true });
+
+    const sourceBase = sanitizeSuggestedFileBaseName(data.sourceName, "ABC tunes");
+    let outputDir = path.join(parentDir, `${sourceBase} - MusicXML`);
+    for (let suffix = 2; fs.existsSync(outputDir); suffix += 1) {
+      outputDir = path.join(parentDir, `${sourceBase} - MusicXML (${suffix})`);
+    }
+    try {
+      event.sender.send("export:musicxml-all:progress", { phase: "convert", done: 0, total: items.length });
+      const settings = getSettings ? getSettings() : {};
+      const converted = await convertAbcBatchToMusicXml({ items, args: settings.abc2xmlArgs || "" });
+      await fs.promises.mkdir(outputDir, { recursive: false });
+      const width = Math.max(3, String(items.length).length);
+      let written = 0;
+      for (const output of converted.converted || []) {
+        const index = Number(output && output.index);
+        if (!Number.isInteger(index) || index < 0 || index >= items.length) continue;
+        const item = items[index];
+        const xPart = item.xNumber ? `-X${sanitizeSuggestedFileBaseName(item.xNumber, "tune").slice(0, 24)}` : "";
+        const titlePart = sanitizeSuggestedFileBaseName(item.title, "Untitled").slice(0, 70);
+        const fileName = `${String(index + 1).padStart(width, "0")}${xPart}-${titlePart}.musicxml`;
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, fileName), String(output.xmlText || ""));
+        written += 1;
+        if (written === items.length || written % 10 === 0) {
+          event.sender.send("export:musicxml-all:progress", { phase: "write", done: written, total: items.length });
+        }
+      }
+      const failures = Array.isArray(converted.failures) ? converted.failures : [];
+      if (failures.length) {
+        const report = [
+          `ABCarus MusicXML batch export`,
+          `Exported: ${written}/${items.length}`,
+          "",
+          "Failed tunes:",
+        ];
+        for (const failure of failures) {
+          const index = Number(failure && failure.index);
+          const item = Number.isInteger(index) && items[index] ? items[index] : null;
+          const label = item ? `${index + 1}. X:${item.xNumber || "?"} ${item.title || "Untitled"}` : `Tune ${index + 1}`;
+          report.push(`${label}: ${String(failure && failure.error ? failure.error : "Conversion failed.")}`);
+          if (failure && failure.detail) report.push(`  ${String(failure.detail).replace(/\s+/g, " ").trim()}`);
+        }
+        await atomicWriteFileWithRetry(fs, path, path.join(outputDir, "export-report.txt"), `${report.join("\n")}\n`);
+      }
+      return {
+        ok: true,
+        outputDir,
+        exported: written,
+        failed: failures.length,
+        warnings: converted.warnings || null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error && error.message ? String(error.message) : String(error),
+        detail: error && error.detail ? String(error.detail) : "",
+        code: error && error.code ? String(error.code) : "",
+      };
+    }
+  };
+  ipcMain.on("export:musicxml-all", (event, envelope) => {
+    const requestId = envelope && envelope.requestId ? String(envelope.requestId) : "";
+    if (!/^\d+-\d+$/.test(requestId)) return;
+    const payload = envelope && envelope.payload && typeof envelope.payload === "object"
+      ? envelope.payload
+      : {};
+    exportMusicXmlAll(event, payload)
+      .then((result) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", { requestId, result });
+        }
+      })
+      .catch((error) => {
+        if (!event.sender.isDestroyed()) {
+          event.reply("export:musicxml-all:result", {
+            requestId,
+            result: {
+              ok: false,
+              error: error && error.message ? String(error.message) : String(error),
+            },
+          });
+        }
+      });
   });
   ipcMain.handle("export:midi", async (event, midiBytes, suggestedName) => {
     const toBuffer = (value) => {
@@ -1434,7 +1590,7 @@ function registerIpcHandlers(ctx) {
     const tmpName = `${safeName}-${Date.now()}.pdf`;
     const tmpPath = path.join(app.getPath("temp"), tmpName);
     const res = await withMainPrintMode(async (contents) => {
-      const pdfData = await contents.printToPDF({ printBackground: true, marginsType: 0 });
+      const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } });
       await fs.promises.writeFile(tmpPath, pdfData);
       return { ok: true, path: tmpPath };
     });
@@ -1450,7 +1606,7 @@ function registerIpcHandlers(ctx) {
     if (typeof printWithDialog === "function") return printWithDialog(svgMarkup, safeName);
     return withMainPrintMode((contents) =>
       new Promise((resolve) => {
-        contents.print({ printBackground: true, silent: false }, (success, failureReason) => {
+        contents.print({ printBackground: true, silent: false, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } }, (success, failureReason) => {
           if (!success) return resolve({ ok: false, error: failureReason || "Print failed" });
           resolve({ ok: true });
         });
@@ -1471,8 +1627,7 @@ function registerIpcHandlers(ctx) {
     if (typeof exportPdf === "function") return exportPdf(svgMarkup, filePath);
     return withMainPrintMode(async (contents) => {
       try {
-        const noMargins = String(svgMarkup || "").includes("<!--abcarus:pdf-no-margins-->");
-        const pdfData = await contents.printToPDF({ printBackground: true, marginsType: noMargins ? 1 : 0 });
+        const pdfData = await contents.printToPDF({ printBackground: true, margins: { marginType: "custom", top: 0, bottom: 0, left: 0, right: 0 } });
         await fs.promises.writeFile(filePath, pdfData);
         return { ok: true };
       } catch (e) {

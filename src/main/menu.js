@@ -83,22 +83,27 @@ function buildDiagnosticsSubmenu(appState, sendMenuAction) {
     { label: "Open Settings Folder", click: () => sendMenuAction("openSettingsFolder") },
     { type: "separator" },
     {
-      label: "Show Debug Messages",
-      type: "checkbox",
-      checked: debugMessagesEnabled,
-      click: (item) => {
-        if (appState && appState.debugFlags) appState.debugFlags.showMessages = Boolean(item.checked);
-        sendMenuAction({ type: "toggleDebugMessages", value: Boolean(item.checked) });
-      },
-    },
-    {
-      label: "Auto Debug Dumps",
-      type: "checkbox",
-      checked: autoDumpEnabled,
-      click: (item) => {
-        if (appState && appState.debugFlags) appState.debugFlags.autoDump = Boolean(item.checked);
-        sendMenuAction({ type: "toggleAutoDump", value: Boolean(item.checked) });
-      },
+      label: "Options",
+      submenu: [
+        {
+          label: "Debug Messages",
+          type: "checkbox",
+          checked: debugMessagesEnabled,
+          click: (item) => {
+            if (appState && appState.debugFlags) appState.debugFlags.showMessages = Boolean(item.checked);
+            sendMenuAction({ type: "toggleDebugMessages", value: Boolean(item.checked) });
+          },
+        },
+        {
+          label: "Automatic Dumps",
+          type: "checkbox",
+          checked: autoDumpEnabled,
+          click: (item) => {
+            if (appState && appState.debugFlags) appState.debugFlags.autoDump = Boolean(item.checked);
+            sendMenuAction({ type: "toggleAutoDump", value: Boolean(item.checked) });
+          },
+        },
+      ],
     },
     ...(payloadEnabled ? [{ type: "separator" }, { label: "Payload Mode (Current Tune)…", click: () => sendMenuAction("openPayloadMode") }] : []),
   ];
@@ -188,12 +193,13 @@ function buildMenuTemplate(appState, sendMenuAction) {
           { label: "PDF (All Tunes)…", click: () => sendMenuAction("exportPdfAll") },
           { type: "separator" },
           { label: "MusicXML…", accelerator: "CmdOrCtrl+Shift+E", click: () => sendMenuAction("exportMusicXml") },
+          { label: "MusicXML (All Tunes)…", click: () => sendMenuAction("exportMusicXmlAll") },
           { label: "MIDI…", click: () => sendMenuAction("exportMidi") },
           { label: "MP3…", click: () => sendMenuAction("exportMp3"), enabled: canExportMp3(appState) },
         ],
       },
       { type: "separator" },
-      { label: "Close", accelerator: "CmdOrCtrl+W", click: () => sendMenuAction("close") },
+      { label: "Close File", accelerator: "CmdOrCtrl+W", click: () => sendMenuAction("close") },
       ...(isMac ? [] : [{ label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => sendMenuAction("quit") }]),
     ],
   };
@@ -228,13 +234,10 @@ function buildMenuTemplate(appState, sendMenuAction) {
   const viewMenu = {
     label: "View",
     submenu: [
-      ...(isMac ? [{ role: "togglefullscreen" }] : []),
-      { type: "separator" },
+      ...(isMac ? [{ role: "togglefullscreen" }, { type: "separator" }] : []),
       { label: "Library Catalog…", accelerator: "CmdOrCtrl+Shift+L", click: () => sendMenuAction("libraryList") },
-      { label: "Set List…", click: () => sendMenuAction("setList") },
       { label: "Toggle Library", accelerator: "CmdOrCtrl+L", click: () => sendMenuAction("toggleLibrary") },
       { label: "Toggle File Header", accelerator: "CmdOrCtrl+Alt+H", click: () => sendMenuAction("toggleFileHeader") },
-      { label: "Playback Focus Mode", accelerator: "F7", click: () => sendMenuAction("toggleFocusMode") },
       { label: "Toggle Split Orientation", accelerator: "CmdOrCtrl+Alt+\\", click: () => sendMenuAction("toggleSplitOrientation") },
       {
         label: "Split Orientation",
@@ -251,24 +254,28 @@ function buildMenuTemplate(appState, sendMenuAction) {
     ],
   };
 
-	  const settingsMenu = null;
-
   const playMenu = {
     label: "Play",
     submenu: [
       { label: "Start Over", accelerator: "F4", click: () => sendMenuAction("playStart") },
       { label: "Play / Pause", accelerator: "F5", click: () => sendMenuAction("playToggle") },
+      { label: "Focus Mode", accelerator: "F7", click: () => sendMenuAction("toggleFocusMode") },
       { label: "Go to Measure…", accelerator: "CmdOrCtrl+Shift+G", click: () => sendMenuAction("playGotoMeasure") },
       { type: "separator" },
       {
-        label: "Play Notes While Typing",
-        type: "checkbox",
-        checked: Boolean(appState && appState.settings && appState.settings.noteTypingPreviewEnabled),
-        click: (item) => {
-          const next = Boolean(item && item.checked);
-          if (appState && appState.settings) appState.settings.noteTypingPreviewEnabled = next;
-          sendMenuAction({ type: "toggleNoteTypingPreview", value: next });
-        },
+        label: "Options",
+        submenu: [
+          {
+            label: "Notes While Typing",
+            type: "checkbox",
+            checked: Boolean(appState && appState.settings && appState.settings.noteTypingPreviewEnabled),
+            click: (item) => {
+              const next = Boolean(item && item.checked);
+              if (appState && appState.settings) appState.settings.noteTypingPreviewEnabled = next;
+              sendMenuAction({ type: "toggleNoteTypingPreview", value: next });
+            },
+          },
+        ],
       },
     ],
   };
@@ -349,6 +356,13 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
+      { label: "Set List…", click: () => sendMenuAction("setList") },
+      {
+        label: "Source Links",
+        submenu: [
+          { label: "Update YouTube Metadata (Active File)…", click: () => sendMenuAction("updateYouTubeMetadata") },
+        ],
+      },
       ...((appState && appState.settings && (appState.settings.supportMicrotonalNotation || appState.settings.makamToolsEnabled || appState.settings.studyToolsEnabled))
         ? [
             {
@@ -374,7 +388,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
     label: "Help",
     role: isMac ? "help" : undefined,
     submenu: [
-      { label: "ABC Guide (F1)", accelerator: "F1", click: () => sendMenuAction("helpGuide") },
+      { label: "ABC Guide", accelerator: "F1", click: () => sendMenuAction("helpGuide") },
       { label: "ABCarus User Guide", click: () => sendMenuAction("helpUserGuide") },
       { type: "separator" },
       { label: "ABC Notation Homepage", click: () => sendMenuAction({ type: "helpLink", url: "https://abcnotation.com/" }) },

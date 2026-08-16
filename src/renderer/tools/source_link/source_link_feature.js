@@ -6,6 +6,7 @@ import {
 } from "../../print/source_link_markup.js";
 import { createQrDataUrl } from "../../print/qr_code.js";
 import { createSourceLinkController } from "./source_link_controller.js";
+import { createYouTubeMetadataAction } from "./youtube_metadata_action.js";
 
 function createSourceLinkFeature({
   panel = null,
@@ -17,6 +18,8 @@ function createSourceLinkFeature({
   isDisabled = () => false,
   shouldIncludePrintQr = () => false,
   showToast = () => {},
+  fileState = {},
+  fileActions = {},
 } = {}) {
   const doc = documentRef || (typeof document !== "undefined" ? document : null);
   const resolvedPanel = panel || (doc && typeof doc.getElementById === "function" ? doc.getElementById("sourceLinkPanel") : null);
@@ -52,6 +55,7 @@ function createSourceLinkFeature({
     hasEditor,
     isDisabled,
   });
+  const youtubeMetadataAction = createYouTubeMetadataAction({ api, state: fileState, actions: fileActions });
 
   async function buildPrintMarkup(abcText) {
     return buildPrintSourceLinkMarkupCore(abcText, {
@@ -65,6 +69,7 @@ function createSourceLinkFeature({
     clear: () => controller.clear(),
     scheduleUpdate: (delayMs = 250) => controller.scheduleUpdate(delayMs),
     update: () => controller.update(),
+    updateYouTubeMetadata: () => youtubeMetadataAction.updateActiveFile(),
   };
 }
 

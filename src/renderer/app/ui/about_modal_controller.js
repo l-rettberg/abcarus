@@ -74,9 +74,6 @@ function createAboutModalController({
 
   if (closeButton) closeButton.addEventListener("click", () => close());
   if (modal) {
-    modal.addEventListener("click", (event) => {
-      if (event.target === modal) close();
-    });
     modal.addEventListener("keydown", (event) => {
       if (!event) return;
       if (event.key !== "Escape") return;

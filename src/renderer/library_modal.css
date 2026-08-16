@@ -93,8 +93,8 @@
 }
 
 .lib-x{
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-2, 8px);
   border: 1px solid var(--button-border, #d0d0d0);
   background: var(--button-bg, #fff);

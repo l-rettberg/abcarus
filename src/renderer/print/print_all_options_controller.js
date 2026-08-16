@@ -15,6 +15,7 @@ function createPrintAllOptionsController({
   modal,
   pageBreaksSelect,
   rememberCheckbox,
+  closeButton,
   cancelButton,
   okButton,
 } = {}) {
@@ -97,9 +98,6 @@ function createPrintAllOptionsController({
   }
 
   if (modal) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeModal(null);
-    });
     modal.addEventListener("keydown", (e) => {
       if (!e) return;
       if (e.key !== "Escape") return;
@@ -148,6 +146,10 @@ function createPrintAllOptionsController({
       header.addEventListener("pointerup", endDrag);
       header.addEventListener("pointercancel", endDrag);
     }
+  }
+
+  if (closeButton) {
+    closeButton.addEventListener("click", () => closeModal(null));
   }
 
   if (cancelButton) {

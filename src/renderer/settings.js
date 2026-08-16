@@ -1810,9 +1810,6 @@ export function initSettings(api) {
     $settingsClose.addEventListener("click", () => { void closeSettings({ discardDraft: true }); });
   }
   if ($settingsModal) {
-    $settingsModal.addEventListener("click", (e) => {
-      if (e.target === $settingsModal) void closeSettings({ discardDraft: true });
-    });
     $settingsModal.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();

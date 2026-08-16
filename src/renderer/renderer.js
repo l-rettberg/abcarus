@@ -223,6 +223,7 @@ const $xIssuesAutoFix = document.getElementById("xIssuesAutoFix");
 const $printAllOptionsModal = document.getElementById("printAllOptionsModal");
 const $printAllPageBreaks = document.getElementById("printAllPageBreaks");
 const $printAllRemember = document.getElementById("printAllRemember");
+const $printAllOptionsClose = document.getElementById("printAllOptionsClose");
 const $printAllOptionsCancel = document.getElementById("printAllOptionsCancel");
 const $printAllOptionsOk = document.getElementById("printAllOptionsOk");
 const $groupBy = document.getElementById("groupBy");
@@ -266,9 +267,9 @@ const $btnRestart = document.getElementById("btnRestart");
 	const $btnPrevMeasure = document.getElementById("btnPrevMeasure");
 	const $btnNextMeasure = document.getElementById("btnNextMeasure");
 const $btnResetLayout = document.getElementById("btnResetLayout");
+const $btnSettings = document.getElementById("btnSettings");
 const $btnToggleSplit = document.getElementById("btnToggleSplit");
 	const $btnFocusMode = document.getElementById("btnFocusMode");
-	const $btnFonts = document.getElementById("btnFonts");
 	const $btnToggleFollow = document.getElementById("btnToggleFollow");
 	const $btnToggleGlobals = document.getElementById("btnToggleGlobals");
 	const $btnToggleErrors = document.getElementById("btnToggleErrors");
@@ -351,6 +352,7 @@ const $setListHeaderText = document.getElementById("setListHeaderText");
 const $setListHeaderReset = document.getElementById("setListHeaderReset");
 const $setListHeaderSave = document.getElementById("setListHeaderSave");
 const $disclaimerModal = document.getElementById("disclaimerModal");
+const $disclaimerClose = document.getElementById("disclaimerClose");
 const $disclaimerOk = document.getElementById("disclaimerOk");
 const $headerStateMarker = document.getElementById("headerStateMarker");
 
@@ -766,6 +768,7 @@ const printAllFeature = createPrintAllFeature({
     optionsModal: $printAllOptionsModal,
     pageBreaksSelect: $printAllPageBreaks,
     rememberCheckbox: $printAllRemember,
+    closeButton: $printAllOptionsClose,
     cancelButton: $printAllOptionsCancel,
     okButton: $printAllOptionsOk,
   },
@@ -1528,6 +1531,7 @@ const libraryUiDomain = createLibraryUiDomain({
     resetRightPaneSplit: () => layoutController.resetRightPaneSplit(),
     restoreHoverStatus,
     renumberXInActiveFile,
+    updateYouTubeMetadata: () => sourceLinkFeature.updateYouTubeMetadata(),
     safeDirname,
     scheduleSaveLibraryPrefs,
     selectTune,
@@ -1572,6 +1576,7 @@ const aboutModalController = createAboutModalController({
 });
 const disclaimerController = createDisclaimerController({
   modal: $disclaimerModal,
+  closeButton: $disclaimerClose,
   confirmButton: $disclaimerOk,
   api: window.api,
   enableDraggableModal,
@@ -1822,7 +1827,7 @@ playbackDomain.initialize({
       selectionGchordsEnabled: $selectionGchordsEnabled,
       selectionDrumsEnabled: $selectionDrumsEnabled,
       selectionMutedVoices: $selectionMutedVoices,
-      fontsButton: $btnFonts,
+      settingsButton: $btnSettings,
       xIssuesAutoFixButton: $xIssuesAutoFix,
       xIssuesJumpButton: $xIssuesJump,
       xIssuesCopyButton: $xIssuesCopy,
@@ -2276,6 +2281,23 @@ const sourceLinkFeature = createSourceLinkFeature({
   hasEditor: editorRuntime.hasView,
   isDisabled: () => Boolean(isRawModeActive() || chordProFeature.isEnabled()),
   shouldIncludePrintQr: () => Boolean(settingsSnapshot.get() && settingsSnapshot.get().printSourceQrCodes),
+  fileState: {
+    getActiveFileEntry,
+    getActiveFilePath: () => activeContext.getActiveFilePath(),
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getRawMode: isRawModeActive,
+  },
+  fileActions: {
+    readFile,
+    refreshLibraryFile,
+    requireCleanForFileOp,
+    selectTune,
+    setStatus,
+    showSaveError,
+    showToast,
+    withFileLock,
+    writeFile,
+  },
 });
 const printCurrentFeature = createPrintCurrentFeature({
   api: window.api,
@@ -2298,7 +2320,9 @@ const importExportFeature = createImportExportFeature({
   getSuggestedBaseName,
   getCurrentDoc: getCurrentDocument,
   getActiveFilePath: () => activeContext.getActiveFilePath(),
+  getActiveFileEntry,
   getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+  buildConversionHeaderPrefix: (entryHeader, tuneText) => headerLayersController.buildConversionHeaderPrefix(entryHeader, tuneText),
   getPlaybackPayload,
   ensureSafeToAbandonCurrentDoc,
   requireCleanForFileOp,
@@ -2365,6 +2389,7 @@ const importExportFeature = createImportExportFeature({
   ensureMidiGenLoaded,
 });
 importExportFeature.installMidiProgressHandler();
+importExportFeature.installMusicXmlBatchProgressHandler();
 abcTransformFeature = createAbcTransformFeature({
   windowRef: window,
   devConfig,
@@ -3400,7 +3425,7 @@ appCommandsDomain = createAppCommandsDomain({
     restartButton: $btnRestart,
     prevMeasureButton: $btnPrevMeasure,
     nextMeasureButton: $btnNextMeasure,
-    fontsButton: $btnFonts,
+    settingsButton: $btnSettings,
     resetLayoutButton: $btnResetLayout,
     toggleSplitButton: $btnToggleSplit,
     toggleFollowButton: $btnToggleFollow,
@@ -3433,6 +3458,7 @@ appCommandsDomain = createAppCommandsDomain({
     exportMidi: () => importExportFeature.exportMidi(),
     exportMp3: () => importExportFeature.exportMp3(),
     exportMusicXml: () => importExportFeature.exportMusicXml(),
+    exportMusicXmlAll: () => importExportFeature.exportMusicXmlAll(),
     fileNew,
     fileNewFromTemplate,
     fileNewTune,
@@ -3486,6 +3512,7 @@ appCommandsDomain = createAppCommandsDomain({
     stopPlaybackTransport,
     toggleSplitOrientation,
     transportStartOver,
+    updateYouTubeMetadata: () => sourceLinkFeature.updateYouTubeMetadata(),
     updateFollowToggle,
     getFocusedEditorView,
     toggleLineComments,

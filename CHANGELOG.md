@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Source-link tools can fetch YouTube title, channel, and availability metadata into `N:` fields for use in the editor and printed output.
+- `File -> Export -> MusicXML (All Tunes)...` exports every tune in the active ABC file as an individually named MusicXML document, applying the effective Global and File Header hierarchy and reporting partial conversion failures.
+
+### Changed
+- Dialogs, toolbar controls, menus, and ABC helper popovers use a more consistent visual and interaction model.
+- Printed YouTube sources use a compact metadata layout with aligned QR codes and tighter, predictable PDF page insets.
+
+### Fixed
+- Printed source links and QR codes are positioned relative to the notation area without an unwanted separator line.
+- Long-running batch MusicXML export uses an explicit request/reply protocol, preventing successful exports from ending with a false IPC error.
+- Batch MusicXML export remembers its own destination folder and starts on the Desktop when no prior destination exists.
+
 
 
 ## [1.4.1] - 2026-08-13

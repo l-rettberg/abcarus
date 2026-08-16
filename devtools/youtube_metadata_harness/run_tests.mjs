@@ -20,14 +20,15 @@ const metadata = new Map([
 ]);
 const result = applyYouTubeMetadata(abc, metadata);
 assert.equal(result.updated, 2);
-assert.match(result.text, /F:https:\/\/youtu\.be\/abc123DEF45\nN:\[YouTube title\] First video\nN:\[YouTube channel\] Channel One\nN:User note/);
+assert.match(result.text, /F:https:\/\/youtu\.be\/abc123DEF45\nD:\[YouTube title\] First video\nD:\[YouTube channel\] Channel One\nN:User note/);
 assert.doesNotMatch(result.text, /N:\[YouTube title\] Old/);
+assert.doesNotMatch(result.text, /N:\[YouTube channel\] Old channel/);
 const second = applyYouTubeMetadata(result.text, metadata);
 assert.equal(second.updated, 0);
 assert.equal(second.unchanged, 2);
 assert.equal(second.text, result.text);
 const eofResult = applyYouTubeMetadata("X:3\nF:https://youtu.be/abc123DEF45", metadata);
-assert.match(eofResult.text, /F:https:\/\/youtu\.be\/abc123DEF45\nN:\[YouTube title\] First video\nN:\[YouTube channel\] Channel One\n$/);
+assert.match(eofResult.text, /F:https:\/\/youtu\.be\/abc123DEF45\nD:\[YouTube title\] First video\nD:\[YouTube channel\] Channel One\n$/);
 
 const rendererSource = fs.readFileSync("src/renderer/renderer.js", "utf8");
 assert.match(
@@ -44,6 +45,18 @@ assert.equal(printSources.length, 2);
 assert.deepEqual(
   { title: printSources[0].title, channel: printSources[0].channel, videoId: printSources[0].videoId },
   { title: "First video", channel: "Channel One", videoId: "abc123DEF45" },
+);
+const legacyPrintSources = collectPrintSources([
+  "X:4",
+  "F:https://youtu.be/abc123DEF45",
+  "N:[YouTube title] Legacy video",
+  "N:[YouTube channel] Legacy channel",
+  "K:C",
+].join("\n"));
+assert.deepEqual(
+  { title: legacyPrintSources[0].title, channel: legacyPrintSources[0].channel },
+  { title: "Legacy video", channel: "Legacy channel" },
+  "print must retain compatibility with yesterday's N: metadata",
 );
 const printMarkup = await buildPrintSourceLinkMarkup(result.text, {
   includeQr: true,

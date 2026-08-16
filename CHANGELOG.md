@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- YouTube recording titles and channels are now stored in semantically appropriate `D:` discography fields. Metadata written previously to managed `N:` lines remains readable and is migrated on the next metadata update.
 
 
 ## [1.5.0] - 2026-08-16

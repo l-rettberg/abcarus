@@ -3,7 +3,12 @@ import {
   normalizeSourceUrl,
   parseYouTubeVideoId,
 } from "../source_link.js";
-import { CHANNEL_PREFIX, TITLE_PREFIX } from "../tools/source_link/youtube_metadata_model.js";
+import {
+  CHANNEL_PREFIX,
+  LEGACY_CHANNEL_PREFIX,
+  LEGACY_TITLE_PREFIX,
+  TITLE_PREFIX,
+} from "../tools/source_link/youtube_metadata_model.js";
 
 function escapeHtml(value) {
   return String(value || "")
@@ -33,6 +38,11 @@ function collectPrintSources(abcText) {
       const line = String(lines[j] || "");
       if (line.startsWith(TITLE_PREFIX)) title = metadataValue(line, TITLE_PREFIX);
       else if (line.startsWith(CHANNEL_PREFIX)) channel = metadataValue(line, CHANNEL_PREFIX);
+      else if (line.startsWith(LEGACY_TITLE_PREFIX)) {
+        if (!title) title = metadataValue(line, LEGACY_TITLE_PREFIX);
+      } else if (line.startsWith(LEGACY_CHANNEL_PREFIX)) {
+        if (!channel) channel = metadataValue(line, LEGACY_CHANNEL_PREFIX);
+      }
       else break;
     }
     const videoId = parseYouTubeVideoId(url);

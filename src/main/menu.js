@@ -356,6 +356,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
+      { label: "Library Metadata…", click: () => sendMenuAction("libraryMetadata") },
       { label: "Set List…", click: () => sendMenuAction("setList") },
       {
         label: "Source Links",

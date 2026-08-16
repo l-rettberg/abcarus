@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
+import { build } from "esbuild";
 
 const require = createRequire(import.meta.url);
 const { extractTuneHeader, parseCatalogGroupValues } = require("../../src/main/library_metadata.js");
@@ -16,6 +17,20 @@ async function importRendererModule(filePath) {
 const { buildGroupEntries, getGroupValues } = await importRendererModule("src/renderer/library/group_entries.js");
 const { applyLibraryTextFilter } = await importRendererModule("src/renderer/library/sorting_filtering.js");
 const { createLibraryViewStore } = await importRendererModule("src/renderer/library/store.js");
+const {
+  addFacetToAllTunes,
+  addFacetToTuneText,
+} = await importRendererModule("src/renderer/library/catalog_metadata_transform.js");
+
+const featureBundle = await build({
+  entryPoints: ["src/renderer/library/catalog_metadata_feature.js"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  write: false,
+});
+const featureEncoded = Buffer.from(featureBundle.outputFiles[0].text, "utf8").toString("base64");
+const { createCatalogMetadataFeature } = await import(`data:text/javascript;base64,${featureEncoded}`);
 
 const lines = [
   "X:1",
@@ -78,5 +93,88 @@ const catalogRows = createLibraryViewStore({
   safeBasename: (value) => String(value).split("/").pop(),
 }).getModalRows();
 assert.ok(catalogRows[0].searchText.includes("ottoman armenian"), "Catalog search must include facet values");
+
+const tuneText = "X:1\r\nT:Example\r\nM:4/4\r\nK:C\r\nC D E F|\r\n";
+const addedToTune = addFacetToTuneText(tuneText, "makam", "Hicaz");
+assert.equal(addedToTune.changed, true);
+assert.ok(addedToTune.text.includes("M:4/4\r\nG:[makam] Hicaz\r\nK:C"), "tag must be inserted before K and preserve CRLF");
+assert.equal(addFacetToTuneText(addedToTune.text, "makam", "hicaz").changed, false, "exact tags are idempotent");
+const secondMakam = addFacetToTuneText(addedToTune.text, "makam", "Uşşak");
+assert.deepEqual(secondMakam.existingValues, ["Hicaz"], "another value is reported before being added");
+
+const fileText = [
+  "% file header",
+  "X:1",
+  "T:One",
+  "K:C",
+  "C|",
+  "",
+  "X:2",
+  "T:Two",
+  "G:[period] Contemporary",
+  "K:D",
+  "D|",
+  "",
+].join("\n");
+const addedToFile = addFacetToAllTunes(fileText, "period", "Contemporary");
+assert.equal(addedToFile.total, 2);
+assert.equal(addedToFile.changed, 1);
+assert.equal(addedToFile.existing, 1);
+assert.equal((addedToFile.text.match(/G:\[period\] Contemporary/g) || []).length, 2);
+assert.ok(addedToFile.text.startsWith("% file header\nX:1"), "file preamble must remain unchanged");
+
+function fakeElement(value = "") {
+  return {
+    value,
+    disabled: false,
+    textContent: "",
+    classList: { add() {}, remove() {}, toggle() {} },
+    setAttribute() {},
+    addEventListener() {},
+    focus() {},
+  };
+}
+
+let written = null;
+let selectedTuneId = "";
+let appliedCurrentText = "";
+const fileScope = fakeElement("file");
+const feature = createCatalogMetadataFeature({
+  elements: {
+    modal: fakeElement(),
+    applyButton: fakeElement(),
+    scopeSelect: fileScope,
+    facetSelect: fakeElement("period"),
+    valueInput: fakeElement("Contemporary"),
+    preview: fakeElement(),
+  },
+  state: {
+    getActiveFileEntry: () => ({ path: "/music/a.abc" }),
+    getActiveTuneMeta: () => ({ indexInFile: 2 }),
+    getEditorText: () => "X:2\nT:Two\nK:D\nD|\n",
+  },
+  actions: {
+    applyCurrentTuneText: (text) => { appliedCurrentText = text; },
+    readFile: async () => ({ ok: true, data: fileText }),
+    writeFile: async (_path, text, options) => {
+      written = { text, options };
+      return { ok: true };
+    },
+    requireCleanForFileOp: async () => true,
+    withFileLock: async (_path, operation) => operation(),
+    refreshLibraryFile: async () => ({ tunes: [{ id: "one" }, { id: "two" }] }),
+    selectTune: async (id) => { selectedTuneId = id; },
+    setStatus() {},
+    showSaveError: async () => {},
+    showToast() {},
+  },
+});
+await feature.apply();
+assert.ok(written && written.text.includes("G:[period] Contemporary"), "file scope must write transformed text");
+assert.equal(written.options.expectedData, fileText, "file scope must guard its atomic write with the disk text read");
+assert.equal(selectedTuneId, "two", "file scope must reload the same tune index after writing");
+fileScope.value = "tune";
+await feature.apply();
+assert.ok(appliedCurrentText.includes("G:[period] Contemporary"), "current-tune scope must update the editor text");
 
 console.log("library catalog facets harness: all tests passed");

@@ -3416,6 +3416,7 @@ async function runUiSmoke(win) {
           "makamDnaClose",
           "settingsClose",
           "moveTuneClose",
+          "libraryMetadataClose",
           "aboutClose",
           "setListClose",
           "setListHeaderClose",

@@ -701,6 +701,43 @@
     </div>
   </div>
 
+  <div class="modal" id="libraryMetadataModal" aria-hidden="true">
+    <div class="modal-card library-metadata-card" role="dialog" aria-modal="true" aria-label="Library Metadata">
+      <div class="modal-header">
+        <div class="modal-title">Library Metadata</div>
+        <button class="modal-close" id="libraryMetadataClose" type="button" aria-label="Close Library Metadata" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label class="library-metadata-row">
+          <span>Apply to</span>
+          <select id="libraryMetadataScope">
+            <option value="tune">Current Tune</option>
+            <option value="file">All Tunes in File</option>
+          </select>
+        </label>
+        <label class="library-metadata-row">
+          <span>Category</span>
+          <select id="libraryMetadataFacet">
+            <option value="makam">Makam</option>
+            <option value="form">Form</option>
+            <option value="repertoire">Repertoire</option>
+            <option value="cultural">Cultural</option>
+            <option value="period">Period</option>
+          </select>
+        </label>
+        <label class="library-metadata-row">
+          <span>Value</span>
+          <input id="libraryMetadataValue" type="text" autocomplete="off" />
+        </label>
+        <div id="libraryMetadataPreview" class="modal-status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="libraryMetadataCancel" type="button">Cancel</button>
+        <button id="libraryMetadataApply" class="primary" type="button" disabled>Add</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="aboutModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-label="About">
       <div class="modal-header">

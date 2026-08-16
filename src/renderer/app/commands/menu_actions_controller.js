@@ -62,6 +62,7 @@ const RAW_BLOCKED_ACTIONS = new Set([
   "importMidi",
   "templatesModal",
   "abcHelpers",
+  "libraryMetadata",
   "revertToDisk",
 ]);
 
@@ -218,6 +219,7 @@ function createMenuActionsController({
     else if (actionType === "close") await actions.requestCloseDocument();
     else if (actionType === "quit") await actions.requestQuitApplication();
     else if (actionType === "libraryList") actions.openLibraryCatalog();
+    else if (actionType === "libraryMetadata") actions.openLibraryMetadata();
     else if (actionType === "setList") actions.openSetList();
     else if (actionType === "toggleLibrary") actions.toggleLibrary();
     else if (actionType === "toggleFocusMode") actions.toggleFocusMode();

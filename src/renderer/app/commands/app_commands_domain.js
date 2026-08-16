@@ -142,6 +142,7 @@ function createAppCommandsDomain({
       },
       openIntonationExplorer: actions.toggleIntonationExplorer,
       openLibraryCatalog: actions.openLibraryCatalog,
+      openLibraryMetadata: actions.openLibraryMetadata,
       openRecentFile: actions.openRecentFile,
       openRecentFolder: actions.openRecentFolder,
       openRecentTune: actions.openRecentTune,

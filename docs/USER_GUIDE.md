@@ -171,6 +171,12 @@ Source links:
 - A valid `F:https://…` field is shown as a source action and can be included in print/PDF output.
 - `Tools → Source Links → Update YouTube Metadata (Active File)…` reads YouTube titles and channels for all YouTube `F:` links in the active file.
 - After confirmation, ABCarus writes managed `D:[YouTube title]` and `D:[YouTube channel]` discography lines immediately after each corresponding `F:` line.
+
+### Library metadata
+
+`Tools → Library Metadata…` adds namespaced `G:` catalog metadata to the current tune or every tune in the active ABC file. Supported categories are Makam, Form, Repertoire, Cultural, and Period.
+
+Current Tune updates the editor and becomes an ordinary unsaved change. All Tunes in File requires a clean document, previews the number of affected tunes, writes the file atomically, and reloads the active tune. Existing identical tags are left unchanged.
 - Existing user-authored `N:` fields are preserved. YouTube metadata written previously as managed `N:` lines is migrated to `D:` on update. Unavailable links are reported but are not written into the ABC file.
 
 MusicXML:

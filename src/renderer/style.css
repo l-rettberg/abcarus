@@ -2643,6 +2643,26 @@ svg {
   resize: none;
 }
 
+.library-metadata-card {
+  width: min(460px, 92vw);
+  min-width: min(360px, 92vw);
+  min-height: 0;
+  resize: none;
+}
+
+.library-metadata-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.library-metadata-row select,
+.library-metadata-row input {
+  width: 100%;
+  min-width: 0;
+}
+
 .modal-card.settings-card {
   width: min(960px, 96vw);
   height: min(600px, 92vh);

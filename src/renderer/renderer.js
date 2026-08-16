@@ -166,6 +166,7 @@ import { createFileConflictState } from "./app/document/file_conflict_state.js";
 import { createFileReloadController } from "./app/document/file_reload_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import { createAppCommandsDomain } from "./app/commands/app_commands_domain.js";
+import { createCatalogMetadataFeature } from "./library/catalog_metadata_feature.js";
 import {
   SAVE_INTENT,
   createDocumentSessionController,
@@ -289,6 +290,14 @@ const $errorsPopoverTitle = document.getElementById("errorsPopoverTitle");
 const $errorsListPopover = document.getElementById("errorsList");
 const $sidebarBody = document.querySelector(".sidebar-body");
 const $moveTuneModal = document.getElementById("moveTuneModal");
+const $libraryMetadataModal = document.getElementById("libraryMetadataModal");
+const $libraryMetadataClose = document.getElementById("libraryMetadataClose");
+const $libraryMetadataScope = document.getElementById("libraryMetadataScope");
+const $libraryMetadataFacet = document.getElementById("libraryMetadataFacet");
+const $libraryMetadataValue = document.getElementById("libraryMetadataValue");
+const $libraryMetadataPreview = document.getElementById("libraryMetadataPreview");
+const $libraryMetadataCancel = document.getElementById("libraryMetadataCancel");
+const $libraryMetadataApply = document.getElementById("libraryMetadataApply");
 const $moveTuneClose = document.getElementById("moveTuneClose");
 const $moveTuneTarget = document.getElementById("moveTuneTarget");
 const $moveTuneApply = document.getElementById("moveTuneApply");
@@ -3397,6 +3406,41 @@ async function renumberXInActiveFile(explicitFilePath) {
   await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
 
+const catalogMetadataFeature = createCatalogMetadataFeature({
+  elements: {
+    modal: $libraryMetadataModal,
+    closeButton: $libraryMetadataClose,
+    cancelButton: $libraryMetadataCancel,
+    applyButton: $libraryMetadataApply,
+    scopeSelect: $libraryMetadataScope,
+    facetSelect: $libraryMetadataFacet,
+    valueInput: $libraryMetadataValue,
+    preview: $libraryMetadataPreview,
+  },
+  state: {
+    getActiveFileEntry,
+    getActiveFilePath: () => activeContext.getActiveFilePath()
+      || (activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().path)
+      || "",
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getEditorText: getEditorValue,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+  },
+  actions: {
+    applyCurrentTuneText: applyTransformedText,
+    enableDraggableModal,
+    readFile,
+    refreshLibraryFile,
+    requireCleanForFileOp,
+    selectTune,
+    setStatus,
+    showSaveError,
+    showToast,
+    withFileLock,
+    writeFile,
+  },
+});
+
 appCommandsDomain = createAppCommandsDomain({
   api: window.api,
   windowRef: window,
@@ -3481,6 +3525,7 @@ appCommandsDomain = createAppCommandsDomain({
     openExternal,
     openFind: editorRuntime.openFind,
     openLibraryCatalog: () => libraryUiDomain.openCatalogFromCurrentIndex(),
+    openLibraryMetadata: () => catalogMetadataFeature.open(),
     openRecentFile,
     openRecentFolder,
     openRecentTune,

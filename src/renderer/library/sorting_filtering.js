@@ -232,6 +232,12 @@ function matchLibraryText(value, needle) {
   return normalizeFilterValue(value).includes(needle);
 }
 
+function matchLibraryValues(values, needle) {
+  if (!values) return false;
+  if (Array.isArray(values)) return values.some((value) => matchLibraryText(value, needle));
+  return Object.values(values).some((value) => matchLibraryValues(value, needle));
+}
+
 function tuneMatchesText(tune, needle, options = {}) {
   if (!tune) return false;
   const normalizeTitleKey = typeof options.normalizeTitleKey === "function" ? options.normalizeTitleKey : null;
@@ -252,6 +258,8 @@ function tuneMatchesText(tune, needle, options = {}) {
   if (matchLibraryText(tune.source, needle)) return true;
   if (matchLibraryText(tune.origin, needle)) return true;
   if (matchLibraryText(tune.group, needle)) return true;
+  if (matchLibraryValues(tune.groups, needle)) return true;
+  if (matchLibraryValues(tune.catalogFacets, needle)) return true;
   if (matchLibraryText(String(tune.xNumber || ""), needle)) return true;
   return false;
 }

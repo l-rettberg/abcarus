@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library grouping and search now understand repeated namespaced `G:` metadata for makam, form, repertoire, cultural context, and period without rewriting ABC files.
+
 ### Changed
 - YouTube recording titles and channels are now stored in semantically appropriate `D:` discography fields. Metadata written previously to managed `N:` lines remains readable and is migrated on the next metadata update.
 

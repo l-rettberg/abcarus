@@ -11,25 +11,44 @@ const GROUP_LABELS = {
   source: "S",
   origin: "O",
   group: "G",
+  makam: "Makam",
+  form: "Form",
+  repertoire: "Repertoire",
+  cultural: "Cultural",
+  period: "Period",
 };
 
-function getGroupValue(tune, mode, { normalizeTitleKey = null } = {}) {
-  if (!tune) return "";
-  if (mode === "x") return tune.xNumber || "";
+function getGroupValues(tune, mode, { normalizeTitleKey = null } = {}) {
+  if (!tune) return [];
+  if (mode === "x") return [tune.xNumber || ""];
   if (mode === "titlekey") {
     const normalize = typeof normalizeTitleKey === "function" ? normalizeTitleKey : (value) => String(value || "");
-    return normalize(tune.title || tune.preview || "", 25);
+    return [normalize(tune.title || tune.preview || "", 25)];
   }
-  if (mode === "composer") return tune.composer || "";
-  if (mode === "meter") return tune.meter || "";
-  if (mode === "key") return tune.key || "";
-  if (mode === "unit") return tune.unitLength || "";
-  if (mode === "tempo") return tune.tempo || "";
-  if (mode === "rhythm") return tune.rhythm || "";
-  if (mode === "source") return tune.source || "";
-  if (mode === "origin") return tune.origin || "";
-  if (mode === "group") return tune.group || "";
-  return "";
+  if (mode === "group") {
+    const values = Array.isArray(tune.groups) ? tune.groups : [tune.group || ""];
+    return Array.from(new Set(values.filter(Boolean)));
+  }
+  if (Object.prototype.hasOwnProperty.call(tune.catalogFacets || {}, mode)) {
+    const values = tune.catalogFacets[mode];
+    return Array.from(new Set((Array.isArray(values) ? values : [values]).filter(Boolean)));
+  }
+  const fieldByMode = {
+    composer: "composer",
+    meter: "meter",
+    key: "key",
+    unit: "unitLength",
+    tempo: "tempo",
+    rhythm: "rhythm",
+    source: "source",
+    origin: "origin",
+  };
+  const field = fieldByMode[mode];
+  return field ? [tune[field] || ""] : [];
+}
+
+function getGroupValue(tune, mode, options = {}) {
+  return getGroupValues(tune, mode, options)[0] || "";
 }
 
 function buildGroupEntries(files, mode, options = {}) {
@@ -49,25 +68,27 @@ function buildGroupEntries(files, mode, options = {}) {
   for (const file of files) {
     const tunes = Array.isArray(file.tunes) ? file.tunes : [];
     for (const tune of tunes) {
-      const value = getGroupValue(tune, mode, options) || "Unknown";
-      const groupId = `${mode}:${value}`;
-      if (!entries.has(groupId)) {
-        entries.set(groupId, {
-          id: groupId,
-          label: `${GROUP_LABELS[mode]}: ${value}`,
-          tunes: [],
-          isFile: false,
-          updatedAtMs: 0,
+      const values = getGroupValues(tune, mode, options).filter(Boolean);
+      for (const value of values.length ? values : ["Unknown"]) {
+        const groupId = `${mode}:${value}`;
+        if (!entries.has(groupId)) {
+          entries.set(groupId, {
+            id: groupId,
+            label: `${GROUP_LABELS[mode]}: ${value}`,
+            tunes: [],
+            isFile: false,
+            updatedAtMs: 0,
+          });
+        }
+        entries.get(groupId).tunes.push({
+          ...tune,
+          __fileUpdatedAtMs: file.updatedAtMs || 0,
+          filePath: file.path || "",
         });
+        const updatedAtMs = file.updatedAtMs || 0;
+        const entry = entries.get(groupId);
+        if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
       }
-      entries.get(groupId).tunes.push({
-        ...tune,
-        __fileUpdatedAtMs: file.updatedAtMs || 0,
-        filePath: file.path || "",
-      });
-      const updatedAtMs = file.updatedAtMs || 0;
-      const entry = entries.get(groupId);
-      if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
     }
   }
   return Array.from(entries.values());
@@ -77,4 +98,5 @@ export {
   GROUP_LABELS,
   buildGroupEntries,
   getGroupValue,
+  getGroupValues,
 };

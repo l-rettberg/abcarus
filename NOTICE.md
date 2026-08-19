@@ -126,7 +126,15 @@ These fonts are bundled for rendering only; they are not sold separately.
 
 ## Editor fonts
 
-ABCarus ships the following font for the editor UI:
+ABCarus ships DejaVu Sans Mono so ABC notation and Armenian lyrics use the
+same monospaced character grid on every supported platform.
+
+- Project: DejaVu fonts
+- Website: https://dejavu-fonts.github.io/
+- License: Bitstream Vera / DejaVu Fonts license
+- License text: `assets/fonts/editor/dejavu-sans-mono/LICENSE.txt`
+
+---
 
 ### Noto Sans Mono
 - Copyright: The Noto Project Authors

@@ -10,6 +10,10 @@ import {
 } from "./sorting_filtering.js";
 import { GROUP_LABELS } from "./group_entries.js";
 
+function isValidGroupMode(value) {
+  return Boolean(GROUP_LABELS[value] || /^[a-z][a-z0-9_-]*$/.test(String(value || "")));
+}
+
 function normalizeTitleKey(raw, maxLen = 25, strict = false) {
   const input = String(raw || "");
   if (!input.trim()) return "";
@@ -435,7 +439,7 @@ function createLibraryUiStateController({
     suppressLibraryPrefsWrite = true;
     try {
       const nextGroup = normalized.libraryGroupBy || "";
-      if (nextGroup && GROUP_LABELS[nextGroup]) groupMode = nextGroup;
+      if (nextGroup && isValidGroupMode(nextGroup)) groupMode = nextGroup;
 
       const nextSort = normalizeGroupSortMode(normalized.librarySortBy) || getDefaultGroupSortMode(groupMode);
       setSortMode(nextSort);

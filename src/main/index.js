@@ -17,6 +17,7 @@ const {
   resolveGlobalHeaderPath,
 } = require("./global_header_store");
 const { decodeAbcTextFromBuffer, detectAbcTextEncodingFromText } = require("./abcCharset");
+const { extractTuneHeader } = require("./library_metadata");
 const {
   composeStateDocument,
   loadProfileDocument,
@@ -1861,40 +1862,6 @@ function splitLinesWithOffsets(content) {
   return { lines, lineStarts };
 }
 
-function extractTuneHeader(lines, startIdx, endIdx) {
-  let title = "";
-  let composer = "";
-  let key = "";
-  let meter = "";
-  let unitLength = "";
-  let tempo = "";
-  let rhythm = "";
-  let source = "";
-  let origin = "";
-  let group = "";
-  let sawHeader = false;
-  for (let i = startIdx; i <= endIdx; i += 1) {
-    const line = lines[i] ?? "";
-    const trimmed = line.trim();
-    const isBlank = trimmed === "";
-    const isHeader = /^[A-Za-z]:/.test(line) || /^%/.test(line);
-    if (isHeader) sawHeader = true;
-    if (!title && /^T:/.test(line)) title = line.slice(2).trim();
-    if (!composer && /^C:/.test(line)) composer = line.slice(2).trim();
-    if (!key && /^K:/.test(line)) key = line.slice(2).trim();
-    if (!meter && /^M:/.test(line)) meter = line.slice(2).trim();
-    if (!unitLength && /^L:/.test(line)) unitLength = line.slice(2).trim();
-    if (!tempo && /^Q:/.test(line)) tempo = line.slice(2).trim();
-    if (!rhythm && /^R:/.test(line)) rhythm = line.slice(2).trim();
-    if (!source && /^S:/.test(line)) source = line.slice(2).trim();
-    if (!origin && /^O:/.test(line)) origin = line.slice(2).trim();
-    if (!group && /^G:/.test(line)) group = line.slice(2).trim();
-    if (sawHeader && isBlank) break;
-    if (!isHeader && !isBlank) break;
-  }
-  return { title, composer, key, meter, unitLength, tempo, rhythm, source, origin, group };
-}
-
 function analyzeTuneXIssues(tunes) {
   const duplicates = {};
   const seen = new Map();
@@ -1969,6 +1936,7 @@ function buildTunesFromContent(absPath, content) {
       _xValid: xValid,
       title,
       composer: header.composer,
+      composers: header.composers,
       key: header.key,
       meter: header.meter,
       unitLength: header.unitLength,
@@ -1977,6 +1945,8 @@ function buildTunesFromContent(absPath, content) {
       source: header.source,
       origin: header.origin,
       group: header.group,
+      groups: header.groups,
+      catalogFacets: header.catalogFacets,
       preview: preview || "",
       startLine: startIdx + 1,
       endLine: endIdx + 1,
@@ -2050,7 +2020,7 @@ function lruSet(map, key, value, maxEntries) {
   }
 }
 
-const PERSISTED_LIBRARY_INDEX_VERSION = 1;
+const PERSISTED_LIBRARY_INDEX_VERSION = 2;
 let persistedLibraryIndex = null;
 let persistedIndexLoadAttempted = false;
 let persistedIndexSaveTimer = null;
@@ -3447,6 +3417,7 @@ async function runUiSmoke(win) {
           "makamDnaClose",
           "settingsClose",
           "moveTuneClose",
+          "libraryMetadataClose",
           "aboutClose",
           "setListClose",
           "setListHeaderClose",

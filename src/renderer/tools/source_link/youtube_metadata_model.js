@@ -1,7 +1,15 @@
 import { normalizeSourceUrl, parseYouTubeVideoId } from "../../source_link.js";
 
-const TITLE_PREFIX = "N:[YouTube title]";
-const CHANNEL_PREFIX = "N:[YouTube channel]";
+const TITLE_PREFIX = "D:[YouTube title]";
+const CHANNEL_PREFIX = "D:[YouTube channel]";
+const LEGACY_TITLE_PREFIX = "N:[YouTube title]";
+const LEGACY_CHANNEL_PREFIX = "N:[YouTube channel]";
+const MANAGED_PREFIXES = [
+  TITLE_PREFIX,
+  CHANNEL_PREFIX,
+  LEGACY_TITLE_PREFIX,
+  LEGACY_CHANNEL_PREFIX,
+];
 
 function oneLine(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -46,7 +54,7 @@ function collectYouTubeSources(abcText) {
     if (!url || !videoId) continue;
     let managedEnd = line.fullEnd;
     let j = i + 1;
-    while (j < lines.length && (lines[j].text.startsWith(TITLE_PREFIX) || lines[j].text.startsWith(CHANNEL_PREFIX))) {
+    while (j < lines.length && MANAGED_PREFIXES.some((prefix) => lines[j].text.startsWith(prefix))) {
       managedEnd = lines[j].fullEnd;
       j += 1;
     }
@@ -85,4 +93,11 @@ function applyYouTubeMetadata(abcText, metadataByVideoId) {
   return { text, entries, updated, unchanged };
 }
 
-export { CHANNEL_PREFIX, TITLE_PREFIX, applyYouTubeMetadata, collectYouTubeSources };
+export {
+  CHANNEL_PREFIX,
+  LEGACY_CHANNEL_PREFIX,
+  LEGACY_TITLE_PREFIX,
+  TITLE_PREFIX,
+  applyYouTubeMetadata,
+  collectYouTubeSources,
+};

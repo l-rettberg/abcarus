@@ -32,6 +32,7 @@ const documentRef = {
   addEventListener() {},
 };
 let newTuneCalls = 0;
+let libraryMetadataCalls = 0;
 
 const domain = createAppCommandsDomain({
   documentRef,
@@ -42,6 +43,7 @@ const domain = createAppCommandsDomain({
   },
   actions: {
     fileNewTune: async () => { newTuneCalls += 1; },
+    openLibraryMetadata: () => { libraryMetadataCalls += 1; },
   },
 });
 
@@ -49,5 +51,7 @@ domain.wire();
 newTuneButton.click();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(newTuneCalls, 1, "New Tune toolbar button must dispatch the canonical fileNewTune action");
+await domain.dispatch("libraryMetadata");
+assert.equal(libraryMetadataCalls, 1, "Tools -> Library Metadata must dispatch its feature action");
 
 console.log("app commands harness: all tests passed");

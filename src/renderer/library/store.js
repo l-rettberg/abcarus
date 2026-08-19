@@ -68,13 +68,18 @@ export function createLibraryViewStore({ getIndex, safeBasename }) {
         const title = tune && (tune.title || tune.preview) ? (tune.title || tune.preview) : "";
         const titleKey = normalizeTitleKey(title);
         const composer = tune && tune.composer ? tune.composer : "";
+        const composers = tune && Array.isArray(tune.composers) ? tune.composers.join(" ") : composer;
         const origin = tune && tune.origin ? tune.origin : "";
         const group = tune && tune.group ? tune.group : "";
+        const groups = tune && Array.isArray(tune.groups) ? tune.groups.join(" ") : "";
+        const catalogFacets = tune && tune.catalogFacets && typeof tune.catalogFacets === "object"
+          ? Object.values(tune.catalogFacets).flat().join(" ")
+          : "";
         const key = tune && tune.key ? tune.key : "";
         const meter = tune && tune.meter ? tune.meter : "";
         const tempo = tune && tune.tempo ? tune.tempo : "";
         const rhythm = tune && tune.rhythm ? tune.rhythm : "";
-        const searchText = `${normalize(fileLabel)} ${normalize(xNumber)} ${normalize(title)} ${normalize(titleKey)} ${normalize(composer)} ${normalize(key)} ${normalize(meter)} ${normalize(tempo)} ${normalize(rhythm)} ${normalize(origin)} ${normalize(group)} ${normalize(modified)}`.toLowerCase();
+        const searchText = `${normalize(fileLabel)} ${normalize(xNumber)} ${normalize(title)} ${normalize(titleKey)} ${normalize(composers)} ${normalize(key)} ${normalize(meter)} ${normalize(tempo)} ${normalize(rhythm)} ${normalize(origin)} ${normalize(group)} ${normalize(groups)} ${normalize(catalogFacets)} ${normalize(modified)}`.toLowerCase();
         rows.push({
           file: fileLabel,
           filePath,

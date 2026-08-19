@@ -1,4 +1,5 @@
 const SYSTEM_UI_FONT_FAMILY = "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif";
+const LEGACY_EDITOR_FONT_FAMILY = "\"ABCarus Noto Sans Mono\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 const INTERFACE_FONT_PRESETS = Object.freeze([
   { label: "System default", value: SYSTEM_UI_FONT_FAMILY },
@@ -217,6 +218,12 @@ function normalizeUserFontFiles(...sources) {
   return files;
 }
 
+function normalizeEditorFontFamily(value, defaultFamily = "") {
+  const family = String(value || "").trim();
+  if (!family || family === LEGACY_EDITOR_FONT_FAMILY) return String(defaultFamily || "").trim();
+  return family;
+}
+
 export {
   INTERFACE_FONT_PRESETS,
   SYSTEM_UI_FONT_FAMILY,
@@ -227,6 +234,7 @@ export {
   interfaceFontFamilyForFile,
   isSoundfontPath,
   normalizeFontCatalog,
+  normalizeEditorFontFamily,
   normalizeUserFontFiles,
   settingsPatchForRemovedUserFont,
   safeBasename,

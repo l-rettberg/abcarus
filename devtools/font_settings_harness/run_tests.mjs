@@ -13,6 +13,21 @@ const defaults = {
   editorFontFamily: "ui-monospace, monospace",
 };
 
+assert.equal(
+  model.normalizeEditorFontFamily(
+    `"ABCarus Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
+    `"ABCarus DejaVu Sans Mono", ui-monospace, monospace`,
+  ),
+  `"ABCarus DejaVu Sans Mono", ui-monospace, monospace`,
+);
+assert.equal(
+  model.normalizeEditorFontFamily(`"ABCarus User Font: Custom.ttf", monospace`, "bundled"),
+  `"ABCarus User Font: Custom.ttf", monospace`,
+);
+
+const bundledEditorFont = await readFile("assets/fonts/editor/dejavu-sans-mono/DejaVuSansMono.ttf");
+assert.ok(bundledEditorFont.length > 300_000, "bundled multilingual editor font is missing or truncated");
+
 const choices = model.buildInterfaceFontOptions({
   selected: defaults.uiFontFamily,
   userFontFiles: ["My Font.otf"],

@@ -129,6 +129,8 @@ const { createHeaderLayersController } = await importBundledModule(
     setPendingPlaybackRangeOrigin: (origin) => origins.push(origin),
     getPlaybackRange: () => ({ loop: true }),
     setPlaybackRange: (range) => playbackRanges.push(range),
+    setTimeoutRef: (callback) => callback(),
+    clearTimeoutRef: () => {},
   });
 
   assert.equal(controller.centerCurrentAnchor(), true);
@@ -151,6 +153,9 @@ const { createHeaderLayersController } = await importBundledModule(
     loop: true,
   }]);
   assert.equal(typeof listeners.get("click"), "function");
+  assert.equal(typeof listeners.get("dblclick"), "function");
+  assert.equal(typeof listeners.get("abcarus:score-rendered"), "function");
+  assert.equal(typeof listeners.get("abcarus:focus-selection-changed"), "function");
 }
 
 console.log("render domain harness: all tests passed");

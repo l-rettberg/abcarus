@@ -3329,6 +3329,10 @@ async function runUiSmoke(win) {
       const groupBySelect = byId("groupBy");
       const tuneSelect = byId("fileTuneSelect");
       const tempoSelect = byId("practiceTempo");
+      const tempoWrap = byId("practiceTempoWrap");
+      const scoreToolbar = document.querySelector(".score-toolbar");
+      const libraryCatalogButton = byId("btnLibraryCatalog");
+      const openFolderAsLibraryButton = byId("btnOpenFolderAsLibrary");
       const missing = [];
       if (!focusBtn) missing.push("btnFocusMode");
       if (!followBtn) missing.push("btnToggleFollow");
@@ -3338,6 +3342,10 @@ async function runUiSmoke(win) {
       if (!groupBySelect) missing.push("groupBy");
       if (!tuneSelect) missing.push("fileTuneSelect");
       if (!tempoSelect) missing.push("practiceTempo");
+      if (!tempoWrap) missing.push("practiceTempoWrap");
+      if (!scoreToolbar) missing.push("score-toolbar");
+      if (!libraryCatalogButton) missing.push("btnLibraryCatalog");
+      if (!openFolderAsLibraryButton) missing.push("btnOpenFolderAsLibrary");
       if (missing.length) {
         return { ok: false, reason: "missing-elements", missing };
       }
@@ -3355,7 +3363,30 @@ async function runUiSmoke(win) {
       const libRadiusPx = Number.parseFloat(getComputedStyle(libOpenBtn).borderRadius || "0") || 0;
       const selGroupRadiusPx = Number.parseFloat(getComputedStyle(groupBySelect).borderRadius || "0") || 0;
       const selTuneRadiusPx = Number.parseFloat(getComputedStyle(tuneSelect).borderRadius || "0") || 0;
-      const selTempoHeightPx = Number.parseFloat(getComputedStyle(tempoSelect).minHeight || "0") || 0;
+      const selTempoHeightPx = tempoWrap.getBoundingClientRect().height;
+      const transportInScore = Boolean(byId("btnPlayPause") && byId("btnPlayPause").closest(".score-toolbar") === scoreToolbar);
+      const libraryDropdownOk = Boolean(
+        libraryCatalogButton.closest(".toolbar-dropdown-menu")
+        && openFolderAsLibraryButton.closest(".toolbar-dropdown-menu")
+      );
+      const librarySplitControl = byId("btnToggleLibrary").closest(".library-split-control");
+      const hook = window.__abcarusDevUiSmoke;
+      if (hook && typeof hook.setText === "function") {
+        hook.setText([
+          "X:1",
+          "T:Focus Score Selection Smoke",
+          "M:4/4",
+          "L:1/4",
+          "Q:1/4=96",
+          "K:C",
+          "C D E F | G A B c | c B A G | F E D C |]",
+        ].join("\\n") + "\\n");
+        await wait(450);
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          if (document.querySelectorAll("#out .note-hl[data-start]").length >= 2) break;
+          await wait(80);
+        }
+      }
 
       const isHidden = () => Boolean(selectionLoopWrap.hidden || selectionLoopWrap.hasAttribute("hidden"));
       const body = document.body;
@@ -3365,12 +3396,121 @@ async function runUiSmoke(win) {
         await wait(120);
       }
       const hiddenInFocus = isHidden();
+      const libraryHiddenInFocus = Boolean(
+        librarySplitControl
+        && librarySplitControl.getClientRects().length === 0
+      );
+      const focusToolbarUnified = Boolean(
+        focusBtn.closest(".score-toolbar") === scoreToolbar
+        && byId("btnSettings").closest(".score-toolbar") === scoreToolbar
+        && byId("practiceFocusRangeGroup").closest(".score-toolbar") === scoreToolbar
+        && getComputedStyle(document.querySelector("header")).display === "none"
+      );
+      const focusControlsAligned = Math.abs(
+        focusBtn.getBoundingClientRect().top
+        - byId("btnPlayPause").getBoundingClientRect().top
+      ) <= 1;
+      let focusDoubleClickSelectionOk = false;
+      let focusSingleClickClearOk = false;
+      let focusScoreSelectionDiagnostics = null;
+      const scoreNotes = Array.from(document.querySelectorAll("#out .note-hl[data-start]"));
+      if (scoreNotes.length >= 2) {
+        scoreNotes.sort((a, b) => Number(a.getAttribute("data-start")) - Number(b.getAttribute("data-start")));
+        const dispatchScoreMouse = (element, type) => {
+          const rect = element.getBoundingClientRect();
+          element.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + (rect.width / 2),
+            clientY: rect.top + (rect.height / 2),
+          }));
+        };
+        dispatchScoreMouse(scoreNotes[0], "dblclick");
+        await wait(80);
+        const firstFrom = Number(byId("practiceLoopFrom").value);
+        const firstTo = Number(byId("practiceLoopTo").value);
+        const firstSelected = firstFrom >= 1 && firstTo === firstFrom;
+        dispatchScoreMouse(scoreNotes[scoreNotes.length - 1], "dblclick");
+        await wait(80);
+        const rangeFrom = Number(byId("practiceLoopFrom").value);
+        const rangeTo = Number(byId("practiceLoopTo").value);
+        const overlayCount = document.querySelectorAll("#out .svg-focus-selection").length;
+        focusDoubleClickSelectionOk = Boolean(
+          firstSelected
+          && rangeFrom === firstFrom
+          && rangeTo > rangeFrom
+          && overlayCount > 0
+        );
+        dispatchScoreMouse(scoreNotes[0], "click");
+        await wait(420);
+        focusSingleClickClearOk = Number(byId("practiceLoopFrom").value) === 0
+          && Number(byId("practiceLoopTo").value) === 0
+          && !document.querySelector("#out .svg-focus-selection");
+        focusScoreSelectionDiagnostics = {
+          noteCount: scoreNotes.length,
+          firstNoteStart: scoreNotes[0] ? scoreNotes[0].getAttribute("data-start") : null,
+          lastNoteStart: scoreNotes.length ? scoreNotes[scoreNotes.length - 1].getAttribute("data-start") : null,
+          firstFrom,
+          firstTo,
+          rangeFrom,
+          rangeTo,
+          overlayCount,
+          clearedFrom: Number(byId("practiceLoopFrom").value),
+          clearedTo: Number(byId("practiceLoopTo").value),
+          clearedOverlayCount: document.querySelectorAll("#out .svg-focus-selection").length,
+        };
+      }
       if (!initialFocus) {
         focusBtn.click();
         await wait(120);
       }
-      const shownOutOfFocus = !isHidden();
-      const hook = window.__abcarusDevUiSmoke;
+      let normalDoubleClickSelectionOk = initialFocus;
+      let normalSingleClickClearOk = initialFocus;
+      if (!initialFocus && scoreNotes.length >= 2) {
+        const dispatchScoreMouse = (element, type) => {
+          const rect = element.getBoundingClientRect();
+          element.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + (rect.width / 2),
+            clientY: rect.top + (rect.height / 2),
+          }));
+        };
+        dispatchScoreMouse(scoreNotes[0], "dblclick");
+        await wait(60);
+        dispatchScoreMouse(scoreNotes[scoreNotes.length - 1], "dblclick");
+        await wait(80);
+        const normalSelection = window.__abcarusDevUiSmoke.snapshot().selection;
+        normalDoubleClickSelectionOk = Boolean(
+          normalSelection
+          && normalSelection.to > normalSelection.from
+          && document.querySelector("#out .svg-focus-selection")
+        );
+        document.querySelector("#out").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        await wait(420);
+        const clearedSelection = window.__abcarusDevUiSmoke.snapshot().selection;
+        normalSingleClickClearOk = Boolean(
+          clearedSelection
+          && clearedSelection.to === clearedSelection.from
+          && !document.querySelector("#out .svg-focus-selection")
+        );
+      }
+      const hiddenWithoutSelection = isHidden();
+      const editorContent = document.querySelector("#abc-editor .cm-content");
+      let shownWithSelection = false;
+      if (editorContent) {
+        editorContent.focus();
+        const isMacPlatform = /Mac/.test(navigator.platform || "");
+        editorContent.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "a",
+          code: "KeyA",
+          ctrlKey: !isMacPlatform,
+          metaKey: isMacPlatform,
+          bubbles: true,
+        }));
+        await wait(80);
+        shownWithSelection = !isHidden();
+      }
       let fontChoicesOk = false;
       let interfaceFontPresetsOk = false;
       let interfaceFontSelections = [];
@@ -3485,7 +3625,17 @@ async function runUiSmoke(win) {
           && selTuneRadiusPx >= 7
           && selTempoHeightPx >= 27
           && hiddenInFocus
-          && shownOutOfFocus
+          && libraryHiddenInFocus
+          && focusToolbarUnified
+          && focusControlsAligned
+          && focusDoubleClickSelectionOk
+          && focusSingleClickClearOk
+          && normalDoubleClickSelectionOk
+          && normalSingleClickClearOk
+          && hiddenWithoutSelection
+          && shownWithSelection
+          && transportInScore
+          && libraryDropdownOk
           && fontChoicesOk
           && interfaceFontPresetsOk
           && modalCloseButtonsOk
@@ -3501,7 +3651,18 @@ async function runUiSmoke(win) {
         errorsDisplay,
         followDisplay,
         hiddenInFocus,
-        shownOutOfFocus,
+        libraryHiddenInFocus,
+        focusToolbarUnified,
+        focusControlsAligned,
+        focusDoubleClickSelectionOk,
+        focusSingleClickClearOk,
+        normalDoubleClickSelectionOk,
+        normalSingleClickClearOk,
+        focusScoreSelectionDiagnostics,
+        hiddenWithoutSelection,
+        shownWithSelection,
+        transportInScore,
+        libraryDropdownOk,
         fontChoicesOk,
         interfaceFontPresetsOk,
         interfaceFontSelections,

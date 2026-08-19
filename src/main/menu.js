@@ -157,7 +157,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
       },
       { label: "Open…", accelerator: "CmdOrCtrl+O", click: () => sendMenuAction("open") },
       {
-        label: "Open Library Folder…",
+        label: "Open Folder as Library…",
         accelerator: "CmdOrCtrl+Shift+O",
         click: () => sendMenuAction("openFolder"),
       },

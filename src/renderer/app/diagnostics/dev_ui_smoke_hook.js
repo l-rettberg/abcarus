@@ -68,6 +68,7 @@ function installDevUiSmokeHook({
         playbackDebug: getPlaybackDebug(),
         soundfont: state.soundfont || null,
         payloadMode: Boolean(state.payloadMode),
+        selection: state.selection || null,
         payloadBarHidden: elements.payloadBar
           ? elements.payloadBar.classList.contains("hidden")
           : true,

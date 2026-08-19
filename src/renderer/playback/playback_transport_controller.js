@@ -96,8 +96,8 @@ function createPlaybackTransportController({
 
   function buildTransportPlaybackPlan() {
     const focusModeEnabled = getFocusModeEnabled();
-    const tempoMultiplier = focusModeEnabled
-      ? (Number.isFinite(Number(transport.practiceTempoMultiplier)) ? Number(transport.practiceTempoMultiplier) : 1)
+    const tempoMultiplier = Number.isFinite(Number(transport.practiceTempoMultiplier))
+      ? Number(transport.practiceTempoMultiplier)
       : 1;
     if (focusModeEnabled) {
       const focusResult = computeFocusPlaybackPlanFromCurrentState();

@@ -349,7 +349,10 @@ function createRenderPipelineController({
           const svg = svgParts.join("");
           if (!svg.trim()) throw new Error("No SVG output produced (see errors).");
           const tDom0 = perfOn ? perfNowMs() : 0;
-          if (outputElement) outputElement.innerHTML = svg;
+          if (outputElement) {
+            outputElement.innerHTML = svg;
+            try { outputElement.dispatchEvent(new Event("abcarus:score-rendered")); } catch {}
+          }
           invalidateNoteHighlightIndexCache();
           applyMeasureHighlights(renderPayload.offset || 0);
           const editorView = getEditorView();

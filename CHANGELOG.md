@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Library grouping and search now understand repeated namespaced `G:` metadata for makam, form, repertoire, cultural context, and period.
 - `Tools → Library Metadata…` safely adds catalog tags to the current tune or every tune in the active ABC file, with an affected-tune preview and idempotent writes.
+- Double-clicking measures in the rendered score selects an exact playback range in normal and Focus modes, with visible score shading and repeat-safe physical boundaries.
+- A runtime tempo slider and step controls adjust playback speed without editing `Q:` or marking the tune dirty; straightforward tempo declarations also show the effective BPM.
 
 ### Changed
 - YouTube recording titles and channels are now stored in semantically appropriate `D:` discography fields. Metadata written previously to managed `N:` lines remains readable and is migrated on the next metadata update.
+- Score transport, tempo, selection-loop, and Focus controls now share one aligned toolbar above the notation; Focus mode keeps that toolbar on a single line and hides unrelated file/library chrome.
+- The Library toolbar button now has an explicit actions menu for Library Catalog and Open Folder as Library instead of a hidden Shift-click gesture.
+- New Tune and Templates commands use distinct labels that reflect whether they add to the active file, open the templates library, or create a separate file from a starter template.
+
+### Fixed
+- Score-selected Focus ranges use their exact rendered source offsets, avoiding shifted playback starts in tunes with multiple repeat sections and ambiguous display bar numbers.
+- Loop Selection is shown only when the editor has an actual text selection.
 
 
 ## [1.5.0] - 2026-08-16

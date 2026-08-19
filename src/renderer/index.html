@@ -22,12 +22,19 @@
 	  <header>
 	    <div class="header-row header-row-top">
 	      <div class="left-controls controls">
-	        <div class="segmented" aria-label="Library">
-	          <button id="btnToggleLibrary" title="Toggle Library Tree (Ctrl+L). Shift-click: Library Catalog (Ctrl+Shift+L)">
-              <svg class="btn-icon icon-library" aria-hidden="true"><use href="#ui-library"></use></svg>
-              <span class="btn-text">Library</span>
-            </button>
-	        </div>
+		        <div class="segmented library-split-control" aria-label="Library">
+		          <button id="btnToggleLibrary" title="Toggle Library Tree (Ctrl+L)">
+	              <svg class="btn-icon icon-library" aria-hidden="true"><use href="#ui-library"></use></svg>
+	              <span class="btn-text">Library</span>
+	            </button>
+	            <details id="libraryToolbarMenu" class="toolbar-dropdown">
+	              <summary aria-label="Library actions" title="Library actions"><span aria-hidden="true">▾</span></summary>
+	              <div class="toolbar-dropdown-menu" role="menu" aria-label="Library actions">
+	                <button id="btnLibraryCatalog" type="button" role="menuitem">Library Catalog…</button>
+	                <button id="btnOpenFolderAsLibrary" type="button" role="menuitem">Open Folder as Library…</button>
+	              </div>
+	            </details>
+		        </div>
 	        <div class="segmented" aria-label="File">
 	          <button id="btnFileNew" type="button" title="New file (Ctrl+N)">
               <svg class="btn-icon icon-file-plus" aria-hidden="true"><use href="#ui-file-plus"></use></svg>
@@ -48,36 +55,8 @@
 	        </div>
         </div>
         <div class="center-controls controls">
-        <div class="segmented" aria-label="Transport">
-          <button id="btnPlayPause" type="button" title="Play / Pause (F5)">
-            <svg class="btn-icon icon-play" aria-hidden="true"><use href="#ui-play"></use></svg>
-            <svg class="btn-icon icon-pause" aria-hidden="true"><use href="#ui-pause"></use></svg>
-            <span class="btn-text">Play</span>
-          </button>
-          <button id="btnStop" type="button" title="Stop (Esc)">
-            <svg class="btn-icon icon-stop" aria-hidden="true"><use href="#ui-stop"></use></svg>
-            <span class="btn-text">Stop</span>
-          </button>
-          <button id="btnRestart" type="button" title="Start over (F4)">
-            <svg class="btn-icon icon-start-over" aria-hidden="true"><use href="#ui-start-over"></use></svg>
-            <span class="btn-text">Start over</span>
-          </button>
-        </div>
-        <div class="practice-controls" aria-label="Playback controls">
-          <label id="practiceTempoWrap" class="practice-tempo" hidden>
-            <span>Speed</span>
-            <select id="practiceTempo" aria-label="Playback speed">
-		              <option value="0.5">50%</option>
-	              <option value="0.6">60%</option>
-	              <option value="0.7">70%</option>
-	              <option value="0.8">80%</option>
-	              <option value="0.9">90%</option>
-	              <option value="1" selected>100%</option>
-	              <option value="1.1">110%</option>
-		              <option value="1.2">120%</option>
-		            </select>
-		          </label>
-          <div id="practiceFocusRangeGroup" class="practice-group" hidden>
+	        <div class="practice-controls" aria-label="Playback controls">
+	          <div id="practiceFocusRangeGroup" class="practice-group" hidden>
             <label id="practiceLoopWrap" class="practice-loop" hidden>
               <input id="practiceLoopEnabled" type="checkbox" />
               <span>Loop</span>
@@ -106,13 +85,7 @@
               <input id="selectionMutedVoices" class="practice-muted-voices" type="text" placeholder="e.g. 2,3" />
             </label>
           </div>
-          <div id="practiceSelectionGroup" class="practice-group">
-            <label id="selectionLoopWrap" class="practice-selection-loop" title="Loop current text selection in the ABC editor (not score selection). Options also available in Settings → Playback">
-              <input id="selectionLoopEnabled" type="checkbox" />
-              <span>Loop selection</span>
-            </label>
-          </div>
-        </div>
+	        </div>
       </div>
 		      <div class="right-controls">
 		        <div class="segmented" aria-label="Preferences">
@@ -417,9 +390,43 @@
           <div id="abc-editor"></div>
         </div>
         <div class="split-divider" id="splitDivider" role="separator" aria-orientation="vertical" tabindex="0"></div>
-    <div class="render-pane">
-      <div id="out"></div>
-    </div>
+	    <div class="render-pane">
+	      <div class="score-toolbar controls" role="toolbar" aria-label="Score playback">
+	        <div class="segmented" aria-label="Transport">
+	          <button id="btnPlayPause" type="button" title="Play / Pause (F5)">
+	            <svg class="btn-icon icon-play" aria-hidden="true"><use href="#ui-play"></use></svg>
+	            <svg class="btn-icon icon-pause" aria-hidden="true"><use href="#ui-pause"></use></svg>
+	            <span class="btn-text">Play</span>
+	          </button>
+	          <button id="btnStop" type="button" title="Stop (Esc)">
+	            <svg class="btn-icon icon-stop" aria-hidden="true"><use href="#ui-stop"></use></svg>
+	            <span class="btn-text">Stop</span>
+	          </button>
+	          <button id="btnRestart" type="button" title="Start over (F4)">
+	            <svg class="btn-icon icon-start-over" aria-hidden="true"><use href="#ui-start-over"></use></svg>
+	            <span class="btn-text">Start over</span>
+	          </button>
+	        </div>
+	        <div id="practiceTempoWrap" class="runtime-tempo-control" aria-label="Runtime tempo">
+	          <label for="practiceTempo">Tempo</label>
+	          <input id="practiceTempo" type="range" min="0.5" max="1.5" step="0.01" value="1" aria-label="Playback tempo" />
+	          <output id="practiceTempoValue" for="practiceTempo">100%</output>
+	          <button id="practiceTempoDown" class="icon-only" type="button" aria-label="Decrease tempo" title="Decrease tempo">
+	            <svg class="btn-icon" aria-hidden="true"><use href="#ui-minus"></use></svg>
+	          </button>
+	          <button id="practiceTempoUp" class="icon-only" type="button" aria-label="Increase tempo" title="Increase tempo">
+	            <svg class="btn-icon" aria-hidden="true"><use href="#ui-plus"></use></svg>
+	          </button>
+	        </div>
+	        <div id="practiceSelectionGroup" class="practice-group" hidden>
+	          <label id="selectionLoopWrap" class="practice-selection-loop" title="Loop current text selection in the ABC editor (not score selection). Options also available in Settings → Playback">
+	            <input id="selectionLoopEnabled" type="checkbox" />
+	            <span>Loop selection</span>
+	          </label>
+	        </div>
+	      </div>
+	      <div id="out"></div>
+	    </div>
   </div>
 </section>
 </main>

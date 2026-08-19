@@ -235,6 +235,9 @@ const $btnLibraryRefresh = document.getElementById("btnLibraryRefresh");
 const $libraryRoot = document.getElementById("libraryRoot");
 const $btnLibraryClearFilter = document.getElementById("btnLibraryClearFilter");
 const $btnToggleLibrary = document.getElementById("btnToggleLibrary");
+const $libraryToolbarMenu = document.getElementById("libraryToolbarMenu");
+const $btnLibraryCatalog = document.getElementById("btnLibraryCatalog");
+const $btnOpenFolderAsLibrary = document.getElementById("btnOpenFolderAsLibrary");
 const $btnFileNew = document.getElementById("btnFileNew");
 const $btnFileOpen = document.getElementById("btnFileOpen");
 const $btnFileSave = document.getElementById("btnFileSave");
@@ -256,6 +259,9 @@ const $selectionMutedWrap = document.getElementById("selectionMutedWrap");
 const $selectionMutedVoices = document.getElementById("selectionMutedVoices");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
+const $practiceTempoValue = document.getElementById("practiceTempoValue");
+const $practiceTempoDown = document.getElementById("practiceTempoDown");
+const $practiceTempoUp = document.getElementById("practiceTempoUp");
 const $practiceFocusRangeGroup = document.getElementById("practiceFocusRangeGroup");
 const $practiceFocusOptionsGroup = document.getElementById("practiceFocusOptionsGroup");
 const $practiceFocusVoicesGroup = document.getElementById("practiceFocusVoicesGroup");
@@ -271,9 +277,12 @@ const $btnResetLayout = document.getElementById("btnResetLayout");
 const $btnSettings = document.getElementById("btnSettings");
 const $btnToggleSplit = document.getElementById("btnToggleSplit");
 	const $btnFocusMode = document.getElementById("btnFocusMode");
-	const $btnToggleFollow = document.getElementById("btnToggleFollow");
-	const $btnToggleGlobals = document.getElementById("btnToggleGlobals");
-	const $btnToggleErrors = document.getElementById("btnToggleErrors");
+const $btnToggleFollow = document.getElementById("btnToggleFollow");
+const $btnToggleGlobals = document.getElementById("btnToggleGlobals");
+const $btnToggleErrors = document.getElementById("btnToggleErrors");
+const $scoreToolbar = document.querySelector(".score-toolbar");
+const $practiceControls = document.querySelector(".practice-controls");
+const $rightControls = document.querySelector(".right-controls");
 const $soundfontLabel = document.getElementById("soundfontLabel");
 const $rightSplit = document.querySelector(".right-split");
 const $splitDivider = document.getElementById("splitDivider");
@@ -597,6 +606,8 @@ const payloadModeFeature = createPayloadModeFeature({
   },
   lockElements: [
     $btnToggleLibrary,
+    $btnLibraryCatalog,
+    $btnOpenFolderAsLibrary,
     $btnLibraryRefresh,
     $btnLibraryClearFilter,
     $groupBy,
@@ -682,6 +693,8 @@ const chordProFeature = createChordProFeature({
   },
   lockElements: [
     $btnToggleLibrary,
+    $btnLibraryCatalog,
+    $btnOpenFolderAsLibrary,
     $btnLibraryRefresh,
     $btnLibraryClearFilter,
     $groupBy,
@@ -953,6 +966,12 @@ const scoreInteractionController = createScoreInteractionController({
   },
   getPlaybackRange,
   setPlaybackRange,
+  isFocusModeEnabled: playbackDomain.isFocusEnabled,
+  selectFocusMeasureAtRenderOffset: playbackDomain.selectFocusScoreMeasure,
+  clearFocusScoreSelection: playbackDomain.clearFocusScoreSelection,
+  resolveFocusMeasureNumberAtRenderOffset: playbackDomain.resolveFocusScoreMeasureNumber,
+  getFocusScoreSelectionBounds: playbackDomain.getFocusScoreSelectionBounds,
+  getFocusScoreRenderSelection: playbackDomain.getFocusScoreRenderSelection,
 });
 const centerRenderPaneOnCurrentAnchor = scoreInteractionController.centerCurrentAnchor;
 const errorsFeature = createErrorsFeature({
@@ -1782,6 +1801,9 @@ playbackDomain.initialize({
       focusButton: $btnFocusMode,
       practiceTempoWrap: $practiceTempoWrap,
       practiceTempo: $practiceTempo,
+      practiceTempoValue: $practiceTempoValue,
+      practiceTempoDown: $practiceTempoDown,
+      practiceTempoUp: $practiceTempoUp,
       practiceFocusRangeGroup: $practiceFocusRangeGroup,
       practiceFocusOptionsGroup: $practiceFocusOptionsGroup,
       practiceFocusVoicesGroup: $practiceFocusVoicesGroup,
@@ -1800,6 +1822,9 @@ playbackDomain.initialize({
       selectionMutedVoices: $selectionMutedVoices,
       selectionLoopWrap: $selectionLoopWrap,
       selectionLoopEnabled: $selectionLoopEnabled,
+      scoreToolbar: $scoreToolbar,
+      practiceControls: $practiceControls,
+      rightControls: $rightControls,
     },
     ui: {
       renderPane: $renderPane,
@@ -2459,6 +2484,10 @@ diagnosticsDomain.installDevUiSmoke({
   },
   getState: () => ({
     ...playbackDomain.getUiState(),
+    selection: editorRuntime.getView() ? {
+      from: editorRuntime.getView().state.selection.main.from,
+      to: editorRuntime.getView().state.selection.main.to,
+    } : null,
     soundfont: playbackDomain.getDiagnosticsSnapshot().soundfont,
     payloadMode: isPayloadMode(),
   }),
@@ -2798,6 +2827,7 @@ function initEditor() {
       updatePlaybackRangeFromSelection,
       getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
       handlePlaybackSelectionTransportState: playbackDomain.handleEditorSelectionTransportState,
+      updatePracticeUi: playbackDomain.updatePracticeUi,
       clearPracticeHighlight: () => {
         setPracticeBarHighlight(null);
         clearSvgPracticeBarHighlight();
@@ -3452,6 +3482,9 @@ appCommandsDomain = createAppCommandsDomain({
   },
   elements: {
     toggleLibraryButton: $btnToggleLibrary,
+    libraryToolbarMenu: $libraryToolbarMenu,
+    libraryCatalogButton: $btnLibraryCatalog,
+    openFolderAsLibraryButton: $btnOpenFolderAsLibrary,
     libraryRefreshButton: $btnLibraryRefresh,
     scanErrorTunesButton: $scanErrorTunes,
     fileNewButton: $btnFileNew,

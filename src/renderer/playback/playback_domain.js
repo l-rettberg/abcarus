@@ -297,6 +297,18 @@ export function createPlaybackDomain({
         ? controller.computePlaybackPlan()
         : { ok: false, reason: "Cannot resolve visible scope in Focus mode." };
     },
+    clearFocusScoreSelection: () => {
+      const controller = getFocusController();
+      return controller ? controller.clearScoreSelection() : false;
+    },
+    getFocusScoreSelectionBounds: () => {
+      const controller = getFocusController();
+      return controller ? controller.getFocusScoreSelectionBounds() : null;
+    },
+    getFocusScoreRenderSelection: () => {
+      const controller = getFocusController();
+      return controller ? controller.getFocusScoreRenderSelection() : null;
+    },
     normalizeFocusLoopBounds: (fromMeasure, toMeasure) => {
       const controller = getFocusController();
       return controller
@@ -306,6 +318,14 @@ export function createPlaybackDomain({
     normalizeFocusLoopBoundsForPlayback: () => {
       const controller = getFocusController();
       return controller ? controller.normalizeLoopBoundsForPlayback() : false;
+    },
+    resolveFocusScoreMeasureNumber: (renderOffset) => {
+      const controller = getFocusController();
+      return controller ? controller.resolveScoreMeasureNumber(renderOffset) : null;
+    },
+    selectFocusScoreMeasure: (measure) => {
+      const controller = getFocusController();
+      return controller ? controller.selectScoreMeasureAtRenderOffset(measure) : null;
     },
     maybeScrollEditorToOffset: (offset) => (
       requireController("follow").maybeScrollEditorToOffset(offset)

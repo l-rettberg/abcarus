@@ -220,6 +220,9 @@ function createAppCommandsDomain({
   function wireTopToolbar() {
     const {
       toggleLibraryButton,
+      libraryToolbarMenu,
+      libraryCatalogButton,
+      openFolderAsLibraryButton,
       libraryRefreshButton,
       scanErrorTunesButton,
       fileNewButton,
@@ -233,12 +236,34 @@ function createAppCommandsDomain({
     } = elements;
 
     if (toggleLibraryButton) {
-      toggleLibraryButton.addEventListener("click", (event) => {
-        if (event && event.shiftKey) {
-          call(actions.openLibraryCatalog);
-          return;
-        }
+      toggleLibraryButton.addEventListener("click", () => {
         call(actions.toggleLibrary);
+      });
+    }
+
+    const closeLibraryToolbarMenu = () => {
+      if (libraryToolbarMenu) libraryToolbarMenu.open = false;
+    };
+    if (libraryCatalogButton) {
+      libraryCatalogButton.addEventListener("click", () => {
+        closeLibraryToolbarMenu();
+        call(actions.openLibraryCatalog);
+      });
+    }
+    if (openFolderAsLibraryButton) {
+      openFolderAsLibraryButton.addEventListener("click", () => {
+        closeLibraryToolbarMenu();
+        guardedRun(actions.scanAndLoadLibrary);
+      });
+    }
+    if (libraryToolbarMenu && documentRef) {
+      documentRef.addEventListener("pointerdown", (event) => {
+        if (!libraryToolbarMenu.open || libraryToolbarMenu.contains(event.target)) return;
+        closeLibraryToolbarMenu();
+      });
+      documentRef.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !libraryToolbarMenu.open) return;
+        closeLibraryToolbarMenu();
       });
     }
 

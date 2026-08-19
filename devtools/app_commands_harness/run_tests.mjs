@@ -19,30 +19,53 @@ function createButton() {
     addEventListener(type, handler) {
       if (type === "click") clickHandler = handler;
     },
-    click() {
+    click(event = {}) {
       assert.equal(typeof clickHandler, "function");
-      clickHandler({ shiftKey: false });
+      clickHandler(event);
     },
   };
 }
 
 const newTuneButton = createButton();
+const toggleLibraryButton = createButton();
+const libraryCatalogButton = createButton();
+const openFolderAsLibraryButton = createButton();
+const libraryToolbarMenu = {
+  open: true,
+  contains: () => false,
+};
 const documentRef = {
   activeElement: null,
   addEventListener() {},
 };
 let newTuneCalls = 0;
+let newFromTemplateCalls = 0;
+let templatesCalls = 0;
+let toggleLibraryCalls = 0;
+let libraryCatalogCalls = 0;
+let openFolderCalls = 0;
 let libraryMetadataCalls = 0;
 
 const domain = createAppCommandsDomain({
   documentRef,
-  elements: { newTuneButton },
+  elements: {
+    newTuneButton,
+    toggleLibraryButton,
+    libraryToolbarMenu,
+    libraryCatalogButton,
+    openFolderAsLibraryButton,
+  },
   state: {
     isPayloadMode: () => false,
     isRawModeActive: () => false,
   },
   actions: {
     fileNewTune: async () => { newTuneCalls += 1; },
+    fileNewFromTemplate: async () => { newFromTemplateCalls += 1; },
+    openTemplatesModal: async () => { templatesCalls += 1; },
+    toggleLibrary: () => { toggleLibraryCalls += 1; },
+    openLibraryCatalog: () => { libraryCatalogCalls += 1; },
+    scanAndLoadLibrary: async () => { openFolderCalls += 1; },
     openLibraryMetadata: () => { libraryMetadataCalls += 1; },
   },
 });
@@ -51,6 +74,21 @@ domain.wire();
 newTuneButton.click();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(newTuneCalls, 1, "New Tune toolbar button must dispatch the canonical fileNewTune action");
+toggleLibraryButton.click({ shiftKey: true });
+assert.equal(toggleLibraryCalls, 1, "Library primary action must always toggle the Tree");
+assert.equal(libraryCatalogCalls, 0, "Library Catalog must not depend on hidden Shift-click behavior");
+libraryCatalogButton.click();
+assert.equal(libraryToolbarMenu.open, false);
+assert.equal(libraryCatalogCalls, 1, "Library dropdown must expose Catalog");
+libraryToolbarMenu.open = true;
+openFolderAsLibraryButton.click();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(libraryToolbarMenu.open, false);
+assert.equal(openFolderCalls, 1, "Library dropdown must expose Open Folder as Library");
+await domain.dispatch("newFromTemplate");
+await domain.dispatch("templatesModal");
+assert.equal(newFromTemplateCalls, 1, "New Tune From Template must retain its new-file contract");
+assert.equal(templatesCalls, 1, "Templates Library must remain distinct from New Tune");
 await domain.dispatch("libraryMetadata");
 assert.equal(libraryMetadataCalls, 1, "Tools -> Library Metadata must dispatch its feature action");
 

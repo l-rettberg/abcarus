@@ -25,6 +25,7 @@ export function createMainEditorUpdateRuntime({
   updatePlaybackRangeFromSelection = () => {},
   getActiveErrorHighlight = () => null,
   handlePlaybackSelectionTransportState = () => {},
+  updatePracticeUi = () => {},
   clearPracticeHighlight = () => {},
   setCursorStatus = () => {},
 } = {}) {
@@ -92,6 +93,7 @@ export function createMainEditorUpdateRuntime({
     }
 
     if (update.selectionSet || update.docChanged) {
+      updatePracticeUi();
       const pos = update.state.selection.main.head;
       const lineInfo = update.state.doc.lineAt(pos);
       setCursorStatus(

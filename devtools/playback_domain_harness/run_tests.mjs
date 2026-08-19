@@ -27,6 +27,56 @@ const { createPlaybackTransportState } = await importBundledModule(
 const { createPlaybackTransportController } = await importBundledModule(
   "src/renderer/playback/playback_transport_controller.js",
 );
+const {
+  advanceFocusScoreSelection,
+  advanceScoreRenderSelection,
+  applyScoreRenderSelectionToFocusPlan,
+  resolveFocusMeasureNumberAtRenderOffset,
+} = await importBundledModule(
+  "src/renderer/playback/focus_score_selection_model.js",
+);
+
+assert.deepEqual(
+  advanceFocusScoreSelection({ fromMeasure: 0, toMeasure: 0, awaitingEnd: false }, 6),
+  { fromMeasure: 6, toMeasure: 6, awaitingEnd: true },
+);
+assert.deepEqual(
+  advanceScoreRenderSelection(null, { playStart: 900, playEnd: 940 }),
+  { playStart: 900, playEnd: 940, awaitingEnd: true },
+);
+assert.deepEqual(
+  advanceScoreRenderSelection(
+    { playStart: 900, playEnd: 940, awaitingEnd: true },
+    { playStart: 700, playEnd: 760 },
+  ),
+  { playStart: 700, playEnd: 940, awaitingEnd: false },
+);
+assert.deepEqual(
+  applyScoreRenderSelectionToFocusPlan(
+    { ok: true, plan: { startOffset: 400, endOffset: 440, mode: "segment" } },
+    { playStart: 380, playEnd: 420 },
+    (offset) => offset - 100,
+    1000,
+  ),
+  { ok: true, plan: { startOffset: 280, endOffset: 320, mode: "segment" } },
+  "physical score boundaries must override a later number-derived Focus range",
+);
+assert.deepEqual(
+  advanceFocusScoreSelection({ fromMeasure: 6, toMeasure: 6, awaitingEnd: true }, 3),
+  { fromMeasure: 3, toMeasure: 6, awaitingEnd: false },
+);
+assert.deepEqual(
+  advanceFocusScoreSelection({ fromMeasure: 3, toMeasure: 6, awaitingEnd: false }, 9),
+  { fromMeasure: 9, toMeasure: 9, awaitingEnd: true },
+);
+const scoreMeasureIndex = {
+  anchor: 0,
+  istarts: [100, 140, 180],
+  byNumber: new Map([[1, [100]], [2, [140]], [3, [180]]]),
+};
+assert.equal(resolveFocusMeasureNumberAtRenderOffset(scoreMeasureIndex, 100), 1);
+assert.equal(resolveFocusMeasureNumberAtRenderOffset(scoreMeasureIndex, 179), 2);
+assert.equal(resolveFocusMeasureNumberAtRenderOffset(scoreMeasureIndex, 220), 3);
 
 const endState = createPlaybackTransportState();
 endState.activePlaybackRange = { startOffset: 0, endOffset: null, origin: "transport", loop: false };
@@ -58,6 +108,12 @@ const controller = createPlaybackTransportController({
   setSoundfontCaption: () => {},
   showToast: () => {},
 });
+controllerTransport.practiceTempoMultiplier = 0.75;
+assert.equal(
+  controller.buildTransportPlaybackPlan().tempoMultiplier,
+  0.75,
+  "runtime tempo multiplier must apply outside Focus mode",
+);
 await controller.transportPlay();
 assert.deepEqual(startCalls, [0]);
 assert.equal(controllerTransport.restartOnNextPlay, false);
@@ -84,6 +140,11 @@ const focusController = {
   normalizeLoopBounds: (from, to) => ({ from, to }),
   normalizeLoopBoundsForPlayback: () => true,
   maybeResetLoopForTune: (...args) => focusCalls.push(args),
+  clearScoreSelection: () => "cleared",
+  getFocusScoreSelectionBounds: () => ({ fromMeasure: 2, toMeasure: 5 }),
+  getFocusScoreRenderSelection: () => ({ playStart: 20, playEnd: 80 }),
+  resolveScoreMeasureNumber: (offset) => offset + 1,
+  selectScoreMeasureAtRenderOffset: (offset) => ({ selected: offset }),
   setEnabled: (...args) => focusCalls.push(["setEnabled", ...args]),
   toggle: () => focusCalls.push(["toggle"]),
 };
@@ -107,6 +168,11 @@ assert.equal(domain.isFollowEnabled(), true);
 domain.setFollowEnabled(false);
 assert.equal(domain.isFollowEnabled(), false);
 assert.deepEqual(domain.computeFocusPlan(), { ok: true, start: 4 });
+assert.equal(domain.clearFocusScoreSelection(), "cleared");
+assert.deepEqual(domain.getFocusScoreSelectionBounds(), { fromMeasure: 2, toMeasure: 5 });
+assert.deepEqual(domain.getFocusScoreRenderSelection(), { playStart: 20, playEnd: 80 });
+assert.equal(domain.resolveFocusScoreMeasureNumber(8), 9);
+assert.deepEqual(domain.selectFocusScoreMeasure(8), { selected: 8 });
 assert.deepEqual(domain.normalizeFocusLoopBounds(2, 7), { from: 2, to: 7 });
 assert.equal(domain.normalizeFocusLoopBoundsForPlayback(), true);
 domain.resetFocusLoopForTune("tune-1", { updateUi: false });

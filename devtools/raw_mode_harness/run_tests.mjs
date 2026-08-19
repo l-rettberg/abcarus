@@ -29,6 +29,17 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
   let confirmCalls = 0;
   let fileContextUpdates = 0;
   const writes = [];
+  const rawButtonState = { active: false, ariaPressed: "false" };
+  const rawButton = {
+    classList: {
+      toggle(name, enabled) {
+        if (name === "toggle-active") rawButtonState.active = Boolean(enabled);
+      },
+    },
+    setAttribute(name, value) {
+      if (name === "aria-pressed") rawButtonState.ariaPressed = String(value);
+    },
+  };
 
   const tunes = [
     {
@@ -55,7 +66,7 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
   const fileEntry = { path: filePath, basename: "raw-mode.abc", headerEndOffset: 18, tunes };
 
   const feature = createRawModeFeature({
-    elements: {},
+    elements: { rawButton },
     getCurrentDoc: () => currentDoc,
     patchCurrentDoc: (patch) => {
       currentDoc = { ...(currentDoc || {}), ...patch };
@@ -135,6 +146,7 @@ function createHarness({ readDelay = 0, confirmChoice = "cancel" } = {}) {
     get confirmCalls() { return confirmCalls; },
     get fileContextUpdates() { return fileContextUpdates; },
     get writes() { return writes; },
+    get rawButtonState() { return { ...rawButtonState }; },
     markDirty() { currentDoc = { ...currentDoc, dirty: true }; },
   };
 }
@@ -143,6 +155,7 @@ async function testCleanRawRoundTripDoesNotDirtyDocument() {
   const h = createHarness();
   await h.feature.enter();
   assert.equal(h.feature.isEnabled(), true, "raw mode should be enabled after enter");
+  assert.deepEqual(h.rawButtonState, { active: true, ariaPressed: "true" }, "raw button should expose its active state");
   assert.equal(h.currentDoc.dirty, false, "raw enter should keep current document clean");
   assert.equal(h.dirtyIndicator, false, "raw enter should clear dirty indicator");
   assert.equal(h.rawContextCalls, 1, "raw enter should establish full-file context once");
@@ -154,6 +167,7 @@ async function testCleanRawRoundTripDoesNotDirtyDocument() {
     },
   });
   assert.equal(h.feature.isEnabled(), false, "raw mode should be disabled after exit");
+  assert.deepEqual(h.rawButtonState, { active: false, ariaPressed: "false" }, "raw button should clear its active state");
   assert.equal(h.currentDoc.dirty, false, "raw exit should restore a clean tune document");
 
   await h.feature.enter();

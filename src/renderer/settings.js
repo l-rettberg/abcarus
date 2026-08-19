@@ -22,6 +22,7 @@ import {
   interfaceFontFamilyForFile as buildInterfaceFontFamily,
   isSoundfontPath,
   normalizeFontCatalog,
+  normalizeEditorFontFamily,
   normalizeUserFontFiles,
   settingsPatchForRemovedUserFont as buildRemovedFontSettingsPatch,
   safeBasename,
@@ -108,7 +109,7 @@ const FALLBACK_SCHEMA = [
   { key: "uiFontSize", type: "number", default: 13, section: "Fonts", group: "Interface", label: "Font size", ui: { input: "number", min: 10, max: 28, step: 1 } },
   { key: "libraryUiFontFamily", type: "string", default: "system-ui, -apple-system, \"Segoe UI\", Roboto, Ubuntu, Cantarell, \"Noto Sans\", sans-serif", section: "Fonts", group: "Interface", label: "Library font family", ui: { input: "select", options: "interfaceFonts" } },
   { key: "libraryUiFontSize", type: "number", default: 12, section: "Fonts", group: "Interface", label: "Library font size", ui: { input: "number", min: 10, max: 40, step: 1 } },
-  { key: "editorFontFamily", type: "string", default: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", section: "Fonts", group: "Editor", label: "Font family", ui: { input: "text" } },
+  { key: "editorFontFamily", type: "string", default: "\"ABCarus DejaVu Sans Mono\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", section: "Fonts", group: "Editor", label: "Font family", ui: { input: "text" } },
   { key: "editorFontSize", type: "number", default: 13, section: "Fonts", group: "Editor", label: "Font size", ui: { input: "number", min: 8, max: 32, step: 1 } },
   { key: "editorNotesBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Notes", ui: { input: "checkbox" } },
   { key: "editorLyricsBold", type: "boolean", default: true, section: "Fonts", group: "Editor", label: "Lyrics", ui: { input: "checkbox" } },
@@ -628,6 +629,10 @@ export function initSettings(api) {
 
   function applySettings(settings) {
     currentSettings = { ...defaultSettings, ...(settings || {}) };
+    currentSettings.editorFontFamily = normalizeEditorFontFamily(
+      currentSettings.editorFontFamily,
+      defaultSettings.editorFontFamily,
+    );
     const effectiveSettings = getEffectiveSettings();
     ensureUserFontFaces();
 

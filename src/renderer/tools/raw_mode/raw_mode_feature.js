@@ -103,7 +103,10 @@ function createRawModeFeature({
     if (next) setFocusModeEnabled(false);
     if (next) setBarMismatchMarkers([]);
     if (documentRef && documentRef.body) documentRef.body.classList.toggle("raw-mode", next);
-    if (elements.rawButton) elements.rawButton.classList.toggle("toggle-active", next);
+    if (elements.rawButton) {
+      elements.rawButton.classList.toggle("toggle-active", next);
+      elements.rawButton.setAttribute("aria-pressed", next ? "true" : "false");
+    }
     applyRightSplitSizesFromRatio();
     if (elements.playPauseButton) elements.playPauseButton.disabled = next;
     if (elements.stopButton) elements.stopButton.disabled = next;

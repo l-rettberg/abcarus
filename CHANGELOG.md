@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [1.6.0] - 2026-08-19
 ### Added
 - Library grouping and search now understand repeated namespaced `G:` metadata for makam, form, repertoire, cultural context, and period.
 - `Tools → Library Metadata…` safely adds catalog tags to the current tune or every tune in the active ABC file, with an affected-tune preview and idempotent writes.
@@ -21,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Score-selected Focus ranges use their exact rendered source offsets, avoiding shifted playback starts in tunes with multiple repeat sections and ambiguous display bar numbers.
 - Loop Selection is shown only when the editor has an actual text selection.
-
 
 ## [1.5.0] - 2026-08-16
 ### Added

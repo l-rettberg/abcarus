@@ -1936,6 +1936,7 @@ function buildTunesFromContent(absPath, content) {
       _xValid: xValid,
       title,
       composer: header.composer,
+      composers: header.composers,
       key: header.key,
       meter: header.meter,
       unitLength: header.unitLength,

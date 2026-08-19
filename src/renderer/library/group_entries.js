@@ -18,6 +18,24 @@ const GROUP_LABELS = {
   period: "Period",
 };
 
+function getGroupLabel(mode) {
+  if (GROUP_LABELS[mode]) return GROUP_LABELS[mode];
+  const value = String(mode || "").replace(/[_-]+/g, " ").trim();
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "Group";
+}
+
+function getEditableCategory(mode, value, tune, isUnknown) {
+  if (isUnknown) return null;
+  if (mode === "composer") return { categoryType: "field:C", field: "C", value };
+  if (mode === "group" && !/^\[[A-Za-z][A-Za-z0-9_-]*\]\s*\S/.test(value)) {
+    return { categoryType: "field:G", field: "G", value };
+  }
+  if (Object.prototype.hasOwnProperty.call(tune.catalogFacets || {}, mode)) {
+    return { categoryType: `facet:${mode}`, facet: mode, value };
+  }
+  return null;
+}
+
 function getGroupValues(tune, mode, { normalizeTitleKey = null } = {}) {
   if (!tune) return [];
   if (mode === "x") return [tune.xNumber || ""];
@@ -29,12 +47,17 @@ function getGroupValues(tune, mode, { normalizeTitleKey = null } = {}) {
     const values = Array.isArray(tune.groups) ? tune.groups : [tune.group || ""];
     return Array.from(new Set(values.filter(Boolean)));
   }
+  if (mode === "composer") {
+    const values = Array.isArray(tune.composers) && tune.composers.length
+      ? tune.composers
+      : [tune.composer || ""];
+    return Array.from(new Set(values.filter(Boolean)));
+  }
   if (Object.prototype.hasOwnProperty.call(tune.catalogFacets || {}, mode)) {
     const values = tune.catalogFacets[mode];
     return Array.from(new Set((Array.isArray(values) ? values : [values]).filter(Boolean)));
   }
   const fieldByMode = {
-    composer: "composer",
     meter: "meter",
     key: "key",
     unit: "unitLength",
@@ -71,12 +94,14 @@ function buildGroupEntries(files, mode, options = {}) {
       const values = getGroupValues(tune, mode, options).filter(Boolean);
       for (const value of values.length ? values : ["Unknown"]) {
         const groupId = `${mode}:${value}`;
+        const category = getEditableCategory(mode, value, tune, !values.length);
         if (!entries.has(groupId)) {
           entries.set(groupId, {
             id: groupId,
-            label: `${GROUP_LABELS[mode]}: ${value}`,
+            label: `${getGroupLabel(mode)}: ${value}`,
             tunes: [],
             isFile: false,
+            ...(category || {}),
             updatedAtMs: 0,
           });
         }
@@ -97,6 +122,7 @@ function buildGroupEntries(files, mode, options = {}) {
 export {
   GROUP_LABELS,
   buildGroupEntries,
+  getGroupLabel,
   getGroupValue,
   getGroupValues,
 };

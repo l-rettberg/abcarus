@@ -32,6 +32,7 @@ function createLibraryContextMenu({
   updateLibraryStatus = () => {},
   refreshLibraryIndex = async () => {},
   beginRenameFile = () => {},
+  renameCatalogCategory = () => false,
   openXIssues = async () => {},
   renumberXInActiveFile = async () => {},
   openMoveTuneModal = () => {},
@@ -165,6 +166,11 @@ function createLibraryContextMenu({
     if (action === "renameFile" && menuTarget && menuTarget.type === "file") {
       beginRenameFile(menuTarget.filePath);
       hide();
+      return;
+    }
+    if (action === "renameCatalogCategory" && menuTarget && menuTarget.type === "category") {
+      hide();
+      renameCatalogCategory(menuTarget);
       return;
     }
     if (action === "xIssues" && menuTarget && menuTarget.type === "file") {
@@ -301,6 +307,10 @@ function createLibraryContextMenu({
         );
       }
       buildItems(items);
+    } else if (target.type === "category") {
+      buildItems([
+        { label: "Rename / Merge Category...", action: "renameCatalogCategory" },
+      ]);
     } else if (target.type === "library") {
       buildItems([
         { label: "Refresh Library", action: "refreshLibrary" },

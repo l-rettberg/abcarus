@@ -17,6 +17,7 @@ function parseCatalogGroupValues(groups) {
 function extractTuneHeader(lines, startIdx, endIdx) {
   let title = "";
   let composer = "";
+  const composers = [];
   let key = "";
   let meter = "";
   let unitLength = "";
@@ -33,7 +34,11 @@ function extractTuneHeader(lines, startIdx, endIdx) {
     const isHeader = /^[A-Za-z]:/.test(line) || /^%/.test(line);
     if (isHeader) sawHeader = true;
     if (!title && /^T:/.test(line)) title = line.slice(2).trim();
-    if (!composer && /^C:/.test(line)) composer = line.slice(2).trim();
+    if (/^C:/.test(line)) {
+      const value = line.slice(2).trim();
+      if (value && !composers.includes(value)) composers.push(value);
+      if (!composer) composer = value;
+    }
     if (!key && /^K:/.test(line)) key = line.slice(2).trim();
     if (!meter && /^M:/.test(line)) meter = line.slice(2).trim();
     if (!unitLength && /^L:/.test(line)) unitLength = line.slice(2).trim();
@@ -51,6 +56,7 @@ function extractTuneHeader(lines, startIdx, endIdx) {
   return {
     title,
     composer,
+    composers,
     key,
     meter,
     unitLength,

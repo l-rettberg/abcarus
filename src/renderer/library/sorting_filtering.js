@@ -250,6 +250,7 @@ function tuneMatchesText(tune, needle, options = {}) {
   if (matchLibraryText(tune.title, needle)) return true;
   if (matchLibraryText(tune.preview, needle)) return true;
   if (matchLibraryText(tune.composer, needle)) return true;
+  if (matchLibraryValues(tune.composers, needle)) return true;
   if (matchLibraryText(tune.key, needle)) return true;
   if (matchLibraryText(tune.meter, needle)) return true;
   if (matchLibraryText(tune.unitLength, needle)) return true;

@@ -20,6 +20,8 @@ const { createLibraryViewStore } = await importRendererModule("src/renderer/libr
 const {
   addFacetToAllTunes,
   addFacetToTuneText,
+  replaceFacetInFileText,
+  replacePlainHeaderFieldInFileText,
 } = await importRendererModule("src/renderer/library/catalog_metadata_transform.js");
 
 const featureBundle = await build({
@@ -31,6 +33,16 @@ const featureBundle = await build({
 });
 const featureEncoded = Buffer.from(featureBundle.outputFiles[0].text, "utf8").toString("base64");
 const { createCatalogMetadataFeature } = await import(`data:text/javascript;base64,${featureEncoded}`);
+
+const mergeBundle = await build({
+  entryPoints: ["src/renderer/library/catalog_category_merge_controller.js"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  write: false,
+});
+const mergeEncoded = Buffer.from(mergeBundle.outputFiles[0].text, "utf8").toString("base64");
+const { replaceCatalogCategoryTransaction } = await import(`data:text/javascript;base64,${mergeEncoded}`);
 
 const lines = [
   "X:1",
@@ -58,6 +70,9 @@ assert.deepEqual(header.catalogFacets, {
   cultural: ["Ottoman Armenian"],
 });
 assert.deepEqual(parseCatalogGroupValues(["[custom] Value", "unstructured"]), { custom: ["Value"] });
+const multiComposerHeader = extractTuneHeader(["X:3", "T:Collaboration", "C:First", "C:Second", "K:C", ""], 0, 5);
+assert.equal(multiComposerHeader.composer, "First");
+assert.deepEqual(multiComposerHeader.composers, ["First", "Second"]);
 assert.deepEqual(parseCatalogGroupValues(["[constructor] ignored"]), {}, "unsafe object keys are not indexed");
 assert.deepEqual(
   extractTuneHeader(["X:2", "T:No facets", "M:9/8", "K:D", ""], 0, 4).catalogFacets,
@@ -82,6 +97,22 @@ const makamEntries = buildGroupEntries(files, "makam");
 assert.deepEqual(makamEntries.map((entry) => entry.label), ["Makam: Hicaz", "Makam: Uşşak"]);
 assert.ok(makamEntries.every((entry) => entry.tunes.length === 1));
 assert.equal(buildGroupEntries(files, "period")[0].label, "Period: Unknown");
+const customTune = { ...tune, catalogFacets: { custom_style: ["Old Name"] } };
+const customEntry = buildGroupEntries([{ ...files[0], tunes: [customTune] }], "custom_style")[0];
+assert.equal(customEntry.label, "Custom style: Old Name");
+assert.equal(customEntry.facet, "custom_style");
+assert.equal(customEntry.value, "Old Name");
+const composerEntry = buildGroupEntries([{ ...files[0], tunes: [{ ...tune, composer: "Old Composer" }] }], "composer")[0];
+assert.equal(composerEntry.categoryType, "field:C");
+assert.equal(composerEntry.field, "C");
+assert.deepEqual(
+  buildGroupEntries([{ ...files[0], tunes: [{ ...tune, composer: "First", composers: ["First", "Second"] }] }], "composer").map((entry) => entry.value),
+  ["First", "Second"],
+);
+const plainGroupTune = { ...tune, groups: ["Collection", "[makam] Hicaz"] };
+const plainGroupEntries = buildGroupEntries([{ ...files[0], tunes: [plainGroupTune] }], "group");
+assert.equal(plainGroupEntries.find((entry) => entry.value === "Collection").categoryType, "field:G");
+assert.equal(plainGroupEntries.find((entry) => entry.label === "G: [makam] Hicaz").categoryType, undefined);
 
 assert.equal(applyLibraryTextFilter(files, "ottoman").length, 1, "facet values must be searchable");
 assert.equal(applyLibraryTextFilter(files, "uşşak").length, 1, "repeated facet values must be searchable");
@@ -122,6 +153,113 @@ assert.equal(addedToFile.changed, 1);
 assert.equal(addedToFile.existing, 1);
 assert.equal((addedToFile.text.match(/G:\[period\] Contemporary/g) || []).length, 2);
 assert.ok(addedToFile.text.startsWith("% file header\nX:1"), "file preamble must remain unchanged");
+
+const mergeText = [
+  "G:[makam] File header must stay",
+  "X:1",
+  "T:One",
+  "G:[makam] Kürdîli Hicazkâr",
+  "G:[form] Kürdîli Hicazkâr",
+  "K:C",
+  "C|",
+  "",
+  "X:2",
+  "T:Two",
+  "G:[makam] Kürdilihicazkâr",
+  "G:[makam] Kürdîli Hicazkâr",
+  "K:D",
+  "D|",
+  "",
+].join("\r\n");
+const merged = replaceFacetInFileText(mergeText, "makam", "Kürdîli Hicazkâr", "Kürdilihicazkâr");
+assert.equal(merged.tunesChanged, 2);
+assert.equal((merged.text.match(/G:\[makam\] Kürdilihicazkâr/g) || []).length, 2, "merge must leave one target tag per tune");
+assert.ok(merged.text.startsWith("G:[makam] File header must stay\r\n"), "file-header metadata must not be rewritten");
+assert.ok(merged.text.includes("G:[form] Kürdîli Hicazkâr\r\n"), "another facet namespace must not be rewritten");
+assert.ok(!/(?<!\r)\n/.test(merged.text), "CRLF must be preserved");
+
+const plainFieldText = [
+  "C:File Header Composer",
+  "X:1",
+  "T:One",
+  "C:Old Composer",
+  "G:Old Collection",
+  "G:[cultural] Old Collection",
+  "K:C",
+  "C|",
+  "",
+].join("\n");
+const composerReplaced = replacePlainHeaderFieldInFileText(plainFieldText, "C", "Old Composer", "Canonical Composer");
+assert.equal(composerReplaced.tunesChanged, 1);
+assert.ok(composerReplaced.text.includes("C:Canonical Composer\n"));
+assert.ok(composerReplaced.text.startsWith("C:File Header Composer\n"), "file-header C must remain unchanged");
+const groupReplaced = replacePlainHeaderFieldInFileText(plainFieldText, "G", "Old Collection", "Canonical Collection");
+assert.ok(groupReplaced.text.includes("G:Canonical Collection\n"));
+assert.ok(groupReplaced.text.includes("G:[cultural] Old Collection\n"), "namespaced G must remain unchanged during plain G replacement");
+assert.equal(replacePlainHeaderFieldInFileText(plainFieldText, "T", "One", "Two").ok, false, "non-allowlisted fields must fail closed");
+
+const transactionFiles = {
+  "/music/a.abc": "X:1\nT:A\nG:[makam] Old\nK:C\nC|\n",
+  "/music/b.abc": "X:1\nT:B\nG:[makam] Old\nK:D\nD|\n",
+};
+const transactionIndex = {
+  files: Object.keys(transactionFiles).map((path) => ({
+    path,
+    tunes: [{ catalogFacets: { makam: ["Old"] } }],
+  })),
+};
+const successfulStore = { ...transactionFiles };
+const transactionResult = await replaceCatalogCategoryTransaction({
+  libraryIndex: transactionIndex,
+  facet: "makam",
+  sourceValue: "Old",
+  targetValue: "New",
+  readFile: async (path) => ({ ok: true, data: successfulStore[path] }),
+  writeFile: async (path, data, options) => {
+    assert.equal(successfulStore[path], options.expectedData);
+    successfulStore[path] = data;
+    return { ok: true };
+  },
+});
+assert.equal(transactionResult.filesChanged, 2);
+assert.equal(transactionResult.tunesChanged, 2);
+assert.ok(Object.values(successfulStore).every((text) => text.includes("G:[makam] New")));
+
+const rollbackStore = { ...transactionFiles };
+let rejectedSecondWrite = false;
+await assert.rejects(() => replaceCatalogCategoryTransaction({
+  libraryIndex: transactionIndex,
+  facet: "makam",
+  sourceValue: "Old",
+  targetValue: "New",
+  readFile: async (path) => ({ ok: true, data: rollbackStore[path] }),
+  writeFile: async (path, data, options) => {
+    if (path === "/music/b.abc" && !rejectedSecondWrite) {
+      rejectedSecondWrite = true;
+      return { ok: false, error: "simulated failure" };
+    }
+    assert.equal(rollbackStore[path], options.expectedData);
+    rollbackStore[path] = data;
+    return { ok: true };
+  },
+}), /simulated failure/);
+assert.deepEqual(rollbackStore, transactionFiles, "a later write failure must roll back earlier files");
+
+const composerStore = { "/music/c.abc": "X:1\nT:C\nC:Old Composer\nK:C\nC|\n" };
+const composerResult = await replaceCatalogCategoryTransaction({
+  libraryIndex: { files: [{ path: "/music/c.abc", tunes: [{ composer: "Old Composer" }] }] },
+  category: { field: "C" },
+  sourceValue: "Old Composer",
+  targetValue: "Canonical Composer",
+  readFile: async (path) => ({ ok: true, data: composerStore[path] }),
+  writeFile: async (path, data, options) => {
+    assert.equal(composerStore[path], options.expectedData);
+    composerStore[path] = data;
+    return { ok: true };
+  },
+});
+assert.equal(composerResult.category.field, "C");
+assert.ok(composerStore["/music/c.abc"].includes("C:Canonical Composer"));
 
 function fakeElement(value = "") {
   return {

@@ -24,7 +24,7 @@ If you are new to ABC notation itself, use:
 - `Help → ABC Guide (F1)` (general ABC tutorial)
 
 If you already have `.abc` files, the fastest “ABCarus way” is:
-1) `File → Open Library Folder…`
+1) `File → Open Folder as Library…`
 2) Select a tune in the library.
 3) Edit on the left, preview on the right.
 4) `File → Save` (see “Saving” below).
@@ -41,10 +41,11 @@ If you already have `.abc` files, the fastest “ABCarus way” is:
 - The file opens in the editor, with notation preview on the right.
 
 ### Open a library folder (recommended for collections)
-- Menu: `File → Open Library Folder…`
+- Menu: `File → Open Folder as Library…`
 - ABCarus scans the folder recursively and builds a sidebar library of tunes.
 
 Tips:
+- The dropdown beside the toolbar `Library` button exposes both `Library Catalog…` and `Open Folder as Library…`.
 - Use `View → Toggle Library` to show/hide the library sidebar.
 - Use `View → Library Catalog…` for a list-style browser of tunes.
 
@@ -96,12 +97,12 @@ If there is no selected target file when an append-save is needed, ABCarus shows
 ### Creating a new tune (recommended)
 To create a new tune inside an existing multi-tune file:
 1) Open/select the target `.abc` file.
-2) Use either:
-   - `File → New Tune (Draft in Active File)` or
-   - `File → New Tune From Template`
+2) Use `File → New Tune (Add to Active File)`.
 3) Edit the draft, then press `File → Save`.
 
 ABCarus appends the new tune to the end of the active file and assigns `X:` as `max(X:)+1`.
+
+`Templates Library…` inserts, replaces, or appends reusable snippets. `New Tune From Template` instead creates a new file from the bundled starter template; these actions intentionally remain separate.
 
 ### Unsaved changes prompts
 Destructive actions (open/close/quit, etc.) prompt you when there are unsaved changes. Choosing Cancel leaves the current file/tune unchanged.
@@ -139,15 +140,26 @@ Important notes:
 
 ## 8) Playback (audio)
 
+- The score toolbar above the rendered notation contains Play/Pause, Stop, Start Over, and runtime tempo controls.
 - Menu: `Play → Play / Pause` (`F5`)
 - Menu: `Play → Start Over` (`F4`)
 - Menu: `Play → Go to Measure…`
 
 During playback, ABCarus highlights notes in both the editor and the preview.
 
+The tempo slider and `−`/`+` buttons adjust playback without changing `Q:` or making the document dirty. For a simple `Q:fraction=number` declaration, ABCarus shows the effective BPM and beat unit. For other valid but more complex `Q:` forms, it shows the relative percentage instead of guessing.
+
+### Focus range from the score
+- Double-click a measure in the rendered score to select it for playback in normal or Focus mode.
+- Double-click another measure to extend the range; the endpoints are ordered automatically.
+- A further double-click starts a new range. A single click clears the score range.
+- The selected measures are shaded. In Focus mode, the same boundaries appear in the From/To controls.
+- Editing the range while playback is active stops playback before applying the new boundaries.
+
 ### Selection playback
 - Playback is selection-first.
 - If text is selected in the editor, Play runs that selected range.
+- The `Loop selection` control above the score appears only while text is selected.
 - If nothing is selected, Play runs from normal transport context.
 - Loop/repeat/mute behavior for selection playback is configured in Settings:
   - `Playback -> Selection -> Loop selection`
@@ -170,8 +182,14 @@ PDF / print:
 Source links:
 - A valid `F:https://…` field is shown as a source action and can be included in print/PDF output.
 - `Tools → Source Links → Update YouTube Metadata (Active File)…` reads YouTube titles and channels for all YouTube `F:` links in the active file.
-- After confirmation, ABCarus writes managed `N:[YouTube title]` and `N:[YouTube channel]` lines immediately after each corresponding `F:` line.
-- Existing user-authored `N:` fields are preserved. Unavailable links are reported but are not written into the ABC file.
+- After confirmation, ABCarus writes managed `D:[YouTube title]` and `D:[YouTube channel]` discography lines immediately after each corresponding `F:` line.
+
+### Library metadata
+
+`Tools → Library Metadata…` adds namespaced `G:` catalog metadata to the current tune or every tune in the active ABC file. Supported categories are Makam, Form, Repertoire, Cultural, and Period.
+
+Current Tune updates the editor and becomes an ordinary unsaved change. All Tunes in File requires a clean document, previews the number of affected tunes, writes the file atomically, and reloads the active tune. Existing identical tags are left unchanged.
+- Existing user-authored `N:` fields are preserved. YouTube metadata written previously as managed `N:` lines is migrated to `D:` on update. Unavailable links are reported but are not written into the ABC file.
 
 MusicXML:
 - Import: `File → Import → MusicXML…`
@@ -278,7 +296,7 @@ Reference for advanced directives:
 These are the default menu shortcuts:
 
 - Open: `Ctrl/Cmd+O`
-- Open Library Folder: `Ctrl/Cmd+Shift+O`
+- Open Folder as Library: `Ctrl/Cmd+Shift+O`
 - Save: `Ctrl/Cmd+S`
 - Save As: `Ctrl/Cmd+Shift+S`
 - Find: `Ctrl/Cmd+F`

@@ -166,6 +166,7 @@ import { createFileConflictState } from "./app/document/file_conflict_state.js";
 import { createFileReloadController } from "./app/document/file_reload_controller.js";
 import { createCurrentDocumentController } from "./app/document/current_document_controller.js";
 import { createAppCommandsDomain } from "./app/commands/app_commands_domain.js";
+import { createCatalogMetadataFeature } from "./library/catalog_metadata_feature.js";
 import {
   SAVE_INTENT,
   createDocumentSessionController,
@@ -234,6 +235,9 @@ const $btnLibraryRefresh = document.getElementById("btnLibraryRefresh");
 const $libraryRoot = document.getElementById("libraryRoot");
 const $btnLibraryClearFilter = document.getElementById("btnLibraryClearFilter");
 const $btnToggleLibrary = document.getElementById("btnToggleLibrary");
+const $libraryToolbarMenu = document.getElementById("libraryToolbarMenu");
+const $btnLibraryCatalog = document.getElementById("btnLibraryCatalog");
+const $btnOpenFolderAsLibrary = document.getElementById("btnOpenFolderAsLibrary");
 const $btnFileNew = document.getElementById("btnFileNew");
 const $btnFileOpen = document.getElementById("btnFileOpen");
 const $btnFileSave = document.getElementById("btnFileSave");
@@ -255,6 +259,9 @@ const $selectionMutedWrap = document.getElementById("selectionMutedWrap");
 const $selectionMutedVoices = document.getElementById("selectionMutedVoices");
 const $practiceTempoWrap = document.getElementById("practiceTempoWrap");
 const $practiceTempo = document.getElementById("practiceTempo");
+const $practiceTempoValue = document.getElementById("practiceTempoValue");
+const $practiceTempoDown = document.getElementById("practiceTempoDown");
+const $practiceTempoUp = document.getElementById("practiceTempoUp");
 const $practiceFocusRangeGroup = document.getElementById("practiceFocusRangeGroup");
 const $practiceFocusOptionsGroup = document.getElementById("practiceFocusOptionsGroup");
 const $practiceFocusVoicesGroup = document.getElementById("practiceFocusVoicesGroup");
@@ -270,9 +277,12 @@ const $btnResetLayout = document.getElementById("btnResetLayout");
 const $btnSettings = document.getElementById("btnSettings");
 const $btnToggleSplit = document.getElementById("btnToggleSplit");
 	const $btnFocusMode = document.getElementById("btnFocusMode");
-	const $btnToggleFollow = document.getElementById("btnToggleFollow");
-	const $btnToggleGlobals = document.getElementById("btnToggleGlobals");
-	const $btnToggleErrors = document.getElementById("btnToggleErrors");
+const $btnToggleFollow = document.getElementById("btnToggleFollow");
+const $btnToggleGlobals = document.getElementById("btnToggleGlobals");
+const $btnToggleErrors = document.getElementById("btnToggleErrors");
+const $scoreToolbar = document.querySelector(".score-toolbar");
+const $practiceControls = document.querySelector(".practice-controls");
+const $rightControls = document.querySelector(".right-controls");
 const $soundfontLabel = document.getElementById("soundfontLabel");
 const $rightSplit = document.querySelector(".right-split");
 const $splitDivider = document.getElementById("splitDivider");
@@ -289,6 +299,14 @@ const $errorsPopoverTitle = document.getElementById("errorsPopoverTitle");
 const $errorsListPopover = document.getElementById("errorsList");
 const $sidebarBody = document.querySelector(".sidebar-body");
 const $moveTuneModal = document.getElementById("moveTuneModal");
+const $libraryMetadataModal = document.getElementById("libraryMetadataModal");
+const $libraryMetadataClose = document.getElementById("libraryMetadataClose");
+const $libraryMetadataScope = document.getElementById("libraryMetadataScope");
+const $libraryMetadataFacet = document.getElementById("libraryMetadataFacet");
+const $libraryMetadataValue = document.getElementById("libraryMetadataValue");
+const $libraryMetadataPreview = document.getElementById("libraryMetadataPreview");
+const $libraryMetadataCancel = document.getElementById("libraryMetadataCancel");
+const $libraryMetadataApply = document.getElementById("libraryMetadataApply");
 const $moveTuneClose = document.getElementById("moveTuneClose");
 const $moveTuneTarget = document.getElementById("moveTuneTarget");
 const $moveTuneApply = document.getElementById("moveTuneApply");
@@ -588,6 +606,8 @@ const payloadModeFeature = createPayloadModeFeature({
   },
   lockElements: [
     $btnToggleLibrary,
+    $btnLibraryCatalog,
+    $btnOpenFolderAsLibrary,
     $btnLibraryRefresh,
     $btnLibraryClearFilter,
     $groupBy,
@@ -673,6 +693,8 @@ const chordProFeature = createChordProFeature({
   },
   lockElements: [
     $btnToggleLibrary,
+    $btnLibraryCatalog,
+    $btnOpenFolderAsLibrary,
     $btnLibraryRefresh,
     $btnLibraryClearFilter,
     $groupBy,
@@ -944,6 +966,12 @@ const scoreInteractionController = createScoreInteractionController({
   },
   getPlaybackRange,
   setPlaybackRange,
+  isFocusModeEnabled: playbackDomain.isFocusEnabled,
+  selectFocusMeasureAtRenderOffset: playbackDomain.selectFocusScoreMeasure,
+  clearFocusScoreSelection: playbackDomain.clearFocusScoreSelection,
+  resolveFocusMeasureNumberAtRenderOffset: playbackDomain.resolveFocusScoreMeasureNumber,
+  getFocusScoreSelectionBounds: playbackDomain.getFocusScoreSelectionBounds,
+  getFocusScoreRenderSelection: playbackDomain.getFocusScoreRenderSelection,
 });
 const centerRenderPaneOnCurrentAnchor = scoreInteractionController.centerCurrentAnchor;
 const errorsFeature = createErrorsFeature({
@@ -1773,6 +1801,9 @@ playbackDomain.initialize({
       focusButton: $btnFocusMode,
       practiceTempoWrap: $practiceTempoWrap,
       practiceTempo: $practiceTempo,
+      practiceTempoValue: $practiceTempoValue,
+      practiceTempoDown: $practiceTempoDown,
+      practiceTempoUp: $practiceTempoUp,
       practiceFocusRangeGroup: $practiceFocusRangeGroup,
       practiceFocusOptionsGroup: $practiceFocusOptionsGroup,
       practiceFocusVoicesGroup: $practiceFocusVoicesGroup,
@@ -1791,6 +1822,9 @@ playbackDomain.initialize({
       selectionMutedVoices: $selectionMutedVoices,
       selectionLoopWrap: $selectionLoopWrap,
       selectionLoopEnabled: $selectionLoopEnabled,
+      scoreToolbar: $scoreToolbar,
+      practiceControls: $practiceControls,
+      rightControls: $rightControls,
     },
     ui: {
       renderPane: $renderPane,
@@ -2450,6 +2484,10 @@ diagnosticsDomain.installDevUiSmoke({
   },
   getState: () => ({
     ...playbackDomain.getUiState(),
+    selection: editorRuntime.getView() ? {
+      from: editorRuntime.getView().state.selection.main.from,
+      to: editorRuntime.getView().state.selection.main.to,
+    } : null,
     soundfont: playbackDomain.getDiagnosticsSnapshot().soundfont,
     payloadMode: isPayloadMode(),
   }),
@@ -2789,6 +2827,7 @@ function initEditor() {
       updatePlaybackRangeFromSelection,
       getActiveErrorHighlight: () => errorsFeature.getActiveHighlight(),
       handlePlaybackSelectionTransportState: playbackDomain.handleEditorSelectionTransportState,
+      updatePracticeUi: playbackDomain.updatePracticeUi,
       clearPracticeHighlight: () => {
         setPracticeBarHighlight(null);
         clearSvgPracticeBarHighlight();
@@ -3397,6 +3436,41 @@ async function renumberXInActiveFile(explicitFilePath) {
   await renumberXAction.renumberXInActiveFile(explicitFilePath);
 }
 
+const catalogMetadataFeature = createCatalogMetadataFeature({
+  elements: {
+    modal: $libraryMetadataModal,
+    closeButton: $libraryMetadataClose,
+    cancelButton: $libraryMetadataCancel,
+    applyButton: $libraryMetadataApply,
+    scopeSelect: $libraryMetadataScope,
+    facetSelect: $libraryMetadataFacet,
+    valueInput: $libraryMetadataValue,
+    preview: $libraryMetadataPreview,
+  },
+  state: {
+    getActiveFileEntry,
+    getActiveFilePath: () => activeContext.getActiveFilePath()
+      || (activeContext.getActiveTuneMeta() && activeContext.getActiveTuneMeta().path)
+      || "",
+    getActiveTuneMeta: () => activeContext.getActiveTuneMeta(),
+    getEditorText: getEditorValue,
+    isChordProEnabled: () => chordProFeature.isEnabled(),
+  },
+  actions: {
+    applyCurrentTuneText: applyTransformedText,
+    enableDraggableModal,
+    readFile,
+    refreshLibraryFile,
+    requireCleanForFileOp,
+    selectTune,
+    setStatus,
+    showSaveError,
+    showToast,
+    withFileLock,
+    writeFile,
+  },
+});
+
 appCommandsDomain = createAppCommandsDomain({
   api: window.api,
   windowRef: window,
@@ -3408,6 +3482,9 @@ appCommandsDomain = createAppCommandsDomain({
   },
   elements: {
     toggleLibraryButton: $btnToggleLibrary,
+    libraryToolbarMenu: $libraryToolbarMenu,
+    libraryCatalogButton: $btnLibraryCatalog,
+    openFolderAsLibraryButton: $btnOpenFolderAsLibrary,
     libraryRefreshButton: $btnLibraryRefresh,
     scanErrorTunesButton: $scanErrorTunes,
     fileNewButton: $btnFileNew,
@@ -3481,6 +3558,7 @@ appCommandsDomain = createAppCommandsDomain({
     openExternal,
     openFind: editorRuntime.openFind,
     openLibraryCatalog: () => libraryUiDomain.openCatalogFromCurrentIndex(),
+    openLibraryMetadata: () => catalogMetadataFeature.open(),
     openRecentFile,
     openRecentFolder,
     openRecentTune,

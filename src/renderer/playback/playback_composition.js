@@ -295,6 +295,7 @@ export function createPlaybackComposition({
     resetRightPaneSplit: host.resetRightPaneSplit,
     syncPendingPlaybackPlan: domain.syncPendingPlan,
     clearNormalPlaybackPlan: host.clearNormalPlaybackPlan,
+    stopPlaybackForRangeEdit: domain.stopTransport,
     persistLoopSettingsPatch: host.persistLoopSettingsPatch,
     showToast: host.showToast,
   });

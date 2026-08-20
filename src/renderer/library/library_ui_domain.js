@@ -1,5 +1,6 @@
 import { createAppendTuneToActiveFileAction } from "./append_tune_action.js";
 import { createLibraryActions } from "./actions.js";
+import { createCatalogCategoryMergeController } from "./catalog_category_merge_controller.js";
 import { createLibraryContextMenu } from "./context_menu.js";
 import { buildGroupEntries as buildGroupEntriesCore } from "./group_entries.js";
 import { createLibraryShellController } from "./library_shell_controller.js";
@@ -135,11 +136,37 @@ function createLibraryUiDomain({
     return buildGroupEntriesCore(files, mode, { normalizeTitleKey });
   }
 
+  function syncCatalogFacetGroupOptions() {
+    if (!groupBy || !documentRef) return;
+    const index = typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null;
+    const facets = new Set();
+    for (const file of index && Array.isArray(index.files) ? index.files : []) {
+      for (const tune of file.tunes || []) {
+        for (const facet of Object.keys((tune && tune.catalogFacets) || {})) facets.add(facet);
+      }
+    }
+    const existing = new Set(Array.from(groupBy.options || []).map((option) => option.value));
+    for (const option of Array.from(groupBy.querySelectorAll('option[data-catalog-facet="true"]'))) {
+      if (!facets.has(option.value)) option.remove();
+    }
+    for (const facet of Array.from(facets).sort((a, b) => a.localeCompare(b))) {
+      if (existing.has(facet)) continue;
+      const option = documentRef.createElement("option");
+      option.value = facet;
+      option.textContent = `G (${facet})`;
+      option.dataset.catalogFacet = "true";
+      groupBy.appendChild(option);
+    }
+    groupBy.value = uiStateController ? uiStateController.getGroupMode() : groupBy.value;
+  }
+
   function scheduleRenderLibraryTree(files = null) {
+    syncCatalogFacetGroupOptions();
     if (treeView) treeView.schedule(files);
   }
 
   function renderLibraryTree(files = null) {
+    syncCatalogFacetGroupOptions();
     if (treeView) treeView.render(files);
   }
 
@@ -287,6 +314,28 @@ function createLibraryUiDomain({
     showToast: actions.showToast,
   });
 
+  const categoryMergeController = createCatalogCategoryMergeController({
+    documentRef,
+    state: {
+      getLibraryIndex: () => (typeof state.getLibraryIndex === "function" ? state.getLibraryIndex() : null),
+      getActiveTuneMeta: () => (typeof state.getActiveTuneMeta === "function" ? state.getActiveTuneMeta() : null),
+    },
+    actions: {
+      enableDraggableModal: actions.enableDraggableModal,
+      ensureFullLibraryIndex: actions.ensureFullLibraryIndex,
+      readFile: actions.readFile,
+      refreshLibraryFile: actions.refreshLibraryFile,
+      renderLibraryTree,
+      requireCleanForFileOp: actions.requireCleanForFileOp,
+      selectTune: actions.selectTune,
+      setStatus: actions.setStatus,
+      showSaveError: actions.showSaveError,
+      showToast: actions.showToast,
+      withFileLocks: actions.withFileLocks,
+      writeFile: actions.writeFile,
+    },
+  });
+
   treeView = createLibraryTreeView({
     documentRef,
     windowRef,
@@ -316,6 +365,7 @@ function createLibraryUiDomain({
     commitRenameFile: (oldPath, inputName) => renameFileController.commitRenameFile(oldPath, inputName),
     requestLoadLibraryFile: actions.requestLoadLibraryFile,
     moveTuneToFile,
+    mergeCatalogCategory: (source, target) => categoryMergeController.open(source, target),
     showContextMenuAt: actions.showContextMenuAt,
     scheduleSaveLibraryUiState: () => uiStateController.scheduleSaveLibraryUiState(),
     updateFileHeaderPanel: actions.updateFileHeaderPanel,
@@ -366,6 +416,7 @@ function createLibraryUiDomain({
     updateLibraryStatus: actions.updateLibraryStatus,
     refreshLibraryIndex: actions.refreshLibraryIndex,
     beginRenameFile: (filePath) => renameFileController.beginRenameFile(filePath),
+    renameCatalogCategory: (target) => categoryMergeController.open(target),
     openXIssues: (filePath) => xIssuesModalController.open(filePath),
     renumberXInActiveFile: actions.renumberXInActiveFile,
     openMoveTuneModal,

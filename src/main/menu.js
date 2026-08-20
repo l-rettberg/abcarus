@@ -157,7 +157,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
       },
       { label: "Open…", accelerator: "CmdOrCtrl+O", click: () => sendMenuAction("open") },
       {
-        label: "Open Library Folder…",
+        label: "Open Folder as Library…",
         accelerator: "CmdOrCtrl+Shift+O",
         click: () => sendMenuAction("openFolder"),
       },
@@ -356,6 +356,7 @@ function buildMenuTemplate(appState, sendMenuAction) {
         ],
       },
       { type: "separator" },
+      { label: "Library Metadata…", click: () => sendMenuAction("libraryMetadata") },
       { label: "Set List…", click: () => sendMenuAction("setList") },
       {
         label: "Source Links",

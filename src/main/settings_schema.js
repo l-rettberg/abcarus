@@ -844,7 +844,7 @@ function getSettingsSchema() {
     {
       key: "editorFontFamily",
       type: "string",
-      default: "\"ABCarus Noto Sans Mono\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      default: "\"ABCarus DejaVu Sans Mono\", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       section: "Fonts",
       group: "Editor",
       groupOrder: 40,

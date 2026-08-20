@@ -11,25 +11,67 @@ const GROUP_LABELS = {
   source: "S",
   origin: "O",
   group: "G",
+  makam: "Makam",
+  form: "Form",
+  repertoire: "Repertoire",
+  cultural: "Cultural",
+  period: "Period",
 };
 
-function getGroupValue(tune, mode, { normalizeTitleKey = null } = {}) {
-  if (!tune) return "";
-  if (mode === "x") return tune.xNumber || "";
+function getGroupLabel(mode) {
+  if (GROUP_LABELS[mode]) return GROUP_LABELS[mode];
+  const value = String(mode || "").replace(/[_-]+/g, " ").trim();
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "Group";
+}
+
+function getEditableCategory(mode, value, tune, isUnknown) {
+  if (isUnknown) return null;
+  if (mode === "composer") return { categoryType: "field:C", field: "C", value };
+  if (mode === "group" && !/^\[[A-Za-z][A-Za-z0-9_-]*\]\s*\S/.test(value)) {
+    return { categoryType: "field:G", field: "G", value };
+  }
+  if (Object.prototype.hasOwnProperty.call(tune.catalogFacets || {}, mode)) {
+    return { categoryType: `facet:${mode}`, facet: mode, value };
+  }
+  return null;
+}
+
+function getGroupValues(tune, mode, { normalizeTitleKey = null } = {}) {
+  if (!tune) return [];
+  if (mode === "x") return [tune.xNumber || ""];
   if (mode === "titlekey") {
     const normalize = typeof normalizeTitleKey === "function" ? normalizeTitleKey : (value) => String(value || "");
-    return normalize(tune.title || tune.preview || "", 25);
+    return [normalize(tune.title || tune.preview || "", 25)];
   }
-  if (mode === "composer") return tune.composer || "";
-  if (mode === "meter") return tune.meter || "";
-  if (mode === "key") return tune.key || "";
-  if (mode === "unit") return tune.unitLength || "";
-  if (mode === "tempo") return tune.tempo || "";
-  if (mode === "rhythm") return tune.rhythm || "";
-  if (mode === "source") return tune.source || "";
-  if (mode === "origin") return tune.origin || "";
-  if (mode === "group") return tune.group || "";
-  return "";
+  if (mode === "group") {
+    const values = Array.isArray(tune.groups) ? tune.groups : [tune.group || ""];
+    return Array.from(new Set(values.filter(Boolean)));
+  }
+  if (mode === "composer") {
+    const values = Array.isArray(tune.composers) && tune.composers.length
+      ? tune.composers
+      : [tune.composer || ""];
+    return Array.from(new Set(values.filter(Boolean)));
+  }
+  if (Object.prototype.hasOwnProperty.call(tune.catalogFacets || {}, mode)) {
+    const values = tune.catalogFacets[mode];
+    return Array.from(new Set((Array.isArray(values) ? values : [values]).filter(Boolean)));
+  }
+  const fieldByMode = {
+    meter: "meter",
+    key: "key",
+    unit: "unitLength",
+    tempo: "tempo",
+    rhythm: "rhythm",
+    source: "source",
+    origin: "origin",
+  };
+  const field = fieldByMode[mode];
+  return field ? [tune[field] || ""] : [];
+}
+
+function getGroupValue(tune, mode, options = {}) {
+  return getGroupValues(tune, mode, options)[0] || "";
 }
 
 function buildGroupEntries(files, mode, options = {}) {
@@ -49,25 +91,29 @@ function buildGroupEntries(files, mode, options = {}) {
   for (const file of files) {
     const tunes = Array.isArray(file.tunes) ? file.tunes : [];
     for (const tune of tunes) {
-      const value = getGroupValue(tune, mode, options) || "Unknown";
-      const groupId = `${mode}:${value}`;
-      if (!entries.has(groupId)) {
-        entries.set(groupId, {
-          id: groupId,
-          label: `${GROUP_LABELS[mode]}: ${value}`,
-          tunes: [],
-          isFile: false,
-          updatedAtMs: 0,
+      const values = getGroupValues(tune, mode, options).filter(Boolean);
+      for (const value of values.length ? values : ["Unknown"]) {
+        const groupId = `${mode}:${value}`;
+        const category = getEditableCategory(mode, value, tune, !values.length);
+        if (!entries.has(groupId)) {
+          entries.set(groupId, {
+            id: groupId,
+            label: `${getGroupLabel(mode)}: ${value}`,
+            tunes: [],
+            isFile: false,
+            ...(category || {}),
+            updatedAtMs: 0,
+          });
+        }
+        entries.get(groupId).tunes.push({
+          ...tune,
+          __fileUpdatedAtMs: file.updatedAtMs || 0,
+          filePath: file.path || "",
         });
+        const updatedAtMs = file.updatedAtMs || 0;
+        const entry = entries.get(groupId);
+        if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
       }
-      entries.get(groupId).tunes.push({
-        ...tune,
-        __fileUpdatedAtMs: file.updatedAtMs || 0,
-        filePath: file.path || "",
-      });
-      const updatedAtMs = file.updatedAtMs || 0;
-      const entry = entries.get(groupId);
-      if (updatedAtMs > (entry.updatedAtMs || 0)) entry.updatedAtMs = updatedAtMs;
     }
   }
   return Array.from(entries.values());
@@ -76,5 +122,7 @@ function buildGroupEntries(files, mode, options = {}) {
 export {
   GROUP_LABELS,
   buildGroupEntries,
+  getGroupLabel,
   getGroupValue,
+  getGroupValues,
 };

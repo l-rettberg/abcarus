@@ -1,4 +1,5 @@
 const LIBRARY_TUNE_DRAG_MIME = "application/x-abcarus-tune-id";
+const LIBRARY_CATEGORY_DRAG_MIME = "application/x-abcarus-library-category";
 
 function createLibraryTreeView({
   documentRef = typeof document !== "undefined" ? document : null,
@@ -27,6 +28,7 @@ function createLibraryTreeView({
   commitRenameFile = async () => {},
   requestLoadLibraryFile = async () => {},
   moveTuneToFile = async () => {},
+  mergeCatalogCategory = () => false,
   showContextMenuAt = () => {},
   scheduleSaveLibraryUiState = () => {},
   updateFileHeaderPanel = () => {},
@@ -39,6 +41,7 @@ function createLibraryTreeView({
   let renderScheduled = false;
   let pendingRenderFiles = null;
   let dragTuneId = "";
+  let dragCategory = null;
 
   function schedule(files = null) {
     pendingRenderFiles = files;
@@ -79,6 +82,23 @@ function createLibraryTreeView({
     } catch {
       return false;
     }
+  }
+
+  function getDragCategory(ev) {
+    const dt = ev && ev.dataTransfer ? ev.dataTransfer : null;
+    if (dt) {
+      try {
+        const encoded = dt.getData(LIBRARY_CATEGORY_DRAG_MIME);
+        if (encoded) return JSON.parse(encoded);
+      } catch {}
+    }
+    return dragCategory;
+  }
+
+  function isCategoryDrag(ev) {
+    if (dragCategory) return true;
+    const types = ev && ev.dataTransfer ? ev.dataTransfer.types : null;
+    try { return Boolean(types && Array.from(types).includes(LIBRARY_CATEGORY_DRAG_MIME)); } catch { return false; }
   }
 
   function render(files = null) {
@@ -141,6 +161,7 @@ function createLibraryTreeView({
         fileLabel.type = "button";
         fileLabel.className = "tree-label tree-file-label";
         fileLabel.disabled = isPayloadMode();
+        fileLabel.draggable = Boolean(!entry.isFile && entry.categoryType);
         fileLabel.dataset.filePath = entry.id;
         const labelText = documentRef.createElement("span");
         labelText.className = "tree-label-text";
@@ -176,12 +197,30 @@ function createLibraryTreeView({
         fileLabel.addEventListener("focus", () => showHoverStatus(entry.label));
         fileLabel.addEventListener("blur", () => restoreHoverStatus());
         fileLabel.addEventListener("contextmenu", (ev) => {
-          if (!entry.isFile) return;
+          if (!entry.isFile && !entry.categoryType) return;
           ev.preventDefault();
-          showContextMenuAt(ev.clientX, ev.clientY, { type: "file", filePath: entry.id });
+          showContextMenuAt(ev.clientX, ev.clientY, entry.isFile
+            ? { type: "file", filePath: entry.id }
+            : { type: "category", categoryType: entry.categoryType, facet: entry.facet, field: entry.field, value: entry.value, count: getEntryTuneCount(entry) });
         });
+        fileLabel.addEventListener("dragstart", (ev) => {
+          if (entry.isFile || !entry.categoryType || !ev.dataTransfer) return;
+          dragCategory = {
+            categoryType: entry.categoryType,
+            facet: entry.facet,
+            field: entry.field,
+            value: entry.value,
+            count: getEntryTuneCount(entry),
+          };
+          ev.dataTransfer.setData(LIBRARY_CATEGORY_DRAG_MIME, JSON.stringify(dragCategory));
+          ev.dataTransfer.effectAllowed = "move";
+        });
+        fileLabel.addEventListener("dragend", () => { dragCategory = null; });
         fileLabel.addEventListener("dragover", (ev) => {
-          if (!entry.isFile || !isTuneDrag(ev)) return;
+          const categorySource = !entry.isFile && entry.categoryType && isCategoryDrag(ev) ? getDragCategory(ev) : null;
+          const acceptsCategory = Boolean(categorySource && categorySource.categoryType === entry.categoryType && categorySource.value !== entry.value);
+          const acceptsTune = Boolean(entry.isFile && isTuneDrag(ev));
+          if (!acceptsCategory && !acceptsTune) return;
           ev.preventDefault();
           ev.stopPropagation();
           if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
@@ -191,6 +230,22 @@ function createLibraryTreeView({
           fileLabel.classList.remove("drop-target");
         });
         fileLabel.addEventListener("drop", async (ev) => {
+          if (!entry.isFile && entry.categoryType) {
+            const source = getDragCategory(ev);
+            if (!source || source.categoryType !== entry.categoryType || source.value === entry.value) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            fileLabel.classList.remove("drop-target");
+            dragCategory = null;
+            mergeCatalogCategory(source, {
+              categoryType: entry.categoryType,
+              facet: entry.facet,
+              field: entry.field,
+              value: entry.value,
+              count: getEntryTuneCount(entry),
+            });
+            return;
+          }
           if (!entry.isFile) return;
           ev.preventDefault();
           ev.stopPropagation();
